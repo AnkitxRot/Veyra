@@ -1,0 +1,96 @@
+import { promises as fs, constants } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import type { Db } from '../db.js';
+import type { AppConfig } from '../config.js';
+import { IS_WINDOWS } from '../config.js';
+import { ApiError } from '../errors.js';
+
+export interface ProjectRow {
+  id: string;
+  owner_id: number;
+  name: string;
+  language: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function projectDir(cfg: AppConfig, id: string): string {
+  return join(cfg.workspacesDir, id);
+}
+
+export async function workspacePath(cfg: AppConfig, id: string): Promise<string> {
+  const dir = projectDir(cfg, id);
+  try {
+    await fs.access(dir, constants.F_OK);
+  } catch {
+    throw new ApiError(404, 'workspace not found', 'not_found');
+  }
+  return dir;
+}
+
+export function getProject(db: Db, id: string): ProjectRow | null {
+  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined;
+  return row ?? null;
+}
+
+export function requireOwnedProject(db: Db, ownerId: number, id: string): ProjectRow {
+  const row = db.prepare('SELECT * FROM projects WHERE id = ? AND owner_id = ?').get(id, ownerId) as
+    | ProjectRow
+    | undefined;
+  if (!row) throw new ApiError(404, 'project not found', 'not_found');
+  return row;
+}
+
+export function listProjects(db: Db, ownerId: number): ProjectRow[] {
+  return db
+    .prepare('SELECT * FROM projects WHERE owner_id = ? ORDER BY updated_at DESC')
+    .all(ownerId) as unknown as ProjectRow[];
+}
+
+export async function createProject(
+  cfg: AppConfig,
+  db: Db,
+  ownerId: number,
+  opts: { name: string; language?: string },
+): Promise<ProjectRow> {
+  const name = typeof opts.name === 'string' && opts.name.trim() ? opts.name.trim().slice(0, 64) : 'untitled';
+  const id = randomUUID();
+  const dir = projectDir(cfg, id);
+  await fs.mkdir(dir, { recursive: true });
+
+  if (!IS_WINDOWS) {
+    try {
+      await fs.chown(dir, cfg.runUser.uid, cfg.runUser.gid);
+      await fs.chmod(dir, 0o770);
+    } catch {
+      // best-effort: workspace still usable when running as non-root owner
+    }
+  }
+
+  db.prepare('INSERT INTO projects (id, owner_id, name, language) VALUES (?, ?, ?, ?)').run(
+    id,
+    ownerId,
+    name,
+    typeof opts.language === 'string' ? opts.language : 'auto',
+  );
+  const project = getProject(db, id)!;
+  return project;
+}
+
+export async function deleteProject(cfg: AppConfig, db: Db, ownerId: number, id: string): Promise<void> {
+  const project = requireOwnedProject(db, ownerId, id);
+  // Clean up Docker resources before removing the workspace directory
+  try {
+    const { sandboxManager } = await import('../execution/sandbox.js');
+    await sandboxManager.stopProjectSandbox(project.id);
+  } catch {
+    // Best-effort: container may already be gone
+  }
+  await fs.rm(projectDir(cfg, project.id), { recursive: true, force: true });
+  db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+}
+
+export function touchProject(db: Db, id: string): void {
+  db.prepare("UPDATE projects SET updated_at = datetime('now') WHERE id = ?").run(id);
+}

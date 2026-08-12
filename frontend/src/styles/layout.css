@@ -1,0 +1,45 @@
+.ide-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+.ide-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ide-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.ide-editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ide-bottom-panel {
+  height: 300px;
+  min-height: 100px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+.resizer-h {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+}
+.resizer-h:hover { background: var(--accent); }
+.resizer-v {
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.2s;
+}
+.resizer-v:hover { background: var(--accent); }

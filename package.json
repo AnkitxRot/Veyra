@@ -1,0 +1,21 @@
+{
+  "name": "cloud-ide",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @cloud-ide/backend",
+    "start": "npm run start -w @cloud-ide/backend",
+    "test": "npm run test -w @cloud-ide/backend",
+    "setup": "bash scripts/setup.sh",
+    "runner:build": "node scripts/build-runner.js"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.21.5": true,
+    "node-pty@1.1.0": true
+  }
+}

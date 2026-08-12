@@ -1,0 +1,10 @@
+.toolbar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.toolbar-actions { display: flex; gap: 8px; align-items: center; }

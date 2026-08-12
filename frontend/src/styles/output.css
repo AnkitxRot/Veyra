@@ -1,0 +1,24 @@
+.panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.panel-tab {
+  padding: 6px 16px;
+  cursor: pointer;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.panel-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+.panel-content {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  font-family: var(--font-mono);
+}
+.output-log {
+  white-space: pre-wrap;
+  margin: 0;
+}

@@ -1,0 +1,141 @@
+@import "./layout.css";
+@import "./sidebar.css";
+@import "./editor.css";
+@import "./toolbar.css";
+@import "./output.css";
+@import "./terminal.css";
+@import "./auth.css";
+@import "@xterm/xterm/css/xterm.css";
+
+:root {
+  --bg: #1e1e2e;
+  --panel: #181825;
+  --panel-2: #11111b;
+  --fg: #cdd6f4;
+  --muted: #a6adc8;
+  --accent: #89b4fa;
+  --accent-2: #94e2d5;
+  --error: #f38ba8;
+  --success: #a6e3a1;
+  --warning: #f9e2af;
+  --surface: #1e1e2e;
+  --border: #313244;
+  --hover: #45475a;
+  --active: #313244;
+  --font-mono: 'SF Mono', 'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace;
+  --font-sans: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 14px;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.icon-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+button.icon-btn:hover {
+  background: var(--hover);
+  border-color: transparent;
+}
+
+input, select, textarea {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 6px 8px;
+  border-radius: 6px;
+  outline: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+}
+
+.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:hover {
+  color: var(--accent-2);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.error {
+  color: var(--error);
+}
+
+.success {
+  color: var(--success);
+}
+
+.warning {
+  color: var(--warning);
+}

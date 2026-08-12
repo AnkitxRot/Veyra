@@ -1,0 +1,68 @@
+.sidebar {
+  width: 260px;
+  min-width: 200px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+.sidebar-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.projects-section, .explorer-section {
+  display: flex;
+  flex-direction: column;
+}
+.section-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.project-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.project-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.project-item:hover { background: var(--hover); }
+.project-item.active { background: var(--active); color: var(--accent); }
+.file-tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.tree-node {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  cursor: pointer;
+  gap: 6px;
+  white-space: nowrap;
+}
+.tree-node:hover { background: var(--hover); }
+.tree-node.active { background: var(--active); color: var(--accent); }
+.tree-children { padding-left: 12px; }
