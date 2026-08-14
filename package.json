@@ -11,7 +11,9 @@
     "start": "npm run start -w @cloud-ide/backend",
     "test": "npm run test -w @cloud-ide/backend",
     "setup": "bash scripts/setup.sh",
-    "runner:build": "node scripts/build-runner.js"
+    "runner:build": "node scripts/build-runner.js",
+    "deploy:setup": "bash scripts/setup-vps.sh",
+    "deploy:up": "bash scripts/prod-up.sh"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

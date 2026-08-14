@@ -198,29 +198,29 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     }
   });
 
-  router.use('/:id/proxy/:port', (req, res, next) => {
+  router.use('/:id/proxy/:port', async (req, res, next) => {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-      
+
       const port = parseInt(req.params.port, 10);
       if (isNaN(port) || port < 1024 || port > 65535) {
         throw new ApiError(400, 'Invalid port', 'invalid_port');
       }
-      
-      const mappedPort = sandboxManager.getMappedPort(project.id, port);
-      if (!mappedPort) {
+
+      const target = await sandboxManager.getProxyTarget(project.id, port, cfg.containerized);
+      if (!target) {
         throw new ApiError(404, `Port ${port} is not published by the sandbox`, 'not_found');
       }
 
       const pathRewrite = { [`^/api/projects/${req.params.id}/proxy/${port}`]: '' };
-      
+
       const proxy = createProxyMiddleware({
-        target: `http://127.0.0.1:${mappedPort}`,
+        target,
         changeOrigin: true,
         pathRewrite,
         ws: true,
       });
-      
+
       proxy(req as any, res as any, next);
     } catch (err) {
       next(err);

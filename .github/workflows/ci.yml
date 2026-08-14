@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  verify:
+    name: Typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Backend typecheck
+        run: npm run typecheck -w @cloud-ide/backend
+
+      - name: Frontend typecheck + build
+        run: npm run build -w @cloud-ide/frontend
+
+      # The runner image is required for the Docker-dependent backend tests.
+      - name: Build sandbox runner image
+        run: docker build -t cloudeeeide-runner:latest -f docker/Dockerfile.runner .
+
+      - name: Backend tests (includes Docker execution/lifecycle tests)
+        run: npm test -w @cloud-ide/backend
+        env:
+          CI: "true"
+
+      # Gate on the production application image building cleanly.
+      - name: Build application image
+        run: docker build -t cloudeeeide-app:ci -f docker/Dockerfile.app .

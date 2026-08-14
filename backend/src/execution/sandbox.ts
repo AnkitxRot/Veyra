@@ -1,6 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
+import { hostname } from 'node:os';
 import type { AppConfig } from '../config.js';
 import { IS_WINDOWS } from '../config.js';
 import type { Db } from '../db.js';
@@ -63,7 +64,16 @@ export class SandboxManager {
          }
        } catch {}
     }
-    
+
+    // Hard cap on tracked sandboxes. Only applies to projects not already
+    // tracked (recreating an existing project's container does not grow the set).
+    if (!existing && this.projectContainers.size >= config.maxSandboxes) {
+      await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs);
+      if (this.projectContainers.size >= config.maxSandboxes) {
+        throw new Error(`sandbox limit reached (max ${config.maxSandboxes})`);
+      }
+    }
+
     if (!isDockerRunning()) throw new Error('Docker daemon is not running');
     if (!isRunnerImageAvailable()) throw new Error('cloudeeeide-runner:latest is not available');
     
@@ -143,6 +153,49 @@ export class SandboxManager {
   getMappedPort(projectId: string, internalPort: number): number | null {
      const info = this.projectContainers.get(projectId);
      return info?.ports[internalPort] ?? null;
+  }
+
+  private appContainerId: string | undefined;
+  private connectedNetworks = new Set<string>();
+
+  private resolveAppContainerId(): string | undefined {
+    if (this.appContainerId === undefined) {
+      const id = hostname().trim();
+      this.appContainerId = id;
+    }
+    return this.appContainerId || undefined;
+  }
+
+  /** Idempotently attach the backend container to a project's sandbox network. */
+  async connectAppToProjectNetwork(projectId: string): Promise<void> {
+    const appId = this.resolveAppContainerId();
+    if (!appId || this.connectedNetworks.has(projectId)) return;
+    try {
+      await execFileAsync('docker', ['network', 'connect', `ide-net-${projectId}`, appId]);
+      this.connectedNetworks.add(projectId);
+    } catch {
+      // Already connected (or network unavailable); a genuine routing failure
+      // will surface as a proxy error to the client.
+      this.connectedNetworks.add(projectId);
+    }
+  }
+
+  /**
+   * Returns a URL the backend can reach the project's preview server on, or null
+   * if the project has no sandbox publishing that port.
+   *
+   * Non-containerized backends run on the Docker host, so the loopback-published
+   * port is directly reachable. Containerized backends cannot reach host loopback
+   * bindings, so they join the project network and use container-name DNS.
+   */
+  async getProxyTarget(projectId: string, internalPort: number, containerized: boolean): Promise<string | null> {
+    const info = this.projectContainers.get(projectId);
+    if (!info || info.ports[internalPort] === undefined) return null;
+    if (containerized) {
+      await this.connectAppToProjectNetwork(projectId);
+      return `http://${info.containerId}:${internalPort}`;
+    }
+    return `http://127.0.0.1:${info.ports[internalPort]}`;
   }
 
   touch(projectId: string): void {

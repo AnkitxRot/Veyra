@@ -8,7 +8,7 @@ import { handleTerminalConnection } from './terminal.js';
 import { handleExecutionConnection } from './execution.js';
 import { hashToken } from '../auth/middleware.js';
 
-export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): void {
+export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
@@ -70,4 +70,6 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): void 
       socket.destroy();
     }
   });
+
+  return wss;
 }

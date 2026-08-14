@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 export const IS_WINDOWS = process.platform === 'win32';
 
@@ -41,6 +42,11 @@ export interface AppConfig {
   sandboxIdleTimeoutMs: number;
   sandboxReaperIntervalMs: number;
   sessionGcIntervalMs: number;
+  trustProxy: boolean;
+  maxSandboxes: number;
+  shutdownGraceMs: number;
+  frontendDist: string;
+  containerized: boolean;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -114,5 +120,19 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       overrides.sandboxReaperIntervalMs ?? Number(process.env.SANDBOX_REAPER_INTERVAL_MS ?? 60_000),
     sessionGcIntervalMs:
       overrides.sessionGcIntervalMs ?? Number(process.env.SESSION_GC_INTERVAL_MS ?? 3_600_000),
+    trustProxy:
+      overrides.trustProxy ??
+      (process.env.TRUST_PROXY !== undefined
+        ? process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY.toLowerCase() === 'true'
+        : process.env.NODE_ENV === 'production'),
+    maxSandboxes: overrides.maxSandboxes ?? Number(process.env.MAX_SANDBOXES ?? 20),
+    shutdownGraceMs: overrides.shutdownGraceMs ?? Number(process.env.SHUTDOWN_GRACE_MS ?? 10_000),
+    frontendDist:
+      overrides.frontendDist ??
+      process.env.FRONTEND_DIST ??
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'frontend', 'dist'),
+    containerized:
+      overrides.containerized ??
+      (process.env.APP_CONTAINERIZED === '1' || process.env.APP_CONTAINERIZED === 'true'),
   };
 }

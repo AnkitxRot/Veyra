@@ -14,8 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install tsx globally for TypeScript execution
 RUN npm install -g tsx typescript
 
-# Create a non-root user for execution
-RUN useradd -ms /bin/bash ide
+# Non-root execution user. The node base image already reserves uid 1000 for
+# `node`; rename it so the runner matches the backend's workspace ownership.
+RUN usermod -l ide -m -d /home/ide node \
+ && usermod -s /bin/bash ide
 
 USER ide
 WORKDIR /workspace
