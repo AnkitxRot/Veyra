@@ -22,6 +22,7 @@ import {
 import { runProject } from '../execution/pipeline.js';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { sandboxManager, sandboxRun } from '../execution/sandbox.js';
+import { runGate } from '../execution/runGate.js';
 
 export function projectRoutes(cfg: AppConfig, db: Db): Router {
   const router = Router();
@@ -132,9 +133,17 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       if (stdin !== undefined && typeof stdin !== 'string') {
         throw new ApiError(400, 'stdin must be a string', 'invalid_stdin');
       }
-      const cwd = await workspacePath(cfg, project.id);
-      const result = await runProject(cfg, project.id, cwd, { language, stdin });
-      res.json(result);
+      const userId = userOf(req).id;
+      if (!runGate.acquire(userId, cfg.maxConcurrentRuns)) {
+        throw new ApiError(429, 'concurrent execution limit reached', 'too_many_runs');
+      }
+      try {
+        const cwd = await workspacePath(cfg, project.id);
+        const result = await runProject(cfg, project.id, cwd, { language, stdin });
+        res.json(result);
+      } finally {
+        runGate.release(userId);
+      }
     } catch (err) {
       next(err);
     }
@@ -143,34 +152,42 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   router.post('/:id/install', async (req, res, next) => {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-      const workspaceDir = await workspacePath(cfg, project.id);
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.setHeader('Transfer-Encoding', 'chunked');
-      
-      const { language } = project;
-      const installResult = await resolveInstallSpec({ workspaceDir, language });
-
-      if (!installResult.cmd) {
-        res.write(installResult.message + '\n');
-        res.end();
-        return;
+      const userId = userOf(req).id;
+      if (!runGate.acquire(userId, cfg.maxConcurrentRuns)) {
+        throw new ApiError(429, 'concurrent execution limit reached', 'too_many_runs');
       }
+      try {
+        const workspaceDir = await workspacePath(cfg, project.id);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Transfer-Encoding', 'chunked');
 
-      res.write(`Running ${installResult.cmd} ${installResult.args.join(' ')}...\n\n`);
+        const { language } = project;
+        const installResult = await resolveInstallSpec({ workspaceDir, language });
 
-      const result = await sandboxRun(project.id, workspaceDir, {
-        command: installResult.cmd,
-        args: installResult.args,
-        cwd: workspaceDir,
-        timeoutMs: 60000,
-        kind: 'build',
-        config: cfg,
-        onStdout: (data) => res.write(data),
-        onStderr: (data) => res.write(data),
-      });
+        if (!installResult.cmd) {
+          res.write(installResult.message + '\n');
+          res.end();
+          return;
+        }
 
-      res.write(`\nProcess exited with code ${result.exitCode}\n`);
-      res.end();
+        res.write(`Running ${installResult.cmd} ${installResult.args.join(' ')}...\n\n`);
+
+        const result = await sandboxRun(project.id, workspaceDir, {
+          command: installResult.cmd,
+          args: installResult.args,
+          cwd: workspaceDir,
+          timeoutMs: 60000,
+          kind: 'build',
+          config: cfg,
+          onStdout: (data) => res.write(data),
+          onStderr: (data) => res.write(data),
+        });
+
+        res.write(`\nProcess exited with code ${result.exitCode}\n`);
+        res.end();
+      } finally {
+        runGate.release(userId);
+      }
     } catch (err) {
       if (!res.headersSent) {
         next(err);

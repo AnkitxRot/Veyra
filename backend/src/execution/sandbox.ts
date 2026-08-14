@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { AppConfig } from '../config.js';
 import { IS_WINDOWS } from '../config.js';
+import type { Db } from '../db.js';
 import { isDockerRunning, isRunnerImageAvailable } from '../tools.js';
 
 const execFileAsync = promisify(execFile);
@@ -43,7 +44,8 @@ export function initCgroupRoot(cgroupRoot: string): void {
 
 export class SandboxManager {
   private static instance: SandboxManager;
-  private projectContainers = new Map<string, { containerId: string, ports: Record<number, number> }>();
+  private projectContainers = new Map<string, { containerId: string, ports: Record<number, number>, lastUsed: number }>();
+  private reaperTimer: NodeJS.Timeout | null = null;
   
   static getInstance(): SandboxManager {
     if (!this.instance) this.instance = new SandboxManager();
@@ -55,7 +57,10 @@ export class SandboxManager {
     if (existing) {
        try {
          const { stdout } = await execFileAsync('docker', ['inspect', '-f', '{{.State.Running}}', existing.containerId]);
-         if (stdout.trim() === 'true') return existing.containerId;
+         if (stdout.trim() === 'true') {
+           existing.lastUsed = Date.now();
+           return existing.containerId;
+         }
        } catch {}
     }
     
@@ -106,7 +111,7 @@ export class SandboxManager {
       }
     }
     
-    this.projectContainers.set(projectId, { containerId, ports: portMapping });
+    this.projectContainers.set(projectId, { containerId, ports: portMapping, lastUsed: Date.now() });
     return containerId;
   }
   
@@ -139,6 +144,120 @@ export class SandboxManager {
      const info = this.projectContainers.get(projectId);
      return info?.ports[internalPort] ?? null;
   }
+
+  touch(projectId: string): void {
+    const info = this.projectContainers.get(projectId);
+    if (info) info.lastUsed = Date.now();
+  }
+
+  /** Stops containers that have not been used within the idle timeout. */
+  async reapIdleSandboxes(idleTimeoutMs: number): Promise<string[]> {
+    const now = Date.now();
+    const reaped: string[] = [];
+    for (const [projectId, info] of [...this.projectContainers.entries()]) {
+      if (now - info.lastUsed >= idleTimeoutMs) {
+        await this.stopProjectSandbox(projectId);
+        reaped.push(projectId);
+      }
+    }
+    return reaped;
+  }
+
+  startReaper(config: AppConfig): void {
+    this.stopReaper();
+    this.reaperTimer = setInterval(() => {
+      this.reapIdleSandboxes(config.sandboxIdleTimeoutMs).catch((err) => {
+        console.error('[sandbox] reaper error:', err);
+      });
+    }, config.sandboxReaperIntervalMs);
+    this.reaperTimer.unref();
+  }
+
+  stopReaper(): void {
+    if (this.reaperTimer) {
+      clearInterval(this.reaperTimer);
+      this.reaperTimer = null;
+    }
+  }
+
+  private async readPortMapping(containerId: string): Promise<Record<number, number>> {
+    // Retry once: right after container start the daemon can transiently
+    // return no bindings or fail the CLI call under load.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const mapping: Record<number, number> = {};
+      try {
+        const { stdout } = await execFileAsync('docker', ['port', containerId]);
+        for (const line of stdout.split('\n')) {
+          const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
+          if (match) mapping[parseInt(match[1], 10)] = parseInt(match[2], 10);
+        }
+        if (Object.keys(mapping).length > 0) return mapping;
+      } catch {}
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 250));
+    }
+    return {};
+  }
+
+  private async dockerListing(args: string[]): Promise<string | null> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await execFileAsync('docker', args);
+        return res.stdout;
+      } catch {
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Startup reconciliation against the Docker daemon:
+   * - containers whose project no longer exists are removed (with their network)
+   * - running containers of existing projects are re-registered so preview
+   *   port mappings survive a backend restart
+   */
+  async reconcile(config: AppConfig, db: Db): Promise<void> {
+    if (!isDockerRunning()) return;
+
+    let listing = '';
+    const psOut = await this.dockerListing([
+      'ps', '-a', '-f', 'label=cloudeeeide.managed=true', '--format', '{{.Names}}\t{{.State}}',
+    ]);
+    if (psOut === null) return;
+    listing = psOut;
+
+    const projectExists = (projectId: string): boolean => {
+      const row = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+      return row !== undefined;
+    };
+
+    for (const line of listing.split('\n')) {
+      const [name, state] = line.split('\t');
+      if (!name || !name.startsWith('ide-sandbox-')) continue;
+      const projectId = name.slice('ide-sandbox-'.length);
+
+      if (!projectExists(projectId)) {
+        await this.stopProjectSandbox(projectId);
+        continue;
+      }
+      if (state?.trim().toLowerCase() === 'running') {
+        const ports = await this.readPortMapping(name);
+        this.projectContainers.set(projectId, { containerId: name, ports, lastUsed: Date.now() });
+      }
+    }
+
+    // Networks of deleted projects
+    const netOut = await this.dockerListing(['network', 'ls', '--format', '{{.Name}}', '-f', 'name=ide-net-']);
+    if (netOut !== null) {
+      for (const netName of netOut.split('\n')) {
+        if (!netName.startsWith('ide-net-')) continue;
+        const projectId = netName.slice('ide-net-'.length);
+        if (!projectExists(projectId) && !this.projectContainers.has(projectId)) {
+          try { await execFileAsync('docker', ['network', 'rm', netName]); } catch {}
+        }
+      }
+    }
+  }
 }
 
 export const sandboxManager = SandboxManager.getInstance();
@@ -157,6 +276,7 @@ export async function sandboxRun(projectId: string, workspaceDir: string, opts: 
   let containerId: string;
   try {
     containerId = await sandboxManager.ensureProjectSandbox(projectId, opts.config, workspaceDir);
+    sandboxManager.touch(projectId);
   } catch (err: any) {
     return {
       stdout: '',

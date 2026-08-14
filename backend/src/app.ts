@@ -2,7 +2,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import type { AppConfig } from './config.js';
 import { IS_WINDOWS } from './config.js';
-import { openDb } from './db.js';
+import { openDb, type Db } from './db.js';
 import { errorMiddleware, ApiError } from './errors.js';
 import { authRoutes } from './auth/routes.js';
 import { requireAuth } from './auth/middleware.js';
@@ -18,9 +18,9 @@ export function initDirectories(cfg: AppConfig): void {
   }
 }
 
-export function createApp(cfg: AppConfig): express.Express {
+export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   initDirectories(cfg);
-  const db = openDb(cfg.dbPath);
+  const db = existingDb ?? openDb(cfg.dbPath);
   const app = express();
   app.disable('x-powered-by');
   app.use(cookieParser());
@@ -34,7 +34,7 @@ export function createApp(cfg: AppConfig): express.Express {
     res.json(getSystemCapabilities());
   });
 
-  app.use('/api/auth', authRoutes(db, cfg.sessionTtlMs));
+  app.use('/api/auth', authRoutes(db, cfg));
   app.use('/api/projects', requireAuth(db), projectRoutes(cfg, db));
 
   app.use((_req, _res, next) => next(new ApiError(404, 'not found', 'not_found')));

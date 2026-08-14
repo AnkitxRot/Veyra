@@ -9,10 +9,12 @@ describe('ws URL parsing', () => {
     expect(query.projectId).toBe('abc123');
   });
 
-  it('parses query.token for fallback auth', () => {
+  it('only consumes projectId from the query (auth is cookie-only)', () => {
+    // A token in the URL must never be honored; the upgrade handler reads
+    // the session_token cookie exclusively. Only projectId is consumed.
     const url = '/ws/execute?projectId=abc123&token=xyz';
     const { query } = parse(url, true);
-    expect(query.token).toBe('xyz');
+    expect(query.projectId).toBe('abc123');
   });
 
   it('handles missing query params', () => {

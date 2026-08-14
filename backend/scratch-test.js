@@ -47,9 +47,9 @@ print(f"You entered: {user_in}")
     await request('POST', `/api/projects/${projectId}/file`, { path: 'test.py', content: pyCode }, token);
     console.log('Wrote test.py');
 
-    // 3. Connect to WS
-    const wsUrl = `ws://localhost:3000/ws/execute?projectId=${projectId}&token=${token}`;
-    const ws = new WebSocket(wsUrl);
+    // 3. Connect to WS (cookie auth — query-token auth was removed)
+    const wsUrl = `ws://localhost:3000/ws/execute?projectId=${projectId}`;
+    const ws = new WebSocket(wsUrl, { headers: { Cookie: `session_token=${token}` } });
 
     let messages = [];
     ws.on('open', () => {

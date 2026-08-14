@@ -14,14 +14,11 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): void 
   server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
     const { pathname, query } = parse(req.url || '', true);
     
-    // Auth validation — prefer cookie, fall back to query param (e.g. scratch-test.js)
+    // Auth validation — session cookie only (never accept tokens in the URL)
     let token = '';
     if (req.headers.cookie) {
       const match = req.headers.cookie.match(/(?:^|;\s*)session_token=([^;]+)/);
       if (match) token = match[1];
-    }
-    if (!token && typeof query.token === 'string') {
-      token = query.token;
     }
     
     const projectId = query.projectId as string;
@@ -63,7 +60,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): void 
       });
     } else if (pathname === '/ws/execute') {
       wss.handleUpgrade(req, socket, head, (ws) => {
-        handleExecutionConnection(ws, projectId, cfg).catch(err => {
+        handleExecutionConnection(ws, projectId, row.id, cfg).catch(err => {
           console.error('[ws] execution connection error:', err);
           ws.close();
         });

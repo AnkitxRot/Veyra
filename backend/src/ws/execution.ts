@@ -3,8 +3,9 @@ import type { AppConfig } from '../config.js';
 import { runProject } from '../execution/pipeline.js';
 import { workspacePath } from '../projects/service.js';
 import type { SandboxController } from '../execution/sandbox.js';
+import { runGate } from '../execution/runGate.js';
 
-export async function handleExecutionConnection(ws: WebSocket, projectId: string, cfg: AppConfig): Promise<void> {
+export async function handleExecutionConnection(ws: WebSocket, projectId: string, userId: number, cfg: AppConfig): Promise<void> {
   let cwd: string;
   try {
     cwd = await workspacePath(cfg, projectId);
@@ -26,6 +27,10 @@ export async function handleExecutionConnection(ws: WebSocket, projectId: string
       if (parsed.type === 'start') {
         if (running) {
           ws.send(JSON.stringify({ type: 'error', data: 'Execution already running' }));
+          return;
+        }
+        if (!runGate.acquire(userId, cfg.maxConcurrentRuns)) {
+          ws.send(JSON.stringify({ type: 'error', data: 'Concurrent execution limit reached' }));
           return;
         }
         running = true;
@@ -61,6 +66,7 @@ export async function handleExecutionConnection(ws: WebSocket, projectId: string
         } finally {
           running = false;
           controller = null;
+          runGate.release(userId);
         }
       } else if (parsed.type === 'stdin') {
         if (controller) {

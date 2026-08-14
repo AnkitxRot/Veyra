@@ -55,6 +55,12 @@ export async function createProject(
   opts: { name: string; language?: string },
 ): Promise<ProjectRow> {
   const name = typeof opts.name === 'string' && opts.name.trim() ? opts.name.trim().slice(0, 64) : 'untitled';
+  const { count } = db
+    .prepare('SELECT COUNT(*) AS count FROM projects WHERE owner_id = ?')
+    .get(ownerId) as { count: number };
+  if (count >= cfg.projectQuota) {
+    throw new ApiError(403, `project quota reached (max ${cfg.projectQuota})`, 'quota_exceeded');
+  }
   const id = randomUUID();
   const dir = projectDir(cfg, id);
   await fs.mkdir(dir, { recursive: true });

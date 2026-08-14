@@ -2,6 +2,7 @@ import { chmodSync, chownSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveConfig, IS_WINDOWS, type AppConfig, type ConfigOverrides } from '../src/config';
+import type { Db } from '../src/db';
 
 export function makeTestConfig(overrides: ConfigOverrides = {}): AppConfig {
   const dataDir = mkdtempSync(join(tmpdir(), 'cloudide-test-'));
@@ -33,6 +34,7 @@ export function makeWorkspace(cfg: AppConfig): string {
 
 export interface TestApi {
   base: string;
+  db: Db;
   request: (method: string, path: string, opts?: { token?: string; body?: unknown }) => Promise<{
     status: number;
     data: any;
@@ -41,10 +43,12 @@ export interface TestApi {
   close: () => Promise<void>;
 }
 
-export async function startTestApi(cfg: AppConfig): Promise<TestApi> {
+export async function startTestApi(cfg: AppConfig, existingDb?: Db): Promise<TestApi> {
   const { createApp } = await import('../src/app.js');
   const { createServer } = await import('node:http');
-  const app = createApp(cfg);
+  const { openDb } = await import('../src/db.js');
+  const db = existingDb ?? openDb(cfg.dbPath);
+  const app = createApp(cfg, db);
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -52,6 +56,7 @@ export async function startTestApi(cfg: AppConfig): Promise<TestApi> {
   const base = `http://127.0.0.1:${port}`;
   return {
     base,
+    db,
     request: async (method, path, opts = {}) => {
       const headers: Record<string, string> = {};
       if (opts.token) headers.Authorization = `Bearer ${opts.token}`;

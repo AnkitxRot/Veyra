@@ -20,6 +20,14 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** Removes expired sessions; returns the number deleted. */
+export function deleteExpiredSessions(db: Db): number {
+  const info = db
+    .prepare('DELETE FROM sessions WHERE expires_at < ?')
+    .run(new Date().toISOString());
+  return Number(info.changes);
+}
+
 export function requireAuth(db: Db) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const header = req.headers.authorization ?? '';

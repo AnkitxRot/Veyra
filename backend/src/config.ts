@@ -34,6 +34,13 @@ export interface AppConfig {
   buildTimeoutMs: number;
   limits: Limits;
   workspacesDir: string;
+  authRateLimit: { max: number; windowMs: number };
+  minPasswordLength: number;
+  projectQuota: number;
+  maxConcurrentRuns: number;
+  sandboxIdleTimeoutMs: number;
+  sandboxReaperIntervalMs: number;
+  sessionGcIntervalMs: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -94,5 +101,18 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     buildTimeoutMs: overrides.buildTimeoutMs ?? 60_000,
     limits: overrides.limits ?? DEFAULT_LIMITS,
     workspacesDir: join(dataDir, 'workspaces'),
+    authRateLimit: overrides.authRateLimit ?? {
+      max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 20),
+      windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS ?? 60_000),
+    },
+    minPasswordLength: overrides.minPasswordLength ?? Number(process.env.MIN_PASSWORD_LENGTH ?? 8),
+    projectQuota: overrides.projectQuota ?? Number(process.env.PROJECT_QUOTA ?? 20),
+    maxConcurrentRuns: overrides.maxConcurrentRuns ?? Number(process.env.MAX_CONCURRENT_RUNS ?? 3),
+    sandboxIdleTimeoutMs:
+      overrides.sandboxIdleTimeoutMs ?? Number(process.env.SANDBOX_IDLE_TIMEOUT_MS ?? 30 * 60_000),
+    sandboxReaperIntervalMs:
+      overrides.sandboxReaperIntervalMs ?? Number(process.env.SANDBOX_REAPER_INTERVAL_MS ?? 60_000),
+    sessionGcIntervalMs:
+      overrides.sessionGcIntervalMs ?? Number(process.env.SESSION_GC_INTERVAL_MS ?? 3_600_000),
   };
 }
