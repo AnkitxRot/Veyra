@@ -1,15 +1,20 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runProject } from '../src/execution/pipeline.js';
 import { DEFAULT_LIMITS, IS_WINDOWS } from '../src/config.js';
 import { isDockerRunning } from '../src/tools.js';
+import { sandboxManager } from '../src/execution/sandbox.js';
 import { makeTestConfig, makeWorkspace } from './helpers.js';
 
 const cfg = makeTestConfig();
 
 describe.skipIf(!isDockerRunning())('sandbox', () => {
+  afterAll(async () => {
+    await sandboxManager.cleanupAllSandboxes();
+  });
+
   it('terminates an infinite loop via the wall-clock timeout', async () => {
     const cfg = makeTestConfig({
       runTimeoutMs: 3000,

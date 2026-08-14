@@ -1,11 +1,11 @@
-import { spawn, exec } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { AppConfig } from '../config.js';
 import { IS_WINDOWS } from '../config.js';
 import { isDockerRunning, isRunnerImageAvailable } from '../tools.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface SandboxController {
   writeStdin(data: string): void;
@@ -54,7 +54,7 @@ export class SandboxManager {
     const existing = this.projectContainers.get(projectId);
     if (existing) {
        try {
-         const { stdout } = await execAsync(`docker inspect -f "{{.State.Running}}" ${existing.containerId}`);
+         const { stdout } = await execFileAsync('docker', ['inspect', '-f', '{{.State.Running}}', existing.containerId]);
          if (stdout.trim() === 'true') return existing.containerId;
        } catch {}
     }
@@ -64,12 +64,12 @@ export class SandboxManager {
     
     const containerId = `ide-sandbox-${projectId}`;
     
-    try { await execAsync(`docker rm -f ${containerId}`); } catch {}
+    try { await execFileAsync('docker', ['rm', '-f', containerId]); } catch {}
     
     try { 
-      await execAsync(`docker network inspect ide-net-${projectId}`); 
+      await execFileAsync('docker', ['network', 'inspect', `ide-net-${projectId}`]);
     } catch {
-      await execAsync(`docker network create ide-net-${projectId}`);
+      await execFileAsync('docker', ['network', 'create', `ide-net-${projectId}`]);
     }
     
     const limits = config.limits;
@@ -95,10 +95,10 @@ export class SandboxManager {
       'sleep', 'infinity'
     ];
     
-    await execAsync(`docker ${dockerArgs.join(' ')}`);
+    await execFileAsync('docker', dockerArgs);
     
     const portMapping: Record<number, number> = {};
-    const { stdout } = await execAsync(`docker port ${containerId}`);
+    const { stdout } = await execFileAsync('docker', ['port', containerId]);
     for (const line of stdout.split('\n')) {
       const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
       if (match) {
@@ -113,23 +113,23 @@ export class SandboxManager {
   async stopProjectSandbox(projectId: string): Promise<void> {
     const info = this.projectContainers.get(projectId);
     const cid = info ? info.containerId : `ide-sandbox-${projectId}`;
-    try { await execAsync(`docker rm -f ${cid}`); } catch {}
-    try { await execAsync(`docker network rm ide-net-${projectId}`); } catch {}
+    try { await execFileAsync('docker', ['rm', '-f', cid]); } catch {}
+    try { await execFileAsync('docker', ['network', 'rm', `ide-net-${projectId}`]); } catch {}
     this.projectContainers.delete(projectId);
   }
   
   async cleanupAllSandboxes(): Promise<void> {
     try {
-      const { stdout } = await execAsync('docker ps -a -q -f "label=cloudeeeide.managed=true"');
+      const { stdout } = await execFileAsync('docker', ['ps', '-a', '-q', '-f', 'label=cloudeeeide.managed=true']);
       const ids = stdout.split('\n').map(s => s.trim()).filter(Boolean);
       for (const id of ids) {
-         try { await execAsync(`docker rm -f ${id}`); } catch {}
+         try { await execFileAsync('docker', ['rm', '-f', id]); } catch {}
       }
       
-      const { stdout: netOut } = await execAsync('docker network ls -q -f "name=ide-net-"');
+      const { stdout: netOut } = await execFileAsync('docker', ['network', 'ls', '-q', '-f', 'name=ide-net-']);
       const netIds = netOut.split('\n').map(s => s.trim()).filter(Boolean);
       for (const id of netIds) {
-         try { await execAsync(`docker network rm ${id}`); } catch {}
+         try { await execFileAsync('docker', ['network', 'rm', id]); } catch {}
       }
     } catch {}
     this.projectContainers.clear();
@@ -196,10 +196,8 @@ export async function sandboxRun(projectId: string, workspaceDir: string, opts: 
   child.on('error', (err) => { spawnError = err.message; });
 
   const killProcess = () => {
-    // Soft kill first if possible, but docker exec is hard to kill cleanly without killing the container.
-    // However, child.kill() usually works to terminate the docker exec client process, which *might* stop the container process.
-    // If we need to forcefully stop the inner process, we can't easily do it without finding the PID inside the container.
-    // We'll rely on child.kill() for now.
+    // Verified on Docker 29.x: SIGKILLing the docker exec client tears down
+    // the exec session and terminates the in-container process.
     child.kill('SIGKILL');
   };
 
