@@ -162,7 +162,7 @@ export class DeterministicEngineeringProvider implements AIProvider {
         if (lang === 'python' || ctx.activeFilePath.endsWith('.py')) {
           testPath = ctx.activeFilePath.replace(/\.py$/, '_test.py');
           tests = `import pytest
-from ${ctx.activeFilePath.replace(/\.py$/, '').replace(/[\/\\]/g, '.')} import *
+from ${ctx.activeFilePath.replace(/\.py$/, '').replace(/[/\\]/g, '.')} import *
 
 def test_basic_execution():
     """Verify normal valid inputs execute correctly"""

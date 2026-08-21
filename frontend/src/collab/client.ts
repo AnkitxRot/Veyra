@@ -39,7 +39,7 @@ export class CollaborationClient {
   private ws: WebSocket | null = null;
   private currentBinding: MonacoBinding | null = null;
   private activeFilePath: string | null = null;
-  private readonly listeners: Map<string, Set<Function>> = new Map();
+  private readonly listeners: Map<string, Set<(...args: any[]) => void>> = new Map();
   private reconnectAttempts = 0;
   private reconnectTimer: any = null;
   private isDisposed = false;
@@ -262,7 +262,7 @@ export class CollaborationClient {
     }, delay);
   }
 
-  public on(event: string, handler: Function): () => void {
+  public on(event: string, handler: (...args: any[]) => void): () => void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }

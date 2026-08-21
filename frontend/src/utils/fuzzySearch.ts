@@ -34,7 +34,7 @@ export function scoreFuzzyMatch(target: string, query: string): { score: number;
   // 3. Exact Substring Match
   const subIdx = targetLower.indexOf(queryLower);
   if (subIdx !== -1) {
-    const isWordBoundary = subIdx === 0 || /[\s/._\-]/.test(target[subIdx - 1]);
+    const isWordBoundary = subIdx === 0 || /[\s/._-]/.test(target[subIdx - 1]);
     const score = (isWordBoundary ? 900 : 700) + (query.length / target.length) * 100 - subIdx;
     return {
       score,
@@ -66,7 +66,7 @@ export function scoreFuzzyMatch(target: string, query: string): { score: number;
       // Bonus: Word boundary match (after space, slash, dot, underscore, dash, or camelCase)
       if (
         targetIdx === 0 ||
-        /[\s/._\-]/.test(target[targetIdx - 1]) ||
+        /[\s/._-]/.test(target[targetIdx - 1]) ||
         (target[targetIdx] === target[targetIdx].toUpperCase() &&
           target[targetIdx - 1] === target[targetIdx - 1].toLowerCase())
       ) {
