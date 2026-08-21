@@ -84,7 +84,7 @@
 *.obj
 *.exe
 *.out
-*.app
+**/*.app/
 *.dll
 *.dylib
 *.so

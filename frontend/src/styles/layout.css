@@ -1,45 +1,127 @@
+/* ==========================================================================
+   CloudeeeIDE App Shell & Spatial Layout
+   ========================================================================== */
+
 .ide-layout {
   display: flex;
   height: 100vh;
   width: 100vw;
+  background: var(--bg-deep);
+  background-image: radial-gradient(circle at 15% 15%, rgba(137, 180, 250, 0.04) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(148, 226, 213, 0.03) 0%, transparent 40%);
+  color: var(--fg-primary);
+  font-family: var(--font-sans);
   overflow: hidden;
+  position: relative;
 }
+
 .ide-main {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-base);
 }
+
 .ide-workspace {
   display: flex;
   flex: 1;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
+
 .ide-editor-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
 }
+
+/* Bottom Workspace Panel (Output, Terminal, Preview) */
 .ide-bottom-panel {
-  height: 300px;
-  min-height: 100px;
-  border-top: 1px solid var(--border);
-  background: var(--panel);
+  position: relative;
   display: flex;
   flex-direction: column;
+  background: var(--glass-surface-1);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border-top: 1px solid var(--glass-border);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+  z-index: 10;
+  transition: height var(--duration-fast) var(--spring-fast);
 }
+
+/* Interactive Resizers */
 .resizer-h {
-  width: 4px;
+  width: 5px;
   cursor: col-resize;
   background: transparent;
-  transition: background 0.2s;
+  position: relative;
+  z-index: 20;
+  transition: background var(--duration-fast) ease;
 }
-.resizer-h:hover { background: var(--accent); }
+
+.resizer-h:hover,
+.resizer-h.dragging {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
 .resizer-v {
-  height: 4px;
+  height: 5px;
   cursor: row-resize;
   background: transparent;
-  transition: background 0.2s;
+  position: relative;
+  z-index: 20;
+  margin-top: -2px;
+  transition: background var(--duration-fast) ease;
 }
-.resizer-v:hover { background: var(--accent); }
+
+.resizer-v:hover,
+.resizer-v.dragging {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Status Bar */
+.ide-statusbar {
+  height: 26px;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-3);
+  background: var(--glass-surface-1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--glass-border);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  user-select: none;
+  z-index: 30;
+}
+
+.ide-statusbar-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ide-statusbar-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: default;
+  transition: color var(--duration-fast) ease;
+}
+
+.ide-statusbar-item:hover {
+  color: var(--fg-primary);
+}

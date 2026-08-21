@@ -44,6 +44,82 @@ describe('auth rate limiting', () => {
     expect(second.status).toBe(429);
     expect(second.data.error.code).toBe('rate_limited');
   });
+
+  it('rejects X-Forwarded-For spoofing when trustProxy is disabled (default)', async () => {
+    const { api } = await boot({
+      trustProxy: false,
+      authRateLimit: { max: 2, windowMs: 60_000 },
+    });
+
+    // Attacker sends different spoofed X-Forwarded-For headers on each request
+    const r1 = await api.request('POST', '/api/auth/login', {
+      body: { username: 'nobody', password: 'wrongpass1' },
+      headers: { 'X-Forwarded-For': '198.51.100.1' },
+    });
+    const r2 = await api.request('POST', '/api/auth/login', {
+      body: { username: 'nobody', password: 'wrongpass2' },
+      headers: { 'X-Forwarded-For': '198.51.100.2' },
+    });
+    const r3 = await api.request('POST', '/api/auth/login', {
+      body: { username: 'nobody', password: 'wrongpass3' },
+      headers: { 'X-Forwarded-For': '198.51.100.3' },
+    });
+
+    expect(r1.status).toBe(401);
+    expect(r2.status).toBe(401);
+    // 3rd attempt is rate limited because trustProxy=false keys on real socket IP
+    expect(r3.status).toBe(429);
+    expect(r3.data.error.code).toBe('rate_limited');
+  });
+
+  it('honors X-Forwarded-For when trustProxy is explicitly enabled', async () => {
+    const { api } = await boot({
+      trustProxy: true,
+      authRateLimit: { max: 2, windowMs: 60_000 },
+    });
+
+    // Behind trusted proxy, distinct client IPs get distinct buckets
+    const r1 = await api.request('POST', '/api/auth/login', {
+      body: { username: 'nobody', password: 'wrongpass1' },
+      headers: { 'X-Forwarded-For': '203.0.113.10' },
+    });
+    const r2 = await api.request('POST', '/api/auth/login', {
+      body: { username: 'nobody', password: 'wrongpass2' },
+      headers: { 'X-Forwarded-For': '203.0.113.20' },
+    });
+    const r3 = await api.request('POST', '/api/auth/login', {
+      body: { username: 'nobody', password: 'wrongpass3' },
+      headers: { 'X-Forwarded-For': '203.0.113.30' },
+    });
+
+    expect(r1.status).toBe(401);
+    expect(r2.status).toBe(401);
+    expect(r3.status).toBe(401);
+  });
+});
+
+describe('session cookie security flags', () => {
+  it('sets Secure cookie attribute when cookieSecure is true', async () => {
+    const { api } = await boot({ cookieSecure: true });
+    const r = await api.request('POST', '/api/auth/register', {
+      body: { username: 'secure_cookie_user', password: 'password123' },
+    });
+    expect(r.status).toBe(201);
+    const setCookie = r.headers.get('set-cookie') ?? '';
+    expect(setCookie.toLowerCase()).toContain('secure');
+    expect(setCookie.toLowerCase()).toContain('httponly');
+  });
+
+  it('omits Secure cookie attribute when cookieSecure is false (dev mode)', async () => {
+    const { api } = await boot({ cookieSecure: false });
+    const r = await api.request('POST', '/api/auth/register', {
+      body: { username: 'insecure_cookie_user', password: 'password123' },
+    });
+    expect(r.status).toBe(201);
+    const setCookie = r.headers.get('set-cookie') ?? '';
+    expect(setCookie.toLowerCase()).not.toContain('secure');
+    expect(setCookie.toLowerCase()).toContain('httponly');
+  });
 });
 
 describe('password policy', () => {

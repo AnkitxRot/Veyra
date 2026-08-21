@@ -1,0 +1,141 @@
+/* ==========================================================================
+   CloudeeeIDE Liquid Glass Design Tokens
+   Apple-inspired materials, fluid physics, optical typography, and elevation.
+   ========================================================================== */
+
+:root {
+  /* Core Color Palette */
+  --bg-deep: #090b10;
+  --bg-base: #0f121a;
+  --bg-surface: #151a26;
+  --bg-surface-elevated: #1d2333;
+  --bg-surface-hover: #262e42;
+  
+  /* Liquid Glass Materials */
+  --glass-surface-1: rgba(15, 18, 26, 0.72);
+  --glass-surface-2: rgba(21, 26, 38, 0.68);
+  --glass-surface-3: rgba(29, 35, 51, 0.82);
+  --glass-surface-floating: rgba(35, 42, 62, 0.92);
+  --glass-surface-modal: rgba(21, 26, 38, 0.95);
+  
+  /* Specular Highlights & Borders */
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-light: rgba(255, 255, 255, 0.14);
+  --glass-border-focus: rgba(137, 180, 250, 0.5);
+  --glass-specular: rgba(255, 255, 255, 0.18);
+  --glass-specular-sharp: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  --glass-inner-shadow: inset 0 0 16px rgba(0, 0, 0, 0.2);
+  
+  /* Blur Radii */
+  --blur-xs: blur(8px);
+  --blur-sm: blur(16px);
+  --blur-md: blur(24px);
+  --blur-lg: blur(36px);
+  --glass-filter: blur(20px) saturate(180%);
+  --glass-filter-floating: blur(30px) saturate(190%);
+  
+  /* Accent & Semantic Colors */
+  --accent: #89b4fa;
+  --accent-hover: #b4befe;
+  --accent-subtle: rgba(137, 180, 250, 0.14);
+  --accent-glow: rgba(137, 180, 250, 0.28);
+  --accent-gradient: linear-gradient(135deg, #89b4fa 0%, #74c7ec 100%);
+  
+  --secondary: #94e2d5;
+  --secondary-subtle: rgba(148, 226, 213, 0.12);
+  
+  --success: #a6e3a1;
+  --success-subtle: rgba(166, 227, 161, 0.14);
+  --success-glow: rgba(166, 227, 161, 0.25);
+  
+  --warning: #f9e2af;
+  --warning-subtle: rgba(249, 226, 175, 0.14);
+  
+  --error: #f38ba8;
+  --error-hover: #eba0ac;
+  --error-subtle: rgba(243, 139, 168, 0.14);
+  --error-glow: rgba(243, 139, 168, 0.25);
+  
+  /* Text & Foreground */
+  --fg-primary: #f5f7ff;
+  --fg-secondary: #cdd6f4;
+  --fg-muted: #8992b0;
+  --fg-subtle: #585e79;
+  --fg-inverse: #0b0d13;
+  
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --shadow-glow: 0 0 20px rgba(137, 180, 250, 0.2);
+  
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 9999px;
+  
+  /* Spacing Scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+  
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  
+  /* Transitions & Springs */
+  --spring-fast: cubic-bezier(0.16, 1, 0.3, 1);
+  --spring-smooth: cubic-bezier(0.25, 1, 0.5, 1);
+  --spring-bounce: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 240ms;
+  --duration-slow: 360ms;
+}
+
+/* Reduced Motion Preferences */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+    --spring-fast: linear;
+    --spring-smooth: linear;
+    --spring-bounce: linear;
+  }
+  
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Reduced Transparency Preferences */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-surface-1: #12151e;
+    --glass-surface-2: #181d29;
+    --glass-surface-3: #202737;
+    --glass-surface-floating: #252c3e;
+    --glass-surface-modal: #151a26;
+    --glass-filter: none;
+    --glass-filter-floating: none;
+  }
+}

@@ -26,6 +26,7 @@ export interface RunUser {
 
 export interface AppConfig {
   port: number;
+  adminUsername: string;
   dataDir: string;
   dbPath: string;
   cgroupRoot: string;
@@ -43,10 +44,14 @@ export interface AppConfig {
   sandboxReaperIntervalMs: number;
   sessionGcIntervalMs: number;
   trustProxy: boolean;
+  cookieSecure: boolean;
   maxSandboxes: number;
   shutdownGraceMs: number;
   frontendDist: string;
   containerized: boolean;
+  telemetryRetentionHours: number;
+  telemetryFlushIntervalMs: number;
+  telemetrySampleIntervalMs: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -98,6 +103,7 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
   const dataDir = overrides.dataDir ?? process.env.DATA_DIR ?? defaultDataDir;
   return {
     port: overrides.port ?? Number(process.env.PORT ?? 3000),
+    adminUsername: overrides.adminUsername ?? process.env.ADMIN_USERNAME ?? 'admin',
     dataDir,
     dbPath: overrides.dbPath ?? process.env.DATABASE_PATH ?? join(dataDir, 'cloudide.db'),
     cgroupRoot: overrides.cgroupRoot ?? process.env.CGROUP_ROOT ?? '/sys/fs/cgroup/cloudide',
@@ -124,6 +130,11 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       overrides.trustProxy ??
       (process.env.TRUST_PROXY !== undefined
         ? process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY.toLowerCase() === 'true'
+        : false),
+    cookieSecure:
+      overrides.cookieSecure ??
+      (process.env.COOKIE_SECURE !== undefined
+        ? process.env.COOKIE_SECURE === '1' || process.env.COOKIE_SECURE.toLowerCase() === 'true'
         : process.env.NODE_ENV === 'production'),
     maxSandboxes: overrides.maxSandboxes ?? Number(process.env.MAX_SANDBOXES ?? 20),
     shutdownGraceMs: overrides.shutdownGraceMs ?? Number(process.env.SHUTDOWN_GRACE_MS ?? 10_000),
@@ -134,5 +145,11 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     containerized:
       overrides.containerized ??
       (process.env.APP_CONTAINERIZED === '1' || process.env.APP_CONTAINERIZED === 'true'),
+    telemetryRetentionHours:
+      overrides.telemetryRetentionHours ?? Number(process.env.TELEMETRY_RETENTION_HOURS ?? 2),
+    telemetryFlushIntervalMs:
+      overrides.telemetryFlushIntervalMs ?? Number(process.env.TELEMETRY_FLUSH_INTERVAL_MS ?? 5000),
+    telemetrySampleIntervalMs:
+      overrides.telemetrySampleIntervalMs ?? Number(process.env.TELEMETRY_SAMPLE_INTERVAL_MS ?? 2000),
   };
 }

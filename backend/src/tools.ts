@@ -1,5 +1,8 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { IS_WINDOWS } from './config.js';
+
+const execFileAsync = promisify(execFile);
 
 export function commandExists(cmd: string): boolean {
   try {
@@ -14,22 +17,78 @@ export function commandExists(cmd: string): boolean {
   }
 }
 
-export function isDockerRunning(): boolean {
-  if (!commandExists('docker')) return false;
+interface CacheEntry<T> {
+  value: T;
+  timestamp: number;
+}
+
+let dockerCache: CacheEntry<boolean> | null = null;
+let runnerCache: CacheEntry<boolean> | null = null;
+const CACHE_TTL_MS = 5000;
+
+export async function isDockerRunningAsync(): Promise<boolean> {
+  const now = Date.now();
+  if (dockerCache && now - dockerCache.timestamp < CACHE_TTL_MS) {
+    return dockerCache.value;
+  }
   try {
-    execSync('docker info', { stdio: 'ignore' });
+    await execFileAsync('docker', ['info']);
+    dockerCache = { value: true, timestamp: now };
     return true;
   } catch {
+    dockerCache = { value: false, timestamp: now };
+    return false;
+  }
+}
+
+export async function isRunnerImageAvailableAsync(): Promise<boolean> {
+  const now = Date.now();
+  if (runnerCache && now - runnerCache.timestamp < CACHE_TTL_MS) {
+    return runnerCache.value;
+  }
+  try {
+    const { stdout } = await execFileAsync('docker', ['image', 'inspect', 'cloudeeeide-runner:latest']);
+    const available = stdout.includes('cloudeeeide-runner:latest');
+    runnerCache = { value: available, timestamp: now };
+    return available;
+  } catch {
+    runnerCache = { value: false, timestamp: now };
+    return false;
+  }
+}
+
+export function isDockerRunning(): boolean {
+  const now = Date.now();
+  if (dockerCache && now - dockerCache.timestamp < CACHE_TTL_MS) {
+    return dockerCache.value;
+  }
+  if (!commandExists('docker')) {
+    dockerCache = { value: false, timestamp: now };
+    return false;
+  }
+  try {
+    execSync('docker info', { stdio: 'ignore' });
+    dockerCache = { value: true, timestamp: now };
+    return true;
+  } catch {
+    dockerCache = { value: false, timestamp: now };
     return false;
   }
 }
 
 export function isRunnerImageAvailable(): boolean {
-  if (!commandExists('docker')) return false;
+  const now = Date.now();
+  if (runnerCache && now - runnerCache.timestamp < CACHE_TTL_MS) {
+    return runnerCache.value;
+  }
+  if (!isDockerRunning()) return false;
   try {
     const result = execSync('docker image inspect cloudeeeide-runner:latest', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    return result.includes('cloudeeeide-runner:latest');
+    const available = result.includes('cloudeeeide-runner:latest');
+    runnerCache = { value: available, timestamp: now };
+    return available;
   } catch {
+    runnerCache = { value: false, timestamp: now };
     return false;
   }
 }
@@ -55,12 +114,36 @@ export interface Capabilities {
   };
 }
 
+export async function getSystemCapabilitiesAsync(): Promise<Capabilities> {
+  const docker = await isDockerRunningAsync();
+  const runner = docker ? await isRunnerImageAvailableAsync() : false;
+  const hasToolchains = docker && runner;
+
+  return {
+    docker,
+    runnerImage: runner,
+    languages: {
+      python: hasToolchains,
+      node: hasToolchains,
+      typescript: hasToolchains,
+      c: hasToolchains,
+      cpp: hasToolchains,
+      java: hasToolchains
+    },
+    toolchains: {
+      python: hasToolchains,
+      node: hasToolchains,
+      'ts-node': hasToolchains,
+      gcc: hasToolchains,
+      'g++': hasToolchains,
+      jdk: hasToolchains
+    }
+  };
+}
+
 export function getSystemCapabilities(): Capabilities {
   const docker = isDockerRunning();
   const runner = isRunnerImageAvailable();
-  
-  // If the runner image is present, we assume all required toolchains are baked into it.
-  // If not, we report false for execution capabilities since the host shouldn't be used.
   const hasToolchains = docker && runner;
 
   return {

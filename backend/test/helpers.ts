@@ -35,10 +35,11 @@ export function makeWorkspace(cfg: AppConfig): string {
 export interface TestApi {
   base: string;
   db: Db;
-  request: (method: string, path: string, opts?: { token?: string; body?: unknown }) => Promise<{
+  request: (method: string, path: string, opts?: { token?: string; body?: unknown; headers?: Record<string, string> }) => Promise<{
     status: number;
     data: any;
     text: string;
+    headers: Headers;
   }>;
   close: () => Promise<void>;
 }
@@ -58,7 +59,7 @@ export async function startTestApi(cfg: AppConfig, existingDb?: Db): Promise<Tes
     base,
     db,
     request: async (method, path, opts = {}) => {
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = { ...(opts.headers ?? {}) };
       if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
       if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
       const res = await fetch(base + path, {
@@ -69,7 +70,7 @@ export async function startTestApi(cfg: AppConfig, existingDb?: Db): Promise<Tes
       const text = await res.text();
       let data: any = {};
       try { data = JSON.parse(text); } catch {}
-      return { status: res.status, data, text };
+      return { status: res.status, data, text, headers: res.headers };
     },
     close: () =>
       new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
