@@ -1,36 +1,148 @@
 import React, { useEffect, useState } from 'react';
 import Auth from './components/Auth/Auth';
 import IDE from './components/IDE/IDE';
-import { api, getToken, clearToken } from './api';
+import AdminDashboard from './components/Admin/AdminDashboard';
+import AdminLogin from './components/Admin/AdminLogin';
+import { api } from './api';
 import { User } from './types';
+import { IconShield, IconAlertTriangle } from './components/common/Icons';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
+  const [route, setRoute] = useState<string>(window.location.pathname);
+
+  // Sync client-side route navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (path: string) => {
+    window.history.pushState({}, '', path);
+    setRoute(path);
+  };
 
   useEffect(() => {
-    if (!getToken()) {
-      setChecked(true);
-      return;
-    }
     api<{ user: User }>('/api/auth/me')
       .then((r) => setUser(r.user))
-      .catch(() => clearToken())
+      .catch(() => setUser(null))
       .finally(() => setChecked(true));
   }, []);
 
-  if (!checked) return (
-    <div style={{display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center'}}>
-      <div style={{ 
-        width: '24px', height: '24px', 
-        border: '3px solid var(--border)', 
-        borderTopColor: 'var(--accent)', 
-        borderRadius: '50%', 
-        animation: 'spin 1s linear infinite' 
-      }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
+  const handleLogout = async () => {
+    try {
+      await api('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    setUser(null);
+  };
+
+  if (!checked) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+        <div
+          style={{
+            width: '24px',
+            height: '24px',
+            border: '3px solid var(--border)',
+            borderTopColor: 'var(--accent)',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+          }}
+        />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // --- ROUTE: /admin or /admin/login ---
+  const isAdminRoute = route.startsWith('/admin');
+
+  if (isAdminRoute) {
+    if (!user) {
+      return (
+        <AdminLogin
+          onAuthed={(authedUser) => {
+            setUser(authedUser);
+            navigate('/admin');
+          }}
+          onSwitchToUserLogin={() => navigate('/')}
+        />
+      );
+    }
+
+    if (user.role !== 'admin') {
+      return (
+        <div className="auth-wrap">
+          <div className="auth-card" style={{ textAlign: 'center', border: '1px solid rgba(243, 139, 168, 0.4)' }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                background: 'rgba(243, 139, 168, 0.15)',
+                color: '#f38ba8',
+                marginBottom: '16px',
+              }}
+            >
+              <IconAlertTriangle size={24} />
+            </div>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--fg-primary)', margin: '0 0 8px 0' }}>
+              Access Forbidden (403)
+            </h2>
+            <p style={{ fontSize: '13px', color: 'var(--fg-muted)', lineHeight: 1.5, marginBottom: '20px' }}>
+              Your active session (<strong>{user.username}</strong>) does not have administrator privileges.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button className="glass-btn glass-btn-primary" onClick={() => navigate('/')}>
+                ← Return to Developer IDE Workspace
+              </button>
+              <button
+                className="glass-btn glass-btn-ghost"
+                onClick={async () => {
+                  await handleLogout();
+                  navigate('/admin/login');
+                }}
+                style={{ color: '#f38ba8' }}
+              >
+                Sign in with an Admin Account
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <AdminDashboard
+        user={user}
+        onLogout={handleLogout}
+        onSwitchToIde={() => navigate('/')}
+      />
+    );
+  }
+
+  // --- ROUTE: / (Developer IDE Workload Plane) ---
+  if (!user) {
+    return (
+      <Auth
+        onAuthed={setUser}
+        onSwitchToAdminLogin={() => navigate('/admin/login')}
+      />
+    );
+  }
+
+  return (
+    <IDE
+      user={user}
+      onLogout={handleLogout}
+      onSwitchToAdmin={() => navigate('/admin')}
+    />
   );
-  if (!user) return <Auth onAuthed={setUser} />;
-  return <IDE user={user} onLogout={() => { clearToken(); setUser(null); }} />;
 }

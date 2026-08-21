@@ -6,6 +6,7 @@ import { ApiError } from '../errors.js';
 export interface AuthUser {
   id: number;
   username: string;
+  role: 'user' | 'admin';
 }
 
 declare global {
@@ -42,11 +43,11 @@ export function requireAuth(db: Db) {
     const hashedToken = hashToken(token);
     const row = db
       .prepare(
-        `SELECT s.token, s.expires_at, u.id, u.username
+        `SELECT s.token, s.expires_at, u.id, u.username, u.role
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token = ?`,
       )
-      .get(hashedToken) as { token: string; expires_at: string; id: number; username: string } | undefined;
+      .get(hashedToken) as { token: string; expires_at: string; id: number; username: string; role?: string } | undefined;
     if (!row) {
       next(new ApiError(401, 'invalid or expired session', 'unauthorized'));
       return;
@@ -56,8 +57,25 @@ export function requireAuth(db: Db) {
       next(new ApiError(401, 'session expired', 'unauthorized'));
       return;
     }
-    req.user = { id: row.id, username: row.username };
+    req.user = {
+      id: row.id,
+      username: row.username,
+      role: (row.role as 'user' | 'admin') || 'user',
+    };
     next();
+  };
+}
+
+export function requireAdmin(db: Db) {
+  const auth = requireAuth(db);
+  return (req: Request, res: Response, next: NextFunction): void => {
+    auth(req, res, (err) => {
+      if (err) return next(err);
+      if (req.user?.role !== 'admin') {
+        return next(new ApiError(403, 'admin privileges required', 'forbidden'));
+      }
+      next();
+    });
   };
 }
 

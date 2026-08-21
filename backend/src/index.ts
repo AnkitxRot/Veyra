@@ -4,12 +4,60 @@ import { openDb } from './db.js';
 import { setupWebSocketServer } from './ws/index.js';
 import { sandboxManager } from './execution/sandbox.js';
 import { deleteExpiredSessions } from './auth/middleware.js';
+import { hashPassword } from './auth/passwords.js';
+import { ensureAdminUser } from './db.js';
 
 const config = resolveConfig();
 const db = openDb(config.dbPath);
 const app = createApp(config, db);
 
+const ADMIN_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
+
+/**
+ * Bootstrap the local administrator account. ADMIN_PASSWORD is required on
+ * first run (when no admin account exists yet); once one exists, startup
+ * proceeds without it and the existing account's password is left untouched.
+ * Runs to completion before the HTTP listener opens, so no request can race
+ * the initial admin insert. `admin` (or ADMIN_USERNAME) is reserved from
+ * public registration in auth/routes.ts, so this can't be pre-empted by a
+ * squatted username.
+ */
+async function bootstrapAdmin(): Promise<void> {
+  const adminUser = config.adminUsername;
+  const adminPass = process.env.ADMIN_PASSWORD;
+
+  if (!adminPass) {
+    const { count } = db
+      .prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'")
+      .get() as { count: number };
+    if (count === 0) {
+      console.error(
+        '[admin] ADMIN_PASSWORD is not set and no administrator account exists. ' +
+          'Set ADMIN_USERNAME and ADMIN_PASSWORD and restart to provision the initial admin.',
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (!ADMIN_USERNAME_RE.test(adminUser)) {
+    console.error(`[admin] ADMIN_USERNAME "${adminUser}" is invalid: must be 3-32 characters of [a-zA-Z0-9_].`);
+    process.exit(1);
+    return;
+  }
+  if (adminPass.length < config.minPasswordLength) {
+    console.error(`[admin] ADMIN_PASSWORD must be at least ${config.minPasswordLength} characters.`);
+    process.exit(1);
+    return;
+  }
+
+  const hash = await hashPassword(adminPass);
+  ensureAdminUser(db, adminUser, hash);
+}
+
 async function start(): Promise<void> {
+  await bootstrapAdmin();
+
   // Startup hardening: drop expired sessions, then reconcile Docker state
   // (removes orphaned containers, rebuilds preview port mappings). Reconcile is
   // awaited so sandbox-dependent operations never observe stale state.
