@@ -1,5 +1,8 @@
 import React from 'react';
-import { CollaboratorPresence, CollabConnectionStatus } from '../../collab/client';
+import type {
+  CollaboratorPresence,
+  CollabConnectionStatus,
+} from '../../collab/client';
 import { IconUsers } from '../common/Icons';
 
 export interface CollaboratorAvatarStackProps {
@@ -17,7 +20,9 @@ export default function CollaboratorAvatarStack({
   onFollowCollaborator,
   onOpenShareModal,
 }: CollaboratorAvatarStackProps) {
-  const otherCollaborators = collaborators.filter((c) => c.userId !== currentUserId);
+  const otherCollaborators = collaborators.filter(
+    (c) => c.userId !== currentUserId,
+  );
 
   const getStatusBadge = () => {
     switch (status) {
@@ -96,7 +101,9 @@ export default function CollaboratorAvatarStack({
 
       {/* Collaborator Avatars Stack */}
       {otherCollaborators.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', marginLeft: '4px' }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', marginLeft: '4px' }}
+        >
           {otherCollaborators.map((c) => {
             const initials = c.name.slice(0, 2).toUpperCase();
             return (
@@ -121,8 +128,13 @@ export default function CollaboratorAvatarStack({
                   transition: 'transform 120ms ease',
                   boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px) scale(1.1)')}
-                onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0) scale(1)')}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.transform =
+                    'translateY(-2px) scale(1.1)')
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.transform = 'translateY(0) scale(1)')
+                }
                 title={`${c.name} (${c.role.toUpperCase()}) ${
                   c.activeFile ? `• Editing ${c.activeFile}` : ''
                 } — Click to Follow`}

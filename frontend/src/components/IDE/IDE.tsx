@@ -1,6 +1,19 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  Suspense,
+} from 'react';
 import { User, Project, TreeNode, ContainerStats } from '../../types';
-import { api, getCapabilities, triggerAIAction, applyAIPatch, verifyAIPatch, AIVerificationRecord } from '../../api';
+import {
+  api,
+  getCapabilities,
+  triggerAIAction,
+  applyAIPatch,
+  verifyAIPatch,
+  AIVerificationRecord,
+} from '../../api';
 import Sidebar from '../Sidebar/Sidebar';
 import Toolbar from '../Toolbar/Toolbar';
 import Editor from '../Editor/Editor';
@@ -10,17 +23,25 @@ import Preview from '../Preview/Preview';
 import ProblemsPanel from '../Output/ProblemsPanel';
 import ResourcesView from '../Resources/ResourcesView';
 import ProjectHealthModal from '../Health/ProjectHealthModal';
-import AIPatchModal from '../AI/AIPatchModal';
-import AIExplainModal from '../AI/AIExplainModal';
+const AIPatchModal = React.lazy(() => import('../AI/AIPatchModal'));
+const AIExplainModal = React.lazy(() => import('../AI/AIExplainModal'));
 import AIVerificationCard from '../AI/AIVerificationCard';
-import Tour from '../common/Tour';
+const Tour = React.lazy(() => import('../common/Tour'));
 import CommandPaletteModal from '../common/CommandPaletteModal';
 import WorkspaceSearchModal from '../Search/WorkspaceSearchModal';
-import { CollaborationClient, CollaboratorPresence, CollabConnectionStatus } from '../../collab/client';
+import type {
+  CollaborationClient,
+  CollaboratorPresence,
+  CollabConnectionStatus,
+} from '../../collab/client';
 import ProjectSharingModal from '../Collab/ProjectSharingModal';
 import { CommandRegistry, Command } from '../../utils/commands';
 import { buildFileIndex, IndexedFile } from '../../utils/fileIndex';
-import { getRecentFiles, addRecentFile, addRecentProject } from '../../utils/recentStore';
+import {
+  getRecentFiles,
+  addRecentFile,
+  addRecentProject,
+} from '../../utils/recentStore';
 import { Diagnostic, parseDiagnostics } from '../../utils/diagnostics';
 import { useKeyboardShortcuts, IS_MAC } from '../../hooks/useKeyboardShortcuts';
 import {
@@ -49,8 +70,12 @@ export default function IDE({
   const [project, setProject] = useState<Project | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [openFiles, setOpenFiles] = useState<{ path: string; content: string; dirty?: boolean }[]>([]);
-  const [bottomTab, setBottomTab] = useState<'output' | 'problems' | 'resources' | 'terminal' | 'preview'>('output');
+  const [openFiles, setOpenFiles] = useState<
+    { path: string; content: string; dirty?: boolean }[]
+  >([]);
+  const [bottomTab, setBottomTab] = useState<
+    'output' | 'problems' | 'resources' | 'terminal' | 'preview'
+  >('output');
   const [capabilities, setCapabilities] = useState<any>(null);
   const [stats, setStats] = useState<ContainerStats | null>(null);
   const [showTour, setShowTour] = useState(false);
@@ -79,11 +104,18 @@ export default function IDE({
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
   // M4: Real-Time Multiplayer Collaboration States
-  const [collabClient, setCollabClient] = useState<CollaborationClient | null>(null);
-  const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>([]);
-  const [collabStatus, setCollabStatus] = useState<CollabConnectionStatus>('disconnected');
+  const [collabClient, setCollabClient] = useState<CollaborationClient | null>(
+    null,
+  );
+  const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>(
+    [],
+  );
+  const [collabStatus, setCollabStatus] =
+    useState<CollabConnectionStatus>('disconnected');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [projectRole, setProjectRole] = useState<'owner' | 'editor' | 'viewer'>('owner');
+  const [projectRole, setProjectRole] = useState<'owner' | 'editor' | 'viewer'>(
+    'owner',
+  );
 
   // M5: Verification-Aware AI Engineering Assistant States
   const [aiExplainState, setAiExplainState] = useState<{
@@ -124,7 +156,8 @@ export default function IDE({
     linesRemoved: 0,
   });
 
-  const [aiVerification, setAiVerification] = useState<AIVerificationRecord | null>(null);
+  const [aiVerification, setAiVerification] =
+    useState<AIVerificationRecord | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const isDemo = user.isDemo || user.username.startsWith('evaluator_');
@@ -148,28 +181,47 @@ export default function IDE({
       return;
     }
 
-    const client = new CollaborationClient(project.id, user);
-    setCollabClient(client);
+    let cancelled = false;
+    let client: CollaborationClient | null = null;
+    let unsubAwareness: (() => void) | undefined;
+    let unsubConnection: (() => void) | undefined;
 
-    const unsubAwareness = client.on('awareness_change', (online: CollaboratorPresence[]) => {
-      setCollaborators(online);
-    });
+    (async () => {
+      const { CollaborationClient } = await import('../../collab/client');
+      if (cancelled) return;
 
-    const unsubConnection = client.on('connection_change', (status: CollabConnectionStatus) => {
-      setCollabStatus(status);
-    });
+      client = new CollaborationClient(project.id, user);
+      setCollabClient(client);
+
+      unsubAwareness = client.on(
+        'awareness_change',
+        (online: CollaboratorPresence[]) => {
+          setCollaborators(online);
+        },
+      );
+
+      unsubConnection = client.on(
+        'connection_change',
+        (status: CollabConnectionStatus) => {
+          setCollabStatus(status);
+        },
+      );
+    })();
 
     // Fetch project access role
-    api<{ project: Project; role?: 'owner' | 'editor' | 'viewer' }>(`/api/projects/${project.id}`)
+    api<{ project: Project; role?: 'owner' | 'editor' | 'viewer' }>(
+      `/api/projects/${project.id}`,
+    )
       .then((res) => {
         if (res.role) setProjectRole(res.role);
       })
       .catch(() => {});
 
     return () => {
-      unsubAwareness();
-      unsubConnection();
-      client.dispose();
+      cancelled = true;
+      unsubAwareness?.();
+      unsubConnection?.();
+      client?.dispose();
     };
   }, [project?.id, user]);
 
@@ -187,7 +239,9 @@ export default function IDE({
   const loadTree = useCallback(async () => {
     if (!project) return;
     try {
-      const res = await api<{ tree: TreeNode[] }>(`/api/projects/${project.id}/tree`);
+      const res = await api<{ tree: TreeNode[] }>(
+        `/api/projects/${project.id}/tree`,
+      );
       setTree(res.tree);
     } catch {}
   }, [project]);
@@ -215,7 +269,9 @@ export default function IDE({
     if (!project) return;
     const fetchStats = async () => {
       try {
-        const res = await api<{ stats: ContainerStats }>(`/api/projects/${project.id}/stats`);
+        const res = await api<{ stats: ContainerStats }>(
+          `/api/projects/${project.id}/stats`,
+        );
         setStats(res.stats);
       } catch {}
     };
@@ -226,7 +282,9 @@ export default function IDE({
 
   useEffect(() => {
     loadProjects();
-    getCapabilities().then(setCapabilities).catch(() => {});
+    getCapabilities()
+      .then(setCapabilities)
+      .catch(() => {});
   }, [loadProjects]);
 
   useEffect(() => {
@@ -250,7 +308,7 @@ export default function IDE({
 
     try {
       const res = await api<{ content: string }>(
-        `/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`
+        `/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`,
       );
       setOpenFiles((prev) => [...prev, { path, content: res.content }]);
       setActiveFile(path);
@@ -268,17 +326,26 @@ export default function IDE({
     if (!targetFile) return;
 
     try {
-      const res = await api<{ formatted: string; changed: boolean; formatter: string; warning?: string }>(
-        `/api/projects/${project.id}/format`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ path: targetFile.path, content: targetFile.content }),
-        }
-      );
+      const res = await api<{
+        formatted: string;
+        changed: boolean;
+        formatter: string;
+        warning?: string;
+      }>(`/api/projects/${project.id}/format`, {
+        method: 'POST',
+        body: JSON.stringify({
+          path: targetFile.path,
+          content: targetFile.content,
+        }),
+      });
 
       if (res.changed) {
         setOpenFiles((prev) =>
-          prev.map((f) => (f.path === targetFile.path ? { ...f, content: res.formatted, dirty: true } : f))
+          prev.map((f) =>
+            f.path === targetFile.path
+              ? { ...f, content: res.formatted, dirty: true }
+              : f,
+          ),
         );
         setSaveToast(`Formatted with ${res.formatter}`);
         setTimeout(() => setSaveToast(null), 2000);
@@ -301,13 +368,17 @@ export default function IDE({
     // If Format on Save is enabled, format prior to saving
     if (formatOnSave) {
       try {
-        const res = await api<{ formatted: string; changed: boolean; formatter: string }>(
-          `/api/projects/${project.id}/format`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ path: targetFile.path, content: targetFile.content }),
-          }
-        );
+        const res = await api<{
+          formatted: string;
+          changed: boolean;
+          formatter: string;
+        }>(`/api/projects/${project.id}/format`, {
+          method: 'POST',
+          body: JSON.stringify({
+            path: targetFile.path,
+            content: targetFile.content,
+          }),
+        });
         if (res.changed) {
           contentToSave = res.formatted;
         }
@@ -320,7 +391,11 @@ export default function IDE({
         body: JSON.stringify({ path: targetFile.path, content: contentToSave }),
       });
       setOpenFiles((prev) =>
-        prev.map((f) => (f.path === targetFile.path ? { ...f, content: contentToSave, dirty: false } : f))
+        prev.map((f) =>
+          f.path === targetFile.path
+            ? { ...f, content: contentToSave, dirty: false }
+            : f,
+        ),
       );
       setSaveToast(`Saved ${targetFile.path.split('/').pop()}`);
       setTimeout(() => setSaveToast(null), 2000);
@@ -343,7 +418,7 @@ export default function IDE({
             {
               method: 'POST',
               body: JSON.stringify({ path, content }),
-            }
+            },
           );
           if (res.changed) finalContent = res.formatted;
         } catch {}
@@ -355,7 +430,9 @@ export default function IDE({
           body: JSON.stringify({ path, content: finalContent }),
         });
         setOpenFiles((prev) =>
-          prev.map((f) => (f.path === path ? { ...f, content: finalContent, dirty: false } : f))
+          prev.map((f) =>
+            f.path === path ? { ...f, content: finalContent, dirty: false } : f,
+          ),
         );
         setSaveToast(`Saved ${path.split('/').pop()}`);
         setTimeout(() => setSaveToast(null), 2000);
@@ -371,7 +448,11 @@ export default function IDE({
   // Listen to ide-run event from Toolbar
   useEffect(() => {
     const handleRunRequest = async (e: Event) => {
-      const { language, activeFile: reqFile, langDisplay } = (e as CustomEvent).detail;
+      const {
+        language,
+        activeFile: reqFile,
+        langDisplay,
+      } = (e as CustomEvent).detail;
       if (!project) return;
 
       // Auto-save dirty files before executing
@@ -394,7 +475,7 @@ export default function IDE({
       document.dispatchEvent(
         new CustomEvent('ide-run-confirmed', {
           detail: { language, activeFile: reqFile, langDisplay },
-        })
+        }),
       );
     };
 
@@ -405,7 +486,11 @@ export default function IDE({
   // Listen for execution completion events to parse compiler/runtime diagnostics
   useEffect(() => {
     const handleExecutionResult = (e: Event) => {
-      const { result, activeFile: runFile, language } = (e as CustomEvent).detail || {};
+      const {
+        result,
+        activeFile: runFile,
+        language,
+      } = (e as CustomEvent).detail || {};
       if (!result) return;
 
       const rawCombined = `${result.stdout || ''}\n${result.stderr || ''}`;
@@ -425,7 +510,11 @@ export default function IDE({
     };
 
     document.addEventListener('ide-execution-result', handleExecutionResult);
-    return () => document.removeEventListener('ide-execution-result', handleExecutionResult);
+    return () =>
+      document.removeEventListener(
+        'ide-execution-result',
+        handleExecutionResult,
+      );
   }, []);
 
   // M5: AI Action Trigger Handler
@@ -437,7 +526,7 @@ export default function IDE({
       selectionRange?: any;
       diagnostics?: any[];
       searchQuery?: string;
-    }
+    },
   ) => {
     if (!project) return;
     const targetFile = params?.path || activeFile;
@@ -453,7 +542,9 @@ export default function IDE({
         activeFilePath: targetFile,
         selectedCode: params?.selectedCode,
         selectionRange: params?.selectionRange,
-        diagnostics: params?.diagnostics || diagnostics.filter((d) => d.filePath === targetFile),
+        diagnostics:
+          params?.diagnostics ||
+          diagnostics.filter((d) => d.filePath === targetFile),
         searchQuery: params?.searchQuery,
       });
 
@@ -515,8 +606,8 @@ export default function IDE({
         prev.map((f) =>
           f.path === aiPatchState.filePath
             ? { ...f, content: aiPatchState.modifiedContent, dirty: false }
-            : f
-        )
+            : f,
+        ),
       );
 
       setAiPatchState((prev) => ({ ...prev, isOpen: false }));
@@ -603,7 +694,9 @@ export default function IDE({
         macShortcut: '⌘↵',
         available: () => !!project && !!activeFile,
         handler: () => {
-          const btn = document.querySelector('.btn-run') as HTMLButtonElement | null;
+          const btn = document.querySelector(
+            '.btn-run',
+          ) as HTMLButtonElement | null;
           btn?.click();
         },
       },
@@ -613,7 +706,9 @@ export default function IDE({
         description: 'Terminate in-flight process execution',
         category: 'Execution',
         handler: () => {
-          const btn = document.querySelector('.btn-stop') as HTMLButtonElement | null;
+          const btn = document.querySelector(
+            '.btn-stop',
+          ) as HTMLButtonElement | null;
           btn?.click();
         },
       },
@@ -660,7 +755,8 @@ export default function IDE({
       {
         id: 'execution.action.openResources',
         title: 'Switch to Resource Intelligence & Metrics',
-        description: 'View real-time and historical CPU, memory, PID, and I/O time-series charts',
+        description:
+          'View real-time and historical CPU, memory, PID, and I/O time-series charts',
         category: 'Execution',
         handler: () => {
           setBottomTab('resources');
@@ -670,7 +766,8 @@ export default function IDE({
       {
         id: 'workbench.action.openProjectHealth',
         title: 'Open Project Health Center',
-        description: 'Inspect runtime status, daily reliability scores, and active anomaly journal',
+        description:
+          'Inspect runtime status, daily reliability scores, and active anomaly journal',
         category: 'UI',
         handler: () => setIsHealthModalOpen(true),
       },
@@ -731,7 +828,8 @@ export default function IDE({
       {
         id: 'workbench.action.shareProject',
         title: 'Share Project & Manage Collaborators',
-        description: 'Invite teammates and manage real-time Editor/Viewer permissions',
+        description:
+          'Invite teammates and manage real-time Editor/Viewer permissions',
         category: 'Collaboration',
         available: () => !!project,
         handler: () => setIsShareModalOpen(true),
@@ -739,7 +837,8 @@ export default function IDE({
       {
         id: 'workbench.action.openTour',
         title: 'Guided Evaluator Walkthrough Tour',
-        description: 'Launch interactive onboarding tour for Cloud IDE concepts',
+        description:
+          'Launch interactive onboarding tour for Cloud IDE concepts',
         category: 'UI',
         handler: () => setShowTour(true),
       },
@@ -755,7 +854,8 @@ export default function IDE({
       {
         id: 'workbench.action.aiFixProblem',
         title: 'AI: Fix Active Problem / Error',
-        description: 'Propose automated fix patch for compiler/runtime diagnostic',
+        description:
+          'Propose automated fix patch for compiler/runtime diagnostic',
         category: 'AI',
         available: () => !!activeFile,
         handler: () => handleTriggerAIAction('fix_error'),
@@ -869,8 +969,13 @@ export default function IDE({
       }
     };
 
-    window.addEventListener('keydown', handleGlobalExtraShortcuts, { capture: true });
-    return () => window.removeEventListener('keydown', handleGlobalExtraShortcuts, { capture: true });
+    window.addEventListener('keydown', handleGlobalExtraShortcuts, {
+      capture: true,
+    });
+    return () =>
+      window.removeEventListener('keydown', handleGlobalExtraShortcuts, {
+        capture: true,
+      });
   }, [activeFile, project]);
 
   // Horizontal Sidebar Drag Resizer
@@ -891,7 +996,10 @@ export default function IDE({
         const newWidth = Math.max(180, Math.min(e.clientX, 500));
         setSidebarWidth(newWidth);
       } else if (isDraggingBottom) {
-        const newHeight = Math.max(120, Math.min(window.innerHeight - e.clientY, 600));
+        const newHeight = Math.max(
+          120,
+          Math.min(window.innerHeight - e.clientY, 600),
+        );
         setBottomHeight(newHeight);
       }
     };
@@ -912,7 +1020,9 @@ export default function IDE({
   }, [isDraggingSidebar, isDraggingBottom]);
 
   const errorCount = diagnostics.filter((d) => d.severity === 'error').length;
-  const warningCount = diagnostics.filter((d) => d.severity === 'warning').length;
+  const warningCount = diagnostics.filter(
+    (d) => d.severity === 'warning',
+  ).length;
 
   return (
     <div className="ide-layout">
@@ -984,7 +1094,9 @@ export default function IDE({
               collabClient={collabClient}
               isReadOnly={projectRole === 'viewer'}
               onCreateFile={() => {
-                const el = document.querySelector('button[title="New File"]') as HTMLButtonElement;
+                const el = document.querySelector(
+                  'button[title="New File"]',
+                ) as HTMLButtonElement;
                 el?.click();
               }}
             />
@@ -1011,7 +1123,10 @@ export default function IDE({
               <div className="panel-tabs" role="tablist">
                 <button
                   className={`panel-tab ${bottomTab === 'output' && !isBottomCollapsed ? 'active' : ''}`}
-                  onClick={() => { setBottomTab('output'); setIsBottomCollapsed(false); }}
+                  onClick={() => {
+                    setBottomTab('output');
+                    setIsBottomCollapsed(false);
+                  }}
                   role="tab"
                 >
                   <IconCode size={12} />
@@ -1020,15 +1135,31 @@ export default function IDE({
 
                 <button
                   className={`panel-tab ${bottomTab === 'problems' && !isBottomCollapsed ? 'active' : ''}`}
-                  onClick={() => { setBottomTab('problems'); setIsBottomCollapsed(false); }}
+                  onClick={() => {
+                    setBottomTab('problems');
+                    setIsBottomCollapsed(false);
+                  }}
                   role="tab"
                 >
-                  <IconAlertTriangle size={12} color={errorCount > 0 ? '#f38ba8' : warningCount > 0 ? '#f9e2af' : 'currentColor'} />
+                  <IconAlertTriangle
+                    size={12}
+                    color={
+                      errorCount > 0
+                        ? '#f38ba8'
+                        : warningCount > 0
+                          ? '#f9e2af'
+                          : 'currentColor'
+                    }
+                  />
                   <span>Problems</span>
                   {diagnostics.length > 0 && (
                     <span
                       className={`glass-badge ${errorCount > 0 ? 'glass-badge-error' : 'glass-badge-warning'}`}
-                      style={{ fontSize: '9px', padding: '1px 5px', marginLeft: '4px' }}
+                      style={{
+                        fontSize: '9px',
+                        padding: '1px 5px',
+                        marginLeft: '4px',
+                      }}
                     >
                       {diagnostics.length}
                     </span>
@@ -1037,7 +1168,10 @@ export default function IDE({
 
                 <button
                   className={`panel-tab ${bottomTab === 'resources' && !isBottomCollapsed ? 'active' : ''}`}
-                  onClick={() => { setBottomTab('resources'); setIsBottomCollapsed(false); }}
+                  onClick={() => {
+                    setBottomTab('resources');
+                    setIsBottomCollapsed(false);
+                  }}
                   role="tab"
                 >
                   <IconActivity size={12} color="var(--accent)" />
@@ -1046,7 +1180,10 @@ export default function IDE({
 
                 <button
                   className={`panel-tab ${bottomTab === 'terminal' && !isBottomCollapsed ? 'active' : ''}`}
-                  onClick={() => { setBottomTab('terminal'); setIsBottomCollapsed(false); }}
+                  onClick={() => {
+                    setBottomTab('terminal');
+                    setIsBottomCollapsed(false);
+                  }}
                   role="tab"
                 >
                   <IconTerminal size={12} />
@@ -1055,7 +1192,10 @@ export default function IDE({
 
                 <button
                   className={`panel-tab ${bottomTab === 'preview' && !isBottomCollapsed ? 'active' : ''}`}
-                  onClick={() => { setBottomTab('preview'); setIsBottomCollapsed(false); }}
+                  onClick={() => {
+                    setBottomTab('preview');
+                    setIsBottomCollapsed(false);
+                  }}
                   role="tab"
                 >
                   <IconMonitor size={12} />
@@ -1068,17 +1208,33 @@ export default function IDE({
                   className="glass-btn glass-btn-icon"
                   onClick={() => setIsBottomCollapsed(!isBottomCollapsed)}
                   title={isBottomCollapsed ? 'Expand Panel' : 'Collapse Panel'}
-                  aria-label={isBottomCollapsed ? 'Expand Panel' : 'Collapse Panel'}
+                  aria-label={
+                    isBottomCollapsed ? 'Expand Panel' : 'Collapse Panel'
+                  }
                 >
-                  {isBottomCollapsed ? <IconChevronRight size={13} /> : <IconChevronDown size={13} />}
+                  {isBottomCollapsed ? (
+                    <IconChevronRight size={13} />
+                  ) : (
+                    <IconChevronDown size={13} />
+                  )}
                 </button>
               </div>
             </div>
 
             {/* Panel Content Display */}
             {!isBottomCollapsed && (
-              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                {bottomTab === 'output' && <Output project={project} onRefreshTree={loadTree} />}
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {bottomTab === 'output' && (
+                  <Output project={project} onRefreshTree={loadTree} />
+                )}
                 {bottomTab === 'problems' && (
                   <ProblemsPanel
                     diagnostics={diagnostics}
@@ -1086,7 +1242,7 @@ export default function IDE({
                       document.dispatchEvent(
                         new CustomEvent('ide-reveal-location', {
                           detail: { filePath, line, column },
-                        })
+                        }),
                       );
                     }}
                     onClearDiagnostics={() => setDiagnostics([])}
@@ -1104,7 +1260,9 @@ export default function IDE({
                     }}
                   />
                 )}
-                {bottomTab === 'resources' && <ResourcesView project={project} />}
+                {bottomTab === 'resources' && (
+                  <ResourcesView project={project} />
+                )}
                 {bottomTab === 'terminal' && <Terminal project={project} />}
                 {bottomTab === 'preview' && <Preview project={project} />}
               </div>
@@ -1128,7 +1286,9 @@ export default function IDE({
               status={aiVerification.status}
               action={aiVerification.action}
               filePath={aiVerification.file_path || 'workspace'}
-              explanation={aiVerification.explanation || 'Verification Complete'}
+              explanation={
+                aiVerification.explanation || 'Verification Complete'
+              }
               exitCode={aiVerification.exit_code}
               stdoutSummary={aiVerification.stdout_summary}
               stderrSummary={aiVerification.stderr_summary}
@@ -1152,12 +1312,18 @@ export default function IDE({
               <span>Docker Runner</span>
             </span>
             {isAiLoading && (
-              <span className="glass-badge glass-badge-info" style={{ fontSize: '9px', padding: '1px 6px' }}>
+              <span
+                className="glass-badge glass-badge-info"
+                style={{ fontSize: '9px', padding: '1px 6px' }}
+              >
                 AI REASONING…
               </span>
             )}
             {isDemo && (
-              <span className="glass-badge glass-badge-success" style={{ fontSize: '9px', padding: '1px 6px' }}>
+              <span
+                className="glass-badge glass-badge-success"
+                style={{ fontSize: '9px', padding: '1px 6px' }}
+              >
                 DEMO SESSION
               </span>
             )}
@@ -1165,7 +1331,10 @@ export default function IDE({
 
           <div className="ide-statusbar-section">
             {saveToast && (
-              <span className="glass-badge glass-badge-success" style={{ animation: 'fadeIn 150ms ease' }}>
+              <span
+                className="glass-badge glass-badge-success"
+                style={{ animation: 'fadeIn 150ms ease' }}
+              >
                 <IconCheck size={9} />
                 <span>{saveToast}</span>
               </span>
@@ -1174,7 +1343,10 @@ export default function IDE({
               className="ide-statusbar-item"
               onClick={() => {
                 setFormatOnSave(!formatOnSave);
-                localStorage.setItem('cloudeee_format_on_save', String(!formatOnSave));
+                localStorage.setItem(
+                  'cloudeee_format_on_save',
+                  String(!formatOnSave),
+                );
                 setSaveToast(`Format on Save: ${!formatOnSave ? 'On' : 'Off'}`);
                 setTimeout(() => setSaveToast(null), 2000);
               }}
@@ -1185,8 +1357,13 @@ export default function IDE({
             </span>
             <span className="ide-statusbar-item">UTF-8</span>
             <span className="ide-statusbar-item">LF</span>
-            <span className="ide-statusbar-item" style={{ color: 'var(--accent)' }}>
-              {activeFile ? activeFile.split('.').pop()?.toUpperCase() : 'Plain Text'}
+            <span
+              className="ide-statusbar-item"
+              style={{ color: 'var(--accent)' }}
+            >
+              {activeFile
+                ? activeFile.split('.').pop()?.toUpperCase()
+                : 'Plain Text'}
             </span>
           </div>
         </footer>
@@ -1215,7 +1392,7 @@ export default function IDE({
           document.dispatchEvent(
             new CustomEvent('ide-reveal-location', {
               detail: { filePath, line, column, matchLength },
-            })
+            }),
           );
         }}
       />
@@ -1239,47 +1416,63 @@ export default function IDE({
       )}
 
       {/* AI Proposed Patch Diff Review Modal */}
-      <AIPatchModal
-        isOpen={aiPatchState.isOpen}
-        onClose={() => setAiPatchState((prev) => ({ ...prev, isOpen: false }))}
-        onAccept={handleAcceptAIPatch}
-        filePath={aiPatchState.filePath}
-        originalContent={aiPatchState.originalContent}
-        modifiedContent={aiPatchState.modifiedContent}
-        explanation={aiPatchState.explanation}
-        providerName={aiPatchState.providerName}
-        providerType={aiPatchState.providerType}
-        linesAdded={aiPatchState.linesAdded}
-        linesRemoved={aiPatchState.linesRemoved}
-      />
+      {aiPatchState.isOpen && (
+        <Suspense fallback={null}>
+          <AIPatchModal
+            isOpen={aiPatchState.isOpen}
+            onClose={() =>
+              setAiPatchState((prev) => ({ ...prev, isOpen: false }))
+            }
+            onAccept={handleAcceptAIPatch}
+            filePath={aiPatchState.filePath}
+            originalContent={aiPatchState.originalContent}
+            modifiedContent={aiPatchState.modifiedContent}
+            explanation={aiPatchState.explanation}
+            providerName={aiPatchState.providerName}
+            providerType={aiPatchState.providerType}
+            linesAdded={aiPatchState.linesAdded}
+            linesRemoved={aiPatchState.linesRemoved}
+          />
+        </Suspense>
+      )}
 
       {/* AI Structured Code Insights & Explanation Modal */}
-      <AIExplainModal
-        isOpen={aiExplainState.isOpen}
-        onClose={() => setAiExplainState((prev) => ({ ...prev, isOpen: false }))}
-        onProposeFix={() => {
-          handleTriggerAIAction('fix_error', {
-            path: aiExplainState.activeFilePath,
-            diagnostics: aiExplainState.diagnostics,
-          });
-        }}
-        title={aiExplainState.title}
-        providerName={aiExplainState.providerName}
-        providerType={aiExplainState.providerType}
-        rootCause={aiExplainState.rootCause}
-        explanation={aiExplainState.explanation}
-        evidence={aiExplainState.evidence}
-        suggestedTests={aiExplainState.suggestedTests}
-      />
+      {aiExplainState.isOpen && (
+        <Suspense fallback={null}>
+          <AIExplainModal
+            isOpen={aiExplainState.isOpen}
+            onClose={() =>
+              setAiExplainState((prev) => ({ ...prev, isOpen: false }))
+            }
+            onProposeFix={() => {
+              handleTriggerAIAction('fix_error', {
+                path: aiExplainState.activeFilePath,
+                diagnostics: aiExplainState.diagnostics,
+              });
+            }}
+            title={aiExplainState.title}
+            providerName={aiExplainState.providerName}
+            providerType={aiExplainState.providerType}
+            rootCause={aiExplainState.rootCause}
+            explanation={aiExplainState.explanation}
+            evidence={aiExplainState.evidence}
+            suggestedTests={aiExplainState.suggestedTests}
+          />
+        </Suspense>
+      )}
 
       {/* Guided Evaluator Onboarding Walkthrough */}
-      <Tour
-        isOpen={showTour}
-        onClose={() => {
-          setShowTour(false);
-          localStorage.setItem('cloudeee_demo_tour_seen', 'true');
-        }}
-      />
+      {showTour && (
+        <Suspense fallback={null}>
+          <Tour
+            isOpen={showTour}
+            onClose={() => {
+              setShowTour(false);
+              localStorage.setItem('cloudeee_demo_tour_seen', 'true');
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

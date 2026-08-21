@@ -3,7 +3,7 @@ import { monaco } from '../../monacoSetup';
 import { getLanguageInfo } from '../../utils/language';
 import { Diagnostic } from '../../utils/diagnostics';
 import { IconClose, IconCode, getLanguageIcon } from '../common/Icons';
-import { CollaborationClient } from '../../collab/client';
+import type { CollaborationClient } from '../../collab/client';
 
 export interface EditorProps {
   project: any;
@@ -62,7 +62,10 @@ export default function Editor({
 
       monacoRef.current.onDidChangeCursorPosition((e) => {
         if (collabClient) {
-          collabClient.updateCursorPosition(e.position.lineNumber, e.position.column);
+          collabClient.updateCursorPosition(
+            e.position.lineNumber,
+            e.position.column,
+          );
         }
       });
 
@@ -77,7 +80,7 @@ export default function Editor({
           const currentFile = prev.find((f: any) => f.path === currentPath);
           if (currentFile && currentFile.content !== val) {
             return prev.map((f: any) =>
-              f.path === currentPath ? { ...f, content: val, dirty: true } : f
+              f.path === currentPath ? { ...f, content: val, dirty: true } : f,
             );
           }
           return prev;
@@ -93,10 +96,10 @@ export default function Editor({
             document.dispatchEvent(
               new CustomEvent('ide-save', {
                 detail: { path: currentPath, content: val },
-              })
+              }),
             );
           }
-        }
+        },
       );
 
       // Register AI Context Menu Actions in Monaco
@@ -108,21 +111,25 @@ export default function Editor({
         contextMenuOrder: 1,
         run: (ed) => {
           const sel = ed.getSelection();
-          const selectedText = sel ? ed.getModel()?.getValueInRange(sel) : undefined;
+          const selectedText = sel
+            ? ed.getModel()?.getValueInRange(sel)
+            : undefined;
           document.dispatchEvent(
             new CustomEvent('ide-ai-action', {
               detail: {
                 action: 'explain',
                 path: activeFileRef.current,
                 selectedCode: selectedText,
-                selectionRange: sel ? {
-                  startLine: sel.startLineNumber,
-                  startColumn: sel.startColumn,
-                  endLine: sel.endLineNumber,
-                  endColumn: sel.endColumn,
-                } : undefined,
+                selectionRange: sel
+                  ? {
+                      startLine: sel.startLineNumber,
+                      startColumn: sel.startColumn,
+                      endLine: sel.endLineNumber,
+                      endColumn: sel.endColumn,
+                    }
+                  : undefined,
               },
-            })
+            }),
           );
         },
       });
@@ -134,7 +141,9 @@ export default function Editor({
         contextMenuOrder: 2,
         run: (ed) => {
           const sel = ed.getSelection();
-          const selectedText = sel ? ed.getModel()?.getValueInRange(sel) : undefined;
+          const selectedText = sel
+            ? ed.getModel()?.getValueInRange(sel)
+            : undefined;
           document.dispatchEvent(
             new CustomEvent('ide-ai-action', {
               detail: {
@@ -142,7 +151,7 @@ export default function Editor({
                 path: activeFileRef.current,
                 selectedCode: selectedText,
               },
-            })
+            }),
           );
         },
       });
@@ -159,7 +168,7 @@ export default function Editor({
                 action: 'generate_tests',
                 path: activeFileRef.current,
               },
-            })
+            }),
           );
         },
       });
@@ -171,7 +180,9 @@ export default function Editor({
         contextMenuOrder: 4,
         run: (ed) => {
           const sel = ed.getSelection();
-          const selectedText = sel ? ed.getModel()?.getValueInRange(sel) : undefined;
+          const selectedText = sel
+            ? ed.getModel()?.getValueInRange(sel)
+            : undefined;
           document.dispatchEvent(
             new CustomEvent('ide-ai-action', {
               detail: {
@@ -179,7 +190,7 @@ export default function Editor({
                 path: activeFileRef.current,
                 selectedCode: selectedText,
               },
-            })
+            }),
           );
         },
       });
@@ -223,10 +234,14 @@ export default function Editor({
         model = monaco.editor.createModel(
           activeFileData.content || '',
           langInfo.monacoId,
-          uri
+          uri,
         );
       } else {
-        if (!collabClient && model.getValue() !== activeFileData.content && !activeFileData.dirty) {
+        if (
+          !collabClient &&
+          model.getValue() !== activeFileData.content &&
+          !activeFileData.dirty
+        ) {
           model.setValue(activeFileData.content || '');
         }
         monaco.editor.setModelLanguage(model, langInfo.monacoId);
@@ -238,7 +253,12 @@ export default function Editor({
 
       // Attach y-monaco collaborative binding
       if (collabClient && model) {
-        collabClient.bindMonacoModel(activeFile, model, monacoRef.current, isReadOnly);
+        collabClient.bindMonacoModel(
+          activeFile,
+          model,
+          monacoRef.current,
+          isReadOnly,
+        );
       }
 
       monacoRef.current.layout();
@@ -257,7 +277,7 @@ export default function Editor({
         : model.uri.path;
 
       const fileDiagnostics = diagnostics.filter(
-        (d) => d.filePath === normPath || d.filePath === model.uri.path
+        (d) => d.filePath === normPath || d.filePath === model.uri.path,
       );
 
       const markers: monaco.editor.IMarkerData[] = fileDiagnostics.map((d) => ({
@@ -265,8 +285,8 @@ export default function Editor({
           d.severity === 'error'
             ? monaco.MarkerSeverity.Error
             : d.severity === 'warning'
-            ? monaco.MarkerSeverity.Warning
-            : monaco.MarkerSeverity.Info,
+              ? monaco.MarkerSeverity.Warning
+              : monaco.MarkerSeverity.Info,
         message: d.message,
         startLineNumber: d.line,
         startColumn: d.column || 1,
@@ -294,12 +314,15 @@ export default function Editor({
         const lineNum = Math.max(1, line || 1);
         const colNum = Math.max(1, column || 1);
 
-        monacoRef.current.revealPositionInCenter({ lineNumber: lineNum, column: colNum });
+        monacoRef.current.revealPositionInCenter({
+          lineNumber: lineNum,
+          column: colNum,
+        });
         monacoRef.current.setPosition({ lineNumber: lineNum, column: colNum });
 
         if (matchLength && matchLength > 0) {
           monacoRef.current.setSelection(
-            new monaco.Range(lineNum, colNum, lineNum, colNum + matchLength)
+            new monaco.Range(lineNum, colNum, lineNum, colNum + matchLength),
           );
         }
         monacoRef.current.focus();
@@ -307,7 +330,8 @@ export default function Editor({
     };
 
     document.addEventListener('ide-reveal-location', handleReveal);
-    return () => document.removeEventListener('ide-reveal-location', handleReveal);
+    return () =>
+      document.removeEventListener('ide-reveal-location', handleReveal);
   }, [setActiveFile]);
 
   // Clean up models for closed files
@@ -342,15 +366,23 @@ export default function Editor({
             >
               {getLanguageIcon(f.path, 13)}
               <span className="tab-filename">{f.path.split('/').pop()}</span>
-              {f.dirty && <span className="tab-dirty-indicator" title="Unsaved changes" />}
+              {f.dirty && (
+                <span className="tab-dirty-indicator" title="Unsaved changes" />
+              )}
               <button
                 className="tab-close"
                 onClick={(e) => {
                   e.stopPropagation();
-                  const newFiles = openFiles.filter((of: any) => of.path !== f.path);
+                  const newFiles = openFiles.filter(
+                    (of: any) => of.path !== f.path,
+                  );
                   setOpenFiles(newFiles);
                   if (activeFile === f.path) {
-                    setActiveFile(newFiles.length ? newFiles[newFiles.length - 1].path : null);
+                    setActiveFile(
+                      newFiles.length
+                        ? newFiles[newFiles.length - 1].path
+                        : null,
+                    );
                   }
                 }}
                 title="Close Tab"
@@ -382,16 +414,36 @@ export default function Editor({
             <div className="empty-state-icon">
               <IconCode size={24} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--fg-primary)' }}>
+            <div
+              style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 'var(--text-lg)',
+                  fontWeight: 600,
+                  color: 'var(--fg-primary)',
+                }}
+              >
                 No Open Files
               </h3>
-              <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>
-                Select a file from the sidebar explorer, Quick Open (Ctrl+P), or create a new file to start coding.
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--fg-muted)',
+                }}
+              >
+                Select a file from the sidebar explorer, Quick Open (Ctrl+P), or
+                create a new file to start coding.
               </p>
             </div>
             {onCreateFile && (
-              <button className="glass-btn glass-btn-primary" style={{ marginTop: '8px' }} onClick={onCreateFile}>
+              <button
+                className="glass-btn glass-btn-primary"
+                style={{ marginTop: '8px' }}
+                onClick={onCreateFile}
+              >
                 + New File
               </button>
             )}

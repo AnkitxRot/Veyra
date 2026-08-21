@@ -23,5 +23,21 @@ export default defineConfig({
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
       '/ws': { target: 'ws://localhost:3000', ws: true, changeOrigin: true },
     },
-  }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const p = id.replace(/\\/g, '/');
+          if (p.includes('?worker')) return;
+          if (!p.includes('/node_modules/')) return;
+          if (p.includes('/node_modules/monaco-editor/')) return 'monaco';
+          if (/\/node_modules\/(yjs|y-monaco|y-protocols|lib0)\//.test(p))
+            return 'collab';
+          if (/\/node_modules\/@xterm\//.test(p)) return 'xterm';
+          return 'vendor';
+        },
+      },
+    },
+  },
 });

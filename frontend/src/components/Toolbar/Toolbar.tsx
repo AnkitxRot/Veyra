@@ -12,7 +12,10 @@ import {
 } from '../common/Icons';
 import { Project, ContainerStats, User } from '../../types';
 import CollaboratorAvatarStack from '../Collab/CollaboratorAvatarStack';
-import { CollaboratorPresence, CollabConnectionStatus, CollaborationClient } from '../../collab/client';
+import type {
+  CollaboratorPresence,
+  CollabConnectionStatus,
+} from '../../collab/client';
 
 interface ToolbarProps {
   project: Project | null;
@@ -72,7 +75,7 @@ export default function Toolbar({
             activeFile,
             langDisplay,
           },
-        })
+        }),
       );
     }
   };
@@ -103,16 +106,24 @@ export default function Toolbar({
   if (runnable && capabilities) {
     if (!capabilities.docker) {
       toolchainAvailable = false;
-      notRunnableTitle = 'Docker Sandbox unavailable. CloudeeeIDE requires Docker Desktop.';
+      notRunnableTitle =
+        'Docker Sandbox unavailable. CloudeeeIDE requires Docker Desktop.';
     } else if (!capabilities.runnerImage) {
       toolchainAvailable = false;
-      notRunnableTitle = 'Runner Image unavailable. Please build cloudeeeide-runner:latest.';
-    } else if (langId === 'python' && !capabilities.languages.python) toolchainAvailable = false;
-    else if (langId === 'node' && !capabilities.languages.node) toolchainAvailable = false;
-    else if (langId === 'typescript' && !capabilities.languages.typescript) toolchainAvailable = false;
-    else if (langId === 'c' && !capabilities.languages.c) toolchainAvailable = false;
-    else if (langId === 'cpp' && !capabilities.languages.cpp) toolchainAvailable = false;
-    else if (langId === 'java' && !capabilities.languages.java) toolchainAvailable = false;
+      notRunnableTitle =
+        'Runner Image unavailable. Please build cloudeeeide-runner:latest.';
+    } else if (langId === 'python' && !capabilities.languages.python)
+      toolchainAvailable = false;
+    else if (langId === 'node' && !capabilities.languages.node)
+      toolchainAvailable = false;
+    else if (langId === 'typescript' && !capabilities.languages.typescript)
+      toolchainAvailable = false;
+    else if (langId === 'c' && !capabilities.languages.c)
+      toolchainAvailable = false;
+    else if (langId === 'cpp' && !capabilities.languages.cpp)
+      toolchainAvailable = false;
+    else if (langId === 'java' && !capabilities.languages.java)
+      toolchainAvailable = false;
 
     if (runnable && !toolchainAvailable && notRunnableTitle === '') {
       notRunnableTitle = `Required toolchain for ${langDisplay} is unavailable in runner image.`;
@@ -167,7 +178,9 @@ export default function Toolbar({
             transition: 'all 120ms ease',
           }}
         >
-          <span style={{ fontSize: '11px', color: 'var(--fg-secondary)' }}>Search files or type &gt;</span>
+          <span style={{ fontSize: '11px', color: 'var(--fg-secondary)' }}>
+            Search files or type &gt;
+          </span>
           <span
             className="shortcut-hint"
             style={{
@@ -196,15 +209,26 @@ export default function Toolbar({
           role="status"
           aria-live="polite"
         >
-          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--fg-secondary)' }}>
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '11px',
+              color: 'var(--fg-secondary)',
+            }}
+          >
             <IconActivity size={12} color="var(--accent)" />
-            <span>CPU: <strong>{cpuVal}%</strong></span>
+            <span>
+              CPU: <strong>{cpuVal}%</strong>
+            </span>
           </span>
 
           <span style={{ color: 'var(--glass-border-light)' }}>|</span>
 
           <span style={{ fontSize: '11px', color: 'var(--fg-secondary)' }}>
-            RAM: <strong>{memMb}MB</strong> <span style={{ opacity: 0.6 }}>/ 512MB</span>
+            RAM: <strong>{memMb}MB</strong>{' '}
+            <span style={{ opacity: 0.6 }}>/ 512MB</span>
           </span>
 
           {stats.pids > 0 && (
@@ -221,30 +245,60 @@ export default function Toolbar({
       {/* Capability Environment Capsule */}
       {capabilities && !stats?.running && (
         <div className="capability-hud" title="Docker Sandbox Capability HUD">
-          <span style={{ fontWeight: 600, color: 'var(--fg-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span
+            style={{
+              fontWeight: 600,
+              color: 'var(--fg-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
             <span>Docker</span>
-            <span className={`capability-dot ${capabilities.docker && capabilities.runnerImage ? 'ready' : 'error'}`} />
+            <span
+              className={`capability-dot ${capabilities.docker && capabilities.runnerImage ? 'ready' : 'error'}`}
+            />
           </span>
 
           <span style={{ color: 'var(--glass-border-light)' }}>|</span>
 
-          <span className={`capability-chip ${capabilities.languages.python ? 'ready' : 'error'}`} title="Python 3.11">
-            <span className={`capability-dot ${capabilities.languages.python ? 'ready' : 'error'}`} />
+          <span
+            className={`capability-chip ${capabilities.languages.python ? 'ready' : 'error'}`}
+            title="Python 3.11"
+          >
+            <span
+              className={`capability-dot ${capabilities.languages.python ? 'ready' : 'error'}`}
+            />
             Py
           </span>
 
-          <span className={`capability-chip ${capabilities.languages.node ? 'ready' : 'error'}`} title="Node.js & TS">
-            <span className={`capability-dot ${capabilities.languages.node ? 'ready' : 'error'}`} />
+          <span
+            className={`capability-chip ${capabilities.languages.node ? 'ready' : 'error'}`}
+            title="Node.js & TS"
+          >
+            <span
+              className={`capability-dot ${capabilities.languages.node ? 'ready' : 'error'}`}
+            />
             Node
           </span>
 
-          <span className={`capability-chip ${capabilities.languages.c ? 'ready' : 'error'}`} title="GCC C/C++">
-            <span className={`capability-dot ${capabilities.languages.c ? 'ready' : 'error'}`} />
+          <span
+            className={`capability-chip ${capabilities.languages.c ? 'ready' : 'error'}`}
+            title="GCC C/C++"
+          >
+            <span
+              className={`capability-dot ${capabilities.languages.c ? 'ready' : 'error'}`}
+            />
             GCC
           </span>
 
-          <span className={`capability-chip ${capabilities.languages.java ? 'ready' : 'error'}`} title="OpenJDK Java">
-            <span className={`capability-dot ${capabilities.languages.java ? 'ready' : 'error'}`} />
+          <span
+            className={`capability-chip ${capabilities.languages.java ? 'ready' : 'error'}`}
+            title="OpenJDK Java"
+          >
+            <span
+              className={`capability-dot ${capabilities.languages.java ? 'ready' : 'error'}`}
+            />
             Java
           </span>
         </div>
@@ -309,7 +363,11 @@ export default function Toolbar({
       {/* Action Controls */}
       <div className="toolbar-actions">
         {isRunning ? (
-          <button className="glass-btn btn-stop" onClick={handleStop} title="Stop Execution (Ctrl+Enter)">
+          <button
+            className="glass-btn btn-stop"
+            onClick={handleStop}
+            title="Stop Execution (Ctrl+Enter)"
+          >
             <IconStop size={12} />
             <span>Stop</span>
             <span className="shortcut-hint">{IS_MAC ? '⌘↵' : 'Ctrl+↵'}</span>

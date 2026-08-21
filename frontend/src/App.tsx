@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import Auth from './components/Auth/Auth';
 import IDE from './components/IDE/IDE';
-import AdminDashboard from './components/Admin/AdminDashboard';
+const AdminDashboard = React.lazy(
+  () => import('./components/Admin/AdminDashboard'),
+);
 import AdminLogin from './components/Admin/AdminLogin';
 import { api } from './api';
 import { User } from './types';
@@ -42,7 +44,14 @@ export default function App() {
 
   if (!checked) {
     return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        style={{
+          display: 'flex',
+          height: '100vh',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <div
           style={{
             width: '24px',
@@ -77,7 +86,13 @@ export default function App() {
     if (user.role !== 'admin') {
       return (
         <div className="auth-wrap">
-          <div className="auth-card" style={{ textAlign: 'center', border: '1px solid rgba(243, 139, 168, 0.4)' }}>
+          <div
+            className="auth-card"
+            style={{
+              textAlign: 'center',
+              border: '1px solid rgba(243, 139, 168, 0.4)',
+            }}
+          >
             <div
               style={{
                 display: 'inline-flex',
@@ -93,14 +108,34 @@ export default function App() {
             >
               <IconAlertTriangle size={24} />
             </div>
-            <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--fg-primary)', margin: '0 0 8px 0' }}>
+            <h2
+              style={{
+                fontSize: '18px',
+                fontWeight: 600,
+                color: 'var(--fg-primary)',
+                margin: '0 0 8px 0',
+              }}
+            >
               Access Forbidden (403)
             </h2>
-            <p style={{ fontSize: '13px', color: 'var(--fg-muted)', lineHeight: 1.5, marginBottom: '20px' }}>
-              Your active session (<strong>{user.username}</strong>) does not have administrator privileges.
+            <p
+              style={{
+                fontSize: '13px',
+                color: 'var(--fg-muted)',
+                lineHeight: 1.5,
+                marginBottom: '20px',
+              }}
+            >
+              Your active session (<strong>{user.username}</strong>) does not
+              have administrator privileges.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button className="glass-btn glass-btn-primary" onClick={() => navigate('/')}>
+            <div
+              style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
+            >
+              <button
+                className="glass-btn glass-btn-primary"
+                onClick={() => navigate('/')}
+              >
                 ← Return to Developer IDE Workspace
               </button>
               <button
@@ -120,11 +155,13 @@ export default function App() {
     }
 
     return (
-      <AdminDashboard
-        user={user}
-        onLogout={handleLogout}
-        onSwitchToIde={() => navigate('/')}
-      />
+      <Suspense fallback={<div className="auth-wrap" />}>
+        <AdminDashboard
+          user={user}
+          onLogout={handleLogout}
+          onSwitchToIde={() => navigate('/')}
+        />
+      </Suspense>
     );
   }
 
