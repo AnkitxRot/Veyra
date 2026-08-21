@@ -1,7 +1,50 @@
 import React from 'react';
 import { getLanguageInfo } from '../../utils/language';
+import { IS_MAC } from '../../hooks/useKeyboardShortcuts';
+import {
+  IconPlay,
+  IconStop,
+  IconLayers,
+  IconChevronRight,
+  IconActivity,
+  IconShield,
+  getLanguageIcon,
+} from '../common/Icons';
+import { Project, ContainerStats, User } from '../../types';
+import CollaboratorAvatarStack from '../Collab/CollaboratorAvatarStack';
+import { CollaboratorPresence, CollabConnectionStatus, CollaborationClient } from '../../collab/client';
 
-export default function Toolbar({ project, activeFile, capabilities }: any) {
+interface ToolbarProps {
+  project: Project | null;
+  activeFile: string | null;
+  capabilities: any;
+  stats?: ContainerStats | null;
+  user?: User;
+  onSwitchToAdmin?: () => void;
+  onOpenQuickOpen?: () => void;
+  onOpenCommandPalette?: () => void;
+  onOpenHealthModal?: () => void;
+  collaborators?: CollaboratorPresence[];
+  collabStatus?: CollabConnectionStatus;
+  onFollowCollaborator?: (c: CollaboratorPresence) => void;
+  onOpenShareModal?: () => void;
+}
+
+export default function Toolbar({
+  project,
+  activeFile,
+  capabilities,
+  stats,
+  user,
+  onSwitchToAdmin,
+  onOpenQuickOpen,
+  onOpenCommandPalette,
+  onOpenHealthModal,
+  collaborators = [],
+  collabStatus = 'disconnected',
+  onFollowCollaborator,
+  onOpenShareModal,
+}: ToolbarProps) {
   const [isRunning, setIsRunning] = React.useState(false);
 
   React.useEffect(() => {
@@ -22,13 +65,15 @@ export default function Toolbar({ project, activeFile, capabilities }: any) {
 
   const handleRun = () => {
     if (project && !isRunning && activeFile) {
-      document.dispatchEvent(new CustomEvent('ide-run', {
-        detail: {
-          language: langId,
-          activeFile,
-          langDisplay
-        }
-      }));
+      document.dispatchEvent(
+        new CustomEvent('ide-run', {
+          detail: {
+            language: langId,
+            activeFile,
+            langDisplay,
+          },
+        })
+      );
     }
   };
 
@@ -38,13 +83,27 @@ export default function Toolbar({ project, activeFile, capabilities }: any) {
     }
   };
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (canRun && !isRunning) handleRun();
+        else if (isRunning) handleStop();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
   let toolchainAvailable = true;
-  let notRunnableTitle = activeFile ? `Files of type ${langDisplay} cannot be executed directly.` : 'Open a file to run';
+  let notRunnableTitle = activeFile
+    ? `Files of type ${langDisplay} cannot be executed directly.`
+    : 'Open a file to run';
 
   if (runnable && capabilities) {
     if (!capabilities.docker) {
       toolchainAvailable = false;
-      notRunnableTitle = 'Docker Sandbox unavailable. CloudeeeIDE requires Docker Desktop for execution.';
+      notRunnableTitle = 'Docker Sandbox unavailable. CloudeeeIDE requires Docker Desktop.';
     } else if (!capabilities.runnerImage) {
       toolchainAvailable = false;
       notRunnableTitle = 'Runner Image unavailable. Please build cloudeeeide-runner:latest.';
@@ -56,60 +115,218 @@ export default function Toolbar({ project, activeFile, capabilities }: any) {
     else if (langId === 'java' && !capabilities.languages.java) toolchainAvailable = false;
 
     if (runnable && !toolchainAvailable && notRunnableTitle === '') {
-      notRunnableTitle = `Required toolchain for ${langDisplay} is unavailable in the runner image.`;
+      notRunnableTitle = `Required toolchain for ${langDisplay} is unavailable in runner image.`;
     }
   }
 
   const runLabel = langDisplay && runnable ? `Run ${langDisplay}` : 'Run';
   const canRun = runnable && toolchainAvailable;
 
-  return (
-    <div className="toolbar">
-      <div style={{ flex: 1, color: 'var(--muted)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <div>{project ? `${project.name} ${activeFile ? `> ${activeFile}` : ''}` : 'No Project'}</div>
+  const memMb = stats ? Math.round(stats.memoryUsageBytes / (1024 * 1024)) : 0;
+  const cpuVal = stats ? stats.cpuPercent.toFixed(1) : '0.0';
 
-        {capabilities && (
-          <div title="Execution Environment Capabilities" style={{ display: 'flex', gap: '8px', padding: '4px 8px', background: 'var(--panel-2)', borderRadius: '4px' }}>
-            <span>Env: </span>
-            <span style={{ color: capabilities.docker ? 'var(--text)' : '#f38ba8' }}>
-              {capabilities.docker ? '✓' : '✗'} Docker
+  return (
+    <header className="toolbar" aria-label="Editor Toolbar">
+      {/* Breadcrumb Section */}
+      <div className="toolbar-breadcrumbs">
+        <span className="breadcrumb-project">
+          <IconLayers size={14} color="var(--accent)" />
+          <span>{project ? project.name : 'No Project'}</span>
+        </span>
+        {activeFile && (
+          <>
+            <span className="breadcrumb-separator">
+              <IconChevronRight size={12} />
             </span>
-            <span style={{ color: capabilities.runnerImage ? 'var(--text)' : '#f38ba8' }}>
-              {capabilities.runnerImage ? '✓' : '✗'} Runner
+            <span className="breadcrumb-file">
+              {getLanguageIcon(activeFile, 13)}
+              <span>{activeFile}</span>
             </span>
-            <span style={{ color: capabilities.languages.python ? 'var(--text)' : '#f38ba8' }}>
-              {capabilities.languages.python ? '✓' : '✗'} Python
-            </span>
-            <span style={{ color: capabilities.languages.node ? 'var(--text)' : '#f38ba8' }}>
-              {capabilities.languages.node ? '✓' : '✗'} Node
-            </span>
-            <span style={{ color: capabilities.languages.c ? 'var(--text)' : '#f38ba8' }}>
-              {capabilities.languages.c ? '✓' : '✗'} GCC
-            </span>
-            <span style={{ color: capabilities.languages.java ? 'var(--text)' : '#f38ba8' }}>
-              {capabilities.languages.java ? '✓' : '✗'} Java
-            </span>
-          </div>
+          </>
         )}
       </div>
-      <div className="toolbar-actions" style={{ display: 'flex', gap: '8px' }}>
-        {isRunning ? (
-          <button onClick={handleStop} style={{ background: '#f38ba8', color: '#111' }}>Stop</button>
-        ) : (
-          <button
-            onClick={handleRun}
-            disabled={!canRun}
-            title={canRun ? '' : notRunnableTitle}
+
+      {/* Center Search / Command Palette Quick Button */}
+      {onOpenQuickOpen && (
+        <button
+          type="button"
+          className="toolbar-search-btn"
+          onClick={onOpenQuickOpen}
+          title="Quick Open File (Ctrl+P / Cmd+P) or Command Palette (Ctrl+Shift+P)"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'rgba(255, 255, 255, 0.04)',
+            border: '1px solid var(--glass-border-subtle)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '4px 12px',
+            fontSize: '12px',
+            color: 'var(--fg-muted)',
+            cursor: 'pointer',
+            transition: 'all 120ms ease',
+          }}
+        >
+          <span style={{ fontSize: '11px', color: 'var(--fg-secondary)' }}>Search files or type &gt;</span>
+          <span
+            className="shortcut-hint"
             style={{
-              background: canRun ? 'var(--accent)' : 'var(--panel-2)',
-              color: canRun ? '#111' : 'var(--muted)',
-              cursor: canRun ? 'pointer' : 'not-allowed'
+              fontSize: '10px',
+              padding: '1px 5px',
+              fontFamily: 'var(--font-mono)',
+              background: 'rgba(0,0,0,0.3)',
+              borderRadius: '3px',
+              border: '1px solid var(--glass-border-subtle)',
             }}
           >
-            {runLabel}
+            {IS_MAC ? '⌘P' : 'Ctrl+P'}
+          </span>
+        </button>
+      )}
+
+      {/* Live Resource Telemetry HUD */}
+      {stats && stats.running && (
+        <div
+          className="capability-hud"
+          style={{
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(137, 180, 250, 0.2)',
+          }}
+          title="Real-Time Container Resource Telemetry (cgroups)"
+          role="status"
+          aria-live="polite"
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--fg-secondary)' }}>
+            <IconActivity size={12} color="var(--accent)" />
+            <span>CPU: <strong>{cpuVal}%</strong></span>
+          </span>
+
+          <span style={{ color: 'var(--glass-border-light)' }}>|</span>
+
+          <span style={{ fontSize: '11px', color: 'var(--fg-secondary)' }}>
+            RAM: <strong>{memMb}MB</strong> <span style={{ opacity: 0.6 }}>/ 512MB</span>
+          </span>
+
+          {stats.pids > 0 && (
+            <>
+              <span style={{ color: 'var(--glass-border-light)' }}>|</span>
+              <span style={{ fontSize: '11px', color: 'var(--fg-muted)' }}>
+                PIDs: <strong>{stats.pids}</strong>
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Capability Environment Capsule */}
+      {capabilities && !stats?.running && (
+        <div className="capability-hud" title="Docker Sandbox Capability HUD">
+          <span style={{ fontWeight: 600, color: 'var(--fg-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>Docker</span>
+            <span className={`capability-dot ${capabilities.docker && capabilities.runnerImage ? 'ready' : 'error'}`} />
+          </span>
+
+          <span style={{ color: 'var(--glass-border-light)' }}>|</span>
+
+          <span className={`capability-chip ${capabilities.languages.python ? 'ready' : 'error'}`} title="Python 3.11">
+            <span className={`capability-dot ${capabilities.languages.python ? 'ready' : 'error'}`} />
+            Py
+          </span>
+
+          <span className={`capability-chip ${capabilities.languages.node ? 'ready' : 'error'}`} title="Node.js & TS">
+            <span className={`capability-dot ${capabilities.languages.node ? 'ready' : 'error'}`} />
+            Node
+          </span>
+
+          <span className={`capability-chip ${capabilities.languages.c ? 'ready' : 'error'}`} title="GCC C/C++">
+            <span className={`capability-dot ${capabilities.languages.c ? 'ready' : 'error'}`} />
+            GCC
+          </span>
+
+          <span className={`capability-chip ${capabilities.languages.java ? 'ready' : 'error'}`} title="OpenJDK Java">
+            <span className={`capability-dot ${capabilities.languages.java ? 'ready' : 'error'}`} />
+            Java
+          </span>
+        </div>
+      )}
+
+      {/* Real-Time Multiplayer Collaborator Presence */}
+      {project && user && (
+        <CollaboratorAvatarStack
+          collaborators={collaborators}
+          status={collabStatus}
+          currentUserId={user.id}
+          onFollowCollaborator={onFollowCollaborator}
+          onOpenShareModal={onOpenShareModal}
+        />
+      )}
+
+      {/* Project Health Center Trigger */}
+      {onOpenHealthModal && (
+        <button
+          className="glass-btn"
+          onClick={onOpenHealthModal}
+          style={{
+            padding: '5px 10px',
+            fontSize: '11px',
+            background: 'rgba(166, 227, 161, 0.1)',
+            color: '#a6e3a1',
+            border: '1px solid rgba(166, 227, 161, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+          title="Open Project Health Center"
+        >
+          <IconActivity size={12} />
+          <span>Health</span>
+        </button>
+      )}
+
+      {/* Admin Control Plane Switcher */}
+      {user?.role === 'admin' && onSwitchToAdmin && (
+        <button
+          className="glass-btn"
+          onClick={onSwitchToAdmin}
+          style={{
+            padding: '5px 12px',
+            fontSize: '11px',
+            background: 'rgba(243, 139, 168, 0.15)',
+            color: '#f38ba8',
+            border: '1px solid rgba(243, 139, 168, 0.35)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+          title="Open Admin Control Plane Dashboard"
+        >
+          <IconShield size={12} />
+          <span>Control Plane</span>
+        </button>
+      )}
+
+      {/* Action Controls */}
+      <div className="toolbar-actions">
+        {isRunning ? (
+          <button className="glass-btn btn-stop" onClick={handleStop} title="Stop Execution (Ctrl+Enter)">
+            <IconStop size={12} />
+            <span>Stop</span>
+            <span className="shortcut-hint">{IS_MAC ? '⌘↵' : 'Ctrl+↵'}</span>
+          </button>
+        ) : (
+          <button
+            className="glass-btn btn-run"
+            onClick={handleRun}
+            disabled={!canRun}
+            title={canRun ? `${runLabel} (Ctrl+Enter)` : notRunnableTitle}
+          >
+            <IconPlay size={12} />
+            <span>{runLabel}</span>
+            <span className="shortcut-hint">{IS_MAC ? '⌘↵' : 'Ctrl+↵'}</span>
           </button>
         )}
       </div>
-    </div>
+    </header>
   );
 }

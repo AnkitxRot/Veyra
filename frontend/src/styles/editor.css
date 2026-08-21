@@ -1,39 +1,112 @@
+/* ==========================================================================
+   Liquid Glass Editor Chrome & Tabs
+   ========================================================================== */
+
 .editor-container {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  height: 100%;
+  position: relative;
+  background: var(--bg-deep);
 }
+
 .editor-tabs {
+  height: 38px;
+  min-height: 38px;
   display: flex;
-  background: var(--panel);
+  align-items: flex-end;
+  background: var(--glass-surface-1);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border-bottom: 1px solid var(--glass-border);
+  padding: 0 var(--space-2);
   overflow-x: auto;
+  gap: 2px;
+  user-select: none;
 }
+
 .editor-tab {
-  padding: 8px 12px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: var(--panel-2);
-  color: var(--muted);
+  gap: 7px;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  background: transparent;
+  transition: all var(--duration-fast) var(--spring-fast);
+  position: relative;
+  max-width: 180px;
 }
+
+.editor-tab:hover {
+  color: var(--fg-secondary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .editor-tab.active {
-  background: var(--bg);
-  color: var(--fg);
-  border-bottom-color: transparent;
+  background: var(--bg-deep);
+  color: var(--fg-primary);
+  font-weight: 500;
+  border-color: var(--glass-border);
+  border-bottom: 1px solid var(--bg-deep);
+  margin-bottom: -1px;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
 }
+
+.editor-tab.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.tab-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-dirty-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 2px;
+}
+
 .tab-close {
   background: transparent;
   border: none;
-  color: inherit;
-  padding: 2px;
-  display: flex;
-  border-radius: 4px;
+  color: var(--fg-muted);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all var(--duration-fast) ease;
+  margin-left: 4px;
 }
-.tab-close:hover { background: var(--hover); }
+
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--fg-primary);
+}
+
 .editor-wrapper {
   flex: 1;
   min-height: 0;
@@ -41,4 +114,147 @@
   width: 100%;
   position: relative;
   overflow: hidden;
+  background: var(--bg-deep);
+}
+
+/* Empty State */
+.editor-empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  color: var(--fg-muted);
+  padding: var(--space-6);
+  background: radial-gradient(circle at 50% 50%, rgba(137, 180, 250, 0.03) 0%, transparent 60%);
+}
+
+.empty-state-card {
+  background: var(--glass-surface-2);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+  max-width: 320px;
+  box-shadow: var(--glass-specular-sharp), var(--shadow-md);
+}
+
+.empty-state-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--glass-surface-3);
+  border: 1px solid var(--glass-border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  box-shadow: var(--shadow-glow);
+}
+
+/* ==========================================================================
+   Real-Time Multiplayer Remote Cursors & Selection (y-monaco)
+   ========================================================================== */
+
+.yRemoteSelection {
+  background-color: rgba(137, 180, 250, 0.25);
+  position: absolute;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.yRemoteSelectionHead {
+  position: absolute;
+  border-left: 2px solid #89b4fa;
+  border-top: 0;
+  border-bottom: 0;
+  height: 100%;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.yRemoteSelectionHead::after {
+  content: ' ';
+  position: absolute;
+  top: -16px;
+  left: -2px;
+  padding: 1px 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  font-family: var(--font-sans, system-ui);
+  line-height: 1.2;
+  border-radius: 3px 3px 3px 0;
+  background-color: #89b4fa;
+  color: #11131c;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  opacity: 0.95;
+}
+
+/* Status Badges for Presence & Sync */
+.collab-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.collab-status-badge.synced {
+  color: #a6e3a1;
+  border-color: rgba(166, 227, 161, 0.25);
+}
+
+.collab-status-badge.reconnecting {
+  color: #fab387;
+  border-color: rgba(250, 179, 135, 0.25);
+}
+
+.collab-status-badge.resyncing {
+  color: #94e2d5;
+  border-color: rgba(148, 226, 213, 0.25);
+}
+
+.collab-status-badge.error {
+  color: #f38ba8;
+  border-color: rgba(243, 139, 168, 0.25);
+}
+
+.collab-status-badge.offline {
+  color: #6c7086;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-dot.green { background: #a6e3a1; box-shadow: 0 0 6px #a6e3a1; }
+.status-dot.amber { background: #fab387; box-shadow: 0 0 6px #fab387; }
+.status-dot.cyan { background: #94e2d5; box-shadow: 0 0 6px #94e2d5; }
+.status-dot.red { background: #f38ba8; box-shadow: 0 0 6px #f38ba8; }
+.status-dot.gray { background: #6c7086; }
+
+@keyframes dot-pulse {
+  0% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 0.4; transform: scale(0.9); }
+}
+
+.status-dot.pulse {
+  animation: dot-pulse 1.4s ease-in-out infinite;
 }

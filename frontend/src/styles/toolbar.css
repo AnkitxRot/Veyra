@@ -1,10 +1,152 @@
+/* ==========================================================================
+   Liquid Glass Top Toolbar & Capability HUD
+   ========================================================================== */
+
 .toolbar {
-  height: 40px;
+  height: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  background: var(--glass-surface-1);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 1px 12px rgba(0, 0, 0, 0.15);
+  gap: var(--space-4);
+  user-select: none;
+  z-index: 20;
 }
-.toolbar-actions { display: flex; gap: 8px; align-items: center; }
+
+.toolbar-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  min-width: 0;
+}
+
+.breadcrumb-project {
+  font-weight: 600;
+  color: var(--fg-primary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.breadcrumb-separator {
+  color: var(--fg-subtle);
+}
+
+.breadcrumb-file {
+  color: var(--fg-secondary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Capability HUD Capsule */
+.capability-hud {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 10px;
+  background: rgba(15, 18, 26, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  box-shadow: var(--glass-specular-sharp), var(--shadow-xs);
+}
+
+.capability-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  transition: all var(--duration-fast) ease;
+}
+
+.capability-chip.ready {
+  color: var(--fg-secondary);
+}
+
+.capability-chip.error {
+  color: var(--error);
+}
+
+.capability-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--fg-subtle);
+}
+
+.capability-dot.ready {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success-glow);
+}
+
+.capability-dot.error {
+  background: var(--error);
+  box-shadow: 0 0 6px var(--error-glow);
+}
+
+/* Run Controls */
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.btn-run {
+  background: var(--accent-gradient);
+  color: var(--fg-inverse);
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 10px var(--accent-glow), var(--glass-specular-sharp);
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+}
+
+.btn-run:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 16px var(--accent-glow), var(--glass-specular-sharp);
+}
+
+.btn-run:disabled {
+  background: var(--glass-surface-3);
+  color: var(--fg-muted);
+  border-color: var(--glass-border);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.btn-stop {
+  background: var(--error-subtle);
+  color: var(--error);
+  border: 1px solid rgba(243, 139, 168, 0.3);
+  box-shadow: 0 2px 10px var(--error-glow);
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+}
+
+.btn-stop:hover {
+  background: var(--error);
+  color: #111;
+}
+
+.shortcut-hint {
+  font-size: 10px;
+  padding: 1px 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  opacity: 0.8;
+  margin-left: 4px;
+}

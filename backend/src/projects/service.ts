@@ -42,10 +42,102 @@ export function requireOwnedProject(db: Db, ownerId: number, id: string): Projec
   return row;
 }
 
+export interface CollaboratorInfo {
+  userId: number;
+  username: string;
+  role: 'owner' | 'editor' | 'viewer';
+  createdAt: string;
+}
+
+export function requireProjectAccess(
+  db: Db,
+  userId: number,
+  projectId: string,
+  minRole?: 'viewer' | 'editor' | 'owner'
+): { project: ProjectRow; role: 'owner' | 'editor' | 'viewer' } {
+  const project = getProject(db, projectId);
+  if (!project) {
+    throw new ApiError(404, 'project not found', 'not_found');
+  }
+
+  // 1. Owner has full access
+  if (project.owner_id === userId) {
+    return { project, role: 'owner' };
+  }
+
+  // 2. Check collaborator membership
+  const collab = db
+    .prepare('SELECT role, created_at FROM project_collaborators WHERE project_id = ? AND user_id = ?')
+    .get(projectId, userId) as { role: 'editor' | 'viewer'; created_at: string } | undefined;
+
+  if (collab) {
+    if (minRole === 'owner') {
+      throw new ApiError(403, 'project owner permission required', 'forbidden');
+    }
+    if (minRole === 'editor' && collab.role === 'viewer') {
+      throw new ApiError(403, 'read-only viewer permission: editor access required', 'forbidden');
+    }
+    return { project, role: collab.role };
+  }
+
+  // 3. Platform Admin access
+  const userRow = db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role?: string } | undefined;
+  if (userRow?.role === 'admin') {
+    return { project, role: 'owner' };
+  }
+
+  throw new ApiError(404, 'project not found', 'not_found');
+}
+
+export function listProjectCollaborators(db: Db, projectId: string): CollaboratorInfo[] {
+  const rows = db
+    .prepare(
+      `SELECT u.id as userId, u.username, pc.role, pc.created_at as createdAt
+       FROM project_collaborators pc
+       JOIN users u ON u.id = pc.user_id
+       WHERE pc.project_id = ?
+       ORDER BY pc.created_at ASC`
+    )
+    .all(projectId) as unknown as CollaboratorInfo[];
+  return rows;
+}
+
+export function addProjectCollaborator(
+  db: Db,
+  projectId: string,
+  targetUserId: number,
+  role: 'editor' | 'viewer' = 'editor'
+): void {
+  const project = getProject(db, projectId);
+  if (!project) throw new ApiError(404, 'project not found', 'not_found');
+  if (project.owner_id === targetUserId) {
+    throw new ApiError(400, 'owner is already project administrator', 'invalid_request');
+  }
+
+  db.prepare(
+    `INSERT INTO project_collaborators (project_id, user_id, role)
+     VALUES (?, ?, ?)
+     ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role`
+  ).run(projectId, targetUserId, role);
+}
+
+export function removeProjectCollaborator(db: Db, projectId: string, targetUserId: number): void {
+  db.prepare('DELETE FROM project_collaborators WHERE project_id = ? AND user_id = ?').run(
+    projectId,
+    targetUserId
+  );
+}
+
 export function listProjects(db: Db, ownerId: number): ProjectRow[] {
+  // Returns projects owned by user + projects shared with user
   return db
-    .prepare('SELECT * FROM projects WHERE owner_id = ? ORDER BY updated_at DESC')
-    .all(ownerId) as unknown as ProjectRow[];
+    .prepare(
+      `SELECT DISTINCT p.* FROM projects p
+       LEFT JOIN project_collaborators pc ON pc.project_id = p.id
+       WHERE p.owner_id = ? OR pc.user_id = ?
+       ORDER BY p.updated_at DESC`
+    )
+    .all(ownerId, ownerId) as unknown as ProjectRow[];
 }
 
 export async function createProject(
