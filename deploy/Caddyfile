@@ -1,0 +1,42 @@
+# Caddy reverse proxy configuration for CloudeeeIDE production deployment.
+# Provides automatic HTTPS (Let's Encrypt / ZeroSSL), WSS upgrades, and security headers.
+
+{$DOMAIN:localhost} {
+    # Encode responses with zstd and gzip
+    encode zstd gzip
+
+    # Security headers
+    header {
+        # Strict-Transport-Security (HSTS)
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevent MIME-type sniffing
+        X-Content-Type-Options "nosniff"
+        # XSS Protection
+        X-XSS-Protection "1; mode=block"
+        # Referrer Policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Remove server header
+        -Server
+    }
+
+    # Reverse proxy to backend application container or local port 3000
+    reverse_proxy {$UPSTREAM:127.0.0.1:3000} {
+        # Pass real client IP and protocol headers
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Keepalive transport configuration for robust streaming and preview proxy
+        transport http {
+            keepalive 30s
+            keepalive_idle_conns 100
+        }
+    }
+
+    # Logging
+    log {
+        output stdout
+        format console
+    }
+}

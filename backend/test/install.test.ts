@@ -23,23 +23,23 @@ describe('resolveInstallSpec', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('case 2: requirements.txt only → { cmd: "pip3", args: ["install", "-r", "requirements.txt"] }', async () => {
+  it('case 2: requirements.txt only → { cmd: "sh", args: [...] }', async () => {
     const dir = makeWorkspace();
     writeFileSync(join(dir, 'requirements.txt'), 'requests==2.31.0\n');
     const result = await resolveInstallSpec({ workspaceDir: dir, language: 'auto' });
-    expect(result.cmd).toBe('pip3');
-    expect(result.args).toEqual(['install', '-r', 'requirements.txt']);
+    expect(result.cmd).toBe('sh');
+    expect(result.args).toEqual(['-c', 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt']);
     expect(result.message).toBe('');
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('case 3: both manifests → pip3 (Python takes precedence)', async () => {
+  it('case 3: both manifests → Python venv (Python takes precedence)', async () => {
     const dir = makeWorkspace();
     writeFileSync(join(dir, 'package.json'), '{"name":"test"}');
     writeFileSync(join(dir, 'requirements.txt'), 'flask==3.0.0\n');
     const result = await resolveInstallSpec({ workspaceDir: dir, language: 'auto' });
-    expect(result.cmd).toBe('pip3');
-    expect(result.args).toEqual(['install', '-r', 'requirements.txt']);
+    expect(result.cmd).toBe('sh');
+    expect(result.args).toEqual(['-c', 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt']);
     expect(result.message).toBe('');
     rmSync(dir, { recursive: true, force: true });
   });
@@ -62,11 +62,11 @@ describe('resolveInstallSpec', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('case 6: no manifests, language=python → pip3', async () => {
+  it('case 6: no manifests, language=python → Python venv', async () => {
     const dir = makeWorkspace();
     const result = await resolveInstallSpec({ workspaceDir: dir, language: 'python' });
-    expect(result.cmd).toBe('pip3');
-    expect(result.args).toEqual(['install', '-r', 'requirements.txt']);
+    expect(result.cmd).toBe('sh');
+    expect(result.args).toEqual(['-c', 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt']);
     expect(result.message).toBe('');
     rmSync(dir, { recursive: true, force: true });
   });

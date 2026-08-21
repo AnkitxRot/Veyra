@@ -36,8 +36,13 @@ export const registry: LanguageRuntime[] = [
     toolchain: ['python3'],
     mainFiles: ['main.py'],
     run: {
-      cmd: () => 'python3',
-      args: (ctx) => ['-u', ctx.mainFile],
+      cmd: () => 'sh',
+      args: (ctx) => [
+        '-c',
+        'if [ -x .venv/bin/python ]; then exec .venv/bin/python -u "$@"; else exec python3 -u "$@"; fi',
+        'python-runner',
+        ctx.mainFile,
+      ],
     },
   },
   {

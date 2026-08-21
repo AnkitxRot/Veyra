@@ -73,10 +73,14 @@ docker compose up -d
 
 ## Required environment variables
 
-All are optional and have safe defaults (see `.env.example`):
+`ADMIN_PASSWORD` is required in `.env` before the first deploy — `docker compose up`
+will refuse to start without it. Everything else is optional and has a safe default
+(see `.env.example`):
 
 | Variable                  | Default              | Purpose |
 |---------------------------|----------------------|---------|
+| `ADMIN_USERNAME`          | `admin`               | Username of the bootstrapped administrator account. |
+| `ADMIN_PASSWORD`          | *(required)*          | Password for the bootstrapped administrator account. Set once in `.env`; the account is created on first startup and this value is not used to change its password afterward — see `.env.example`. |
 | `HTTP_PORT`               | `3000`               | Host port published for the app. |
 | `DOCKER_GID`              | `999`                | Host docker group gid for non-root socket access. |
 | `MAX_SANDBOXES`           | `20`                 | Hard cap on concurrent sandbox containers. |
@@ -85,8 +89,7 @@ All are optional and have safe defaults (see `.env.example`):
 | `SANDBOX_IDLE_TIMEOUT_MS` | `1800000`            | Idle time before a sandbox is reaped. |
 
 Set in production (not in `.env`): `NODE_ENV=production` (already set in the image),
-and any secrets your reverse proxy needs. There is no external secret required by the
-app itself — sessions are stored in SQLite.
+and any secrets your reverse proxy needs.
 
 ## Persistent volume paths
 
@@ -129,6 +132,9 @@ Run a reverse proxy (Caddy/nginx/Traefik) in front of port 3000 to terminate TLS
 - Set `X-Forwarded-For` / `X-Forwarded-Proto`; the app trusts the first hop
   (`TRUST_PROXY=1` is set in compose) so rate limiting and `secure` cookies work.
 - Cookies are `httpOnly`, `sameSite=lax`, and `secure` in production.
+- Disable or minimize **upstream keep-alive** to the app (verified: reused
+  keep-alive connections can misbehave after a request passes through the
+  preview proxy route). In Caddy: `reverse_proxy ... { transport http { keepalive off } }`.
 
 Minimal Caddy example:
 

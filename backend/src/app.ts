@@ -8,10 +8,15 @@ import { IS_WINDOWS } from './config.js';
 import { openDb, type Db } from './db.js';
 import { errorMiddleware, ApiError } from './errors.js';
 import { authRoutes } from './auth/routes.js';
-import { requireAuth } from './auth/middleware.js';
+import { requireAuth, requireAdmin } from './auth/middleware.js';
 import { projectRoutes } from './projects/routes.js';
-import { getSystemCapabilities } from './tools.js';
+import { adminRoutes } from './admin/routes.js';
+import { aiRoutes } from './ai/routes.js';
+import { getSystemCapabilitiesAsync } from './tools.js';
 import { initCgroupRoot } from './execution/sandbox.js';
+
+import { telemetryHistorian } from './execution/historian.js';
+import { collaborationManager } from './collab/manager.js';
 
 export function initDirectories(cfg: AppConfig): void {
   mkdirSync(cfg.workspacesDir, { recursive: true });
@@ -38,6 +43,8 @@ function securityHeaders() {
 export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   initDirectories(cfg);
   const db = existingDb ?? openDb(cfg.dbPath);
+  telemetryHistorian.init(db, cfg);
+  collaborationManager.init(cfg, db);
   const app = express();
   app.disable('x-powered-by');
 
@@ -46,6 +53,8 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   // rate limiting keys on the proxy address and secure cookies misbehave.
   if (cfg.trustProxy) {
     app.set('trust proxy', 1);
+  } else {
+    app.set('trust proxy', false);
   }
 
   app.use(cookieParser());
@@ -59,14 +68,14 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   });
 
   // Readiness: verifies the runtime dependencies needed to actually do work.
-  app.get('/api/health/ready', (_req, res) => {
+  app.get('/api/health/ready', async (_req, res) => {
     let dbOk = true;
     try {
       db.prepare('SELECT 1').get();
     } catch {
       dbOk = false;
     }
-    const caps = getSystemCapabilities();
+    const caps = await getSystemCapabilitiesAsync();
     const ready = dbOk && caps.docker && caps.runnerImage;
     res.status(ready ? 200 : 503).json({
       ok: ready,
@@ -79,12 +88,14 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
     });
   });
 
-  app.get('/api/system/capabilities', (_req, res) => {
-    res.json(getSystemCapabilities());
+  app.get('/api/system/capabilities', async (_req, res) => {
+    res.json(await getSystemCapabilitiesAsync());
   });
 
   app.use('/api/auth', authRoutes(db, cfg));
   app.use('/api/projects', requireAuth(db), projectRoutes(cfg, db));
+  app.use('/api/projects', requireAuth(db), aiRoutes(cfg, db));
+  app.use('/api/admin', requireAdmin(db), adminRoutes(cfg, db));
 
   // Production frontend serving: the built Vite SPA. Only enabled when the
   // build output exists, so tests and dev (Vite proxy) are unaffected.

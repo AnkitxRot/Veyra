@@ -1,25 +1,12 @@
-export const TOKEN_KEY = 'cloudide_token';
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
 export interface ApiErrorBody {
   error?: { code?: string; message?: string };
 }
 
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(opts.headers as Record<string, string> || {}),
+  };
   
   const res = await fetch(path, { credentials: 'include', ...opts, headers });
   
@@ -65,4 +52,103 @@ export interface Capabilities {
 
 export async function getCapabilities(): Promise<Capabilities> {
   return api<Capabilities>('/api/system/capabilities');
+}
+
+export interface AIResponsePayload {
+  action: string;
+  providerType: string;
+  modelName: string;
+  rootCause?: string;
+  explanation: string;
+  patch?: {
+    filePath: string;
+    originalContent: string;
+    modifiedContent: string;
+    explanation: string;
+    linesAdded: number;
+    linesRemoved: number;
+  } | null;
+  confidence: 'high' | 'medium' | 'low';
+  evidence: string[];
+  suggestedTests?: string;
+  approxTokens: { input: number; output: number };
+}
+
+export interface AIVerificationRecord {
+  id: string;
+  project_id: string;
+  user_id: number;
+  action: string;
+  provider_type: string;
+  model_name?: string;
+  status: 'VERIFIED' | 'FAILED' | 'UNVERIFIED';
+  file_path?: string;
+  explanation?: string;
+  diff_summary?: string;
+  snapshot_id?: string;
+  execution_id?: string;
+  exit_code?: number | null;
+  stdout_summary?: string;
+  stderr_summary?: string;
+  skip_reason?: string;
+  duration_ms: number;
+  created_at: string;
+}
+
+export async function triggerAIAction(
+  projectId: string,
+  payload: {
+    action: string;
+    activeFilePath: string;
+    selectedCode?: string;
+    selectionRange?: any;
+    diagnostics?: any[];
+    searchQuery?: string;
+    providerId?: string;
+  }
+): Promise<{ response: AIResponsePayload }> {
+  return api<{ response: AIResponsePayload }>(`/api/projects/${projectId}/ai/action`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function applyAIPatch(
+  projectId: string,
+  payload: {
+    filePath: string;
+    content: string;
+    createSafetySnapshot?: boolean;
+    explanation?: string;
+  }
+): Promise<{ ok: boolean; snapshotId?: string }> {
+  return api<{ ok: boolean; snapshotId?: string }>(`/api/projects/${projectId}/ai/apply-patch`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function verifyAIPatch(
+  projectId: string,
+  payload: {
+    action: string;
+    providerType: string;
+    modelName: string;
+    filePath: string;
+    explanation: string;
+    diffSummary?: string;
+    snapshotId?: string;
+    skipVerification?: boolean;
+  }
+): Promise<{ verification: AIVerificationRecord }> {
+  return api<{ verification: AIVerificationRecord }>(`/api/projects/${projectId}/ai/verify`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listAIVerifications(
+  projectId: string
+): Promise<{ verifications: AIVerificationRecord[] }> {
+  return api<{ verifications: AIVerificationRecord[] }>(`/api/projects/${projectId}/ai/verifications`);
 }

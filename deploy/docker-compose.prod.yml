@@ -1,0 +1,53 @@
+# CloudeeeIDE Full Production Stack with Caddy TLS Reverse Proxy
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - UPSTREAM=app:3000
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+      args:
+        DOCKER_GID: "${DOCKER_GID:-999}"
+    image: cloudeeeide-app:latest
+    container_name: cloudeeeide-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATA_DIR: /var/lib/cloud-ide
+      APP_CONTAINERIZED: "1"
+      TRUST_PROXY: "1"
+      COOKIE_SECURE: "true"
+      MAX_SANDBOXES: "${MAX_SANDBOXES:-20}"
+      PROJECT_QUOTA: "${PROJECT_QUOTA:-20}"
+      MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-3}"
+      SANDBOX_IDLE_TIMEOUT_MS: "${SANDBOX_IDLE_TIMEOUT_MS:-1800000}"
+    volumes:
+      - /var/lib/cloud-ide:/var/lib/cloud-ide
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  caddy_data:
+  caddy_config:

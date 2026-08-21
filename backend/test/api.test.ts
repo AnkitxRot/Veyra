@@ -167,19 +167,19 @@ describe('dependency installation command selection', () => {
     expect(getCommand(r.text)).toBe('npm');
   });
 
-  it('case 2: requirements.txt only → pip3 install', async () => {
+  it('case 2: requirements.txt only → Python venv install', async () => {
     const p = await api.request('POST', '/api/projects', { token, body: { name: 'pip-only' } });
     const pId = p.data.project.id;
     await api.request('POST', `/api/projects/${pId}/file`, {
       token,
-      body: { path: 'requirements.txt', content: 'requests==2.31.0\n' },
+      body: { path: 'requirements.txt', content: 'six==1.17.0\n' },
     });
     const r = await api.request('POST', `/api/projects/${pId}/install`, { token, body: {} });
     expect(r.status).toBe(200);
-    expect(getCommand(r.text)).toBe('pip3');
-  });
+    expect(getCommand(r.text)).toBe('sh');
+  }, 120000);
 
-  it('case 3: both manifests → pip3 install (Python takes precedence)', async () => {
+  it('case 3: both manifests → Python venv install (Python takes precedence)', async () => {
     const p = await api.request('POST', '/api/projects', { token, body: { name: 'both' } });
     const pId = p.data.project.id;
     await api.request('POST', `/api/projects/${pId}/file`, {
@@ -188,12 +188,12 @@ describe('dependency installation command selection', () => {
     });
     await api.request('POST', `/api/projects/${pId}/file`, {
       token,
-      body: { path: 'requirements.txt', content: 'flask==3.0.0\n' },
+      body: { path: 'requirements.txt', content: 'six==1.17.0\n' },
     });
     const r = await api.request('POST', `/api/projects/${pId}/install`, { token, body: {} });
     expect(r.status).toBe(200);
-    expect(getCommand(r.text)).toBe('pip3');
-  });
+    expect(getCommand(r.text)).toBe('sh');
+  }, 120000);
 
   it('case 4: no manifests, language=node → npm install', async () => {
     const p = await api.request('POST', '/api/projects', { token, body: { name: 'lang-node', language: 'node' } });
@@ -203,13 +203,13 @@ describe('dependency installation command selection', () => {
     expect(getCommand(r.text)).toBe('npm');
   });
 
-  it('case 5: no manifests, language=python → pip3 install', async () => {
+  it('case 5: no manifests, language=python → Python venv install', async () => {
     const p = await api.request('POST', '/api/projects', { token, body: { name: 'lang-python', language: 'python' } });
     const pId = p.data.project.id;
     const r = await api.request('POST', `/api/projects/${pId}/install`, { token, body: {} });
     expect(r.status).toBe(200);
-    expect(getCommand(r.text)).toBe('pip3');
-  });
+    expect(getCommand(r.text)).toBe('sh');
+  }, 120000);
 
   it('case 6: no manifests, language=auto → no dependency configuration', async () => {
     const p = await api.request('POST', '/api/projects', { token, body: { name: 'lang-auto' } });

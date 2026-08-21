@@ -16,7 +16,6 @@ export default defineConfig({
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
       '/ws': { target: 'ws://localhost:3000', ws: true, changeOrigin: true },
     },
-    allowedHosts: ['.monkeycode-ai.live'],
   },
   preview: {
     port: 4173,
@@ -24,6 +23,5 @@ export default defineConfig({
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
       '/ws': { target: 'ws://localhost:3000', ws: true, changeOrigin: true },
     },
-    allowedHosts: ['.monkeycode-ai.live'],
   }
 });

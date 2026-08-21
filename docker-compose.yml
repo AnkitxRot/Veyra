@@ -28,6 +28,8 @@ services:
       DATA_DIR: /var/lib/cloud-ide
       APP_CONTAINERIZED: "1"
       TRUST_PROXY: "1"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env before first deploy (required until an admin account exists)}"
       MAX_SANDBOXES: "${MAX_SANDBOXES:-20}"
       PROJECT_QUOTA: "${PROJECT_QUOTA:-20}"
       MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-3}"

@@ -38,14 +38,36 @@ export interface SandboxResult {
   durationMs: number;
 }
 
-export function initCgroupRoot(cgroupRoot: string): void {
-  // cgroup v2 is managed per-container via Docker flags; the root mount
-  // is expected to exist on the host (created by setup.sh or the init system).
+export interface ContainerStats {
+  running: boolean;
+  cpuPercent: number;
+  memoryUsageBytes: number;
+  memoryLimitBytes: number;
+  memoryPercent: number;
+  pids: number;
+  netIO: string;
+  blockIO: string;
+}
+
+function parseByteUnits(str: string): number {
+  if (!str) return 0;
+  const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)?$/);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = (match[2] || 'B').toLowerCase();
+  if (unit.startsWith('k') || unit.startsWith('kib')) return Math.round(num * 1024);
+  if (unit.startsWith('m') || unit.startsWith('mib')) return Math.round(num * 1024 * 1024);
+  if (unit.startsWith('g') || unit.startsWith('gib')) return Math.round(num * 1024 * 1024 * 1024);
+  return Math.round(num);
+}
+
+export function initCgroupRoot(_cgroupRoot: string): void {
+  // cgroup v2 is managed per-container via Docker flags
 }
 
 export class SandboxManager {
   private static instance: SandboxManager;
-  private projectContainers = new Map<string, { containerId: string, ports: Record<number, number>, lastUsed: number }>();
+  private projectContainers = new Map<string, { containerId: string; ports: Record<number, number>; lastUsed: number }>();
   private reaperTimer: NodeJS.Timeout | null = null;
   
   static getInstance(): SandboxManager {
@@ -65,8 +87,6 @@ export class SandboxManager {
        } catch {}
     }
 
-    // Hard cap on tracked sandboxes. Only applies to projects not already
-    // tracked (recreating an existing project's container does not grow the set).
     if (!existing && this.projectContainers.size >= config.maxSandboxes) {
       await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs);
       if (this.projectContainers.size >= config.maxSandboxes) {
@@ -89,8 +109,18 @@ export class SandboxManager {
     
     const limits = config.limits;
     const previewPorts = [3000, 4173, 5173, 8000, 8080];
-    const portArgs = previewPorts.flatMap(p => ['-p', `127.0.0.1::${p}`]);
+    const portArgs = config.containerized
+      ? []
+      : previewPorts.flatMap((p) => ['-p', `127.0.0.1::${p}`]);
     
+    // Level 4 Sandbox Hardening Flags (Read-only root + tmpfs)
+    const hardeningArgs = [
+      '--read-only',
+      '--tmpfs', '/tmp:rw,size=64m,mode=1777',
+      '--tmpfs', '/run:rw,size=16m,mode=1777',
+      '--tmpfs', '/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755',
+    ];
+
     const dockerArgs = [
       'run', '-d',
       '--name', containerId,
@@ -102,6 +132,7 @@ export class SandboxManager {
       '--memory', `${limits.memoryBytes}b`,
       '--cpus', String(limits.cpuQuota / 100_000),
       '--pids-limit', String(limits.pidsLimit),
+      ...hardeningArgs,
       ...portArgs,
       '-v', `${workspaceDir}:/workspace`,
       '-w', '/workspace',
@@ -113,11 +144,13 @@ export class SandboxManager {
     await execFileAsync('docker', dockerArgs);
     
     const portMapping: Record<number, number> = {};
-    const { stdout } = await execFileAsync('docker', ['port', containerId]);
-    for (const line of stdout.split('\n')) {
-      const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
-      if (match) {
-         portMapping[parseInt(match[1], 10)] = parseInt(match[2], 10);
+    if (!config.containerized) {
+      const { stdout } = await execFileAsync('docker', ['port', containerId]);
+      for (const line of stdout.split('\n')) {
+        const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
+        if (match) {
+           portMapping[parseInt(match[1], 10)] = parseInt(match[2], 10);
+        }
       }
     }
     
@@ -131,6 +164,7 @@ export class SandboxManager {
     try { await execFileAsync('docker', ['rm', '-f', cid]); } catch {}
     try { await execFileAsync('docker', ['network', 'rm', `ide-net-${projectId}`]); } catch {}
     this.projectContainers.delete(projectId);
+    this.connectedNetworks.delete(projectId);
   }
   
   async cleanupAllSandboxes(): Promise<void> {
@@ -174,33 +208,64 @@ export class SandboxManager {
       await execFileAsync('docker', ['network', 'connect', `ide-net-${projectId}`, appId]);
       this.connectedNetworks.add(projectId);
     } catch {
-      // Already connected (or network unavailable); a genuine routing failure
-      // will surface as a proxy error to the client.
       this.connectedNetworks.add(projectId);
     }
   }
 
-  /**
-   * Returns a URL the backend can reach the project's preview server on, or null
-   * if the project has no sandbox publishing that port.
-   *
-   * Non-containerized backends run on the Docker host, so the loopback-published
-   * port is directly reachable. Containerized backends cannot reach host loopback
-   * bindings, so they join the project network and use container-name DNS.
-   */
   async getProxyTarget(projectId: string, internalPort: number, containerized: boolean): Promise<string | null> {
+    const allowedPorts = [3000, 4173, 5173, 8000, 8080];
+    if (!allowedPorts.includes(internalPort)) return null;
+
     const info = this.projectContainers.get(projectId);
-    if (!info || info.ports[internalPort] === undefined) return null;
+    if (!info) return null;
+
     if (containerized) {
       await this.connectAppToProjectNetwork(projectId);
       return `http://${info.containerId}:${internalPort}`;
     }
+    if (info.ports[internalPort] === undefined) return null;
     return `http://127.0.0.1:${info.ports[internalPort]}`;
   }
 
   touch(projectId: string): void {
     const info = this.projectContainers.get(projectId);
     if (info) info.lastUsed = Date.now();
+  }
+
+  async getAllActiveSandboxes(): Promise<Array<{
+    projectId: string;
+    containerId: string;
+    lastUsed: number;
+    ports: Record<number, number>;
+  }>> {
+    const list: Array<{ projectId: string; containerId: string; lastUsed: number; ports: Record<number, number> }> = [];
+    for (const [projectId, info] of this.projectContainers.entries()) {
+      list.push({
+        projectId,
+        containerId: info.containerId,
+        lastUsed: info.lastUsed,
+        ports: info.ports,
+      });
+    }
+    return list;
+  }
+
+  async terminateSandbox(containerId: string): Promise<{ success: boolean; projectId?: string }> {
+    if (!/^ide-sandbox-[a-zA-Z0-9_-]+$/.test(containerId)) {
+      throw new Error('invalid container id: not a managed sandbox');
+    }
+
+    let foundProjectId: string | undefined;
+    for (const [pId, info] of this.projectContainers.entries()) {
+      if (info.containerId === containerId) {
+        foundProjectId = pId;
+        break;
+      }
+    }
+
+    const projectId = foundProjectId || containerId.replace('ide-sandbox-', '');
+    await this.stopProjectSandbox(projectId);
+    return { success: true, projectId };
   }
 
   /** Stops containers that have not been used within the idle timeout. */
@@ -233,9 +298,67 @@ export class SandboxManager {
     }
   }
 
+  /** Live real-time resource telemetry sampled from Docker daemon */
+  async getContainerStats(projectId: string): Promise<ContainerStats> {
+    const containerId = `ide-sandbox-${projectId}`;
+    try {
+      const { stdout } = await execFileAsync('docker', [
+        'stats',
+        '--no-stream',
+        '--format',
+        '{{json .}}',
+        containerId,
+      ]);
+      if (!stdout.trim()) {
+        return {
+          running: false,
+          cpuPercent: 0,
+          memoryUsageBytes: 0,
+          memoryLimitBytes: 536870912,
+          memoryPercent: 0,
+          pids: 0,
+          netIO: '0B / 0B',
+          blockIO: '0B / 0B',
+        };
+      }
+      const parsed = JSON.parse(stdout.trim().split('\n')[0]);
+      const cpu = parseFloat((parsed.CPUPerc || '0%').replace('%', '')) || 0;
+      const memPerc = parseFloat((parsed.MemPerc || '0%').replace('%', '')) || 0;
+
+      const memUsageStr = parsed.MemUsage || '';
+      let memUsageBytes = 0;
+      let memLimitBytes = 536870912;
+      if (memUsageStr.includes('/')) {
+        const [u, l] = memUsageStr.split('/').map((s: string) => s.trim());
+        memUsageBytes = parseByteUnits(u);
+        memLimitBytes = parseByteUnits(l) || 536870912;
+      }
+      const pids = parseInt(parsed.PIDs, 10) || 0;
+      return {
+        running: true,
+        cpuPercent: cpu,
+        memoryUsageBytes: memUsageBytes,
+        memoryLimitBytes: memLimitBytes,
+        memoryPercent: memPerc,
+        pids,
+        netIO: parsed.NetIO || '0B / 0B',
+        blockIO: parsed.BlockIO || '0B / 0B',
+      };
+    } catch {
+      return {
+        running: false,
+        cpuPercent: 0,
+        memoryUsageBytes: 0,
+        memoryLimitBytes: 536870912,
+        memoryPercent: 0,
+        pids: 0,
+        netIO: '0B / 0B',
+        blockIO: '0B / 0B',
+      };
+    }
+  }
+
   private async readPortMapping(containerId: string): Promise<Record<number, number>> {
-    // Retry once: right after container start the daemon can transiently
-    // return no bindings or fail the CLI call under load.
     for (let attempt = 0; attempt < 2; attempt++) {
       const mapping: Record<number, number> = {};
       try {
@@ -263,12 +386,6 @@ export class SandboxManager {
     return null;
   }
 
-  /**
-   * Startup reconciliation against the Docker daemon:
-   * - containers whose project no longer exists are removed (with their network)
-   * - running containers of existing projects are re-registered so preview
-   *   port mappings survive a backend restart
-   */
   async reconcile(config: AppConfig, db: Db): Promise<void> {
     if (!isDockerRunning()) return;
 
@@ -299,7 +416,6 @@ export class SandboxManager {
       }
     }
 
-    // Networks of deleted projects
     const netOut = await this.dockerListing(['network', 'ls', '--format', '{{.Name}}', '-f', 'name=ide-net-']);
     if (netOut !== null) {
       for (const netName of netOut.split('\n')) {
@@ -338,8 +454,7 @@ export async function sandboxRun(projectId: string, workspaceDir: string, opts: 
     };
   }
 
-  // Use docker exec instead of docker run so it runs inside the persistent container
-  const execArgs = ['exec', '-i'];
+  const execArgs = ['exec', '-i', '-w', '/workspace'];
   if (opts.env) {
     for (const [k, v] of Object.entries(opts.env)) {
       execArgs.push('-e', `${k}=${v}`);
@@ -369,8 +484,6 @@ export async function sandboxRun(projectId: string, workspaceDir: string, opts: 
   child.on('error', (err) => { spawnError = err.message; });
 
   const killProcess = () => {
-    // Verified on Docker 29.x: SIGKILLing the docker exec client tears down
-    // the exec session and terminates the in-container process.
     child.kill('SIGKILL');
   };
 
@@ -402,13 +515,13 @@ export async function sandboxRun(projectId: string, workspaceDir: string, opts: 
   clearTimeout(watchdog);
 
   if (spawnError) {
-    stderr = `${stderr}\\n[sandbox] failed to exec process: ${spawnError}`.trim();
+    stderr = `${stderr}\n[sandbox] failed to exec process: ${spawnError}`.trim();
   }
 
   return {
     stdout, stderr,
     exitCode: code, signal: signal ?? null,
-    timedOut, oom: code === 137,
+    timedOut, oom: !timedOut && code === 137,
     durationMs: Date.now() - start,
   };
 }

@@ -13,7 +13,8 @@ export interface InstallResult {
 }
 
 const NODE_ARGS = ['install', '--ignore-scripts'];
-const PYTHON_ARGS = ['install', '-r', 'requirements.txt'];
+const PYTHON_CMD = 'sh';
+const PYTHON_ARGS = ['-c', 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt'];
 
 /**
  * Determine which dependency manager to run for a project.
@@ -48,7 +49,7 @@ export async function resolveInstallSpec(spec: InstallSpec): Promise<InstallResu
 
   // 1. requirements.txt takes precedence
   if (reqExists) {
-    return { cmd: 'pip3', args: PYTHON_ARGS, message: '' };
+    return { cmd: PYTHON_CMD, args: PYTHON_ARGS, message: '' };
   }
 
   // 2. package.json → npm
@@ -62,7 +63,7 @@ export async function resolveInstallSpec(spec: InstallSpec): Promise<InstallResu
   }
 
   if (spec.language === 'python') {
-    return { cmd: 'pip3', args: PYTHON_ARGS, message: '' };
+    return { cmd: PYTHON_CMD, args: PYTHON_ARGS, message: '' };
   }
 
   return { cmd: null, args: [], message: 'No dependency configuration found for this language' };
