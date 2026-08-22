@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import type { Db } from '../db.js';

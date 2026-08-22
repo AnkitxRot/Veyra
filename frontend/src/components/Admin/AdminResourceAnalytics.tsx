@@ -3,11 +3,8 @@ import { api } from '../../api';
 import TimeSeriesChart from '../common/TimeSeriesChart';
 import {
   IconCpu,
-  IconHardDrive,
-  IconServer,
   IconRefresh,
   IconAlertTriangle,
-  IconLayers,
 } from '../common/Icons';
 
 export interface HistoricalTimelinePoint {
@@ -37,7 +34,7 @@ export default function AdminResourceAnalytics() {
   const [range, setRange] = useState<'5m' | '15m' | '1h' | '24h'>('15m');
   const [timeline, setTimeline] = useState<HistoricalTimelinePoint[]>([]);
   const [anomalies, setAnomalies] = useState<AnomalyRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const fetchAnalytics = useCallback(async () => {

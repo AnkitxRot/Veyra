@@ -1,15 +1,12 @@
-import React, { useEffect, useRef, useState, Suspense } from 'react';
+import React, { useCallback, useEffect, useRef, useState, Suspense } from 'react';
 import { getWebSocketUrl, api } from '../../api';
 import {
   IconTrash,
   IconCheck,
   IconClose,
   IconRefresh,
-  IconSparkles,
-  IconLayers,
-  IconPlay,
-  getLanguageIcon,
 } from '../common/Icons';
+import { getLanguageIcon } from '../common/iconUtils';
 import { RunRecord, SnapshotRecord } from '../../types';
 import { PromptModal, ConfirmModal } from '../common/Modal';
 const ExecutionTelemetryModal = React.lazy(
@@ -61,7 +58,7 @@ export default function Output({ project, onRefreshTree }: any) {
     if (activeTab === 'console') scrollToBottom();
   }, [logs, activeTab]);
 
-  const loadRuns = async () => {
+  const loadRuns = useCallback(async () => {
     if (!project) return;
     setLoadingRuns(true);
     try {
@@ -74,9 +71,9 @@ export default function Output({ project, onRefreshTree }: any) {
     } finally {
       setLoadingRuns(false);
     }
-  };
+  }, [project]);
 
-  const loadSnapshots = async () => {
+  const loadSnapshots = useCallback(async () => {
     if (!project) return;
     setLoadingSnapshots(true);
     try {
@@ -89,12 +86,12 @@ export default function Output({ project, onRefreshTree }: any) {
     } finally {
       setLoadingSnapshots(false);
     }
-  };
+  }, [project]);
 
   useEffect(() => {
     if (activeTab === 'history') loadRuns();
     if (activeTab === 'snapshots') loadSnapshots();
-  }, [activeTab, project]);
+  }, [activeTab, project, loadRuns, loadSnapshots]);
 
   useEffect(() => {
     const handleRun = (e: Event) => {
@@ -199,7 +196,7 @@ export default function Output({ project, onRefreshTree }: any) {
 
             loadRuns();
           }
-        } catch (err) {
+        } catch {
           // Ignore parse errors
         }
       };
@@ -262,7 +259,7 @@ export default function Output({ project, onRefreshTree }: any) {
         wsRef.current.close();
       }
     };
-  }, [project]);
+  }, [project, loadRuns]);
 
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();

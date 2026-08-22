@@ -6,7 +6,7 @@ import { ensureAdminUser } from '../src/db.js';
 let api: TestApi;
 let cfg: ReturnType<typeof makeTestConfig>;
 let userToken: string;
-let normalUserId: number;
+let _normalUserId: number;
 let adminToken: string;
 let adminUserId: number;
 let sampleProjectId: string;
@@ -20,7 +20,7 @@ beforeAll(async () => {
     body: { username: 'normaluser', password: 'password123' },
   });
   userToken = userRes.data.token;
-  normalUserId = userRes.data.user.id;
+  _normalUserId = userRes.data.user.id;
 
   // Create project under normal user
   const projRes = await api.request('POST', '/api/projects', {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconCheck, IconAlertTriangle, IconActivity } from '../common/Icons';
+import { IconCheck, IconAlertTriangle } from '../common/Icons';
 
 export type AIVerificationStatus = 'VERIFIED' | 'FAILED' | 'UNVERIFIED';
 
@@ -20,7 +20,7 @@ export interface AIVerificationCardProps {
 
 export default function AIVerificationCard({
   status,
-  action,
+  action: _action,
   filePath,
   explanation,
   exitCode,
@@ -30,7 +30,7 @@ export default function AIVerificationCard({
   durationMs = 0,
   providerType = 'deterministic',
   onDismiss,
-  onViewDiff,
+  onViewDiff: _onViewDiff,
 }: AIVerificationCardProps) {
   const isVerified = status === 'VERIFIED';
   const isFailed = status === 'FAILED';

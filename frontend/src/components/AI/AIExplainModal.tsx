@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconCode, IconCheck, IconAlertTriangle, IconActivity } from '../common/Icons';
+import { IconCode, IconActivity } from '../common/Icons';
 
 export interface AIExplainModalProps {
   isOpen: boolean;
@@ -26,7 +26,7 @@ export default function AIExplainModal({
   explanation,
   evidence = [],
   suggestedTests,
-  hasPatch = false,
+  hasPatch: _hasPatch = false,
 }: AIExplainModalProps) {
   if (!isOpen) return null;
 

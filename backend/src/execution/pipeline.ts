@@ -2,7 +2,6 @@ import { promises as fs, constants } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../config.js';
-import { IS_WINDOWS } from '../config.js';
 import { listFiles } from '../files/service.js';
 import { detectLanguage, resolveMainFile } from './detect.js';
 import { getLang } from './languages.js';

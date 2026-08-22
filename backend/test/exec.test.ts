@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runProject } from '../src/execution/pipeline.js';
-import { commandExists, isDockerRunning } from '../src/tools.js';
+import { isDockerRunning } from '../src/tools.js';
 import { sandboxManager } from '../src/execution/sandbox.js';
 import { makeTestConfig, makeWorkspace } from './helpers.js';
 

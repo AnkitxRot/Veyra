@@ -20,11 +20,9 @@ import {
   IconRefresh,
   IconTrash,
   IconLogOut,
-  IconChevronRight,
   IconCheck,
   IconAlertTriangle,
   IconDocker,
-  IconDatabase,
   IconLayers,
   IconEdit,
   IconCpu,
@@ -32,7 +30,7 @@ import {
 import AdminResourceAnalytics from './AdminResourceAnalytics';
 
 export default function AdminDashboard({
-  user,
+  user: _user,
   onLogout,
   onSwitchToIde,
 }: {
@@ -60,7 +58,7 @@ export default function AdminDashboard({
 
   // User Management Modals / Drawer states
   const [inspectingUser, setInspectingUser] = useState<AdminUserDetails | null>(null);
-  const [inspectLoading, setInspectLoading] = useState(false);
+  const [, setInspectLoading] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUserData | null>(null);
   const [editUsername, setEditUsername] = useState('');
   const [editRole, setEditRole] = useState<'user' | 'admin'>('user');

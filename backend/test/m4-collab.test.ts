@@ -1,15 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
-import * as syncProtocol from 'y-protocols/sync';
-import * as encoding from 'lib0/encoding';
-import * as decoding from 'lib0/decoding';
 import { openDb } from '../src/db.js';
 import { resolveConfig } from '../src/config.js';
-import {
-  CollaborationRoom,
-  CollaborationManager,
-  collaborationManager,
-} from '../src/collab/manager.js';
+import { collaborationManager } from '../src/collab/manager.js';
 import {
   createProject,
   addProjectCollaborator,

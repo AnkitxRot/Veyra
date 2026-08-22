@@ -28,11 +28,12 @@ export async function handleExecutionConnection(
   
   let controller: SandboxController | null = null;
   let running = false;
+  let activeCleanup: (() => void) | null = null;
 
   ws.on('message', async (msg) => {
     try {
       const parsed = JSON.parse(msg.toString());
-      
+
       if (parsed.type === 'start') {
         if (running) {
           ws.send(JSON.stringify({ type: 'error', data: 'Execution already running' }));
@@ -45,7 +46,19 @@ export async function handleExecutionConnection(
         running = true;
         const executionId = randomUUID();
         telemetryHistorian.trackExecutionStart(projectId, executionId);
-        
+
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          telemetryHistorian.trackExecutionEnd(projectId, executionId);
+          runGate.release(userId);
+          running = false;
+          controller = null;
+          activeCleanup = null;
+        };
+        activeCleanup = finish;
+
         try {
           const result = await runProject(cfg, projectId, cwd, {
             language: parsed.language,
@@ -64,7 +77,6 @@ export async function handleExecutionConnection(
             }
           });
 
-          telemetryHistorian.trackExecutionEnd(projectId, executionId);
           const execSummary = telemetryHistorian.queryExecutionTelemetry(projectId, executionId).summary;
           
           // Record run into SQLite execution history
@@ -102,14 +114,11 @@ export async function handleExecutionConnection(
             }));
           }
         } catch (err) {
-          telemetryHistorian.trackExecutionEnd(projectId, executionId);
           if (ws.readyState === ws.OPEN) {
             ws.send(JSON.stringify({ type: 'error', data: err instanceof Error ? err.message : String(err) }));
           }
         } finally {
-          running = false;
-          controller = null;
-          runGate.release(userId);
+          finish();
         }
       } else if (parsed.type === 'stdin') {
         if (controller) {
@@ -120,7 +129,7 @@ export async function handleExecutionConnection(
           controller.kill();
         }
       }
-    } catch (e) {
+    } catch {
       // ignore parse errors
     }
   });
@@ -128,6 +137,9 @@ export async function handleExecutionConnection(
   ws.on('close', () => {
     if (controller) {
       controller.kill();
+    }
+    if (activeCleanup) {
+      activeCleanup();
     }
   });
 }

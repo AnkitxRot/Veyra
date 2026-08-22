@@ -1,9 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { hostname } from 'node:os';
 import type { AppConfig } from '../config.js';
-import { IS_WINDOWS } from '../config.js';
 import type { Db } from '../db.js';
 import { isDockerRunning, isRunnerImageAvailable } from '../tools.js';
 

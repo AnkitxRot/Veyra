@@ -7,7 +7,7 @@ const AdminDashboard = React.lazy(
 import AdminLogin from './components/Admin/AdminLogin';
 import { api } from './api';
 import { User } from './types';
-import { IconShield, IconAlertTriangle } from './components/common/Icons';
+import { IconAlertTriangle } from './components/common/Icons';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);

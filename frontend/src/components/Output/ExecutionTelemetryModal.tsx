@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
 import { RunRecord } from '../../types';
 import TimeSeriesChart from '../common/TimeSeriesChart';
-import { IconClose, IconRefresh, IconCheck, IconAlertTriangle } from '../common/Icons';
+import { IconClose } from '../common/Icons';
 
 export interface ExecutionTelemetryModalProps {
   isOpen: boolean;
@@ -21,7 +21,7 @@ export default function ExecutionTelemetryModal({
     samples: any[];
     summary: any;
   } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !run || !projectId) return;

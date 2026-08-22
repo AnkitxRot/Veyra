@@ -8,8 +8,6 @@ import {
   IconMonitor,
   IconLayers,
   IconShield,
-  IconRefresh,
-  IconCheck,
 } from './Icons';
 
 export interface CommandPaletteModalProps {

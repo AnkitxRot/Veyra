@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import * as Y from 'yjs';
 import { openDb } from '../src/db.js';
 import { resolveConfig } from '../src/config.js';
 import {
-  aiProviderRegistry,
   DeterministicEngineeringProvider,
   type AIContextBundle,
 } from '../src/ai/provider.js';
@@ -12,7 +10,6 @@ import { runAIVerification } from '../src/ai/verify.js';
 import { collaborationManager } from '../src/collab/manager.js';
 import {
   createProject,
-  addProjectCollaborator,
   requireProjectAccess,
   projectDir,
 } from '../src/projects/service.js';

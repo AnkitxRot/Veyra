@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../../api';
 import { User } from '../../types';
-import { IconLayers, IconSparkles, IconPlay } from '../common/Icons';
+import { IconLayers, IconSparkles } from '../common/Icons';
 
 export default function Auth({
   onAuthed,

@@ -74,7 +74,7 @@ export async function listFiles(root: string, rel = '', out: string[] = []): Pro
         out.push(relPath);
       }
     }
-  } catch (err) {
+  } catch {
     // ignore dir read errors
   }
   return out;
@@ -85,7 +85,7 @@ export async function tree(root: string): Promise<TreeNode[]> {
   let entries;
   try {
     entries = await fs.readdir(root, { withFileTypes: true });
-  } catch (err) {
+  } catch {
     return [];
   }
   
@@ -104,7 +104,7 @@ export async function tree(root: string): Promise<TreeNode[]> {
       try {
         const st = await fs.stat(abs);
         nodes.push({ name: e.name, path: relPath, type: 'file', size: st.size });
-      } catch (err) {
+      } catch {
         // file might have disappeared
       }
     }
@@ -118,7 +118,7 @@ export async function readProjectFile(root: string, relPath: string): Promise<{ 
   let st;
   try {
     st = await fs.stat(abs);
-  } catch (err) {
+  } catch {
     throw new ApiError(404, 'file not found', 'not_found');
   }
   if (!st.isFile()) throw new ApiError(400, 'not a file', 'not_a_file');

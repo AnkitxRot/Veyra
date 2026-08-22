@@ -31,8 +31,8 @@ export interface FileDiagnosticsGroup {
  */
 export function parseDiagnostics(
   output: string,
-  fallbackLanguage?: string,
-  activeFilePath?: string
+  _fallbackLanguage?: string,
+  _activeFilePath?: string
 ): Diagnostic[] {
   if (!output || !output.trim()) return [];
 

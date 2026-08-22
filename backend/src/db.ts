@@ -336,7 +336,11 @@ function runMigrations(db: Db): void {
       db.exec('COMMIT');
       current = migration.version;
     } catch (err) {
-      db.exec('ROLLBACK');
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // ignore rollback failure; the original migration error is what matters
+      }
       throw err;
     }
   }

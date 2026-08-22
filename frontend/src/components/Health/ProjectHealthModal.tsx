@@ -1,14 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api';
 import { Project } from '../../types';
 import {
   IconCheck,
   IconAlertTriangle,
   IconClose,
-  IconLayers,
   IconRefresh,
-  IconCpu,
-  IconHardDrive,
 } from '../common/Icons';
 
 export interface ProjectHealthStatus {
@@ -52,7 +49,7 @@ export default function ProjectHealthModal({
   const [health, setHealth] = useState<ProjectHealthStatus | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const fetchHealth = async () => {
+  const fetchHealth = useCallback(async () => {
     if (!project) return;
     setLoading(true);
     try {
@@ -62,13 +59,13 @@ export default function ProjectHealthModal({
     finally {
       setLoading(false);
     }
-  };
+  }, [project]);
 
   useEffect(() => {
     if (isOpen && project) {
       fetchHealth();
     }
-  }, [isOpen, project]);
+  }, [isOpen, project, fetchHealth]);
 
   if (!isOpen) return null;
 

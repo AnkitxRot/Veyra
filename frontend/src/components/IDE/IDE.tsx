@@ -3,6 +3,7 @@ import React, {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   Suspense,
 } from 'react';
 import { User, Project, TreeNode, ContainerStats } from '../../types';
@@ -73,6 +74,7 @@ export default function IDE({
   const [openFiles, setOpenFiles] = useState<
     { path: string; content: string; dirty?: boolean }[]
   >([]);
+  const openFilesRef = useRef(openFiles);
   const [bottomTab, setBottomTab] = useState<
     'output' | 'problems' | 'resources' | 'terminal' | 'preview'
   >('output');
@@ -107,6 +109,7 @@ export default function IDE({
   const [collabClient, setCollabClient] = useState<CollaborationClient | null>(
     null,
   );
+  const collabClientRef = useRef<CollaborationClient | null>(null);
   const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>(
     [],
   );
@@ -172,8 +175,9 @@ export default function IDE({
   // M4 Collaboration Lifecycle: Connect to /ws/collab for active project
   useEffect(() => {
     if (!project) {
-      if (collabClient) {
-        collabClient.dispose();
+      if (collabClientRef.current) {
+        collabClientRef.current.dispose();
+        collabClientRef.current = null;
         setCollabClient(null);
       }
       setCollaborators([]);
@@ -191,6 +195,7 @@ export default function IDE({
       if (cancelled) return;
 
       client = new CollaborationClient(project.id, user);
+      collabClientRef.current = client;
       setCollabClient(client);
 
       unsubAwareness = client.on(
@@ -222,7 +227,15 @@ export default function IDE({
       unsubAwareness?.();
       unsubConnection?.();
       client?.dispose();
+      if (collabClientRef.current === client) {
+        collabClientRef.current = null;
+      }
     };
+    // project is tracked by id only to avoid reconnect churn when the object
+    // reference changes without the id changing; collabClient is read via
+    // collabClientRef to avoid a self-triggered reconnect loop (this effect
+    // itself calls setCollabClient).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, user]);
 
   const loadProjects = useCallback(async () => {
@@ -317,12 +330,16 @@ export default function IDE({
     }
   };
 
+  useEffect(() => {
+    openFilesRef.current = openFiles;
+  }, [openFiles]);
+
   // M2: Format Document handler
-  const handleFormatDocument = async (targetFilePath?: string) => {
+  const handleFormatDocument = useCallback(async (targetFilePath?: string) => {
     const fileToFormat = targetFilePath || activeFile;
     if (!project || !fileToFormat) return;
 
-    const targetFile = openFiles.find((f) => f.path === fileToFormat);
+    const targetFile = openFilesRef.current.find((f) => f.path === fileToFormat);
     if (!targetFile) return;
 
     try {
@@ -356,11 +373,11 @@ export default function IDE({
     } catch (err: any) {
       console.warn('Formatting skipped:', err.message);
     }
-  };
+  }, [project, activeFile]);
 
-  const handleSaveActiveFile = async () => {
+  const handleSaveActiveFile = useCallback(async () => {
     if (!project || !activeFile) return;
-    const targetFile = openFiles.find((f) => f.path === activeFile);
+    const targetFile = openFilesRef.current.find((f) => f.path === activeFile);
     if (!targetFile) return;
 
     let contentToSave = targetFile.content;
@@ -402,7 +419,7 @@ export default function IDE({
     } catch (err: any) {
       alert(`Save failed: ${err.message}`);
     }
-  };
+  }, [project, activeFile, formatOnSave]);
 
   // Listen to ide-save event from Monaco Editor
   useEffect(() => {
@@ -518,7 +535,7 @@ export default function IDE({
   }, []);
 
   // M5: AI Action Trigger Handler
-  const handleTriggerAIAction = async (
+  const handleTriggerAIAction = useCallback(async (
     action: string,
     params?: {
       path?: string;
@@ -581,7 +598,7 @@ export default function IDE({
     } finally {
       setIsAiLoading(false);
     }
-  };
+  }, [project, activeFile, diagnostics]);
 
   // M5: AI Patch Acceptance Handler with Snapshot Safety & Sandbox Verification
   const handleAcceptAIPatch = async ({
@@ -641,7 +658,7 @@ export default function IDE({
     };
     document.addEventListener('ide-ai-action', handleAIEvent);
     return () => document.removeEventListener('ide-ai-action', handleAIEvent);
-  }, [project, activeFile, diagnostics]);
+  }, [project, activeFile, diagnostics, handleTriggerAIAction]);
 
   // Register Extensible IDE Commands in Registry
   useEffect(() => {
@@ -924,7 +941,16 @@ export default function IDE({
       unregister();
       unsubscribe();
     };
-  }, [project, activeFile, user.role, onSwitchToAdmin, formatOnSave]);
+  }, [
+    project,
+    activeFile,
+    user.role,
+    onSwitchToAdmin,
+    formatOnSave,
+    handleFormatDocument,
+    handleSaveActiveFile,
+    handleTriggerAIAction,
+  ]);
 
   // Central Keyboard Shortcuts Dispatcher
   useKeyboardShortcuts({
@@ -976,7 +1002,7 @@ export default function IDE({
       window.removeEventListener('keydown', handleGlobalExtraShortcuts, {
         capture: true,
       });
-  }, [activeFile, project]);
+  }, [activeFile, project, handleFormatDocument]);
 
   // Horizontal Sidebar Drag Resizer
   const handleSidebarMouseDown = (e: React.MouseEvent) => {

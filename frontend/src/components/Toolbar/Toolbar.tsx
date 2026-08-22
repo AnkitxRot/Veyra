@@ -8,8 +8,8 @@ import {
   IconChevronRight,
   IconActivity,
   IconShield,
-  getLanguageIcon,
 } from '../common/Icons';
+import { getLanguageIcon } from '../common/iconUtils';
 import { Project, ContainerStats, User } from '../../types';
 import CollaboratorAvatarStack from '../Collab/CollaboratorAvatarStack';
 import type {
@@ -41,7 +41,7 @@ export default function Toolbar({
   user,
   onSwitchToAdmin,
   onOpenQuickOpen,
-  onOpenCommandPalette,
+  onOpenCommandPalette: _onOpenCommandPalette,
   onOpenHealthModal,
   collaborators = [],
   collabStatus = 'disconnected',

@@ -174,7 +174,7 @@ export async function formatProjectFile(
 /**
  * Cleans whitespace, normalizes indents, and ensures clean trailing newlines.
  */
-function formatGenericCode(content: string, defaultIndentSize = 2): string {
+function formatGenericCode(content: string, _defaultIndentSize = 2): string {
   const rawLines = content.split(/\r?\n/);
   const cleanedLines: string[] = [];
 

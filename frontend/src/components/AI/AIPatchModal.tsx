@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
-import { IconCheck, IconAlertTriangle, IconCode } from '../common/Icons';
+import { IconCheck, IconCode } from '../common/Icons';
 
 export interface AIPatchModalProps {
   isOpen: boolean;
@@ -25,7 +25,7 @@ export default function AIPatchModal({
   modifiedContent,
   explanation,
   providerName = 'Deterministic Rule & Static Analysis Engine',
-  providerType = 'deterministic',
+  providerType: _providerType = 'deterministic',
   linesAdded = 0,
   linesRemoved = 0,
 }: AIPatchModalProps) {

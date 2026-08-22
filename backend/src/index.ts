@@ -3,6 +3,7 @@ import { resolveConfig, IS_WINDOWS } from './config.js';
 import { openDb } from './db.js';
 import { setupWebSocketServer } from './ws/index.js';
 import { sandboxManager } from './execution/sandbox.js';
+import { telemetryHistorian } from './execution/historian.js';
 import { deleteExpiredSessions } from './auth/middleware.js';
 import { hashPassword } from './auth/passwords.js';
 import { ensureAdminUser } from './db.js';
@@ -99,6 +100,11 @@ async function start(): Promise<void> {
     // Stop background maintenance first.
     sandboxManager.stopReaper();
     clearInterval(sessionGcTimer);
+    try {
+      telemetryHistorian.stop();
+    } catch (err) {
+      console.error('[shutdown] telemetry historian stop failed:', err);
+    }
 
     // Close WebSocket connections cleanly. Closing each client triggers its
     // teardown (kills in-flight exec controllers and PTY sessions).

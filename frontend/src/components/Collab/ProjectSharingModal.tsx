@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { IconClose, IconUsers, IconTrash, IconCheck } from '../common/Icons';
 
 export interface CollaboratorItem {
@@ -31,7 +31,7 @@ export default function ProjectSharingModal({
   const [inviting, setInviting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const fetchCollaborators = async () => {
+  const fetchCollaborators = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
     setError(null);
@@ -45,7 +45,7 @@ export default function ProjectSharingModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -53,7 +53,7 @@ export default function ProjectSharingModal({
       setSuccessMsg(null);
       setError(null);
     }
-  }, [isOpen, projectId]);
+  }, [isOpen, projectId, fetchCollaborators]);
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();

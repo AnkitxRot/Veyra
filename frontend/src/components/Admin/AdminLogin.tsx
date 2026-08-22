@@ -1,16 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../../api';
 import { User } from '../../types';
-import { IconShield, IconChevronRight } from '../common/Icons';
-
-// Simple Lock icon fallback if needed
-function IconKey({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 2l-2 2m-1.5 1.5L19 7l-2 2m-1.5 1.5L17 12l-4 4a5 5 0 1 1-7-7l4-4 5.5 5.5" />
-    </svg>
-  );
-}
+import { IconShield } from '../common/Icons';
 
 export default function AdminLogin({
   onAuthed,

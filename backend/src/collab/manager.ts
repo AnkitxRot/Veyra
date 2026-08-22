@@ -12,7 +12,8 @@ import { projectDir } from '../projects/service.js';
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
-const MESSAGE_AUTH = 2;
+// Reserved: y-protocols auth message type (received but not handled).
+const _MESSAGE_AUTH = 2;
 const MESSAGE_CUSTOM = 3;
 
 export interface CollaboratorClientState {
@@ -59,7 +60,7 @@ export class CollaborationRoom {
       syncProtocol.writeUpdate(encoder, update);
       const message = encoding.toUint8Array(encoder);
 
-      for (const [client, state] of this.clients.entries()) {
+      for (const [client, _state] of this.clients.entries()) {
         if (client !== origin && client.readyState === 1 /* OPEN */) {
           try {
             client.send(message);
@@ -108,7 +109,7 @@ export class CollaborationRoom {
             yText.insert(0, content);
           }, 'initial_disk_load');
         }
-      } catch (err) {
+      } catch {
         // File might be newly created or not exist yet
       }
     }

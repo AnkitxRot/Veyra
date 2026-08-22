@@ -2,7 +2,8 @@ import React, { useRef, useEffect } from 'react';
 import { monaco } from '../../monacoSetup';
 import { getLanguageInfo } from '../../utils/language';
 import { Diagnostic } from '../../utils/diagnostics';
-import { IconClose, IconCode, getLanguageIcon } from '../common/Icons';
+import { IconClose, IconCode } from '../common/Icons';
+import { getLanguageIcon } from '../common/iconUtils';
 import type { CollaborationClient } from '../../collab/client';
 
 export interface EditorProps {
@@ -18,7 +19,7 @@ export interface EditorProps {
 }
 
 export default function Editor({
-  project,
+  project: _project,
   openFiles,
   setOpenFiles,
   activeFile,
@@ -32,10 +33,16 @@ export default function Editor({
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const activeFileRef = useRef(activeFile);
   const isUpdatingModelRef = useRef(false);
+  const collabClientRef = useRef(collabClient);
+  const isReadOnlyRef = useRef(isReadOnly);
 
   useEffect(() => {
     activeFileRef.current = activeFile;
   }, [activeFile]);
+
+  useEffect(() => {
+    collabClientRef.current = collabClient;
+  }, [collabClient]);
 
   // Create Monaco instance on component mount
   useEffect(() => {
@@ -57,12 +64,12 @@ export default function Editor({
         smoothScrolling: true,
         padding: { top: 12, bottom: 12 },
         bracketPairColorization: { enabled: true },
-        readOnly: isReadOnly,
+        readOnly: isReadOnlyRef.current,
       });
 
       monacoRef.current.onDidChangeCursorPosition((e) => {
-        if (collabClient) {
-          collabClient.updateCursorPosition(
+        if (collabClientRef.current) {
+          collabClientRef.current.updateCursorPosition(
             e.position.lineNumber,
             e.position.column,
           );
@@ -202,10 +209,11 @@ export default function Editor({
         monacoRef.current = null;
       }
     };
-  }, []);
+  }, [setOpenFiles]);
 
   // Sync read-only status with Monaco options
   useEffect(() => {
+    isReadOnlyRef.current = isReadOnly;
     if (monacoRef.current) {
       monacoRef.current.updateOptions({ readOnly: isReadOnly });
     }

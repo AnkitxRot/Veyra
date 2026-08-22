@@ -1,24 +1,22 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { getWebSocketUrl } from '../../api';
-import { IconTrash, IconRefresh, IconTerminal } from '../common/Icons';
+import { IconTrash, IconRefresh } from '../common/Icons';
 
 export default function Terminal({ project }: any) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
   const [connected, setConnected] = useState(false);
 
-  const initTerminal = () => {
+  const initTerminal = useCallback(() => {
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
+    }
     if (!terminalRef.current || !project) return;
-
-    if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
-    }
-    if (xtermRef.current) {
-      try { xtermRef.current.dispose(); } catch {}
-    }
 
     const term = new XTerm({
       theme: {
@@ -72,7 +70,9 @@ export default function Terminal({ project }: any) {
         if (msg.type === 'data' && msg.data) {
           term.write(msg.data);
         }
-      } catch (err) {}
+      } catch {
+        // ignore parse errors
+      }
     };
 
     term.onData((data) => {
@@ -92,16 +92,24 @@ export default function Terminal({ project }: any) {
     });
     resizeObserver.observe(terminalRef.current);
 
-    return () => {
+    const cleanup = () => {
       try { ws.close(); } catch {}
       try { term.dispose(); } catch {}
       resizeObserver.disconnect();
     };
-  };
+    cleanupRef.current = cleanup;
+    return cleanup;
+  }, [project]);
 
   useEffect(() => {
-    return initTerminal();
-  }, [project]);
+    initTerminal();
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+    };
+  }, [initTerminal]);
 
   return (
     <div className="panel-content">

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openDb, type Db, ensureAdminUser } from '../src/db.js';
+import { openDb, ensureAdminUser } from '../src/db.js';
 import { resolveConfig } from '../src/config.js';
 import { TelemetryHistorian, RingBuffer } from '../src/execution/historian.js';
 import { makeTestConfig, startTestApi, type TestApi } from './helpers.js';

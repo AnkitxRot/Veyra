@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Project, TreeNode } from '../../types';
 import { api } from '../../api';
 import {
@@ -11,10 +11,9 @@ import {
   IconLogOut,
   IconTrash,
   IconEdit,
-  IconFile,
   IconSparkles,
-  getLanguageIcon,
 } from '../common/Icons';
+import { getLanguageIcon } from '../common/iconUtils';
 import { PromptModal, ConfirmModal } from '../common/Modal';
 
 interface SidebarProps {

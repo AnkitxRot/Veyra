@@ -2,7 +2,6 @@ import { WebSocket } from 'ws';
 import type { Db } from '../db.js';
 import type { AppConfig } from '../config.js';
 import { SandboxManager } from '../execution/sandbox.js';
-import { getSystemCapabilitiesAsync } from '../tools.js';
 import { auditEmitter, AuditRecord } from '../audit.js';
 
 export class AdminTelemetryStreamManager {
@@ -98,7 +97,11 @@ export class AdminTelemetryStreamManager {
 
     for (const ws of this.clients) {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(message);
+        try {
+          ws.send(message);
+        } catch {
+          // ignore send failures for individual clients; other clients still receive the tick
+        }
       }
     }
     this.lastBroadcastTime = Date.now();
@@ -125,7 +128,11 @@ export class AdminTelemetryStreamManager {
     });
     for (const ws of this.clients) {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(message);
+        try {
+          ws.send(message);
+        } catch {
+          // ignore send failures for individual clients; other clients still receive the event
+        }
       }
     }
   }

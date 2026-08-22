@@ -1,5 +1,3 @@
-import { AppConfig } from '../config.js';
-
 export type AIAction =
   | 'explain'
   | 'fix_error'
@@ -63,7 +61,6 @@ export class DeterministicEngineeringProvider implements AIProvider {
   public readonly type: AIProviderType = 'deterministic';
 
   public async executeAction(action: AIAction, ctx: AIContextBundle): Promise<AIResponse> {
-    const lines = ctx.fileContent.split('\n');
     const inputTokenEstimate = Math.ceil(ctx.fileContent.length / 4) + 120;
 
     switch (action) {

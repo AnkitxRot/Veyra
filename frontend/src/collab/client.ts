@@ -9,7 +9,8 @@ import { User } from '../types';
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
-const MESSAGE_AUTH = 2;
+// Reserved: y-protocols auth message type (received but not handled).
+const _MESSAGE_AUTH = 2;
 const MESSAGE_CUSTOM = 3;
 
 export type CollabConnectionStatus =
@@ -178,7 +179,7 @@ export class CollaborationClient {
     filePath: string,
     model: monaco.editor.ITextModel,
     editor: monaco.editor.IStandaloneCodeEditor,
-    isReadOnly: boolean = false
+    _isReadOnly: boolean = false
   ): void {
     this.unbindCurrentModel();
 

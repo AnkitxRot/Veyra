@@ -58,7 +58,6 @@ export default function TimeSeriesChart({
 
   // Calculate min, max, avg
   const values = data.map((d) => d.value);
-  const minVal = Math.min(...values);
   const maxVal = maxValue !== undefined ? maxValue : Math.max(...values, 1);
   const avgVal = values.reduce((a, b) => a + b, 0) / values.length;
   const currentVal = values[values.length - 1];

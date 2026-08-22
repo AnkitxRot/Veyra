@@ -1,9 +1,9 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import { parse } from 'node:url';
 import type { Db } from '../db.js';
 import type { AppConfig } from '../config.js';
-import { requireOwnedProject, requireProjectAccess } from '../projects/service.js';
+import { requireProjectAccess } from '../projects/service.js';
 import { handleTerminalConnection } from './terminal.js';
 import { handleExecutionConnection } from './execution.js';
 import { hashToken } from '../auth/middleware.js';
@@ -76,7 +76,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
       const minRole = (pathname === '/ws/terminal' || pathname === '/ws/execute') ? 'editor' : 'viewer';
       const access = requireProjectAccess(db, row.id, projectId, minRole);
       accessRole = access.role;
-    } catch (err) {
+    } catch {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       socket.destroy();
       return;

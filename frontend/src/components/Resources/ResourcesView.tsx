@@ -3,12 +3,8 @@ import { api } from '../../api';
 import { Project } from '../../types';
 import TimeSeriesChart from '../common/TimeSeriesChart';
 import {
-  IconCpu,
-  IconHardDrive,
-  IconLayers,
   IconRefresh,
   IconAlertTriangle,
-  IconCheck,
   IconDownload,
 } from '../common/Icons';
 
@@ -67,7 +63,6 @@ export default function ResourcesView({ project }: ResourcesViewProps) {
     summary: TelemetrySummary;
   } | null>(null);
   const [anomalies, setAnomalies] = useState<AnomalyRecord[]>([]);
-  const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [showTableFallback, setShowTableFallback] = useState(false);
 
