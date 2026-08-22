@@ -26,3 +26,12 @@ export class RunGate {
 }
 
 export const runGate = new RunGate();
+
+/**
+ * Separate per-user budget for workspace search. Each search spawns a real
+ * OS-level worker thread that may run for up to the worker hard timeout, so
+ * it needs its own cap — but it is a different resource class (CPU-bound
+ * filesystem/regex work) than `runGate`'s Docker executions, and sharing one
+ * counter would serialize unrelated operations against each other.
+ */
+export const searchGate = new RunGate();

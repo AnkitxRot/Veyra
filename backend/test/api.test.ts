@@ -464,3 +464,110 @@ describe.skipIf(!isDockerRunning())("Preview Proxy Security", () => {
     expect(r.status).toBe(400);
   });
 });
+
+describe("search concurrency gate", () => {
+  let gateCfg: ReturnType<typeof makeTestConfig>;
+  let gateApi: TestApi;
+  let gateToken: string;
+  let gateProjectId: string;
+
+  beforeAll(async () => {
+    // A cap of 1 makes the limit deterministic: any second request that is
+    // in flight while the first one's worker thread is alive must be
+    // rejected, without depending on how fast the event loop drains.
+    gateCfg = makeTestConfig({ maxConcurrentRuns: 1 });
+    gateApi = await startTestApi(gateCfg);
+    const reg = await gateApi.request("POST", "/api/auth/register", {
+      body: { username: "gateuser", password: "secret123" },
+    });
+    gateToken = reg.data.token;
+    const proj = await gateApi.request("POST", "/api/projects", {
+      token: gateToken,
+      body: { name: "search-gate" },
+    });
+    gateProjectId = proj.data.project.id;
+    // Enough content that each search does real traversal work, so the
+    // requests genuinely overlap rather than completing instantly.
+    for (let i = 0; i < 6; i++) {
+      await gateApi.request("POST", `/api/projects/${gateProjectId}/file`, {
+        token: gateToken,
+        body: {
+          path: `src/file${i}.txt`,
+          content: `needle line ${i}\nfiller\n`.repeat(200),
+        },
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await gateApi?.close();
+  });
+
+  it("rejects searches beyond the per-user concurrent limit", async () => {
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        gateApi.request("POST", `/api/projects/${gateProjectId}/search`, {
+          token: gateToken,
+          body: { query: "needle" },
+        }),
+      ),
+    );
+    const rejected = results.filter((r) => r.status === 429);
+    expect(rejected.length).toBeGreaterThan(0);
+    for (const r of rejected) {
+      expect(r.data.error.code).toBe("too_many_searches");
+    }
+    // The cap must not reject everything: at least one request gets through.
+    expect(results.some((r) => r.status === 200)).toBe(true);
+  });
+
+  it("POST and GET share one per-user search budget", async () => {
+    const results = await Promise.all([
+      gateApi.request("POST", `/api/projects/${gateProjectId}/search`, {
+        token: gateToken,
+        body: { query: "needle" },
+      }),
+      gateApi.request(
+        "GET",
+        `/api/projects/${gateProjectId}/search?q=needle`,
+        { token: gateToken },
+      ),
+      gateApi.request(
+        "GET",
+        `/api/projects/${gateProjectId}/search?q=needle`,
+        { token: gateToken },
+      ),
+    ]);
+    expect(results.filter((r) => r.status === 429).length).toBeGreaterThan(0);
+  });
+
+  it("releases the slot after each search completes", async () => {
+    // Sequential searches must all succeed; a leaked slot would wedge the
+    // user's budget permanently after the bursts above.
+    for (let i = 0; i < 3; i++) {
+      const r = await gateApi.request(
+        "GET",
+        `/api/projects/${gateProjectId}/search?q=needle`,
+        { token: gateToken },
+      );
+      expect(r.status).toBe(200);
+      expect(r.data.totalMatches).toBeGreaterThan(0);
+    }
+  });
+
+  it("releases the slot when the search itself fails", async () => {
+    const bad = await gateApi.request(
+      "GET",
+      `/api/projects/${gateProjectId}/search?q=${encodeURIComponent("(unclosed")}&regex=true`,
+      { token: gateToken },
+    );
+    expect(bad.status).toBe(400);
+    expect(bad.data.error.code).toBe("invalid_regex");
+    const ok = await gateApi.request(
+      "GET",
+      `/api/projects/${gateProjectId}/search?q=needle`,
+      { token: gateToken },
+    );
+    expect(ok.status).toBe(200);
+  });
+});

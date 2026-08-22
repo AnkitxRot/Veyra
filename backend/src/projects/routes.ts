@@ -28,7 +28,7 @@ import {
 import { runProject } from "../execution/pipeline.js";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { sandboxManager, sandboxRun } from "../execution/sandbox.js";
-import { runGate } from "../execution/runGate.js";
+import { runGate, searchGate } from "../execution/runGate.js";
 import { STARTER_TEMPLATES, applyTemplate } from "./templates.js";
 import {
   createSnapshot,
@@ -531,9 +531,24 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id,
         "viewer",
       );
-      const cwd = await workspacePath(cfg, project.id);
-      const result = await searchProjectContent(cwd, req.body ?? {});
-      res.json(result);
+      // Every search spawns a worker thread that can live for the full
+      // worker hard timeout, so cap how many a single user can have in
+      // flight at once (own budget, separate from run/install).
+      const userId = userOf(req).id;
+      if (!searchGate.acquire(userId, cfg.maxConcurrentRuns)) {
+        throw new ApiError(
+          429,
+          "too many concurrent searches",
+          "too_many_searches",
+        );
+      }
+      try {
+        const cwd = await workspacePath(cfg, project.id);
+        const result = await searchProjectContent(cwd, req.body ?? {});
+        res.json(result);
+      } finally {
+        searchGate.release(userId);
+      }
     } catch (err) {
       next(err);
     }
@@ -547,22 +562,34 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id,
         "viewer",
       );
-      const cwd = await workspacePath(cfg, project.id);
-      const query = (req.query.q as string) || "";
-      const isCaseSensitive = req.query.caseSensitive === "true";
-      const isWholeWord = req.query.wholeWord === "true";
-      const isRegex = req.query.regex === "true";
-      const includePattern = req.query.include as string | undefined;
-      const excludePattern = req.query.exclude as string | undefined;
-      const result = await searchProjectContent(cwd, {
-        query,
-        isCaseSensitive,
-        isWholeWord,
-        isRegex,
-        includePattern,
-        excludePattern,
-      });
-      res.json(result);
+      const userId = userOf(req).id;
+      if (!searchGate.acquire(userId, cfg.maxConcurrentRuns)) {
+        throw new ApiError(
+          429,
+          "too many concurrent searches",
+          "too_many_searches",
+        );
+      }
+      try {
+        const cwd = await workspacePath(cfg, project.id);
+        const query = (req.query.q as string) || "";
+        const isCaseSensitive = req.query.caseSensitive === "true";
+        const isWholeWord = req.query.wholeWord === "true";
+        const isRegex = req.query.regex === "true";
+        const includePattern = req.query.include as string | undefined;
+        const excludePattern = req.query.exclude as string | undefined;
+        const result = await searchProjectContent(cwd, {
+          query,
+          isCaseSensitive,
+          isWholeWord,
+          isRegex,
+          includePattern,
+          excludePattern,
+        });
+        res.json(result);
+      } finally {
+        searchGate.release(userId);
+      }
     } catch (err) {
       next(err);
     }
