@@ -1,14 +1,14 @@
-import * as Y from 'yjs';
-import * as syncProtocol from 'y-protocols/sync';
-import * as awarenessProtocol from 'y-protocols/awareness';
-import * as encoding from 'lib0/encoding';
-import * as decoding from 'lib0/decoding';
-import type { WebSocket } from 'ws';
-import { promises as fs } from 'node:fs';
-import { join } from 'node:path';
-import type { Db } from '../db.js';
-import type { AppConfig } from '../config.js';
-import { projectDir } from '../projects/service.js';
+import * as Y from "yjs";
+import * as syncProtocol from "y-protocols/sync";
+import * as awarenessProtocol from "y-protocols/awareness";
+import * as encoding from "lib0/encoding";
+import * as decoding from "lib0/decoding";
+import type { WebSocket } from "ws";
+import { promises as fs } from "node:fs";
+import { join } from "node:path";
+import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
+import { projectDir } from "../projects/service.js";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -19,8 +19,14 @@ const MESSAGE_CUSTOM = 3;
 export interface CollaboratorClientState {
   userId: number;
   username: string;
-  role: 'owner' | 'editor' | 'viewer';
+  role: "owner" | "editor" | "viewer";
   activeFile?: string | null;
+  /**
+   * Real Yjs awareness clientIDs observed in awareness updates sent by this
+   * connection. Populated lazily as the client broadcasts presence; used to
+   * remove exactly this connection's awareness states on disconnect.
+   */
+  awarenessClientIds?: Set<number>;
 }
 
 export class CollaborationRoom {
@@ -42,7 +48,7 @@ export class CollaborationRoom {
     projectId: string,
     cfg: AppConfig,
     db: Db,
-    onDispose: (projectId: string) => void
+    onDispose: (projectId: string) => void,
   ) {
     this.projectId = projectId;
     this.cfg = cfg;
@@ -53,7 +59,7 @@ export class CollaborationRoom {
     this.awareness = new awarenessProtocol.Awareness(this.doc);
 
     // Track document updates for debounced disk persistence
-    this.doc.on('update', (update: Uint8Array, origin: any) => {
+    this.doc.on("update", (update: Uint8Array, origin: any) => {
       // Broadcast update to all other connected clients
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, MESSAGE_SYNC);
@@ -68,30 +74,36 @@ export class CollaborationRoom {
         }
       }
 
-      if (origin !== 'external_mutation') {
+      if (origin !== "external_mutation") {
         this.scheduleDebouncedPersistence();
       }
     });
 
     // Track awareness changes and broadcast to room
-    this.awareness.on('update', ({ added, updated, removed }: any, origin: any) => {
-      const changedClients = added.concat(updated, removed);
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
-      encoding.writeVarUint8Array(
-        encoder,
-        awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients)
-      );
-      const message = encoding.toUint8Array(encoder);
+    this.awareness.on(
+      "update",
+      ({ added, updated, removed }: any, origin: any) => {
+        const changedClients = added.concat(updated, removed);
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+        encoding.writeVarUint8Array(
+          encoder,
+          awarenessProtocol.encodeAwarenessUpdate(
+            this.awareness,
+            changedClients,
+          ),
+        );
+        const message = encoding.toUint8Array(encoder);
 
-      for (const [client] of this.clients.entries()) {
-        if (client !== origin && client.readyState === 1) {
-          try {
-            client.send(message);
-          } catch {}
+        for (const [client] of this.clients.entries()) {
+          if (client !== origin && client.readyState === 1) {
+            try {
+              client.send(message);
+            } catch {}
+          }
         }
-      }
-    });
+      },
+    );
   }
 
   /**
@@ -102,12 +114,12 @@ export class CollaborationRoom {
     if (yText.length === 0) {
       const fullPath = join(projectDir(this.cfg, this.projectId), filePath);
       try {
-        const content = await fs.readFile(fullPath, 'utf-8');
+        const content = await fs.readFile(fullPath, "utf-8");
         // Only insert if Y.Text is still empty
         if (yText.length === 0) {
           this.doc.transact(() => {
             yText.insert(0, content);
-          }, 'initial_disk_load');
+          }, "initial_disk_load");
         }
       } catch {
         // File might be newly created or not exist yet
@@ -120,7 +132,10 @@ export class CollaborationRoom {
    * External Mutation Safety: updates Y.Text when workspace file is modified externally
    * (e.g. via REST file save, snapshot restore, starter templates).
    */
-  public async handleExternalFileMutation(filePath: string, newContent: string): Promise<void> {
+  public async handleExternalFileMutation(
+    filePath: string,
+    newContent: string,
+  ): Promise<void> {
     const yText = this.doc.getText(filePath);
     const currentContent = yText.toString();
 
@@ -128,7 +143,7 @@ export class CollaborationRoom {
       this.doc.transact(() => {
         yText.delete(0, yText.length);
         yText.insert(0, newContent);
-      }, 'external_mutation');
+      }, "external_mutation");
     }
 
     this.dirtyFiles.delete(filePath);
@@ -139,7 +154,7 @@ export class CollaborationRoom {
    */
   public async addClient(
     ws: WebSocket,
-    clientState: CollaboratorClientState
+    clientState: CollaboratorClientState,
   ): Promise<void> {
     if (this.idleDisposeTimer) {
       clearTimeout(this.idleDisposeTimer);
@@ -148,13 +163,9 @@ export class CollaborationRoom {
 
     this.clients.set(ws, clientState);
 
-    // Set initial awareness state for this client
-    this.awareness.setLocalStateField('user', {
-      id: clientState.userId,
-      name: clientState.username,
-      role: clientState.role,
-      color: getUserColor(clientState.userId),
-    });
+    // NOTE: per-client presence arrives via each client's own awareness updates
+    // (MESSAGE_AWARENESS), keyed by that client's real Yjs clientID. The server
+    // is not a user in the room, so it must not write its own local awareness state.
 
     // 1. Send Sync Step 1 (Server state vector)
     const syncEncoder = encoding.createEncoder();
@@ -171,8 +182,8 @@ export class CollaborationRoom {
         awarenessEncoder,
         awarenessProtocol.encodeAwarenessUpdate(
           this.awareness,
-          Array.from(awarenessStates.keys())
-        )
+          Array.from(awarenessStates.keys()),
+        ),
       );
       ws.send(encoding.toUint8Array(awarenessEncoder));
     }
@@ -194,8 +205,13 @@ export class CollaborationRoom {
           const syncType = decoding.peekVarUint(decoder);
 
           // Viewer Role Protection: Reject edit updates from read-only viewers
-          if (clientState.role === 'viewer' && syncType === syncProtocol.messageYjsUpdate) {
-            console.warn(`[CollabRoom:${this.projectId}] Blocked edit attempt from viewer ${clientState.username}`);
+          if (
+            clientState.role === "viewer" &&
+            syncType === syncProtocol.messageYjsUpdate
+          ) {
+            console.warn(
+              `[CollabRoom:${this.projectId}] Blocked edit attempt from viewer ${clientState.username}`,
+            );
             return;
           }
 
@@ -210,11 +226,23 @@ export class CollaborationRoom {
         }
 
         case MESSAGE_AWARENESS: {
-          awarenessProtocol.applyAwarenessUpdate(
-            this.awareness,
-            decoding.readVarUint8Array(decoder),
-            ws
-          );
+          const update = decoding.readVarUint8Array(decoder);
+          // Capture the real awareness clientID(s) carried by THIS update so the
+          // connection's presence can be cleaned up precisely on disconnect.
+          const seen: number[] = [];
+          const capture = (
+            { added, updated }: { added: number[]; updated: number[] },
+            origin: any,
+          ) => {
+            if (origin === ws) seen.push(...added, ...updated);
+          };
+          this.awareness.on("update", capture);
+          try {
+            awarenessProtocol.applyAwarenessUpdate(this.awareness, update, ws);
+          } finally {
+            this.awareness.off("update", capture);
+          }
+          this.attributeAwarenessClients(ws, clientState, seen);
           break;
         }
 
@@ -223,7 +251,10 @@ export class CollaborationRoom {
           const jsonStr = decoding.readVarString(decoder);
           try {
             const parsed = JSON.parse(jsonStr);
-            if (parsed.type === 'file_open' && typeof parsed.path === 'string') {
+            if (
+              parsed.type === "file_open" &&
+              typeof parsed.path === "string"
+            ) {
               this.ensureFileLoaded(parsed.path);
               clientState.activeFile = parsed.path;
             }
@@ -232,7 +263,10 @@ export class CollaborationRoom {
         }
       }
     } catch (err) {
-      console.error(`[CollabRoom:${this.projectId}] Error handling message:`, err);
+      console.error(
+        `[CollabRoom:${this.projectId}] Error handling message:`,
+        err,
+      );
     }
   }
 
@@ -243,18 +277,51 @@ export class CollaborationRoom {
     const clientState = this.clients.get(ws);
     this.clients.delete(ws);
 
-    // Remove client from awareness
-    if (clientState) {
+    // Remove exactly the awareness states this connection actually published.
+    // If it never sent an awareness update, there is nothing to remove.
+    const ownedIds = clientState?.awarenessClientIds;
+    if (ownedIds && ownedIds.size > 0) {
       awarenessProtocol.removeAwarenessStates(
         this.awareness,
-        [this.doc.clientID],
-        null
+        Array.from(ownedIds),
+        null,
       );
+      // Drop the attribution so a repeated removeClient() is a no-op.
+      ownedIds.clear();
     }
 
     // If room is now empty, schedule a grace period before disposing
     if (this.clients.size === 0) {
       this.scheduleIdleDisposal();
+    }
+  }
+
+  /**
+   * Records awareness clientIDs as belonging to a specific connection.
+   * IDs already attributed to another live connection (or to the room's own doc)
+   * are ignored, so a client can never cause removal of someone else's presence.
+   */
+  private attributeAwarenessClients(
+    ws: WebSocket,
+    clientState: CollaboratorClientState,
+    clientIds: number[],
+  ): void {
+    for (const clientId of clientIds) {
+      if (clientId === this.doc.clientID) continue;
+
+      let ownedElsewhere = false;
+      for (const [otherWs, otherState] of this.clients.entries()) {
+        if (otherWs !== ws && otherState.awarenessClientIds?.has(clientId)) {
+          ownedElsewhere = true;
+          break;
+        }
+      }
+      if (ownedElsewhere) continue;
+
+      if (!clientState.awarenessClientIds) {
+        clientState.awarenessClientIds = new Set<number>();
+      }
+      clientState.awarenessClientIds.add(clientId);
     }
   }
 
@@ -265,7 +332,7 @@ export class CollaborationRoom {
     for (const [ws, state] of this.clients.entries()) {
       if (state.userId === userId) {
         try {
-          ws.close(4403, 'Collaboration access revoked');
+          ws.close(4403, "Collaboration access revoked");
         } catch {}
         this.removeClient(ws);
       }
@@ -316,7 +383,9 @@ export class CollaborationRoom {
 
     // If dirtyFiles is empty, flush all active non-empty text keys in doc
     if (filesToFlush.length === 0) {
-      for (const [key, type] of (this.doc.share as Map<string, any>).entries()) {
+      for (const [key, type] of (
+        this.doc.share as Map<string, any>
+      ).entries()) {
         if (type instanceof Y.Text) {
           filesToFlush.push(key);
         }
@@ -328,9 +397,12 @@ export class CollaborationRoom {
         const yText = this.doc.getText(filePath);
         const content = yText.toString();
         const fullPath = join(baseDir, filePath);
-        await fs.writeFile(fullPath, content, 'utf-8');
+        await fs.writeFile(fullPath, content, "utf-8");
       } catch (err) {
-        console.error(`[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`, err);
+        console.error(
+          `[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`,
+          err,
+        );
       }
     }
 
@@ -360,7 +432,7 @@ export class CollaborationRoom {
 
     for (const [ws] of this.clients.entries()) {
       try {
-        ws.close(1001, 'Room disposed');
+        ws.close(1001, "Room disposed");
       } catch {}
     }
     this.clients.clear();
@@ -396,11 +468,8 @@ export class CollaborationManager {
   public getOrCreateRoom(projectId: string): CollaborationRoom {
     let room = this.rooms.get(projectId);
     if (!room) {
-      room = new CollaborationRoom(
-        projectId,
-        this.cfg,
-        this.db,
-        (pid) => this.rooms.delete(pid)
+      room = new CollaborationRoom(projectId, this.cfg, this.db, (pid) =>
+        this.rooms.delete(pid),
       );
       this.rooms.set(projectId, room);
     }
@@ -414,7 +483,7 @@ export class CollaborationManager {
   public async notifyExternalFileMutation(
     projectId: string,
     filePath: string,
-    newContent: string
+    newContent: string,
   ): Promise<void> {
     const room = this.rooms.get(projectId);
     if (room) {
@@ -441,18 +510,3 @@ export class CollaborationManager {
 }
 
 export const collaborationManager = CollaborationManager.getInstance();
-
-const USER_COLORS = [
-  '#89b4fa', // Blue
-  '#a6e3a1', // Green
-  '#fab387', // Peach
-  '#f38ba8', // Red
-  '#cba6f7', // Mauve
-  '#f9e2af', // Yellow
-  '#94e2d5', // Teal
-  '#f5c2e7', // Pink
-];
-
-function getUserColor(userId: number): string {
-  return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
-}
