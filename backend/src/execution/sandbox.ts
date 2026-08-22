@@ -233,6 +233,15 @@ export class SandboxManager {
   }
 
   async stopProjectSandbox(projectId: string): Promise<void> {
+    // If a creation is still in flight for this project, let it settle
+    // first. Otherwise a creation that finishes after this stop would
+    // silently resurrect the container/entry the caller just tore down
+    // (docker run completing, then `projectContainers.set()` re-adding it).
+    const inFlight = this.creating.get(projectId);
+    if (inFlight) {
+      await inFlight.catch(() => {});
+    }
+
     const info = this.projectContainers.get(projectId);
     const cid = info ? info.containerId : `ide-sandbox-${projectId}`;
     try {

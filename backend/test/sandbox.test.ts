@@ -220,4 +220,50 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
     expect(id).toBe(`ide-sandbox-${projectId}`);
     expect(attempts).toBe(2);
   });
+
+  it("stopProjectSandbox waits for an in-flight creation, so the container is not resurrected afterward", async () => {
+    const order: string[] = [];
+    const { manager } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") {
+        order.push("run:start");
+        await sleep(50);
+        order.push("run:end");
+        return { stdout: "deadbeef\n", stderr: "" };
+      }
+      if (args[0] === "rm") {
+        order.push("rm");
+        return { stdout: "", stderr: "" };
+      }
+      if (args[0] === "network" && args[1] === "inspect") {
+        throw new Error("no such network");
+      }
+      if (args[0] === "network" && args[1] === "rm") {
+        order.push("network:rm");
+        return { stdout: "", stderr: "" };
+      }
+      if (args[0] === "port") {
+        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const projectId = `stop-race-${randomUUID()}`;
+    const ws = makeWorkspace(cfg);
+
+    const creation = manager.ensureProjectSandbox(projectId, cfg, ws);
+    // Let creation actually enter `docker run` before racing the stop.
+    await sleep(10);
+
+    await Promise.all([creation, manager.stopProjectSandbox(projectId)]);
+
+    // The stop must have been ordered after creation settled, not raced
+    // ahead of it: otherwise creation completing afterward would silently
+    // re-add the entry the caller just tore down. Creation itself issues a
+    // pre-emptive `rm` before `run`, so look at the LAST `rm` — that's the
+    // one from stopProjectSandbox's own teardown.
+    expect(order.indexOf("run:end")).toBeLessThan(order.lastIndexOf("rm"));
+
+    const active = await manager.getAllActiveSandboxes();
+    expect(active.find((s) => s.projectId === projectId)).toBeUndefined();
+  });
 });
