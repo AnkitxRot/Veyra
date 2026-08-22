@@ -16,6 +16,7 @@ import { RateLimiter } from "../auth/ratelimit.js";
 import { hashPassword } from "../auth/passwords.js";
 import { telemetryHistorian } from "../execution/historian.js";
 import { collaborationManager } from "../collab/manager.js";
+import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -667,6 +668,12 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
 
         // Session Invalidation: Terminate all active sessions for the user
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+        // WS auth is only checked once at connect time — deleting the DB
+        // session row does nothing for a socket already established, so
+        // any live terminal/execute/collab connection must be closed here
+        // too, otherwise the reset accomplishes nothing against an
+        // attacker who already has an open shell.
+        closeAllConnectionsForUser(userId);
 
         recordAuditLog(db, {
           userId: req.user?.id,
@@ -774,6 +781,11 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
 
         // 3. Delete sessions
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+        // Close any live terminal/execute/collab connections too — the
+        // user's projects/workspace are being deleted in this same
+        // request, so a connection they already hold open must not be
+        // allowed to keep executing code or editing files past this point.
+        closeAllConnectionsForUser(userId);
 
         // 4. Delete user's runs
         db.prepare("DELETE FROM runs WHERE user_id = ?").run(userId);
