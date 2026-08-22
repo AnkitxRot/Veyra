@@ -1,11 +1,11 @@
-import * as Y from 'yjs';
-import * as syncProtocol from 'y-protocols/sync';
-import * as awarenessProtocol from 'y-protocols/awareness';
-import * as encoding from 'lib0/encoding';
-import * as decoding from 'lib0/decoding';
-import { MonacoBinding } from 'y-monaco';
-import { monaco } from '../monacoSetup';
-import { User } from '../types';
+import * as Y from "yjs";
+import * as syncProtocol from "y-protocols/sync";
+import * as awarenessProtocol from "y-protocols/awareness";
+import * as encoding from "lib0/encoding";
+import * as decoding from "lib0/decoding";
+import { MonacoBinding } from "y-monaco";
+import { monaco } from "../monacoSetup";
+import { User } from "../types";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -14,18 +14,18 @@ const _MESSAGE_AUTH = 2;
 const MESSAGE_CUSTOM = 3;
 
 export type CollabConnectionStatus =
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'resynchronizing'
-  | 'disconnected'
-  | 'forbidden';
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "resynchronizing"
+  | "disconnected"
+  | "forbidden";
 
 export interface CollaboratorPresence {
   clientId: number;
   userId: number;
   name: string;
-  role: 'owner' | 'editor' | 'viewer';
+  role: "owner" | "editor" | "viewer";
   color: string;
   activeFile?: string | null;
   cursor?: { line: number; column: number } | null;
@@ -35,12 +35,14 @@ export class CollaborationClient {
   public readonly projectId: string;
   public readonly doc: Y.Doc;
   public readonly awareness: awarenessProtocol.Awareness;
-  public status: CollabConnectionStatus = 'disconnected';
+  public status: CollabConnectionStatus = "disconnected";
 
   private ws: WebSocket | null = null;
   private currentBinding: MonacoBinding | null = null;
+  private boundModel: monaco.editor.ITextModel | null = null;
   private activeFilePath: string | null = null;
-  private readonly listeners: Map<string, Set<(...args: any[]) => void>> = new Map();
+  private readonly listeners: Map<string, Set<(...args: any[]) => void>> =
+    new Map();
   private reconnectAttempts = 0;
   private reconnectTimer: any = null;
   private isDisposed = false;
@@ -53,16 +55,16 @@ export class CollaborationClient {
     this.awareness = new awarenessProtocol.Awareness(this.doc);
 
     // Configure user awareness
-    this.awareness.setLocalStateField('user', {
+    this.awareness.setLocalStateField("user", {
       id: user.id,
       name: user.username,
       color: getUserColor(user.id),
-      role: user.role === 'admin' ? 'owner' : 'editor',
+      role: user.role === "admin" ? "owner" : "editor",
     });
 
     // Notify listeners when awareness changes
-    this.awareness.on('change', () => {
-      this.emit('awareness_change', this.getOnlineCollaborators());
+    this.awareness.on("change", () => {
+      this.emit("awareness_change", this.getOnlineCollaborators());
     });
 
     this.connect();
@@ -70,19 +72,19 @@ export class CollaborationClient {
 
   public connect(): void {
     if (this.isDisposed) return;
-    this.setStatus(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
+    this.setStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws/collab?projectId=${encodeURIComponent(this.projectId)}`;
 
     try {
       this.ws = new WebSocket(wsUrl);
-      this.ws.binaryType = 'arraybuffer';
+      this.ws.binaryType = "arraybuffer";
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
-        this.setStatus('connected');
+        this.setStatus("connected");
 
         // 1. Send Sync Step 1 (Client state vector)
         const syncEncoder = encoding.createEncoder();
@@ -95,7 +97,9 @@ export class CollaborationClient {
         encoding.writeVarUint(awarenessEncoder, MESSAGE_AWARENESS);
         encoding.writeVarUint8Array(
           awarenessEncoder,
-          awarenessProtocol.encodeAwarenessUpdate(this.awareness, [this.doc.clientID])
+          awarenessProtocol.encodeAwarenessUpdate(this.awareness, [
+            this.doc.clientID,
+          ]),
         );
         this.send(encoding.toUint8Array(awarenessEncoder));
 
@@ -112,21 +116,21 @@ export class CollaborationClient {
 
       this.ws.onclose = (event) => {
         if (event.code === 4403 || event.code === 4003) {
-          this.setStatus('forbidden');
+          this.setStatus("forbidden");
           return;
         }
 
-        this.setStatus('disconnected');
+        this.setStatus("disconnected");
         if (!this.isDisposed) {
           this.scheduleReconnect();
         }
       };
 
       this.ws.onerror = () => {
-        this.setStatus('disconnected');
+        this.setStatus("disconnected");
       };
     } catch {
-      this.setStatus('disconnected');
+      this.setStatus("disconnected");
       this.scheduleReconnect();
     }
   }
@@ -151,24 +155,27 @@ export class CollaborationClient {
           awarenessProtocol.applyAwarenessUpdate(
             this.awareness,
             decoding.readVarUint8Array(decoder),
-            this
+            this,
           );
           break;
         }
       }
     } catch (err) {
-      console.error('[CollabClient] Error handling message:', err);
+      console.error("[CollabClient] Error handling message:", err);
     }
   }
 
   public notifyFileOpen(filePath: string): void {
     this.activeFilePath = filePath;
-    this.awareness.setLocalStateField('activeFile', filePath);
+    this.awareness.setLocalStateField("activeFile", filePath);
 
     // Send custom message to server
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
-    encoding.writeVarString(encoder, JSON.stringify({ type: 'file_open', path: filePath }));
+    encoding.writeVarString(
+      encoder,
+      JSON.stringify({ type: "file_open", path: filePath }),
+    );
     this.send(encoding.toUint8Array(encoder));
   }
 
@@ -179,8 +186,20 @@ export class CollaborationClient {
     filePath: string,
     model: monaco.editor.ITextModel,
     editor: monaco.editor.IStandaloneCodeEditor,
-    _isReadOnly: boolean = false
+    _isReadOnly: boolean = false,
   ): void {
+    // Callers (Editor.tsx's model-management effect) re-run on every
+    // keystroke because `openFiles` gets a new array/object reference per
+    // edit. Without this guard, every keystroke would tear down and rebuild
+    // the y-monaco binding and re-send a file_open message to the server.
+    if (
+      this.boundModel === model &&
+      this.activeFilePath === filePath &&
+      this.currentBinding
+    ) {
+      return;
+    }
+
     this.unbindCurrentModel();
 
     this.activeFilePath = filePath;
@@ -192,7 +211,7 @@ export class CollaborationClient {
     if (yText.length === 0 && model.getValue().length > 0) {
       this.doc.transact(() => {
         yText.insert(0, model.getValue());
-      }, 'initial_model_sync');
+      }, "initial_model_sync");
     }
 
     try {
@@ -200,14 +219,16 @@ export class CollaborationClient {
         yText,
         model,
         new Set([editor]),
-        this.awareness
+        this.awareness,
       );
+      this.boundModel = model;
     } catch (err) {
-      console.error('[CollabClient] Failed to bind Monaco editor:', err);
+      console.error("[CollabClient] Failed to bind Monaco editor:", err);
     }
   }
 
   public unbindCurrentModel(): void {
+    this.boundModel = null;
     if (this.currentBinding) {
       try {
         this.currentBinding.destroy();
@@ -225,8 +246,8 @@ export class CollaborationClient {
         collaborators.push({
           clientId,
           userId: state.user.id,
-          name: state.user.name || 'Anonymous',
-          role: state.user.role || 'editor',
+          name: state.user.name || "Anonymous",
+          role: state.user.role || "editor",
           color: state.user.color || getUserColor(state.user.id || 0),
           activeFile: state.activeFile,
           cursor: state.cursor,
@@ -238,7 +259,7 @@ export class CollaborationClient {
   }
 
   public updateCursorPosition(line: number, column: number): void {
-    this.awareness.setLocalStateField('cursor', { line, column });
+    this.awareness.setLocalStateField("cursor", { line, column });
   }
 
   private send(data: Uint8Array): void {
@@ -251,7 +272,7 @@ export class CollaborationClient {
 
   private setStatus(s: CollabConnectionStatus): void {
     this.status = s;
-    this.emit('connection_change', s);
+    this.emit("connection_change", s);
   }
 
   private scheduleReconnect(): void {
@@ -299,14 +320,14 @@ export class CollaborationClient {
 }
 
 const USER_COLORS = [
-  '#89b4fa', // Blue
-  '#a6e3a1', // Green
-  '#fab387', // Peach
-  '#f38ba8', // Red
-  '#cba6f7', // Mauve
-  '#f9e2af', // Yellow
-  '#94e2d5', // Teal
-  '#f5c2e7', // Pink
+  "#89b4fa", // Blue
+  "#a6e3a1", // Green
+  "#fab387", // Peach
+  "#f38ba8", // Red
+  "#cba6f7", // Mauve
+  "#f9e2af", // Yellow
+  "#94e2d5", // Teal
+  "#f5c2e7", // Pink
 ];
 
 export function getUserColor(userId: number): string {
