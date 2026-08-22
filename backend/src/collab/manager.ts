@@ -340,6 +340,23 @@ export class CollaborationRoom {
   }
 
   /**
+   * Applies a role change to a currently-connected user's live session.
+   * `clientState.role` is otherwise only captured once, at connect time —
+   * without this, a downgraded editor keeps write access (bypassing the
+   * viewer read-only enforcement in handleMessage) until they reconnect.
+   */
+  public updateUserRole(
+    userId: number,
+    role: "owner" | "editor" | "viewer",
+  ): void {
+    for (const state of this.clients.values()) {
+      if (state.userId === userId) {
+        state.role = role;
+      }
+    }
+  }
+
+  /**
    * Marks a file as dirty and triggers debounced persistence to workspace filesystem.
    */
   public markFileDirty(filePath: string): void {
@@ -495,6 +512,17 @@ export class CollaborationManager {
     const room = this.rooms.get(projectId);
     if (room) {
       room.disconnectUser(userId);
+    }
+  }
+
+  public updateUserRole(
+    projectId: string,
+    userId: number,
+    role: "owner" | "editor" | "viewer",
+  ): void {
+    const room = this.rooms.get(projectId);
+    if (room) {
+      room.updateUserRole(userId, role);
     }
   }
 

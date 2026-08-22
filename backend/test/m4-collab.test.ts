@@ -1,23 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
+import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
 import { collaborationManager } from "../src/collab/manager.js";
 import {
   createProject,
+  deleteProject,
   addProjectCollaborator,
   removeProjectCollaborator,
   listProjectCollaborators,
   requireProjectAccess,
   projectDir,
 } from "../src/projects/service.js";
+import { createSnapshot, restoreSnapshot } from "../src/projects/snapshots.js";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
 
+const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 
 function makeMockWs() {
@@ -46,6 +50,26 @@ function buildAwarenessFrame(
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
   encoding.writeVarUint8Array(encoder, update);
+  return encoding.toUint8Array(encoder);
+}
+
+/**
+ * Builds a real MESSAGE_SYNC/messageYjsUpdate frame the way an actual client
+ * would broadcast a local edit: a throwaway client Y.Doc produces a genuine
+ * Yjs update, wrapped in the same sync envelope the production code expects.
+ */
+function buildSyncUpdateFrame(clientDoc: Y.Doc, mutate: () => void) {
+  let update: Uint8Array | null = null;
+  const capture = (u: Uint8Array) => {
+    update = u;
+  };
+  clientDoc.on("update", capture);
+  mutate();
+  clientDoc.off("update", capture);
+
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, MESSAGE_SYNC);
+  syncProtocol.writeUpdate(encoder, update!);
   return encoding.toUint8Array(encoder);
 }
 
@@ -383,5 +407,108 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     clientDocA.destroy();
     clientAwarenessB.destroy();
     clientDocB.destroy();
+  });
+
+  it("9. Project deletion disposes the active CollaborationRoom and disconnects live collaborators", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("alice", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "DeletedProj" });
+    const room = collaborationManager.getOrCreateRoom(project.id);
+
+    let closeCode: number | undefined;
+    const ws = {
+      readyState: 1,
+      send: () => {},
+      close: (code: number) => {
+        closeCode = code;
+      },
+    } as any;
+
+    await room.addClient(ws, { userId: 1, username: "alice", role: "owner" });
+    expect(collaborationManager.getRoom(project.id)).toBe(room);
+
+    await deleteProject(cfg, db, 1, project.id);
+
+    // The live collaborator's socket must be closed, not left dangling
+    // against a workspace that no longer exists.
+    expect(closeCode).toBe(1001);
+    // The room must be fully removed from the manager, not leaked in memory.
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+  });
+
+  it("10. Snapshot restore keeps an active CollaborationRoom's Y.Doc in sync (does not get silently reverted by the next flush)", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("owner_u", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "SnapRestoreProj",
+    });
+    const filePath = "main.py";
+    const workspaceFile = join(tempWorkspacesDir, project.id, filePath);
+
+    await fs.writeFile(workspaceFile, "print('v1')");
+    const snapshot = await createSnapshot(cfg, db, 1, project.id, "snap-v1");
+
+    // Disk drifts after the snapshot was taken.
+    await fs.writeFile(workspaceFile, "print('v2')");
+
+    // A collaborator has the file open with further, uncommitted local edits.
+    const room = collaborationManager.getOrCreateRoom(project.id);
+    const yText = await room.ensureFileLoaded(filePath);
+    expect(yText.toString()).toBe("print('v2')");
+    yText.delete(0, yText.length);
+    yText.insert(0, "print('v3, unsaved local edit')");
+
+    await restoreSnapshot(cfg, db, 1, project.id, snapshot.id);
+
+    // Disk must reflect the restored snapshot content.
+    const diskContent = await fs.readFile(workspaceFile, "utf-8");
+    expect(diskContent).toBe("print('v1')");
+
+    // The room's live Y.Doc must be updated to match — not left on the
+    // collaborator's stale local edit, which would otherwise get flushed
+    // back to disk shortly after, silently undoing the restore.
+    expect(yText.toString()).toBe("print('v1')");
+  });
+
+  it("11. Role downgrade takes effect on a live connection: a demoted editor immediately loses write access", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("carol", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "RoleDowngradeProj",
+    });
+    const room = collaborationManager.getOrCreateRoom(project.id);
+    const ws = makeMockWs();
+    await room.addClient(ws, { userId: 1, username: "carol", role: "editor" });
+
+    const clientDoc = new Y.Doc();
+    const clientText = clientDoc.getText("main.py");
+
+    // While still an editor, a real update is accepted into the room's doc.
+    const frame1 = buildSyncUpdateFrame(clientDoc, () =>
+      clientText.insert(0, "print(1)"),
+    );
+    room.handleMessage(ws, frame1);
+    expect(room.doc.getText("main.py").toString()).toBe("print(1)");
+
+    // Owner demotes this connected user to viewer via the live-session sync
+    // path (mirrors what the /collaborators PATCH route now calls).
+    collaborationManager.updateUserRole(project.id, 1, "viewer");
+
+    // The same still-open connection must now be rejected: clientState.role
+    // is otherwise only captured once at connect time, so without this fix
+    // a demoted editor would keep write access until they reconnect.
+    const frame2 = buildSyncUpdateFrame(clientDoc, () =>
+      clientText.insert(clientText.length, " blocked"),
+    );
+    room.handleMessage(ws, frame2);
+    expect(room.doc.getText("main.py").toString()).toBe("print(1)");
+
+    clientDoc.destroy();
   });
 });
