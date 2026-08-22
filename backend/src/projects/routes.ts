@@ -692,9 +692,16 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     }
   });
 
+  // Keyed by projectId+port (not by target): in non-containerized mode
+  // `getProxyTarget` embeds a Docker-assigned ephemeral host port that
+  // changes every time a sandbox is recreated (idle reap, manual restart,
+  // etc). Keying on the target itself would leave one permanently-cached
+  // http-proxy-middleware instance per historical target, growing without
+  // bound over the server's lifetime. Keying on the stable (projectId, port)
+  // pair instead means each restart just replaces the one existing entry.
   const proxyCache = new Map<
     string,
-    ReturnType<typeof createProxyMiddleware>
+    { target: string; proxy: ReturnType<typeof createProxyMiddleware> }
   >();
 
   router.use("/:id/proxy/:port", async (req, res, next) => {
@@ -721,19 +728,22 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       }
 
       const prefix = `/api/projects/${req.params.id}/proxy/${port}`;
-      const proxyKey = `${target}|${prefix}`;
-      let proxy = proxyCache.get(proxyKey);
-      if (!proxy) {
-        proxy = createProxyMiddleware({
+      const cacheKey = `${req.params.id}:${port}`;
+      let entry = proxyCache.get(cacheKey);
+      if (!entry || entry.target !== target) {
+        entry = {
           target,
-          changeOrigin: true,
-          pathRewrite: { [`^${prefix}`]: "" },
-          ws: true,
-        });
-        proxyCache.set(proxyKey, proxy);
+          proxy: createProxyMiddleware({
+            target,
+            changeOrigin: true,
+            pathRewrite: { [`^${prefix}`]: "" },
+            ws: true,
+          }),
+        };
+        proxyCache.set(cacheKey, entry);
       }
 
-      proxy(req as any, res as any, next);
+      entry.proxy(req as any, res as any, next);
     } catch (err) {
       next(err);
     }
