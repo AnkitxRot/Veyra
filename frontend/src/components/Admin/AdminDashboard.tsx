@@ -1,5 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { api } from '../../api';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+import { api } from "../../api";
 import {
   User,
   AdminOverviewData,
@@ -10,7 +16,7 @@ import {
   AdminAuditRecord,
   AdminUserDetails,
   RunRecord,
-} from '../../types';
+} from "../../types";
 import {
   IconShield,
   IconServer,
@@ -26,8 +32,8 @@ import {
   IconLayers,
   IconEdit,
   IconCpu,
-} from '../common/Icons';
-import AdminResourceAnalytics from './AdminResourceAnalytics';
+} from "../common/Icons";
+import AdminResourceAnalytics from "./AdminResourceAnalytics";
 
 export default function AdminDashboard({
   user: _user,
@@ -38,18 +44,28 @@ export default function AdminDashboard({
   onLogout: () => void;
   onSwitchToIde: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'sandboxes' | 'executions' | 'resources' | 'tenants' | 'audit'>('overview');
-  
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "sandboxes" | "executions" | "resources" | "tenants" | "audit"
+  >("overview");
+
   // Real-time streaming state
-  const [wsStatus, setWsStatus] = useState<'connected' | 'reconnecting' | 'stale'>('reconnecting');
-  const [lastTickTime, setLastTickTime] = useState<number>(Date.now());
+  const [wsStatus, setWsStatus] = useState<
+    "connected" | "reconnecting" | "stale"
+  >("reconnecting");
+  // Not React state: only read by the staleness-check interval below, never
+  // rendered directly. Keeping it as a ref (instead of useState) means
+  // updating it on every ~1Hz tick does not itself trigger a re-render or
+  // re-run of the WebSocket connection effect.
+  const lastTickTimeRef = useRef<number>(Date.now());
   const wsRef = useRef<WebSocket | null>(null);
 
   // Data states
   const [overview, setOverview] = useState<AdminOverviewData | null>(null);
   const [sandboxes, setSandboxes] = useState<AdminSandboxData[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
-  const [execMetrics, setExecMetrics] = useState<AdminExecutionMetrics | null>(null);
+  const [execMetrics, setExecMetrics] = useState<AdminExecutionMetrics | null>(
+    null,
+  );
   const [users, setUsers] = useState<AdminUserData[]>([]);
   const [projects, setProjects] = useState<AdminProjectData[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditRecord[]>([]);
@@ -57,16 +73,19 @@ export default function AdminDashboard({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // User Management Modals / Drawer states
-  const [inspectingUser, setInspectingUser] = useState<AdminUserDetails | null>(null);
+  const [inspectingUser, setInspectingUser] = useState<AdminUserDetails | null>(
+    null,
+  );
   const [, setInspectLoading] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUserData | null>(null);
-  const [editUsername, setEditUsername] = useState('');
-  const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
+  const [editUsername, setEditUsername] = useState("");
+  const [editRole, setEditRole] = useState<"user" | "admin">("user");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const [resettingPasswordUser, setResettingPasswordUser] = useState<AdminUserData | null>(null);
-  const [newPassword, setNewPassword] = useState('');
+  const [resettingPasswordUser, setResettingPasswordUser] =
+    useState<AdminUserData | null>(null);
+  const [newPassword, setNewPassword] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
 
@@ -75,29 +94,43 @@ export default function AdminDashboard({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Sandbox Termination Modal
-  const [terminatingSandbox, setTerminatingSandbox] = useState<AdminSandboxData | null>(null);
+  const [terminatingSandbox, setTerminatingSandbox] =
+    useState<AdminSandboxData | null>(null);
   const [terminateLoading, setTerminateLoading] = useState(false);
 
   // Search, Filter & Sort states for Tenants & Workspaces
-  const [tenantSubTab, setTenantSubTab] = useState<'users' | 'projects'>('users');
-  const [userSearch, setUserSearch] = useState('');
-  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'user'>('all');
-  const [userTypeFilter, setUserTypeFilter] = useState<'all' | 'standard' | 'demo'>('all');
-  const [userSortField, setUserSortField] = useState<'id' | 'username' | 'project_count' | 'execution_count' | 'created_at'>('created_at');
+  const [tenantSubTab, setTenantSubTab] = useState<"users" | "projects">(
+    "users",
+  );
+  const [userSearch, setUserSearch] = useState("");
+  const [userRoleFilter, setUserRoleFilter] = useState<
+    "all" | "admin" | "user"
+  >("all");
+  const [userTypeFilter, setUserTypeFilter] = useState<
+    "all" | "standard" | "demo"
+  >("all");
+  const [userSortField, setUserSortField] = useState<
+    "id" | "username" | "project_count" | "execution_count" | "created_at"
+  >("created_at");
   const [userSortAsc, setUserSortAsc] = useState(false);
 
   // Execution & Audit Filters
-  const [execStatusFilter, setExecStatusFilter] = useState('');
-  const [execLangFilter, setExecLangFilter] = useState('');
-  const [auditEventFilter, setAuditEventFilter] = useState('');
+  const [execStatusFilter, setExecStatusFilter] = useState("");
+  const [execLangFilter, setExecLangFilter] = useState("");
+  const [auditEventFilter, setAuditEventFilter] = useState("");
 
   // 1. HTTP Fetchers (Slow / On-Demand Data)
   const fetchExecutions = useCallback(async () => {
     try {
-      let query = '/api/admin/executions?limit=50';
-      if (execStatusFilter) query += `&status=${encodeURIComponent(execStatusFilter)}`;
-      if (execLangFilter) query += `&language=${encodeURIComponent(execLangFilter)}`;
-      const res = await api<{ runs: RunRecord[]; metrics: AdminExecutionMetrics }>(query);
+      let query = "/api/admin/executions?limit=50";
+      if (execStatusFilter)
+        query += `&status=${encodeURIComponent(execStatusFilter)}`;
+      if (execLangFilter)
+        query += `&language=${encodeURIComponent(execLangFilter)}`;
+      const res = await api<{
+        runs: RunRecord[];
+        metrics: AdminExecutionMetrics;
+      }>(query);
       setRuns(res.runs);
       setExecMetrics(res.metrics);
     } catch {}
@@ -106,8 +139,8 @@ export default function AdminDashboard({
   const fetchTenants = useCallback(async () => {
     try {
       const [uRes, pRes] = await Promise.all([
-        api<{ users: AdminUserData[] }>('/api/admin/users'),
-        api<{ projects: AdminProjectData[] }>('/api/admin/projects'),
+        api<{ users: AdminUserData[] }>("/api/admin/users"),
+        api<{ projects: AdminProjectData[] }>("/api/admin/projects"),
       ]);
       setUsers(uRes.users);
       setProjects(pRes.projects);
@@ -116,8 +149,9 @@ export default function AdminDashboard({
 
   const fetchAudit = useCallback(async () => {
     try {
-      let query = '/api/admin/audit?limit=50';
-      if (auditEventFilter) query += `&event_type=${encodeURIComponent(auditEventFilter)}`;
+      let query = "/api/admin/audit?limit=50";
+      if (auditEventFilter)
+        query += `&event_type=${encodeURIComponent(auditEventFilter)}`;
       const res = await api<{ logs: AdminAuditRecord[]; total: number }>(query);
       setAuditLogs(res.logs);
     } catch {}
@@ -126,8 +160,8 @@ export default function AdminDashboard({
   const fetchOverviewFallback = useCallback(async () => {
     try {
       const [ov, sb] = await Promise.all([
-        api<AdminOverviewData>('/api/admin/overview'),
-        api<{ sandboxes: AdminSandboxData[] }>('/api/admin/sandboxes'),
+        api<AdminOverviewData>("/api/admin/overview"),
+        api<{ sandboxes: AdminSandboxData[] }>("/api/admin/sandboxes"),
       ]);
       setOverview(ov);
       setSandboxes(sb.sandboxes);
@@ -152,21 +186,21 @@ export default function AdminDashboard({
 
     const connectWs = () => {
       if (isUnmounted) return;
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws/admin`;
-      
+
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        setWsStatus('connected');
-        setLastTickTime(Date.now());
+        setWsStatus("connected");
+        lastTickTimeRef.current = Date.now();
       };
 
       ws.onmessage = (event) => {
         try {
           const packet = JSON.parse(event.data);
-          if (packet.type === 'telemetry_tick' || packet.type === 'snapshot') {
+          if (packet.type === "telemetry_tick" || packet.type === "snapshot") {
             const data = packet.data;
             if (data) {
               setOverview((prev) => {
@@ -179,10 +213,10 @@ export default function AdminDashboard({
                 };
               });
               setSandboxes(data.sandboxes || []);
-              setLastTickTime(Date.now());
-              setWsStatus('connected');
+              lastTickTimeRef.current = Date.now();
+              setWsStatus("connected");
             }
-          } else if (packet.type === 'platform_event') {
+          } else if (packet.type === "platform_event") {
             // Immediately invalidate relevant data
             fetchTenants();
             fetchExecutions();
@@ -194,7 +228,7 @@ export default function AdminDashboard({
 
       ws.onclose = () => {
         if (!isUnmounted) {
-          setWsStatus('reconnecting');
+          setWsStatus("reconnecting");
           reconnectTimeout = setTimeout(connectWs, 2500);
         }
       };
@@ -208,8 +242,8 @@ export default function AdminDashboard({
 
     // Heartbeat liveness check
     const staleInterval = setInterval(() => {
-      if (Date.now() - lastTickTime > 4000) {
-        setWsStatus('stale');
+      if (Date.now() - lastTickTimeRef.current > 4000) {
+        setWsStatus("stale");
       }
     }, 2000);
 
@@ -219,7 +253,7 @@ export default function AdminDashboard({
       clearInterval(staleInterval);
       if (wsRef.current) wsRef.current.close();
     };
-  }, [fetchTenants, fetchExecutions, fetchAudit, fetchOverviewFallback, lastTickTime]);
+  }, [fetchTenants, fetchExecutions, fetchAudit, fetchOverviewFallback]);
 
   // Initial load
   useEffect(() => {
@@ -227,9 +261,9 @@ export default function AdminDashboard({
   }, [refreshAll]);
 
   useEffect(() => {
-    if (activeTab === 'executions') fetchExecutions();
-    if (activeTab === 'tenants') fetchTenants();
-    if (activeTab === 'audit') fetchAudit();
+    if (activeTab === "executions") fetchExecutions();
+    if (activeTab === "tenants") fetchTenants();
+    if (activeTab === "audit") fetchAudit();
   }, [activeTab, fetchExecutions, fetchTenants, fetchAudit]);
 
   // User Actions: Inspect
@@ -261,7 +295,7 @@ export default function AdminDashboard({
     setEditError(null);
     try {
       await api(`/api/admin/users/${editingUser.id}`, {
-        method: 'PATCH',
+        method: "PATCH",
         body: JSON.stringify({ username: editUsername.trim(), role: editRole }),
       });
       setActionMessage(`Updated user ${editUsername}`);
@@ -272,7 +306,7 @@ export default function AdminDashboard({
         await handleInspectUser(editingUser.id);
       }
     } catch (err: any) {
-      setEditError(err.message || 'Failed to update user');
+      setEditError(err.message || "Failed to update user");
     } finally {
       setEditLoading(false);
     }
@@ -281,7 +315,7 @@ export default function AdminDashboard({
   // User Actions: Password Reset
   const openResetPasswordModal = (u: AdminUserData) => {
     setResettingPasswordUser(u);
-    setNewPassword('');
+    setNewPassword("");
     setResetError(null);
   };
 
@@ -289,21 +323,23 @@ export default function AdminDashboard({
     e.preventDefault();
     if (!resettingPasswordUser) return;
     if (newPassword.length < 8) {
-      setResetError('Password must be at least 8 characters long');
+      setResetError("Password must be at least 8 characters long");
       return;
     }
     setResetLoading(true);
     setResetError(null);
     try {
       await api(`/api/admin/users/${resettingPasswordUser.id}/reset-password`, {
-        method: 'POST',
+        method: "POST",
         body: JSON.stringify({ newPassword }),
       });
-      setActionMessage(`Password reset for ${resettingPasswordUser.username}. Sessions revoked.`);
+      setActionMessage(
+        `Password reset for ${resettingPasswordUser.username}. Sessions revoked.`,
+      );
       setTimeout(() => setActionMessage(null), 4000);
       setResettingPasswordUser(null);
     } catch (err: any) {
-      setResetError(err.message || 'Failed to reset password');
+      setResetError(err.message || "Failed to reset password");
     } finally {
       setResetLoading(false);
     }
@@ -321,9 +357,11 @@ export default function AdminDashboard({
     setDeleteError(null);
     try {
       await api(`/api/admin/users/${deletingUser.id}`, {
-        method: 'DELETE',
+        method: "DELETE",
       });
-      setActionMessage(`Deleted user ${deletingUser.username} and all workspaces.`);
+      setActionMessage(
+        `Deleted user ${deletingUser.username} and all workspaces.`,
+      );
       setTimeout(() => setActionMessage(null), 4000);
       if (inspectingUser?.user.id === deletingUser.id) {
         setInspectingUser(null);
@@ -332,7 +370,7 @@ export default function AdminDashboard({
       await fetchTenants();
       await fetchOverviewFallback();
     } catch (err: any) {
-      setDeleteError(err.message || 'Failed to delete user');
+      setDeleteError(err.message || "Failed to delete user");
     } finally {
       setDeleteLoading(false);
     }
@@ -343,9 +381,12 @@ export default function AdminDashboard({
     if (!terminatingSandbox) return;
     setTerminateLoading(true);
     try {
-      await api(`/api/admin/sandboxes/${terminatingSandbox.containerId}/terminate`, {
-        method: 'POST',
-      });
+      await api(
+        `/api/admin/sandboxes/${terminatingSandbox.containerId}/terminate`,
+        {
+          method: "POST",
+        },
+      );
       setActionMessage(`Terminated sandbox ${terminatingSandbox.containerId}`);
       setTimeout(() => setActionMessage(null), 3500);
       setTerminatingSandbox(null);
@@ -364,19 +405,22 @@ export default function AdminDashboard({
       .filter((u) => {
         if (userSearch.trim()) {
           const q = userSearch.toLowerCase();
-          if (!u.username.toLowerCase().includes(q) && !String(u.id).includes(q)) {
+          if (
+            !u.username.toLowerCase().includes(q) &&
+            !String(u.id).includes(q)
+          ) {
             return false;
           }
         }
-        if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
-        if (userTypeFilter === 'demo' && !u.isDemo) return false;
-        if (userTypeFilter === 'standard' && u.isDemo) return false;
+        if (userRoleFilter !== "all" && u.role !== userRoleFilter) return false;
+        if (userTypeFilter === "demo" && !u.isDemo) return false;
+        if (userTypeFilter === "standard" && u.isDemo) return false;
         return true;
       })
       .sort((a, b) => {
         let valA: any = a[userSortField];
         let valB: any = b[userSortField];
-        if (userSortField === 'created_at') {
+        if (userSortField === "created_at") {
           valA = new Date(valA).getTime();
           valB = new Date(valB).getTime();
         }
@@ -384,7 +428,14 @@ export default function AdminDashboard({
         if (valA > valB) return userSortAsc ? 1 : -1;
         return 0;
       });
-  }, [users, userSearch, userRoleFilter, userTypeFilter, userSortField, userSortAsc]);
+  }, [
+    users,
+    userSearch,
+    userRoleFilter,
+    userTypeFilter,
+    userSortField,
+    userSortAsc,
+  ]);
 
   const handleUserSort = (field: typeof userSortField) => {
     if (userSortField === field) {
@@ -406,7 +457,7 @@ export default function AdminDashboard({
   };
 
   const formatBytes = (bytes: number) => {
-    if (!bytes || bytes === 0) return '0 MB';
+    if (!bytes || bytes === 0) return "0 MB";
     const mb = bytes / 1024 / 1024;
     if (mb < 1024) return `${mb.toFixed(1)} MB`;
     return `${(mb / 1024).toFixed(2)} GB`;
@@ -419,22 +470,28 @@ export default function AdminDashboard({
         <div className="admin-header-title">
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              background: 'rgba(243, 139, 168, 0.15)',
-              color: '#f38ba8',
-              border: '1px solid rgba(243, 139, 168, 0.3)',
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "32px",
+              height: "32px",
+              borderRadius: "8px",
+              background: "rgba(243, 139, 168, 0.15)",
+              color: "#f38ba8",
+              border: "1px solid rgba(243, 139, 168, 0.3)",
             }}
           >
             <IconShield size={16} />
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 700, fontSize: '15px', color: 'var(--fg-primary)' }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span
+                style={{
+                  fontWeight: 700,
+                  fontSize: "15px",
+                  color: "var(--fg-primary)",
+                }}
+              >
                 CloudeeeIDE Control Plane
               </span>
               <span className="admin-header-badge">ADMIN</span>
@@ -442,21 +499,24 @@ export default function AdminDashboard({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           {/* Real-time Connection Capsule */}
           <div className={`admin-live-capsule ${wsStatus}`}>
             <span className="admin-live-dot" />
             <span>
-              {wsStatus === 'connected'
-                ? 'LIVE (1.0s)'
-                : wsStatus === 'reconnecting'
-                ? 'RECONNECTING...'
-                : 'STALE'}
+              {wsStatus === "connected"
+                ? "LIVE (1.0s)"
+                : wsStatus === "reconnecting"
+                  ? "RECONNECTING..."
+                  : "STALE"}
             </span>
           </div>
 
           {actionMessage && (
-            <span className="glass-badge glass-badge-success" style={{ animation: 'fadeIn 200ms ease' }}>
+            <span
+              className="glass-badge glass-badge-success"
+              style={{ animation: "fadeIn 200ms ease" }}
+            >
               <IconCheck size={11} />
               <span>{actionMessage}</span>
             </span>
@@ -466,16 +526,20 @@ export default function AdminDashboard({
             className="glass-btn glass-btn-secondary"
             onClick={refreshAll}
             title="Refresh All Telemetry"
-            style={{ fontSize: '12px', padding: '6px 12px' }}
+            style={{ fontSize: "12px", padding: "6px 12px" }}
           >
-            <IconRefresh size={12} className={loading ? 'spinning' : ''} />
+            <IconRefresh size={12} className={loading ? "spinning" : ""} />
             <span>Refresh</span>
           </button>
 
           <button
             className="glass-btn glass-btn-primary"
             onClick={onSwitchToIde}
-            style={{ fontSize: '12px', padding: '6px 14px', background: 'var(--accent)' }}
+            style={{
+              fontSize: "12px",
+              padding: "6px 14px",
+              background: "var(--accent)",
+            }}
           >
             <IconLayers size={13} />
             <span>IDE Workspace</span>
@@ -485,7 +549,7 @@ export default function AdminDashboard({
             className="glass-btn glass-btn-ghost"
             onClick={onLogout}
             title="Sign Out Admin"
-            style={{ fontSize: '12px', color: '#f38ba8' }}
+            style={{ fontSize: "12px", color: "#f38ba8" }}
           >
             <IconLogOut size={13} />
             <span>Logout</span>
@@ -496,60 +560,60 @@ export default function AdminDashboard({
       {/* Control Plane Navigation Tabs */}
       <nav className="admin-subnav" role="tablist">
         <button
-          className={`admin-nav-tab ${activeTab === 'overview' ? 'active' : ''}`}
-          onClick={() => setActiveTab('overview')}
+          className={`admin-nav-tab ${activeTab === "overview" ? "active" : ""}`}
+          onClick={() => setActiveTab("overview")}
           role="tab"
-          aria-selected={activeTab === 'overview'}
+          aria-selected={activeTab === "overview"}
         >
           <IconActivity size={14} />
           <span>System Overview</span>
         </button>
 
         <button
-          className={`admin-nav-tab ${activeTab === 'sandboxes' ? 'active' : ''}`}
-          onClick={() => setActiveTab('sandboxes')}
+          className={`admin-nav-tab ${activeTab === "sandboxes" ? "active" : ""}`}
+          onClick={() => setActiveTab("sandboxes")}
           role="tab"
-          aria-selected={activeTab === 'sandboxes'}
+          aria-selected={activeTab === "sandboxes"}
         >
           <IconServer size={14} />
           <span>Sandbox Operations ({sandboxes.length})</span>
         </button>
 
         <button
-          className={`admin-nav-tab ${activeTab === 'executions' ? 'active' : ''}`}
-          onClick={() => setActiveTab('executions')}
+          className={`admin-nav-tab ${activeTab === "executions" ? "active" : ""}`}
+          onClick={() => setActiveTab("executions")}
           role="tab"
-          aria-selected={activeTab === 'executions'}
+          aria-selected={activeTab === "executions"}
         >
           <IconCode size={14} />
           <span>Execution Monitor</span>
         </button>
 
         <button
-          className={`admin-nav-tab ${activeTab === 'resources' ? 'active' : ''}`}
-          onClick={() => setActiveTab('resources')}
+          className={`admin-nav-tab ${activeTab === "resources" ? "active" : ""}`}
+          onClick={() => setActiveTab("resources")}
           role="tab"
-          aria-selected={activeTab === 'resources'}
+          aria-selected={activeTab === "resources"}
         >
           <IconCpu size={14} />
           <span>Resource Analytics</span>
         </button>
 
         <button
-          className={`admin-nav-tab ${activeTab === 'tenants' ? 'active' : ''}`}
-          onClick={() => setActiveTab('tenants')}
+          className={`admin-nav-tab ${activeTab === "tenants" ? "active" : ""}`}
+          onClick={() => setActiveTab("tenants")}
           role="tab"
-          aria-selected={activeTab === 'tenants'}
+          aria-selected={activeTab === "tenants"}
         >
           <IconUsers size={14} />
           <span>Tenants & Workspaces ({users.length})</span>
         </button>
 
         <button
-          className={`admin-nav-tab ${activeTab === 'audit' ? 'active' : ''}`}
-          onClick={() => setActiveTab('audit')}
+          className={`admin-nav-tab ${activeTab === "audit" ? "active" : ""}`}
+          onClick={() => setActiveTab("audit")}
           role="tab"
-          aria-selected={activeTab === 'audit'}
+          aria-selected={activeTab === "audit"}
         >
           <IconShield size={14} />
           <span>Audit Journal</span>
@@ -561,7 +625,7 @@ export default function AdminDashboard({
         {/* =========================================================================
             TAB 1: SYSTEM OVERVIEW
             ========================================================================= */}
-        {activeTab === 'overview' && (
+        {activeTab === "overview" && (
           <>
             {/* KPI Counters Grid */}
             <div className="admin-cards-grid">
@@ -570,9 +634,14 @@ export default function AdminDashboard({
                   <span>Active Sandboxes</span>
                   <IconDocker size={14} color="#89b4fa" />
                 </div>
-                <div className="admin-card-value">{overview?.counters.activeSandboxes ?? sandboxes.length}</div>
+                <div className="admin-card-value">
+                  {overview?.counters.activeSandboxes ?? sandboxes.length}
+                </div>
                 <div className="admin-card-sub">
-                  <span>Max Pool: {overview?.infrastructure.maxSandboxes ?? 20} containers</span>
+                  <span>
+                    Max Pool: {overview?.infrastructure.maxSandboxes ?? 20}{" "}
+                    containers
+                  </span>
                 </div>
               </div>
 
@@ -587,7 +656,9 @@ export default function AdminDashboard({
                 <div className="admin-gauge-bar">
                   <div
                     className="admin-gauge-fill"
-                    style={{ width: `${Math.min(100, overview?.aggregateTelemetry.cpuPercent ?? 0)}%` }}
+                    style={{
+                      width: `${Math.min(100, overview?.aggregateTelemetry.cpuPercent ?? 0)}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -598,10 +669,18 @@ export default function AdminDashboard({
                   <IconServer size={14} color="#cba6f7" />
                 </div>
                 <div className="admin-card-value">
-                  {formatBytes(overview?.aggregateTelemetry.memoryUsageBytes ?? 0)}
+                  {formatBytes(
+                    overview?.aggregateTelemetry.memoryUsageBytes ?? 0,
+                  )}
                 </div>
                 <div className="admin-card-sub">
-                  <span>Ceiling: {formatBytes(overview?.aggregateTelemetry.memoryLimitBytes ?? 536870912)}</span>
+                  <span>
+                    Ceiling:{" "}
+                    {formatBytes(
+                      overview?.aggregateTelemetry.memoryLimitBytes ??
+                        536870912,
+                    )}
+                  </span>
                 </div>
               </div>
 
@@ -610,7 +689,9 @@ export default function AdminDashboard({
                   <span>Total Executions</span>
                   <IconCode size={14} color="#f9e2af" />
                 </div>
-                <div className="admin-card-value">{overview?.counters.totalExecutions ?? 0}</div>
+                <div className="admin-card-value">
+                  {overview?.counters.totalExecutions ?? 0}
+                </div>
                 <div className="admin-card-sub">
                   <span>All language pipelines</span>
                 </div>
@@ -621,65 +702,161 @@ export default function AdminDashboard({
                   <span>Total Tenants</span>
                   <IconUsers size={14} color="#74c7ec" />
                 </div>
-                <div className="admin-card-value">{overview?.counters.totalUsers ?? 0}</div>
+                <div className="admin-card-value">
+                  {overview?.counters.totalUsers ?? 0}
+                </div>
                 <div className="admin-card-sub">
-                  <span>{overview?.counters.demoSessions ?? 0} disposable demo sessions</span>
+                  <span>
+                    {overview?.counters.demoSessions ?? 0} disposable demo
+                    sessions
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Diagnostics & Infrastructure Health */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '16px' }}>
-              <div className="admin-table-wrap" style={{ padding: '20px' }}>
-                <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-primary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+                gap: "16px",
+              }}
+            >
+              <div className="admin-table-wrap" style={{ padding: "20px" }}>
+                <h2
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "var(--fg-primary)",
+                    marginBottom: "14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
                   <IconActivity size={15} color="#89b4fa" />
                   <span>Node Process & Host Runtime</span>
                 </h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>Status:</span>
-                    <span className="glass-badge glass-badge-success">LIVE / HEALTHY</span>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>Status:</span>
+                    <span className="glass-badge glass-badge-success">
+                      LIVE / HEALTHY
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>Process Uptime:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{formatUptime(overview?.system.uptimeSeconds ?? 0)}</span>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>
+                      Process Uptime:
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>
+                      {formatUptime(overview?.system.uptimeSeconds ?? 0)}
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>Node.js Runtime:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{overview?.system.nodeVersion} ({overview?.system.platform} {overview?.system.arch})</span>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>
+                      Node.js Runtime:
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>
+                      {overview?.system.nodeVersion} (
+                      {overview?.system.platform} {overview?.system.arch})
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>Backend Process Memory (RSS):</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{formatBytes(overview?.system.memoryRssBytes ?? 0)}</span>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>
+                      Backend Process Memory (RSS):
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>
+                      {formatBytes(overview?.system.memoryRssBytes ?? 0)}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              <div className="admin-table-wrap" style={{ padding: '20px' }}>
-                <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-primary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="admin-table-wrap" style={{ padding: "20px" }}>
+                <h2
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "var(--fg-primary)",
+                    marginBottom: "14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
                   <IconDocker size={15} color="#89b4fa" />
                   <span>Container Infrastructure & Isolation</span>
                 </h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>Docker Daemon Engine:</span>
-                    <span className={`glass-badge ${overview?.infrastructure.docker ? 'glass-badge-success' : 'glass-badge-warning'}`}>
-                      {overview?.infrastructure.docker ? 'AVAILABLE' : 'OFFLINE / NOT RUNNING'}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>
+                      Docker Daemon Engine:
+                    </span>
+                    <span
+                      className={`glass-badge ${overview?.infrastructure.docker ? "glass-badge-success" : "glass-badge-warning"}`}
+                    >
+                      {overview?.infrastructure.docker
+                        ? "AVAILABLE"
+                        : "OFFLINE / NOT RUNNING"}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>Runner Base Image:</span>
-                    <span className={`glass-badge ${overview?.infrastructure.runnerImage ? 'glass-badge-success' : 'glass-badge-warning'}`}>
-                      {overview?.infrastructure.runnerImage ? 'cloudeeeide-runner:latest' : 'NOT FOUND'}
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>
+                      Runner Base Image:
+                    </span>
+                    <span
+                      className={`glass-badge ${overview?.infrastructure.runnerImage ? "glass-badge-success" : "glass-badge-warning"}`}
+                    >
+                      {overview?.infrastructure.runnerImage
+                        ? "cloudeeeide-runner:latest"
+                        : "NOT FOUND"}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>Database WAL Storage:</span>
-                    <span className="glass-badge glass-badge-success">SQLITE WAL ACTIVE</span>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>
+                      Database WAL Storage:
+                    </span>
+                    <span className="glass-badge glass-badge-success">
+                      SQLITE WAL ACTIVE
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>cgroup v2 Quota Ceiling:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>512 MB / 1.0 CPU Core</span>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <span style={{ color: "var(--fg-muted)" }}>
+                      cgroup v2 Quota Ceiling:
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>
+                      512 MB / 1.0 CPU Core
+                    </span>
                   </div>
                 </div>
               </div>
@@ -690,22 +867,40 @@ export default function AdminDashboard({
         {/* =========================================================================
             TAB 2: SANDBOX OPERATIONS
             ========================================================================= */}
-        {activeTab === 'sandboxes' && (
+        {activeTab === "sandboxes" && (
           <div className="admin-table-wrap">
             <div className="admin-table-toolbar">
-              <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
                 <IconServer size={16} color="#89b4fa" />
                 <span>Active Sandboxes Pool ({sandboxes.length})</span>
               </h2>
-              <span style={{ fontSize: '12px', color: 'var(--fg-muted)' }}>
-                Live 1Hz telemetry streaming via persistent control-plane WebSocket
+              <span style={{ fontSize: "12px", color: "var(--fg-muted)" }}>
+                Live 1Hz telemetry streaming via persistent control-plane
+                WebSocket
               </span>
             </div>
 
             <div className="admin-table-scroll">
               {sandboxes.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-muted)', fontSize: '13px' }}>
-                  No active sandboxes currently running. Sandboxes spin up on-demand when users run code or open a terminal.
+                <div
+                  style={{
+                    padding: "40px",
+                    textAlign: "center",
+                    color: "var(--fg-muted)",
+                    fontSize: "13px",
+                  }}
+                >
+                  No active sandboxes currently running. Sandboxes spin up
+                  on-demand when users run code or open a terminal.
                 </div>
               ) : (
                 <table className="admin-table">
@@ -725,20 +920,36 @@ export default function AdminDashboard({
                   <tbody>
                     {sandboxes.map((sb) => (
                       <tr key={sb.containerId}>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#89b4fa' }}>
+                        <td
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "12px",
+                            color: "#89b4fa",
+                          }}
+                        >
                           {sb.containerId}
                         </td>
                         <td>{sb.projectName}</td>
                         <td>{sb.ownerUsername}</td>
                         <td>
-                          <span className={`glass-badge ${sb.status === 'running' ? 'glass-badge-success' : 'glass-badge-warning'}`}>
+                          <span
+                            className={`glass-badge ${sb.status === "running" ? "glass-badge-success" : "glass-badge-warning"}`}
+                          >
                             {sb.status.toUpperCase()}
                           </span>
                         </td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>{sb.cpuPercent}%</td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>{formatBytes(sb.memoryUsageBytes)}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>{sb.pids}</td>
-                        <td style={{ color: 'var(--fg-muted)' }}>{sb.idleSeconds}s</td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>
+                          {sb.cpuPercent}%
+                        </td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>
+                          {formatBytes(sb.memoryUsageBytes)}
+                        </td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>
+                          {sb.pids}
+                        </td>
+                        <td style={{ color: "var(--fg-muted)" }}>
+                          {sb.idleSeconds}s
+                        </td>
                         <td>
                           <button
                             className="admin-action-btn danger"
@@ -760,24 +971,37 @@ export default function AdminDashboard({
         {/* =========================================================================
             TAB 3: EXECUTION MONITOR
             ========================================================================= */}
-        {activeTab === 'executions' && (
+        {activeTab === "executions" && (
           <>
             {/* Execution Metrics Cards */}
             {execMetrics && (
               <div className="admin-cards-grid">
                 <div className="admin-card">
                   <div className="admin-card-header">Success Rate</div>
-                  <div className="admin-card-value" style={{ color: '#a6e3a1' }}>
+                  <div
+                    className="admin-card-value"
+                    style={{ color: "#a6e3a1" }}
+                  >
                     {execMetrics.successRatePercent}%
                   </div>
                   <div className="admin-card-sub">
-                    <span>{execMetrics.successCount} of {execMetrics.totalRuns} runs</span>
+                    <span>
+                      {execMetrics.successCount} of {execMetrics.totalRuns} runs
+                    </span>
                   </div>
                 </div>
 
                 <div className="admin-card">
                   <div className="admin-card-header">Failures & Errors</div>
-                  <div className="admin-card-value" style={{ color: execMetrics.failureCount > 0 ? '#f38ba8' : 'var(--fg-primary)' }}>
+                  <div
+                    className="admin-card-value"
+                    style={{
+                      color:
+                        execMetrics.failureCount > 0
+                          ? "#f38ba8"
+                          : "var(--fg-primary)",
+                    }}
+                  >
                     {execMetrics.failureCount}
                   </div>
                   <div className="admin-card-sub">
@@ -787,17 +1011,30 @@ export default function AdminDashboard({
 
                 <div className="admin-card">
                   <div className="admin-card-header">Timeouts & OOMs</div>
-                  <div className="admin-card-value" style={{ color: execMetrics.timeoutCount > 0 ? '#fab387' : 'var(--fg-primary)' }}>
+                  <div
+                    className="admin-card-value"
+                    style={{
+                      color:
+                        execMetrics.timeoutCount > 0
+                          ? "#fab387"
+                          : "var(--fg-primary)",
+                    }}
+                  >
                     {execMetrics.timeoutCount + execMetrics.oomCount}
                   </div>
                   <div className="admin-card-sub">
-                    <span>Timeouts: {execMetrics.timeoutCount} | OOMs: {execMetrics.oomCount}</span>
+                    <span>
+                      Timeouts: {execMetrics.timeoutCount} | OOMs:{" "}
+                      {execMetrics.oomCount}
+                    </span>
                   </div>
                 </div>
 
                 <div className="admin-card">
                   <div className="admin-card-header">Avg Execution Latency</div>
-                  <div className="admin-card-value">{execMetrics.avgDurationMs} ms</div>
+                  <div className="admin-card-value">
+                    {execMetrics.avgDurationMs} ms
+                  </div>
                   <div className="admin-card-sub">
                     <span>Across all languages</span>
                   </div>
@@ -808,17 +1045,26 @@ export default function AdminDashboard({
             {/* Filterable Executions Table */}
             <div className="admin-table-wrap">
               <div className="admin-table-toolbar">
-                <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    margin: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
                   <IconCode size={16} color="#89b4fa" />
                   <span>Platform Execution Log ({runs.length})</span>
                 </h2>
 
-                <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ display: "flex", gap: "10px" }}>
                   <select
                     className="glass-input"
                     value={execStatusFilter}
                     onChange={(e) => setExecStatusFilter(e.target.value)}
-                    style={{ fontSize: '12px', padding: '4px 10px' }}
+                    style={{ fontSize: "12px", padding: "4px 10px" }}
                   >
                     <option value="">All Statuses</option>
                     <option value="success">Success</option>
@@ -832,7 +1078,7 @@ export default function AdminDashboard({
                     className="glass-input"
                     value={execLangFilter}
                     onChange={(e) => setExecLangFilter(e.target.value)}
-                    style={{ fontSize: '12px', padding: '4px 10px' }}
+                    style={{ fontSize: "12px", padding: "4px 10px" }}
                   >
                     <option value="">All Languages</option>
                     <option value="python">Python</option>
@@ -847,7 +1093,14 @@ export default function AdminDashboard({
 
               <div className="admin-table-scroll">
                 {runs.length === 0 ? (
-                  <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-muted)', fontSize: '13px' }}>
+                  <div
+                    style={{
+                      padding: "40px",
+                      textAlign: "center",
+                      color: "var(--fg-muted)",
+                      fontSize: "13px",
+                    }}
+                  >
                     No execution records match the active filter criteria.
                   </div>
                 ) : (
@@ -868,23 +1121,54 @@ export default function AdminDashboard({
                     <tbody>
                       {runs.map((r) => (
                         <tr key={r.id}>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#89b4fa' }}>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "11px",
+                              color: "#89b4fa",
+                            }}
+                          >
                             {r.id.slice(0, 8)}...
                           </td>
                           <td>{r.project_name || r.project_id.slice(0, 8)}</td>
                           <td>{r.username || `User #${r.user_id}`}</td>
                           <td>
-                            <span style={{ textTransform: 'capitalize', fontWeight: 500 }}>{r.language}</span>
+                            <span
+                              style={{
+                                textTransform: "capitalize",
+                                fontWeight: 500,
+                              }}
+                            >
+                              {r.language}
+                            </span>
                           </td>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>{r.file_path}</td>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                            }}
+                          >
+                            {r.file_path}
+                          </td>
                           <td>
-                            <span className={`glass-badge ${r.status === 'success' ? 'glass-badge-success' : 'glass-badge-warning'}`}>
+                            <span
+                              className={`glass-badge ${r.status === "success" ? "glass-badge-success" : "glass-badge-warning"}`}
+                            >
                               {r.status.toUpperCase()}
                             </span>
                           </td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{r.exit_code ?? '-'}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{r.duration_ms}ms</td>
-                          <td style={{ fontSize: '11px', color: 'var(--fg-muted)' }}>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>
+                            {r.exit_code ?? "-"}
+                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>
+                            {r.duration_ms}ms
+                          </td>
+                          <td
+                            style={{
+                              fontSize: "11px",
+                              color: "var(--fg-muted)",
+                            }}
+                          >
                             {new Date(r.created_at).toLocaleTimeString()}
                           </td>
                         </tr>
@@ -900,37 +1184,44 @@ export default function AdminDashboard({
         {/* =========================================================================
             TAB: RESOURCE ANALYTICS & HISTORIAN
             ========================================================================= */}
-        {activeTab === 'resources' && (
-          <AdminResourceAnalytics />
-        )}
+        {activeTab === "resources" && <AdminResourceAnalytics />}
 
         {/* =========================================================================
             TAB 4: TENANTS & WORKSPACES (With Full Scrolling, Search, Filter, Sort)
             ========================================================================= */}
-        {activeTab === 'tenants' && (
+        {activeTab === "tenants" && (
           <div className="admin-table-wrap">
             <div className="admin-table-toolbar">
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div
+                style={{ display: "flex", gap: "8px", alignItems: "center" }}
+              >
                 <button
-                  className={`glass-btn ${tenantSubTab === 'users' ? 'glass-btn-primary' : 'glass-btn-ghost'}`}
-                  onClick={() => setTenantSubTab('users')}
-                  style={{ fontSize: '12px', padding: '6px 14px' }}
+                  className={`glass-btn ${tenantSubTab === "users" ? "glass-btn-primary" : "glass-btn-ghost"}`}
+                  onClick={() => setTenantSubTab("users")}
+                  style={{ fontSize: "12px", padding: "6px 14px" }}
                 >
                   <IconUsers size={13} />
                   <span>Users Directory ({users.length})</span>
                 </button>
                 <button
-                  className={`glass-btn ${tenantSubTab === 'projects' ? 'glass-btn-primary' : 'glass-btn-ghost'}`}
-                  onClick={() => setTenantSubTab('projects')}
-                  style={{ fontSize: '12px', padding: '6px 14px' }}
+                  className={`glass-btn ${tenantSubTab === "projects" ? "glass-btn-primary" : "glass-btn-ghost"}`}
+                  onClick={() => setTenantSubTab("projects")}
+                  style={{ fontSize: "12px", padding: "6px 14px" }}
                 >
                   <IconLayers size={13} />
                   <span>Workspaces Catalog ({projects.length})</span>
                 </button>
               </div>
 
-              {tenantSubTab === 'users' && (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {tenantSubTab === "users" && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
                   <input
                     type="text"
                     className="admin-search-input"
@@ -943,7 +1234,7 @@ export default function AdminDashboard({
                     className="glass-input"
                     value={userRoleFilter}
                     onChange={(e) => setUserRoleFilter(e.target.value as any)}
-                    style={{ fontSize: '12px', padding: '4px 8px' }}
+                    style={{ fontSize: "12px", padding: "4px 8px" }}
                   >
                     <option value="all">All Roles</option>
                     <option value="admin">Admins Only</option>
@@ -954,7 +1245,7 @@ export default function AdminDashboard({
                     className="glass-input"
                     value={userTypeFilter}
                     onChange={(e) => setUserTypeFilter(e.target.value as any)}
-                    style={{ fontSize: '12px', padding: '4px 8px' }}
+                    style={{ fontSize: "12px", padding: "4px 8px" }}
                   >
                     <option value="all">All Account Types</option>
                     <option value="standard">Standard Users</option>
@@ -965,26 +1256,66 @@ export default function AdminDashboard({
             </div>
 
             <div className="admin-table-scroll">
-              {tenantSubTab === 'users' ? (
+              {tenantSubTab === "users" ? (
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th className="sortable" onClick={() => handleUserSort('id')}>
-                        ID {userSortField === 'id' ? (userSortAsc ? '▲' : '▼') : ''}
+                      <th
+                        className="sortable"
+                        onClick={() => handleUserSort("id")}
+                      >
+                        ID{" "}
+                        {userSortField === "id"
+                          ? userSortAsc
+                            ? "▲"
+                            : "▼"
+                          : ""}
                       </th>
-                      <th className="sortable" onClick={() => handleUserSort('username')}>
-                        Username {userSortField === 'username' ? (userSortAsc ? '▲' : '▼') : ''}
+                      <th
+                        className="sortable"
+                        onClick={() => handleUserSort("username")}
+                      >
+                        Username{" "}
+                        {userSortField === "username"
+                          ? userSortAsc
+                            ? "▲"
+                            : "▼"
+                          : ""}
                       </th>
                       <th>Role</th>
                       <th>Account Type</th>
-                      <th className="sortable" onClick={() => handleUserSort('project_count')}>
-                        Projects {userSortField === 'project_count' ? (userSortAsc ? '▲' : '▼') : ''}
+                      <th
+                        className="sortable"
+                        onClick={() => handleUserSort("project_count")}
+                      >
+                        Projects{" "}
+                        {userSortField === "project_count"
+                          ? userSortAsc
+                            ? "▲"
+                            : "▼"
+                          : ""}
                       </th>
-                      <th className="sortable" onClick={() => handleUserSort('execution_count')}>
-                        Executions {userSortField === 'execution_count' ? (userSortAsc ? '▲' : '▼') : ''}
+                      <th
+                        className="sortable"
+                        onClick={() => handleUserSort("execution_count")}
+                      >
+                        Executions{" "}
+                        {userSortField === "execution_count"
+                          ? userSortAsc
+                            ? "▲"
+                            : "▼"
+                          : ""}
                       </th>
-                      <th className="sortable" onClick={() => handleUserSort('created_at')}>
-                        Created {userSortField === 'created_at' ? (userSortAsc ? '▲' : '▼') : ''}
+                      <th
+                        className="sortable"
+                        onClick={() => handleUserSort("created_at")}
+                      >
+                        Created{" "}
+                        {userSortField === "created_at"
+                          ? userSortAsc
+                            ? "▲"
+                            : "▼"
+                          : ""}
                       </th>
                       <th>Administrative Actions</th>
                     </tr>
@@ -992,34 +1323,68 @@ export default function AdminDashboard({
                   <tbody>
                     {filteredUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: 'var(--fg-muted)' }}>
+                        <td
+                          colSpan={8}
+                          style={{
+                            textAlign: "center",
+                            padding: "30px",
+                            color: "var(--fg-muted)",
+                          }}
+                        >
                           No users match active search and filter criteria.
                         </td>
                       </tr>
                     ) : (
                       filteredUsers.map((u) => (
                         <tr key={u.id}>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>#{u.id}</td>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                            }}
+                          >
+                            #{u.id}
+                          </td>
                           <td style={{ fontWeight: 600 }}>{u.username}</td>
                           <td>
-                            <span className={`glass-badge ${u.role === 'admin' ? 'glass-badge-error' : 'glass-badge-info'}`}>
+                            <span
+                              className={`glass-badge ${u.role === "admin" ? "glass-badge-error" : "glass-badge-info"}`}
+                            >
                               {u.role.toUpperCase()}
                             </span>
                           </td>
                           <td>
                             {u.isDemo ? (
-                              <span className="glass-badge glass-badge-warning">DISPOSABLE DEMO</span>
+                              <span className="glass-badge glass-badge-warning">
+                                DISPOSABLE DEMO
+                              </span>
                             ) : (
-                              <span style={{ color: 'var(--fg-muted)', fontSize: '12px' }}>Standard</span>
+                              <span
+                                style={{
+                                  color: "var(--fg-muted)",
+                                  fontSize: "12px",
+                                }}
+                              >
+                                Standard
+                              </span>
                             )}
                           </td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{u.project_count}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{u.execution_count}</td>
-                          <td style={{ fontSize: '11px', color: 'var(--fg-muted)' }}>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>
+                            {u.project_count}
+                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>
+                            {u.execution_count}
+                          </td>
+                          <td
+                            style={{
+                              fontSize: "11px",
+                              color: "var(--fg-muted)",
+                            }}
+                          >
                             {new Date(u.created_at).toLocaleDateString()}
                           </td>
                           <td>
-                            <div style={{ display: 'flex', gap: '6px' }}>
+                            <div style={{ display: "flex", gap: "6px" }}>
                               <button
                                 className="admin-action-btn"
                                 onClick={() => handleInspectUser(u.id)}
@@ -1073,16 +1438,31 @@ export default function AdminDashboard({
                   <tbody>
                     {projects.map((p) => (
                       <tr key={p.id}>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#89b4fa' }}>
+                        <td
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "11px",
+                            color: "#89b4fa",
+                          }}
+                        >
                           {p.id.slice(0, 8)}...
                         </td>
                         <td style={{ fontWeight: 600 }}>{p.name}</td>
-                        <td style={{ textTransform: 'capitalize' }}>{p.language}</td>
+                        <td style={{ textTransform: "capitalize" }}>
+                          {p.language}
+                        </td>
                         <td>{p.owner_username}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>{p.snapshot_count}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>{p.run_count}</td>
-                        <td style={{ fontSize: '11px', color: 'var(--fg-muted)' }}>
-                          {new Date(p.updated_at).toLocaleDateString()} {new Date(p.updated_at).toLocaleTimeString()}
+                        <td style={{ fontFamily: "var(--font-mono)" }}>
+                          {p.snapshot_count}
+                        </td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>
+                          {p.run_count}
+                        </td>
+                        <td
+                          style={{ fontSize: "11px", color: "var(--fg-muted)" }}
+                        >
+                          {new Date(p.updated_at).toLocaleDateString()}{" "}
+                          {new Date(p.updated_at).toLocaleTimeString()}
                         </td>
                       </tr>
                     ))}
@@ -1096,29 +1476,50 @@ export default function AdminDashboard({
         {/* =========================================================================
             TAB 5: AUDIT JOURNAL
             ========================================================================= */}
-        {activeTab === 'audit' && (
+        {activeTab === "audit" && (
           <div className="admin-table-wrap">
             <div className="admin-table-toolbar">
-              <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
                 <IconShield size={16} color="#f38ba8" />
-                <span>Security & Operations Audit Trail ({auditLogs.length})</span>
+                <span>
+                  Security & Operations Audit Trail ({auditLogs.length})
+                </span>
               </h2>
 
               <select
                 className="glass-input"
                 value={auditEventFilter}
                 onChange={(e) => setAuditEventFilter(e.target.value)}
-                style={{ fontSize: '12px', padding: '4px 10px' }}
+                style={{ fontSize: "12px", padding: "4px 10px" }}
               >
                 <option value="">All Event Types</option>
                 <option value="AUTH_LOGIN">AUTH_LOGIN</option>
                 <option value="ADMIN_LOGIN">ADMIN_LOGIN</option>
                 <option value="AUTH_FAILED_LOGIN">AUTH_FAILED_LOGIN</option>
-                <option value="DEMO_SESSION_CREATED">DEMO_SESSION_CREATED</option>
-                <option value="USER_UPDATED_BY_ADMIN">USER_UPDATED_BY_ADMIN</option>
-                <option value="USER_PASSWORD_RESET_BY_ADMIN">USER_PASSWORD_RESET_BY_ADMIN</option>
-                <option value="USER_DELETED_BY_ADMIN">USER_DELETED_BY_ADMIN</option>
-                <option value="SANDBOX_TERMINATED_BY_ADMIN">SANDBOX_TERMINATED_BY_ADMIN</option>
+                <option value="DEMO_SESSION_CREATED">
+                  DEMO_SESSION_CREATED
+                </option>
+                <option value="USER_UPDATED_BY_ADMIN">
+                  USER_UPDATED_BY_ADMIN
+                </option>
+                <option value="USER_PASSWORD_RESET_BY_ADMIN">
+                  USER_PASSWORD_RESET_BY_ADMIN
+                </option>
+                <option value="USER_DELETED_BY_ADMIN">
+                  USER_DELETED_BY_ADMIN
+                </option>
+                <option value="SANDBOX_TERMINATED_BY_ADMIN">
+                  SANDBOX_TERMINATED_BY_ADMIN
+                </option>
                 <option value="PROJECT_CREATED">PROJECT_CREATED</option>
                 <option value="SNAPSHOT_CREATED">SNAPSHOT_CREATED</option>
                 <option value="SNAPSHOT_RESTORED">SNAPSHOT_RESTORED</option>
@@ -1127,7 +1528,14 @@ export default function AdminDashboard({
 
             <div className="admin-table-scroll">
               {auditLogs.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-muted)', fontSize: '13px' }}>
+                <div
+                  style={{
+                    padding: "40px",
+                    textAlign: "center",
+                    color: "var(--fg-muted)",
+                    fontSize: "13px",
+                  }}
+                >
                   No audit events recorded matching filter.
                 </div>
               ) : (
@@ -1145,28 +1553,59 @@ export default function AdminDashboard({
                   <tbody>
                     {auditLogs.map((log) => (
                       <tr key={log.id}>
-                        <td style={{ fontSize: '11px', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        <td
+                          style={{
+                            fontSize: "11px",
+                            color: "var(--fg-muted)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {new Date(log.created_at).toLocaleString()}
                         </td>
                         <td>
                           <span
                             className={`glass-badge ${
-                              log.event_type.startsWith('ADMIN') || log.event_type.includes('TERMINATED') || log.event_type.includes('DELETED')
-                                ? 'glass-badge-error'
-                                : log.event_type.includes('FAILED')
-                                ? 'glass-badge-warning'
-                                : 'glass-badge-info'
+                              log.event_type.startsWith("ADMIN") ||
+                              log.event_type.includes("TERMINATED") ||
+                              log.event_type.includes("DELETED")
+                                ? "glass-badge-error"
+                                : log.event_type.includes("FAILED")
+                                  ? "glass-badge-warning"
+                                  : "glass-badge-info"
                             }`}
                           >
                             {log.event_type}
                           </span>
                         </td>
-                        <td style={{ fontWeight: 500 }}>{log.username || (log.user_id ? `User #${log.user_id}` : 'Anonymous')}</td>
-                        <td>{log.project_name || (log.project_id ? log.project_id.slice(0, 8) : '-')}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--fg-muted)' }}>
-                          {log.ip_address || '-'}
+                        <td style={{ fontWeight: 500 }}>
+                          {log.username ||
+                            (log.user_id
+                              ? `User #${log.user_id}`
+                              : "Anonymous")}
                         </td>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <td>
+                          {log.project_name ||
+                            (log.project_id ? log.project_id.slice(0, 8) : "-")}
+                        </td>
+                        <td
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "11px",
+                            color: "var(--fg-muted)",
+                          }}
+                        >
+                          {log.ip_address || "-"}
+                        </td>
+                        <td
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "11px",
+                            maxWidth: "300px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {JSON.stringify(log.details)}
                         </td>
                       </tr>
@@ -1185,37 +1624,61 @@ export default function AdminDashboard({
       {inspectingUser && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">
           <div className="admin-drawer-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border-subtle)', paddingBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderBottom: "1px solid var(--glass-border-subtle)",
+                paddingBottom: "14px",
+              }}
+            >
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "12px" }}
+              >
                 <div
                   style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '10px',
-                    background: 'rgba(137, 180, 250, 0.15)',
-                    color: '#89b4fa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    width: "40px",
+                    height: "40px",
+                    borderRadius: "10px",
+                    background: "rgba(137, 180, 250, 0.15)",
+                    color: "#89b4fa",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                 >
                   <IconUsers size={20} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 600, color: 'var(--fg-primary)' }}>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: "17px",
+                      fontWeight: 600,
+                      color: "var(--fg-primary)",
+                    }}
+                  >
                     User Inspector: {inspectingUser.user.username}
                   </h3>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--fg-muted)' }}>
-                    User ID #{inspectingUser.user.id} • Registered {new Date(inspectingUser.user.created_at).toLocaleString()}
+                  <p
+                    style={{
+                      margin: "2px 0 0 0",
+                      fontSize: "12px",
+                      color: "var(--fg-muted)",
+                    }}
+                  >
+                    User ID #{inspectingUser.user.id} • Registered{" "}
+                    {new Date(inspectingUser.user.created_at).toLocaleString()}
                   </p>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: "flex", gap: "8px" }}>
                 <button
                   className="glass-btn glass-btn-secondary"
                   onClick={() => openEditModal(inspectingUser.user)}
-                  style={{ fontSize: '12px', padding: '5px 10px' }}
+                  style={{ fontSize: "12px", padding: "5px 10px" }}
                 >
                   <IconEdit size={12} />
                   <span>Edit</span>
@@ -1223,14 +1686,14 @@ export default function AdminDashboard({
                 <button
                   className="glass-btn glass-btn-secondary"
                   onClick={() => openResetPasswordModal(inspectingUser.user)}
-                  style={{ fontSize: '12px', padding: '5px 10px' }}
+                  style={{ fontSize: "12px", padding: "5px 10px" }}
                 >
                   <span>Reset Pass</span>
                 </button>
                 <button
                   className="glass-btn glass-btn-ghost"
                   onClick={() => setInspectingUser(null)}
-                  style={{ fontSize: '12px' }}
+                  style={{ fontSize: "12px" }}
                 >
                   ✕ Close
                 </button>
@@ -1238,22 +1701,42 @@ export default function AdminDashboard({
             </div>
 
             {/* User Quotas & Resource Metrics */}
-            <div className="admin-cards-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-              <div className="admin-card" style={{ padding: '12px' }}>
-                <div className="admin-card-header" style={{ fontSize: '10px' }}>Projects</div>
-                <div className="admin-card-value" style={{ fontSize: '20px' }}>{inspectingUser.counts.projectCount}</div>
+            <div
+              className="admin-cards-grid"
+              style={{ gridTemplateColumns: "repeat(4, 1fr)" }}
+            >
+              <div className="admin-card" style={{ padding: "12px" }}>
+                <div className="admin-card-header" style={{ fontSize: "10px" }}>
+                  Projects
+                </div>
+                <div className="admin-card-value" style={{ fontSize: "20px" }}>
+                  {inspectingUser.counts.projectCount}
+                </div>
               </div>
-              <div className="admin-card" style={{ padding: '12px' }}>
-                <div className="admin-card-header" style={{ fontSize: '10px' }}>Executions</div>
-                <div className="admin-card-value" style={{ fontSize: '20px' }}>{inspectingUser.counts.executionCount}</div>
+              <div className="admin-card" style={{ padding: "12px" }}>
+                <div className="admin-card-header" style={{ fontSize: "10px" }}>
+                  Executions
+                </div>
+                <div className="admin-card-value" style={{ fontSize: "20px" }}>
+                  {inspectingUser.counts.executionCount}
+                </div>
               </div>
-              <div className="admin-card" style={{ padding: '12px' }}>
-                <div className="admin-card-header" style={{ fontSize: '10px' }}>Snapshots</div>
-                <div className="admin-card-value" style={{ fontSize: '20px' }}>{inspectingUser.counts.snapshotCount}</div>
+              <div className="admin-card" style={{ padding: "12px" }}>
+                <div className="admin-card-header" style={{ fontSize: "10px" }}>
+                  Snapshots
+                </div>
+                <div className="admin-card-value" style={{ fontSize: "20px" }}>
+                  {inspectingUser.counts.snapshotCount}
+                </div>
               </div>
-              <div className="admin-card" style={{ padding: '12px' }}>
-                <div className="admin-card-header" style={{ fontSize: '10px' }}>Active Containers</div>
-                <div className="admin-card-value" style={{ fontSize: '20px', color: '#a6e3a1' }}>
+              <div className="admin-card" style={{ padding: "12px" }}>
+                <div className="admin-card-header" style={{ fontSize: "10px" }}>
+                  Active Containers
+                </div>
+                <div
+                  className="admin-card-value"
+                  style={{ fontSize: "20px", color: "#a6e3a1" }}
+                >
                   {inspectingUser.counts.activeSandboxesCount}
                 </div>
               </div>
@@ -1266,10 +1749,12 @@ export default function AdminDashboard({
                 <span>Workspaces ({inspectingUser.projects.length})</span>
               </h4>
               {inspectingUser.projects.length === 0 ? (
-                <span style={{ fontSize: '12px', color: 'var(--fg-muted)' }}>No projects created yet.</span>
+                <span style={{ fontSize: "12px", color: "var(--fg-muted)" }}>
+                  No projects created yet.
+                </span>
               ) : (
-                <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
-                  <table className="admin-table" style={{ fontSize: '12px' }}>
+                <div style={{ maxHeight: "160px", overflowY: "auto" }}>
+                  <table className="admin-table" style={{ fontSize: "12px" }}>
                     <thead>
                       <tr>
                         <th>Workspace Name</th>
@@ -1282,7 +1767,9 @@ export default function AdminDashboard({
                       {inspectingUser.projects.map((p) => (
                         <tr key={p.id}>
                           <td style={{ fontWeight: 600 }}>{p.name}</td>
-                          <td style={{ textTransform: 'capitalize' }}>{p.language}</td>
+                          <td style={{ textTransform: "capitalize" }}>
+                            {p.language}
+                          </td>
                           <td>{new Date(p.created_at).toLocaleDateString()}</td>
                           <td>{new Date(p.updated_at).toLocaleString()}</td>
                         </tr>
@@ -1297,13 +1784,18 @@ export default function AdminDashboard({
             <div className="admin-drawer-section">
               <h4>
                 <IconCode size={14} color="#f9e2af" />
-                <span>Recent Execution History ({inspectingUser.recentExecutions.length})</span>
+                <span>
+                  Recent Execution History (
+                  {inspectingUser.recentExecutions.length})
+                </span>
               </h4>
               {inspectingUser.recentExecutions.length === 0 ? (
-                <span style={{ fontSize: '12px', color: 'var(--fg-muted)' }}>No executions recorded.</span>
+                <span style={{ fontSize: "12px", color: "var(--fg-muted)" }}>
+                  No executions recorded.
+                </span>
               ) : (
-                <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
-                  <table className="admin-table" style={{ fontSize: '12px' }}>
+                <div style={{ maxHeight: "160px", overflowY: "auto" }}>
+                  <table className="admin-table" style={{ fontSize: "12px" }}>
                     <thead>
                       <tr>
                         <th>Workspace</th>
@@ -1319,12 +1811,18 @@ export default function AdminDashboard({
                           <td>{r.project_name || r.project_id.slice(0, 8)}</td>
                           <td>{r.language}</td>
                           <td>
-                            <span className={`glass-badge ${r.status === 'success' ? 'glass-badge-success' : 'glass-badge-warning'}`}>
+                            <span
+                              className={`glass-badge ${r.status === "success" ? "glass-badge-success" : "glass-badge-warning"}`}
+                            >
                               {r.status.toUpperCase()}
                             </span>
                           </td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{r.duration_ms}ms</td>
-                          <td style={{ color: 'var(--fg-muted)' }}>{new Date(r.created_at).toLocaleTimeString()}</td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>
+                            {r.duration_ms}ms
+                          </td>
+                          <td style={{ color: "var(--fg-muted)" }}>
+                            {new Date(r.created_at).toLocaleTimeString()}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1337,13 +1835,18 @@ export default function AdminDashboard({
             <div className="admin-drawer-section">
               <h4>
                 <IconShield size={14} color="#f38ba8" />
-                <span>Audit Journal Entries for User ({inspectingUser.recentAuditLogs.length})</span>
+                <span>
+                  Audit Journal Entries for User (
+                  {inspectingUser.recentAuditLogs.length})
+                </span>
               </h4>
               {inspectingUser.recentAuditLogs.length === 0 ? (
-                <span style={{ fontSize: '12px', color: 'var(--fg-muted)' }}>No audit events logged for this user.</span>
+                <span style={{ fontSize: "12px", color: "var(--fg-muted)" }}>
+                  No audit events logged for this user.
+                </span>
               ) : (
-                <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
-                  <table className="admin-table" style={{ fontSize: '12px' }}>
+                <div style={{ maxHeight: "160px", overflowY: "auto" }}>
+                  <table className="admin-table" style={{ fontSize: "12px" }}>
                     <thead>
                       <tr>
                         <th>Timestamp</th>
@@ -1355,12 +1858,26 @@ export default function AdminDashboard({
                     <tbody>
                       {inspectingUser.recentAuditLogs.map((l) => (
                         <tr key={l.id}>
-                          <td style={{ color: 'var(--fg-muted)' }}>{new Date(l.created_at).toLocaleTimeString()}</td>
-                          <td>
-                            <span className="glass-badge glass-badge-info">{l.event_type}</span>
+                          <td style={{ color: "var(--fg-muted)" }}>
+                            {new Date(l.created_at).toLocaleTimeString()}
                           </td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{l.ip_address || '-'}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <td>
+                            <span className="glass-badge glass-badge-info">
+                              {l.event_type}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>
+                            {l.ip_address || "-"}
+                          </td>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              maxWidth: "240px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
                             {JSON.stringify(l.details)}
                           </td>
                         </tr>
@@ -1380,22 +1897,44 @@ export default function AdminDashboard({
       {editingUser && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">
           <div className="admin-modal-card">
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 600, color: 'var(--fg-primary)' }}>
+            <h3
+              style={{
+                margin: "0 0 6px 0",
+                fontSize: "16px",
+                fontWeight: 600,
+                color: "var(--fg-primary)",
+              }}
+            >
               Edit User: {editingUser.username}
             </h3>
-            <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: 'var(--fg-muted)' }}>
-              Modify administrative role or identifier for User #{editingUser.id}
+            <p
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: "12px",
+                color: "var(--fg-muted)",
+              }}
+            >
+              Modify administrative role or identifier for User #
+              {editingUser.id}
             </p>
 
             {editError && (
-              <div className="glass-banner glass-banner-error" style={{ marginBottom: '14px', fontSize: '12px' }}>
+              <div
+                className="glass-banner glass-banner-error"
+                style={{ marginBottom: "14px", fontSize: "12px" }}
+              >
                 <span>{editError}</span>
               </div>
             )}
 
-            <form onSubmit={handleEditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <form
+              onSubmit={handleEditSubmit}
+              style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+            >
               <div className="glass-form-group">
-                <label className="glass-label" htmlFor="edit-username">Username</label>
+                <label className="glass-label" htmlFor="edit-username">
+                  Username
+                </label>
                 <input
                   id="edit-username"
                   type="text"
@@ -1408,7 +1947,9 @@ export default function AdminDashboard({
               </div>
 
               <div className="glass-form-group">
-                <label className="glass-label" htmlFor="edit-role">Role & Permissions</label>
+                <label className="glass-label" htmlFor="edit-role">
+                  Role & Permissions
+                </label>
                 <select
                   id="edit-role"
                   className="glass-input"
@@ -1420,7 +1961,14 @@ export default function AdminDashboard({
                 </select>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
+                  marginTop: "10px",
+                }}
+              >
                 <button
                   type="button"
                   className="glass-btn glass-btn-ghost"
@@ -1434,7 +1982,7 @@ export default function AdminDashboard({
                   className="glass-btn glass-btn-primary"
                   disabled={editLoading}
                 >
-                  {editLoading ? 'Saving...' : 'Save Changes'}
+                  {editLoading ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -1448,22 +1996,44 @@ export default function AdminDashboard({
       {resettingPasswordUser && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">
           <div className="admin-modal-card">
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 600, color: 'var(--fg-primary)' }}>
+            <h3
+              style={{
+                margin: "0 0 6px 0",
+                fontSize: "16px",
+                fontWeight: 600,
+                color: "var(--fg-primary)",
+              }}
+            >
               Reset Password: {resettingPasswordUser.username}
             </h3>
-            <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: 'var(--fg-muted)' }}>
-              Set a new secure password. All existing login sessions will be immediately invalidated.
+            <p
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: "12px",
+                color: "var(--fg-muted)",
+              }}
+            >
+              Set a new secure password. All existing login sessions will be
+              immediately invalidated.
             </p>
 
             {resetError && (
-              <div className="glass-banner glass-banner-error" style={{ marginBottom: '14px', fontSize: '12px' }}>
+              <div
+                className="glass-banner glass-banner-error"
+                style={{ marginBottom: "14px", fontSize: "12px" }}
+              >
                 <span>{resetError}</span>
               </div>
             )}
 
-            <form onSubmit={handleResetPasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <form
+              onSubmit={handleResetPasswordSubmit}
+              style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+            >
               <div className="glass-form-group">
-                <label className="glass-label" htmlFor="reset-new-password">New Password (Min 8 characters)</label>
+                <label className="glass-label" htmlFor="reset-new-password">
+                  New Password (Min 8 characters)
+                </label>
                 <input
                   id="reset-new-password"
                   type="password"
@@ -1477,11 +2047,29 @@ export default function AdminDashboard({
                 />
               </div>
 
-              <div style={{ background: 'rgba(249, 226, 175, 0.1)', border: '1px solid rgba(249, 226, 175, 0.25)', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#f9e2af' }}>
-                ⚠️ <strong>Session Invalidation:</strong> Applying this change will revoke all active browser session tokens for <strong>{resettingPasswordUser.username}</strong> immediately.
+              <div
+                style={{
+                  background: "rgba(249, 226, 175, 0.1)",
+                  border: "1px solid rgba(249, 226, 175, 0.25)",
+                  borderRadius: "8px",
+                  padding: "10px",
+                  fontSize: "12px",
+                  color: "#f9e2af",
+                }}
+              >
+                ⚠️ <strong>Session Invalidation:</strong> Applying this change
+                will revoke all active browser session tokens for{" "}
+                <strong>{resettingPasswordUser.username}</strong> immediately.
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
+                  marginTop: "10px",
+                }}
+              >
                 <button
                   type="button"
                   className="glass-btn glass-btn-ghost"
@@ -1494,9 +2082,9 @@ export default function AdminDashboard({
                   type="submit"
                   className="glass-btn glass-btn-primary"
                   disabled={resetLoading}
-                  style={{ background: '#fab387', color: '#090b10' }}
+                  style={{ background: "#fab387", color: "#090b10" }}
                 >
-                  {resetLoading ? 'Resetting...' : 'Confirm Password Reset'}
+                  {resetLoading ? "Resetting..." : "Confirm Password Reset"}
                 </button>
               </div>
             </form>
@@ -1509,53 +2097,109 @@ export default function AdminDashboard({
           ========================================================================= */}
       {deletingUser && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">
-          <div className="admin-modal-card" style={{ border: '1px solid rgba(243, 139, 168, 0.4)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+          <div
+            className="admin-modal-card"
+            style={{ border: "1px solid rgba(243, 139, 168, 0.4)" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "14px",
+              }}
+            >
               <div
                 style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '10px',
-                  background: 'rgba(243, 139, 168, 0.15)',
-                  color: '#f38ba8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "10px",
+                  background: "rgba(243, 139, 168, 0.15)",
+                  color: "#f38ba8",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
                 <IconAlertTriangle size={20} />
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--fg-primary)' }}>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: "16px",
+                    fontWeight: 600,
+                    color: "var(--fg-primary)",
+                  }}
+                >
                   Confirm User Deletion
                 </h3>
-                <p style={{ margin: 0, fontSize: '12px', color: 'var(--fg-muted)' }}>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "12px",
+                    color: "var(--fg-muted)",
+                  }}
+                >
                   Permanent cascade cleanup of tenant data
                 </p>
               </div>
             </div>
 
             {deleteError && (
-              <div className="glass-banner glass-banner-error" style={{ marginBottom: '14px', fontSize: '12px' }}>
+              <div
+                className="glass-banner glass-banner-error"
+                style={{ marginBottom: "14px", fontSize: "12px" }}
+              >
                 <span>{deleteError}</span>
               </div>
             )}
 
-            <p style={{ fontSize: '13px', color: 'var(--fg-secondary)', lineHeight: 1.5, marginBottom: '14px' }}>
-              Are you sure you want to permanently delete user{' '}
-              <strong style={{ color: '#f38ba8' }}>{deletingUser.username}</strong> (ID #{deletingUser.id})?
+            <p
+              style={{
+                fontSize: "13px",
+                color: "var(--fg-secondary)",
+                lineHeight: 1.5,
+                marginBottom: "14px",
+              }}
+            >
+              Are you sure you want to permanently delete user{" "}
+              <strong style={{ color: "#f38ba8" }}>
+                {deletingUser.username}
+              </strong>{" "}
+              (ID #{deletingUser.id})?
             </p>
 
-            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 14px', borderRadius: '8px', marginBottom: '20px', fontSize: '12px', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-              <strong>The following data will be permanently purged:</strong><br />
-              • All {deletingUser.project_count} project workspaces and files on disk<br />
-              • All associated Docker sandboxes stopped & removed<br />
-              • All snapshot tarballs and execution logs<br />
-              • All active session tokens revoked<br />
-              • Audit history will record this administrative action
+            <div
+              style={{
+                background: "rgba(0,0,0,0.3)",
+                padding: "12px 14px",
+                borderRadius: "8px",
+                marginBottom: "20px",
+                fontSize: "12px",
+                color: "var(--fg-muted)",
+                lineHeight: 1.6,
+              }}
+            >
+              <strong>The following data will be permanently purged:</strong>
+              <br />• All {deletingUser.project_count} project workspaces and
+              files on disk
+              <br />
+              • All associated Docker sandboxes stopped & removed
+              <br />
+              • All snapshot tarballs and execution logs
+              <br />
+              • All active session tokens revoked
+              <br />• Audit history will record this administrative action
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+              }}
+            >
               <button
                 className="glass-btn glass-btn-ghost"
                 onClick={() => setDeletingUser(null)}
@@ -1568,13 +2212,13 @@ export default function AdminDashboard({
                 onClick={handleDeleteUserSubmit}
                 disabled={deleteLoading}
                 style={{
-                  background: 'rgba(243, 139, 168, 0.3)',
-                  color: '#f38ba8',
-                  border: '1px solid rgba(243, 139, 168, 0.4)',
+                  background: "rgba(243, 139, 168, 0.3)",
+                  color: "#f38ba8",
+                  border: "1px solid rgba(243, 139, 168, 0.4)",
                   fontWeight: 600,
                 }}
               >
-                {deleteLoading ? 'Purging User...' : 'Permanently Delete User'}
+                {deleteLoading ? "Purging User..." : "Permanently Delete User"}
               </button>
             </div>
           </div>
@@ -1587,46 +2231,93 @@ export default function AdminDashboard({
       {terminatingSandbox && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">
           <div className="admin-modal-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "16px",
+              }}
+            >
               <div
                 style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '10px',
-                  background: 'rgba(243, 139, 168, 0.15)',
-                  color: '#f38ba8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "10px",
+                  background: "rgba(243, 139, 168, 0.15)",
+                  color: "#f38ba8",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
                 <IconAlertTriangle size={18} />
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--fg-primary)' }}>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    color: "var(--fg-primary)",
+                  }}
+                >
                   Confirm Sandbox Termination
                 </h3>
-                <p style={{ margin: 0, fontSize: '12px', color: 'var(--fg-muted)' }}>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "12px",
+                    color: "var(--fg-muted)",
+                  }}
+                >
                   Operator-level Docker container kill & teardown
                 </p>
               </div>
             </div>
 
-            <p style={{ fontSize: '13px', color: 'var(--fg-secondary)', lineHeight: 1.5, marginBottom: '16px' }}>
-              Are you sure you want to forcibly stop container{' '}
-              <strong style={{ color: '#89b4fa', fontFamily: 'var(--font-mono)' }}>
+            <p
+              style={{
+                fontSize: "13px",
+                color: "var(--fg-secondary)",
+                lineHeight: 1.5,
+                marginBottom: "16px",
+              }}
+            >
+              Are you sure you want to forcibly stop container{" "}
+              <strong
+                style={{ color: "#89b4fa", fontFamily: "var(--font-mono)" }}
+              >
                 {terminatingSandbox.containerId}
-              </strong>{' '}
+              </strong>{" "}
               (Workspace: <strong>{terminatingSandbox.projectName}</strong>)?
             </p>
 
-            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '10px 14px', borderRadius: '8px', marginBottom: '20px', fontSize: '12px', color: 'var(--fg-muted)' }}>
-              • In-flight terminal or web execution processes will be terminated immediately.<br />
-              • Workspace files on disk remain safe.<br />
-              • Action will be permanently recorded in the immutable audit journal.
+            <div
+              style={{
+                background: "rgba(0,0,0,0.25)",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                marginBottom: "20px",
+                fontSize: "12px",
+                color: "var(--fg-muted)",
+              }}
+            >
+              • In-flight terminal or web execution processes will be terminated
+              immediately.
+              <br />
+              • Workspace files on disk remain safe.
+              <br />• Action will be permanently recorded in the immutable audit
+              journal.
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+              }}
+            >
               <button
                 className="glass-btn glass-btn-ghost"
                 onClick={() => setTerminatingSandbox(null)}
@@ -1639,13 +2330,13 @@ export default function AdminDashboard({
                 onClick={handleTerminateConfirm}
                 disabled={terminateLoading}
                 style={{
-                  background: 'rgba(243, 139, 168, 0.3)',
-                  color: '#f38ba8',
-                  border: '1px solid rgba(243, 139, 168, 0.4)',
+                  background: "rgba(243, 139, 168, 0.3)",
+                  color: "#f38ba8",
+                  border: "1px solid rgba(243, 139, 168, 0.4)",
                   fontWeight: 600,
                 }}
               >
-                {terminateLoading ? 'Terminating...' : 'Terminate Sandbox'}
+                {terminateLoading ? "Terminating..." : "Terminate Sandbox"}
               </button>
             </div>
           </div>
