@@ -27,6 +27,12 @@ RUN npm ci
 COPY tsconfig.base.json ./
 COPY backend/ backend/
 COPY frontend/ frontend/
+
+# See ci.yml's "Frontend typecheck + build" step for the measured rationale:
+# the monaco-editor-heavy vite build peaks ~2.9GB, above V8's default ~2GB
+# old-space ceiling. Scoped to this build stage only (does not carry into
+# the stage-2 runtime image).
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build -w @cloud-ide/frontend \
  && npm run build -w @cloud-ide/backend
 
