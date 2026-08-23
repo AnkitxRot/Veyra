@@ -4,6 +4,7 @@ import { hostname } from "node:os";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
 import { isDockerRunning, isRunnerImageAvailable } from "../tools.js";
+import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -332,8 +333,7 @@ export class SandboxManager {
     internalPort: number,
     containerized: boolean,
   ): Promise<string | null> {
-    const allowedPorts = [3000, 4173, 5173, 8000, 8080];
-    if (!allowedPorts.includes(internalPort)) return null;
+    if (!ALLOWED_PREVIEW_PORTS.includes(internalPort as any)) return null;
 
     const info = this.projectContainers.get(projectId);
     if (!info) return null;
