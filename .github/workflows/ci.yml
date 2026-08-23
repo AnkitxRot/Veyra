@@ -32,8 +32,21 @@ jobs:
       - name: Backend typecheck
         run: npm run typecheck -w @cloud-ide/backend
 
+      # The frontend bundles the full monaco-editor package (see
+      # frontend/vite.config.ts), which makes both `tsc --noEmit` and the
+      # Rollup/esbuild transform pass in `vite build` genuinely memory-heavy —
+      # measured locally at ~2.9GB peak Node working set for a normal
+      # successful build. V8's default old-space ceiling (~2GB) is lower than
+      # that on this runner, so the build was hitting a V8-internal limit, not
+      # the runner's actual RAM. This runner (private-repo ubuntu-latest) has
+      # 2 vCPU / 7GB RAM total; 4096MB leaves ~1GB of headroom above the
+      # measured natural peak while using at most ~58% of total runner RAM.
+      # Scoped to this step only so local `npm run build` behavior for
+      # developers is unaffected.
       - name: Frontend typecheck + build
         run: npm run build -w @cloud-ide/frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       # The runner image is required for the Docker-dependent backend tests.
       - name: Build sandbox runner image
