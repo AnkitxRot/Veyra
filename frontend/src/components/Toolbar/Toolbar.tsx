@@ -86,18 +86,6 @@ export default function Toolbar({
     }
   };
 
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        if (canRun && !isRunning) handleRun();
-        else if (isRunning) handleStop();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  });
-
   let toolchainAvailable = true;
   let notRunnableTitle = activeFile
     ? `Files of type ${langDisplay} cannot be executed directly.`
@@ -132,6 +120,18 @@ export default function Toolbar({
 
   const runLabel = langDisplay && runnable ? `Run ${langDisplay}` : 'Run';
   const canRun = runnable && toolchainAvailable;
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (canRun && !isRunning) handleRun();
+        else if (isRunning) handleStop();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canRun, isRunning, project, activeFile, langId, langDisplay]);
 
   const memMb = stats ? Math.round(stats.memoryUsageBytes / (1024 * 1024)) : 0;
   const cpuVal = stats ? stats.cpuPercent.toFixed(1) : '0.0';

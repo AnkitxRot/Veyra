@@ -1,7 +1,7 @@
-import type { Db } from '../db.js';
-import type { AppConfig } from '../config.js';
-import { ContainerStats, SandboxManager } from './sandbox.js';
-import { randomUUID } from 'node:crypto';
+import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
+import { ContainerStats, SandboxManager } from "./sandbox.js";
+import { randomUUID } from "node:crypto";
 
 export interface TelemetryRecord {
   id?: number;
@@ -39,23 +39,23 @@ export interface AnomalyRecord {
   sandboxId?: string | null;
   executionId?: string | null;
   anomalyType:
-    | 'high_cpu'
-    | 'memory_pressure'
-    | 'pid_pressure'
-    | 'long_execution'
-    | 'repeated_failure'
-    | 'sandbox_churn';
-  severity: 'warning' | 'critical';
+    | "high_cpu"
+    | "memory_pressure"
+    | "pid_pressure"
+    | "long_execution"
+    | "repeated_failure"
+    | "sandbox_churn";
+  severity: "warning" | "critical";
   title: string;
   reason: string;
   details: string;
-  status: 'active' | 'resolved';
+  status: "active" | "resolved";
   createdAt: string;
   resolvedAt?: string | null;
 }
 
 export interface ProjectHealthStatus {
-  status: 'healthy' | 'warning' | 'critical';
+  status: "healthy" | "warning" | "critical";
   score: number; // 0 - 100
   summary: string;
   runtime: {
@@ -135,7 +135,10 @@ export class TelemetryHistorian {
   private sampleTimer: NodeJS.Timeout | null = null;
 
   // Active Executions Map (projectId -> executionId)
-  private activeExecutions = new Map<string, { executionId: string; startTime: number }>();
+  private activeExecutions = new Map<
+    string,
+    { executionId: string; startTime: number }
+  >();
 
   // State tracking for Anomaly Engine
   private highCpuStreaks = new Map<string, number>(); // projectId -> consecutive seconds over threshold
@@ -157,7 +160,10 @@ export class TelemetryHistorian {
   }
 
   public trackExecutionStart(projectId: string, executionId: string): void {
-    this.activeExecutions.set(projectId, { executionId, startTime: Date.now() });
+    this.activeExecutions.set(projectId, {
+      executionId,
+      startTime: Date.now(),
+    });
   }
 
   public trackExecutionEnd(projectId: string, executionId: string): void {
@@ -168,13 +174,23 @@ export class TelemetryHistorian {
   }
 
   /**
+   * Releases all per-project in-memory state. Call when a project is permanently deleted,
+   * otherwise the per-project hot buffers and anomaly counters live for the process lifetime.
+   */
+  public disposeProject(projectId: string): void {
+    this.hotBuffers.delete(projectId);
+    this.highCpuStreaks.delete(projectId);
+    this.activeExecutions.delete(projectId);
+  }
+
+  /**
    * Ingests a new telemetry sample for a project sandbox.
    */
   public recordSample(
     projectId: string,
     sandboxId: string,
     stats: ContainerStats,
-    customTime?: string
+    customTime?: string,
   ): TelemetryRecord {
     const now = customTime || new Date().toISOString();
     const activeExec = this.activeExecutions.get(projectId);
@@ -228,7 +244,7 @@ export class TelemetryHistorian {
     this.writeQueue = [];
 
     try {
-      this.db.exec('BEGIN TRANSACTION;');
+      this.db.exec("BEGIN TRANSACTION;");
       const stmt = this.db.prepare(`
         INSERT INTO telemetry_samples (
           project_id, sandbox_id, execution_id, cpu_percent,
@@ -250,15 +266,18 @@ export class TelemetryHistorian {
           item.networkTxBytes,
           item.blockReadBytes,
           item.blockWriteBytes,
-          item.createdAt
+          item.createdAt,
         );
       }
-      this.db.exec('COMMIT;');
+      this.db.exec("COMMIT;");
     } catch (err: any) {
       try {
-        this.db.exec('ROLLBACK;');
+        this.db.exec("ROLLBACK;");
       } catch {}
-      console.error('[TelemetryHistorian] Error flushing batched telemetry:', err.message);
+      console.error(
+        "[TelemetryHistorian] Error flushing batched telemetry:",
+        err.message,
+      );
     }
   }
 
@@ -269,7 +288,7 @@ export class TelemetryHistorian {
     projectId: string,
     sandboxId: string,
     sample: TelemetryRecord,
-    activeExec?: { executionId: string; startTime: number }
+    activeExec?: { executionId: string; startTime: number },
   ): void {
     if (!this.db) return;
 
@@ -283,11 +302,12 @@ export class TelemetryHistorian {
           projectId,
           sandboxId,
           executionId: sample.executionId,
-          anomalyType: 'high_cpu',
-          severity: 'warning',
-          title: 'High CPU Utilization Detected',
+          anomalyType: "high_cpu",
+          severity: "warning",
+          title: "High CPU Utilization Detected",
           reason: `Sandbox sustained ${sample.cpuPercent.toFixed(1)}% CPU utilization across multiple sampling intervals.`,
-          details: 'Possible causes: sustained compute loop or intense compilation workload.',
+          details:
+            "Possible causes: sustained compute loop or intense compilation workload.",
         });
       }
     } else {
@@ -295,17 +315,19 @@ export class TelemetryHistorian {
     }
 
     // Rule 2: Memory Pressure (>85% of limit)
-    const memPercent = (sample.memoryUsageBytes / sample.memoryLimitBytes) * 100;
+    const memPercent =
+      (sample.memoryUsageBytes / sample.memoryLimitBytes) * 100;
     if (memPercent >= 85) {
       this.createOrUpdateAnomaly({
         projectId,
         sandboxId,
         executionId: sample.executionId,
-        anomalyType: 'memory_pressure',
-        severity: memPercent >= 95 ? 'critical' : 'warning',
-        title: 'Sandbox Memory Pressure',
+        anomalyType: "memory_pressure",
+        severity: memPercent >= 95 ? "critical" : "warning",
+        title: "Sandbox Memory Pressure",
         reason: `Memory consumption reached ${formatBytes(sample.memoryUsageBytes)} (${memPercent.toFixed(1)}% of ${formatBytes(sample.memoryLimitBytes)} limit).`,
-        details: 'Approaching container memory ceiling. Risk of OOM termination if allocation continues.',
+        details:
+          "Approaching container memory ceiling. Risk of OOM termination if allocation continues.",
       });
     }
 
@@ -315,11 +337,12 @@ export class TelemetryHistorian {
         projectId,
         sandboxId,
         executionId: sample.executionId,
-        anomalyType: 'pid_pressure',
-        severity: sample.pids >= 58 ? 'critical' : 'warning',
-        title: 'Elevated Process Count',
+        anomalyType: "pid_pressure",
+        severity: sample.pids >= 58 ? "critical" : "warning",
+        title: "Elevated Process Count",
         reason: `Active process count reached ${sample.pids} PIDs (limit is 64).`,
-        details: 'Possible causes: fork bombing, unbounded subprocess spawning, or orphan worker threads.',
+        details:
+          "Possible causes: fork bombing, unbounded subprocess spawning, or orphan worker threads.",
       });
     }
 
@@ -329,11 +352,12 @@ export class TelemetryHistorian {
         projectId,
         sandboxId,
         executionId: activeExec.executionId,
-        anomalyType: 'long_execution',
-        severity: 'warning',
-        title: 'Long-Running Process Execution',
+        anomalyType: "long_execution",
+        severity: "warning",
+        title: "Long-Running Process Execution",
         reason: `Execution ${activeExec.executionId.slice(0, 8)} has been running for ${Math.round((Date.now() - activeExec.startTime) / 1000)}s.`,
-        details: 'Process may be awaiting user input, stuck in an infinite loop, or executing long batch tasks.',
+        details:
+          "Process may be awaiting user input, stuck in an infinite loop, or executing long batch tasks.",
       });
     }
   }
@@ -342,8 +366,8 @@ export class TelemetryHistorian {
     projectId: string;
     sandboxId?: string | null;
     executionId?: string | null;
-    anomalyType: AnomalyRecord['anomalyType'];
-    severity: 'warning' | 'critical';
+    anomalyType: AnomalyRecord["anomalyType"];
+    severity: "warning" | "critical";
     title: string;
     reason: string;
     details: string;
@@ -355,7 +379,7 @@ export class TelemetryHistorian {
       .prepare(
         `SELECT id FROM resource_anomalies 
          WHERE project_id = ? AND anomaly_type = ? AND status = 'active' 
-         AND created_at >= datetime('now', '-2 minutes')`
+         AND created_at >= datetime('now', '-2 minutes')`,
       )
       .get(params.projectId, params.anomalyType) as { id: string } | undefined;
 
@@ -366,7 +390,7 @@ export class TelemetryHistorian {
           `INSERT INTO resource_anomalies (
             id, project_id, sandbox_id, execution_id, anomaly_type,
             severity, title, reason, details, status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
         )
         .run(
           id,
@@ -377,7 +401,7 @@ export class TelemetryHistorian {
           params.severity,
           params.title,
           params.reason,
-          params.details
+          params.details,
         );
     }
   }
@@ -388,19 +412,19 @@ export class TelemetryHistorian {
   public queryProjectTelemetry(
     projectId: string,
     options: {
-      range?: '30s' | '5m' | '15m' | '1h' | 'all';
+      range?: "30s" | "5m" | "15m" | "1h" | "all";
       startTime?: string;
       endTime?: string;
       maxPoints?: number;
-    } = {}
+    } = {},
   ): { samples: TelemetryRecord[]; summary: TelemetrySummary } {
-    const { range = '5m', startTime, endTime, maxPoints = 60 } = options;
+    const { range = "5m", startTime, endTime, maxPoints = 60 } = options;
 
     let timeFilter = "datetime('now', '-5 minutes')";
-    if (range === '30s') timeFilter = "datetime('now', '-30 seconds')";
-    else if (range === '15m') timeFilter = "datetime('now', '-15 minutes')";
-    else if (range === '1h') timeFilter = "datetime('now', '-1 hour')";
-    else if (range === 'all') timeFilter = "datetime('now', '-24 hours')";
+    if (range === "30s") timeFilter = "datetime('now', '-30 seconds')";
+    else if (range === "15m") timeFilter = "datetime('now', '-15 minutes')";
+    else if (range === "1h") timeFilter = "datetime('now', '-1 hour')";
+    else if (range === "all") timeFilter = "datetime('now', '-24 hours')";
 
     let rows: any[] = [];
     if (this.db) {
@@ -409,7 +433,7 @@ export class TelemetryHistorian {
           .prepare(
             `SELECT * FROM telemetry_samples 
              WHERE project_id = ? AND created_at >= ? AND created_at <= ?
-             ORDER BY created_at ASC`
+             ORDER BY created_at ASC`,
           )
           .all(projectId, startTime, endTime);
       } else {
@@ -417,7 +441,7 @@ export class TelemetryHistorian {
           .prepare(
             `SELECT * FROM telemetry_samples 
              WHERE project_id = ? AND created_at >= ${timeFilter}
-             ORDER BY created_at ASC`
+             ORDER BY created_at ASC`,
           )
           .all(projectId);
       }
@@ -497,7 +521,7 @@ export class TelemetryHistorian {
    */
   public queryExecutionTelemetry(
     projectId: string,
-    executionId: string
+    executionId: string,
   ): { samples: TelemetryRecord[]; summary: TelemetrySummary } {
     let rows: any[] = [];
     if (this.db) {
@@ -505,7 +529,7 @@ export class TelemetryHistorian {
         .prepare(
           `SELECT * FROM telemetry_samples 
            WHERE project_id = ? AND execution_id = ?
-           ORDER BY created_at ASC`
+           ORDER BY created_at ASC`,
         )
         .all(projectId, executionId);
     }
@@ -537,13 +561,15 @@ export class TelemetryHistorian {
    */
   public getProjectHealth(projectId: string): ProjectHealthStatus {
     const anomalies: AnomalyRecord[] = this.db
-      ? (this.db
-          .prepare(
-            `SELECT * FROM resource_anomalies 
+      ? (
+          this.db
+            .prepare(
+              `SELECT * FROM resource_anomalies 
              WHERE project_id = ? AND status = 'active'
-             ORDER BY created_at DESC LIMIT 10`
-          )
-          .all(projectId) as any[]).map((r) => ({
+             ORDER BY created_at DESC LIMIT 10`,
+            )
+            .all(projectId) as any[]
+        ).map((r) => ({
           id: r.id,
           projectId: r.project_id,
           sandboxId: r.sandbox_id,
@@ -572,9 +598,10 @@ export class TelemetryHistorian {
             SUM(duration_ms) as total_duration,
             SUM(CASE WHEN exit_code != 0 OR status = 'error' THEN 1 ELSE 0 END) as failed
            FROM runs
-           WHERE project_id = ? AND created_at >= datetime('now', '-24 hours')`
+           WHERE project_id = ? AND created_at >= datetime('now', '-24 hours')`,
         )
-        .get(projectId) as { total: number; total_duration: number; failed: number } | undefined;
+        .get(projectId) as
+        { total: number; total_duration: number; failed: number } | undefined;
 
       executionsToday = statsRow?.total || 0;
       totalDurationMsToday = statsRow?.total_duration || 0;
@@ -582,27 +609,37 @@ export class TelemetryHistorian {
     }
 
     const snapshotCount = this.db
-      ? (this.db.prepare('SELECT COUNT(*) as count FROM snapshots WHERE project_id = ?').get(projectId) as { count: number })?.count || 0
+      ? (
+          this.db
+            .prepare(
+              "SELECT COUNT(*) as count FROM snapshots WHERE project_id = ?",
+            )
+            .get(projectId) as { count: number }
+        )?.count || 0
       : 0;
 
-    const failureRate = executionsToday > 0 ? (failedExecutionsToday / executionsToday) * 100 : 0;
+    const failureRate =
+      executionsToday > 0 ? (failedExecutionsToday / executionsToday) * 100 : 0;
 
     // Get live runtime stats
     const hotSamples = this.hotBuffers.get(projectId)?.getAll() || [];
     const latestSample = hotSamples[hotSamples.length - 1];
 
-    let status: 'healthy' | 'warning' | 'critical' = 'healthy';
+    let status: "healthy" | "warning" | "critical" = "healthy";
     let score = 100;
-    let summaryText = 'All systems healthy. Resource utilization within normal baseline.';
+    let summaryText =
+      "All systems healthy. Resource utilization within normal baseline.";
 
-    if (anomalies.some((a) => a.severity === 'critical') || failureRate >= 50) {
-      status = 'critical';
+    if (anomalies.some((a) => a.severity === "critical") || failureRate >= 50) {
+      status = "critical";
       score = Math.max(20, 60 - anomalies.length * 15);
-      summaryText = 'Critical resource conditions or elevated execution failure rate detected.';
+      summaryText =
+        "Critical resource conditions or elevated execution failure rate detected.";
     } else if (anomalies.length > 0 || failureRate >= 20) {
-      status = 'warning';
+      status = "warning";
       score = Math.max(50, 85 - anomalies.length * 10);
-      summaryText = 'Resource warnings active. Check memory/CPU margins or execution logs.';
+      summaryText =
+        "Resource warnings active. Check memory/CPU margins or execution logs.";
     }
 
     return {
@@ -628,7 +665,9 @@ export class TelemetryHistorian {
   /**
    * Queries platform-wide aggregate historical telemetry for Admin Control Plane.
    */
-  public queryAdminHistoricalTelemetry(range: '5m' | '15m' | '1h' | '24h' = '15m'): {
+  public queryAdminHistoricalTelemetry(
+    range: "5m" | "15m" | "1h" | "24h" = "15m",
+  ): {
     timeline: {
       timestamp: string;
       avgCpuPercent: number;
@@ -640,9 +679,9 @@ export class TelemetryHistorian {
     anomalies: AnomalyRecord[];
   } {
     let timeFilter = "datetime('now', '-15 minutes')";
-    if (range === '5m') timeFilter = "datetime('now', '-5 minutes')";
-    else if (range === '1h') timeFilter = "datetime('now', '-1 hour')";
-    else if (range === '24h') timeFilter = "datetime('now', '-24 hours')";
+    if (range === "5m") timeFilter = "datetime('now', '-5 minutes')";
+    else if (range === "1h") timeFilter = "datetime('now', '-1 hour')";
+    else if (range === "24h") timeFilter = "datetime('now', '-24 hours')";
 
     let rows: any[] = [];
     let anomalies: AnomalyRecord[] = [];
@@ -660,16 +699,18 @@ export class TelemetryHistorian {
            FROM telemetry_samples
            WHERE created_at >= ${timeFilter}
            GROUP BY (strftime('%s', created_at) / 10)
-           ORDER BY bucket_time ASC`
+           ORDER BY bucket_time ASC`,
         )
         .all();
 
-      anomalies = (this.db
-        .prepare(
-          `SELECT * FROM resource_anomalies 
-           ORDER BY created_at DESC LIMIT 20`
-        )
-        .all() as any[]).map((r) => ({
+      anomalies = (
+        this.db
+          .prepare(
+            `SELECT * FROM resource_anomalies 
+           ORDER BY created_at DESC LIMIT 20`,
+          )
+          .all() as any[]
+      ).map((r) => ({
         id: r.id,
         projectId: r.project_id,
         sandboxId: r.sandbox_id,
@@ -710,9 +751,12 @@ export class TelemetryHistorian {
     // Periodic sandbox sampler
     this.sampleTimer = setInterval(async () => {
       try {
-        const activeSandboxes = await this.sandboxManager.getAllActiveSandboxes();
+        const activeSandboxes =
+          await this.sandboxManager.getAllActiveSandboxes();
         for (const sb of activeSandboxes) {
-          const stats = await this.sandboxManager.getContainerStats(sb.projectId);
+          const stats = await this.sandboxManager.getContainerStats(
+            sb.projectId,
+          );
           if (stats.running) {
             this.recordSample(sb.projectId, sb.containerId, stats);
           }
@@ -728,9 +772,12 @@ export class TelemetryHistorian {
     this.flushTimer.unref();
 
     // Periodic retention cleaner (every 15 minutes)
-    this.cleanupTimer = setInterval(() => {
-      this.purgeExpiredSamples();
-    }, 15 * 60 * 1000);
+    this.cleanupTimer = setInterval(
+      () => {
+        this.purgeExpiredSamples();
+      },
+      15 * 60 * 1000,
+    );
     this.cleanupTimer.unref();
   }
 
@@ -738,10 +785,18 @@ export class TelemetryHistorian {
     if (!this.db || !this.cfg) return;
     const hours = this.cfg.telemetryRetentionHours || 2;
     try {
-      this.db.prepare(`DELETE FROM telemetry_samples WHERE created_at < datetime('now', '-${hours} hours')`).run();
-      this.db.prepare(`DELETE FROM resource_anomalies WHERE created_at < datetime('now', '-24 hours') AND status = 'resolved'`).run();
+      this.db
+        .prepare(
+          `DELETE FROM telemetry_samples WHERE created_at < datetime('now', '-${hours} hours')`,
+        )
+        .run();
+      this.db
+        .prepare(
+          `DELETE FROM resource_anomalies WHERE created_at < datetime('now', '-24 hours') AND status = 'resolved'`,
+        )
+        .run();
     } catch (err: any) {
-      console.warn('[TelemetryHistorian] Cleanup warning:', err.message);
+      console.warn("[TelemetryHistorian] Cleanup warning:", err.message);
     }
   }
 
@@ -817,7 +872,10 @@ function calculateSummary(records: TelemetryRecord[]): TelemetrySummary {
 /**
  * Downsamples dense record arrays into maxPoints evenly distributed buckets.
  */
-function downsampleRecords(records: TelemetryRecord[], maxPoints: number): TelemetryRecord[] {
+function downsampleRecords(
+  records: TelemetryRecord[],
+  maxPoints: number,
+): TelemetryRecord[] {
   if (records.length <= maxPoints) return records;
 
   const result: TelemetryRecord[] = [];
@@ -836,41 +894,45 @@ function downsampleRecords(records: TelemetryRecord[], maxPoints: number): Telem
   return result;
 }
 
-function parseNetIO(netIOStr = ''): { rxBytes: number; txBytes: number } {
-  if (!netIOStr || !netIOStr.includes('/')) return { rxBytes: 0, txBytes: 0 };
-  const [rx, tx] = netIOStr.split('/').map((s) => s.trim());
+function parseNetIO(netIOStr = ""): { rxBytes: number; txBytes: number } {
+  if (!netIOStr || !netIOStr.includes("/")) return { rxBytes: 0, txBytes: 0 };
+  const [rx, tx] = netIOStr.split("/").map((s) => s.trim());
   return {
     rxBytes: parseByteUnits(rx),
     txBytes: parseByteUnits(tx),
   };
 }
 
-function parseBlockIO(blockIOStr = ''): { readBytes: number; writeBytes: number } {
-  if (!blockIOStr || !blockIOStr.includes('/')) return { readBytes: 0, writeBytes: 0 };
-  const [read, write] = blockIOStr.split('/').map((s) => s.trim());
+function parseBlockIO(blockIOStr = ""): {
+  readBytes: number;
+  writeBytes: number;
+} {
+  if (!blockIOStr || !blockIOStr.includes("/"))
+    return { readBytes: 0, writeBytes: 0 };
+  const [read, write] = blockIOStr.split("/").map((s) => s.trim());
   return {
     readBytes: parseByteUnits(read),
     writeBytes: parseByteUnits(write),
   };
 }
 
-function parseByteUnits(str = ''): number {
+function parseByteUnits(str = ""): number {
   const match = str.match(/^([\d.]+)\s*([A-Za-z]+)?$/);
   if (!match) return 0;
   const val = parseFloat(match[1]);
-  const unit = (match[2] || 'B').toUpperCase();
+  const unit = (match[2] || "B").toUpperCase();
 
   switch (unit) {
-    case 'B':
+    case "B":
       return Math.round(val);
-    case 'KB':
-    case 'KIB':
+    case "KB":
+    case "KIB":
       return Math.round(val * 1024);
-    case 'MB':
-    case 'MIB':
+    case "MB":
+    case "MIB":
       return Math.round(val * 1024 * 1024);
-    case 'GB':
-    case 'GIB':
+    case "GB":
+    case "GIB":
       return Math.round(val * 1024 * 1024 * 1024);
     default:
       return Math.round(val);

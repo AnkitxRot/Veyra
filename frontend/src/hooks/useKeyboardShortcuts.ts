@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -12,18 +12,24 @@ export interface ShortcutHandlers {
 }
 
 export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true) {
+  const handlersRef = useRef(handlers);
+  useEffect(() => {
+    handlersRef.current = handlers;
+  });
+
   useEffect(() => {
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = IS_MAC ? e.metaKey : e.ctrlKey;
       const key = e.key.toLowerCase();
+      const currentHandlers = handlersRef.current;
 
       // 1. Command Palette: Ctrl+Shift+P / Cmd+Shift+P
       if (isMod && e.shiftKey && key === 'p') {
         e.preventDefault();
         e.stopPropagation();
-        handlers.onOpenCommandPalette();
+        currentHandlers.onOpenCommandPalette();
         return;
       }
 
@@ -31,7 +37,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
       if (isMod && !e.shiftKey && !e.altKey && key === 'p') {
         e.preventDefault();
         e.stopPropagation();
-        handlers.onOpenQuickOpen();
+        currentHandlers.onOpenQuickOpen();
         return;
       }
 
@@ -39,7 +45,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
       if (isMod && !e.shiftKey && key === 's') {
         e.preventDefault();
         e.stopPropagation();
-        if (handlers.onSave) handlers.onSave();
+        if (currentHandlers.onSave) currentHandlers.onSave();
         return;
       }
 
@@ -50,7 +56,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
         const isEditable = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
         if (!isEditable) {
           e.preventDefault();
-          if (handlers.onToggleSidebar) handlers.onToggleSidebar();
+          if (currentHandlers.onToggleSidebar) currentHandlers.onToggleSidebar();
         }
         return;
       }
@@ -58,12 +64,12 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
       // 5. Toggle Bottom Drawer: Ctrl+J / Cmd+J
       if (isMod && !e.shiftKey && key === 'j') {
         e.preventDefault();
-        if (handlers.onToggleBottomPanel) handlers.onToggleBottomPanel();
+        if (currentHandlers.onToggleBottomPanel) currentHandlers.onToggleBottomPanel();
         return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [handlers, enabled]);
+  }, [enabled]);
 }

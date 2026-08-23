@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
+import { safeResolve, assertInsideWorkspace } from "../files/service.js";
 import { searchProjectContent } from "../projects/search.js";
 import { searchGate } from "../execution/runGate.js";
 import type { AIContextBundle } from "./provider.js";
@@ -40,11 +40,21 @@ export async function buildAIContext(
 ): Promise<AIContextBundle> {
   const maxChars = opts.maxChars || 16000;
   const baseDir = projectDir(cfg, projectId);
-  const fullPath = join(baseDir, opts.activeFilePath);
 
   // 1. Read Active File Content
+  // `activeFilePath` is caller-supplied (POST /:id/ai/action body) and project
+  // access alone says nothing about which path *within* the project is legal,
+  // so it must be contained before it reaches the filesystem: safeResolve()
+  // rejects absolute/lexical-traversal paths and assertInsideWorkspace()
+  // resolves symlinks so a planted junction cannot escape either. Both throw,
+  // and both are deliberately caught here so a rejected path degrades to "no
+  // file content" exactly like a genuine ENOENT already does — this endpoint
+  // must not become a path-existence oracle, and its response shape is
+  // unchanged.
   let fileContent = "";
   try {
+    const fullPath = safeResolve(baseDir, opts.activeFilePath);
+    await assertInsideWorkspace(baseDir, fullPath);
     fileContent = await fs.readFile(fullPath, "utf-8");
   } catch {
     fileContent = "";

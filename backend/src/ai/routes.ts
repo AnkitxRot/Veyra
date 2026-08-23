@@ -102,6 +102,14 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
 
       let snapshotId: string | undefined = undefined;
       if (createSafetySnapshot) {
+        // The caller explicitly opted into a rollback point before this
+        // AI-applied change. Silently swallowing a failure here and
+        // proceeding anyway would apply the patch while leaving the
+        // caller with no way to tell "no snapshot was requested" apart
+        // from "the safety snapshot they asked for silently failed" —
+        // both previously returned `{ ok: true, snapshotId: undefined }`.
+        // Fail the whole request instead, so the frontend's existing
+        // apply-patch error handling surfaces it honestly.
         try {
           const snap = await createSnapshot(
             cfg,
@@ -111,8 +119,13 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
             `Pre-AI Patch: ${explanation || filePath}`,
           );
           snapshotId = snap.id;
-        } catch (err) {
+        } catch (err: any) {
           console.error("[AI] Failed to create safety snapshot:", err);
+          throw new ApiError(
+            500,
+            `Could not create the requested safety snapshot before applying this patch: ${err.message || "unknown error"}`,
+            "snapshot_failed",
+          );
         }
       }
 

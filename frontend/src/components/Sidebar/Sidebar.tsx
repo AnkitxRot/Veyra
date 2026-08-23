@@ -60,13 +60,18 @@ export default function Sidebar({
   const handleCreateProject = async (name: string) => {
     if (!name.trim()) return;
     try {
-      await api('/api/projects', {
+      const res = await api<{ project: Project }>('/api/projects', {
         method: 'POST',
         body: JSON.stringify({ name: name.trim(), language: 'auto' }),
       });
       onCreateProject();
+      if (res.project) {
+        onSelectProject(res.project);
+      }
     } catch (err: any) {
       alert(`Error creating project: ${err.message}`);
+    } finally {
+      setModalState({ type: null });
     }
   };
 

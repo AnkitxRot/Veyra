@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import * as monaco from 'monaco-editor';
+import { monaco } from '../../monacoSetup';
 import { IconCheck, IconCode } from '../common/Icons';
 
 export interface AIPatchModalProps {
@@ -52,9 +52,13 @@ export default function AIPatchModal({
     };
     const language = langMap[ext] || 'plaintext';
 
-    // Create Monaco models
-    const originalModel = monaco.editor.createModel(originalContent, language);
-    const modifiedModel = monaco.editor.createModel(modifiedContent, language);
+    // Create Monaco models with distinct, explicit URIs
+    const timestamp = Date.now();
+    const originalUri = monaco.Uri.parse(`inmemory://ai-patch-orig-${timestamp}/${filePath}`);
+    const modifiedUri = monaco.Uri.parse(`inmemory://ai-patch-mod-${timestamp}/${filePath}`);
+
+    const originalModel = monaco.editor.createModel(originalContent, language, originalUri);
+    const modifiedModel = monaco.editor.createModel(modifiedContent, language, modifiedUri);
 
     // Instantiate Diff Editor
     const diffEditor = monaco.editor.createDiffEditor(diffContainerRef.current, {
@@ -63,6 +67,7 @@ export default function AIPatchModal({
       theme: 'vs-dark',
       renderSideBySide: true,
       automaticLayout: true,
+      diffAlgorithm: 'legacy',
       fontFamily: 'var(--font-mono, "JetBrains Mono", Consolas, monospace)',
       fontSize: 13,
       minimap: { enabled: false },

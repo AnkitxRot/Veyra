@@ -1,10 +1,10 @@
-import React, { useRef, useEffect } from 'react';
-import { monaco } from '../../monacoSetup';
-import { getLanguageInfo } from '../../utils/language';
-import { Diagnostic } from '../../utils/diagnostics';
-import { IconClose, IconCode } from '../common/Icons';
-import { getLanguageIcon } from '../common/iconUtils';
-import type { CollaborationClient } from '../../collab/client';
+import React, { useRef, useEffect } from "react";
+import { monaco } from "../../monacoSetup";
+import { getLanguageInfo } from "../../utils/language";
+import { Diagnostic } from "../../utils/diagnostics";
+import { IconClose, IconCode } from "../common/Icons";
+import { getLanguageIcon } from "../common/iconUtils";
+import type { CollaborationClient } from "../../collab/client";
 
 export interface EditorProps {
   project: any;
@@ -35,6 +35,15 @@ export default function Editor({
   const isUpdatingModelRef = useRef(false);
   const collabClientRef = useRef(collabClient);
   const isReadOnlyRef = useRef(isReadOnly);
+  // Tracks what the model-management effect last *fully* processed. Used to
+  // skip expensive setup (setModelLanguage / bindMonacoModel / layout) when the
+  // effect only re-ran because `openFiles` got a new array reference from a
+  // keystroke content update on the already-active file.
+  const lastBoundKeyRef = useRef<{
+    activeFile: string | null;
+    collabClient: CollaborationClient | null | undefined;
+    isReadOnly: boolean;
+  } | null>(null);
 
   useEffect(() => {
     activeFileRef.current = activeFile;
@@ -48,19 +57,19 @@ export default function Editor({
   useEffect(() => {
     if (editorRef.current && !monacoRef.current) {
       monacoRef.current = monaco.editor.create(editorRef.current, {
-        theme: 'vs-dark',
+        theme: "vs-dark",
         automaticLayout: true,
         minimap: { enabled: false },
         fontSize: 13.5,
-        lineNumbers: 'on',
+        lineNumbers: "on",
         lineNumbersMinChars: 3,
         scrollBeyondLastLine: false,
-        renderWhitespace: 'selection',
+        renderWhitespace: "selection",
         tabSize: 4,
-        wordWrap: 'off',
-        fontFamily: 'var(--font-mono)',
-        cursorSmoothCaretAnimation: 'on',
-        cursorBlinking: 'smooth',
+        wordWrap: "off",
+        fontFamily: "var(--font-mono)",
+        cursorSmoothCaretAnimation: "on",
+        cursorBlinking: "smooth",
         smoothScrolling: true,
         padding: { top: 12, bottom: 12 },
         bracketPairColorization: { enabled: true },
@@ -101,7 +110,7 @@ export default function Editor({
           const currentPath = activeFileRef.current;
           if (currentPath && val !== undefined) {
             document.dispatchEvent(
-              new CustomEvent('ide-save', {
+              new CustomEvent("ide-save", {
                 detail: { path: currentPath, content: val },
               }),
             );
@@ -112,9 +121,9 @@ export default function Editor({
       // Register AI Context Menu Actions in Monaco
       const editorInstance = monacoRef.current;
       editorInstance.addAction({
-        id: 'workbench.action.aiExplainSelection',
-        label: 'AI: Explain Code / Selection',
-        contextMenuGroupId: '1_ai',
+        id: "workbench.action.aiExplainSelection",
+        label: "AI: Explain Code / Selection",
+        contextMenuGroupId: "1_ai",
         contextMenuOrder: 1,
         run: (ed) => {
           const sel = ed.getSelection();
@@ -122,9 +131,9 @@ export default function Editor({
             ? ed.getModel()?.getValueInRange(sel)
             : undefined;
           document.dispatchEvent(
-            new CustomEvent('ide-ai-action', {
+            new CustomEvent("ide-ai-action", {
               detail: {
-                action: 'explain',
+                action: "explain",
                 path: activeFileRef.current,
                 selectedCode: selectedText,
                 selectionRange: sel
@@ -142,9 +151,9 @@ export default function Editor({
       });
 
       editorInstance.addAction({
-        id: 'workbench.action.aiRefactorSelection',
-        label: 'AI: Refactor Selection',
-        contextMenuGroupId: '1_ai',
+        id: "workbench.action.aiRefactorSelection",
+        label: "AI: Refactor Selection",
+        contextMenuGroupId: "1_ai",
         contextMenuOrder: 2,
         run: (ed) => {
           const sel = ed.getSelection();
@@ -152,9 +161,9 @@ export default function Editor({
             ? ed.getModel()?.getValueInRange(sel)
             : undefined;
           document.dispatchEvent(
-            new CustomEvent('ide-ai-action', {
+            new CustomEvent("ide-ai-action", {
               detail: {
-                action: 'refactor',
+                action: "refactor",
                 path: activeFileRef.current,
                 selectedCode: selectedText,
               },
@@ -164,15 +173,15 @@ export default function Editor({
       });
 
       editorInstance.addAction({
-        id: 'workbench.action.aiGenerateTests',
-        label: 'AI: Generate Unit Tests',
-        contextMenuGroupId: '1_ai',
+        id: "workbench.action.aiGenerateTests",
+        label: "AI: Generate Unit Tests",
+        contextMenuGroupId: "1_ai",
         contextMenuOrder: 3,
         run: () => {
           document.dispatchEvent(
-            new CustomEvent('ide-ai-action', {
+            new CustomEvent("ide-ai-action", {
               detail: {
-                action: 'generate_tests',
+                action: "generate_tests",
                 path: activeFileRef.current,
               },
             }),
@@ -181,9 +190,9 @@ export default function Editor({
       });
 
       editorInstance.addAction({
-        id: 'workbench.action.aiOptimizeSelection',
-        label: 'AI: Optimize Selection',
-        contextMenuGroupId: '1_ai',
+        id: "workbench.action.aiOptimizeSelection",
+        label: "AI: Optimize Selection",
+        contextMenuGroupId: "1_ai",
         contextMenuOrder: 4,
         run: (ed) => {
           const sel = ed.getSelection();
@@ -191,9 +200,9 @@ export default function Editor({
             ? ed.getModel()?.getValueInRange(sel)
             : undefined;
           document.dispatchEvent(
-            new CustomEvent('ide-ai-action', {
+            new CustomEvent("ide-ai-action", {
               detail: {
-                action: 'optimize',
+                action: "optimize",
                 path: activeFileRef.current,
                 selectedCode: selectedText,
               },
@@ -226,6 +235,7 @@ export default function Editor({
     if (!activeFile || !openFiles.length) {
       if (collabClient) collabClient.unbindCurrentModel();
       monacoRef.current.setModel(null);
+      lastBoundKeyRef.current = null;
       return;
     }
 
@@ -236,40 +246,73 @@ export default function Editor({
     let model = monaco.editor.getModel(uri);
     const langInfo = getLanguageInfo(activeFile);
 
+    // A brand-new model, a different active file, or a change of collaboration
+    // state all require the full (expensive) setup path. Anything else means
+    // this effect only re-ran because `openFiles` changed identity, which
+    // happens on every keystroke since the content-change handler rebuilds the
+    // array via `.map()`.
+    const lastKey = lastBoundKeyRef.current;
+    const needsFullSetup =
+      !model ||
+      lastKey === null ||
+      lastKey.activeFile !== activeFile ||
+      lastKey.collabClient !== collabClient ||
+      lastKey.isReadOnly !== isReadOnly ||
+      monacoRef.current.getModel() !== model;
+
     isUpdatingModelRef.current = true;
     try {
+      let didSetValue = false;
+
       if (!model) {
         model = monaco.editor.createModel(
-          activeFileData.content || '',
+          activeFileData.content || "",
           langInfo.monacoId,
           uri,
         );
       } else {
+        // External content sync: another part of the app (AI patch apply,
+        // save/format response, snapshot restore) replaced the content of the
+        // active, non-dirty file. Always evaluated because it is a cheap
+        // comparison, and it never fires for local keystrokes, which set
+        // `dirty: true` in the same update.
         if (
           !collabClient &&
           model.getValue() !== activeFileData.content &&
           !activeFileData.dirty
         ) {
-          model.setValue(activeFileData.content || '');
+          model.setValue(activeFileData.content || "");
+          didSetValue = true;
         }
-        monaco.editor.setModelLanguage(model, langInfo.monacoId);
+        if (needsFullSetup) {
+          monaco.editor.setModelLanguage(model, langInfo.monacoId);
+        }
       }
 
       if (monacoRef.current.getModel() !== model) {
         monacoRef.current.setModel(model);
       }
 
-      // Attach y-monaco collaborative binding
-      if (collabClient && model) {
-        collabClient.bindMonacoModel(
-          activeFile,
-          model,
-          monacoRef.current,
-          isReadOnly,
-        );
+      if (needsFullSetup) {
+        // Attach y-monaco collaborative binding
+        if (collabClient && model) {
+          collabClient.bindMonacoModel(
+            activeFile,
+            model,
+            monacoRef.current,
+            isReadOnly,
+          );
+        }
+
+        lastBoundKeyRef.current = { activeFile, collabClient, isReadOnly };
       }
 
-      monacoRef.current.layout();
+      // `layout()` forces a synchronous reflow, so it must not run on the
+      // per-keystroke path. It still runs for real model swaps and for the
+      // external-sync path, preserving previous behavior there.
+      if (needsFullSetup || didSetValue) {
+        monacoRef.current.layout();
+      }
     } finally {
       isUpdatingModelRef.current = false;
     }
@@ -280,7 +323,7 @@ export default function Editor({
     const allModels = monaco.editor.getModels();
 
     for (const model of allModels) {
-      const normPath = model.uri.path.startsWith('/')
+      const normPath = model.uri.path.startsWith("/")
         ? model.uri.path.slice(1)
         : model.uri.path;
 
@@ -290,9 +333,9 @@ export default function Editor({
 
       const markers: monaco.editor.IMarkerData[] = fileDiagnostics.map((d) => ({
         severity:
-          d.severity === 'error'
+          d.severity === "error"
             ? monaco.MarkerSeverity.Error
-            : d.severity === 'warning'
+            : d.severity === "warning"
               ? monaco.MarkerSeverity.Warning
               : monaco.MarkerSeverity.Info,
         message: d.message,
@@ -303,7 +346,7 @@ export default function Editor({
         source: d.source,
       }));
 
-      monaco.editor.setModelMarkers(model, 'cloudeee-problems', markers);
+      monaco.editor.setModelMarkers(model, "cloudeee-problems", markers);
     }
   }, [diagnostics, activeFile, openFiles]);
 
@@ -337,9 +380,9 @@ export default function Editor({
       }, 50);
     };
 
-    document.addEventListener('ide-reveal-location', handleReveal);
+    document.addEventListener("ide-reveal-location", handleReveal);
     return () =>
-      document.removeEventListener('ide-reveal-location', handleReveal);
+      document.removeEventListener("ide-reveal-location", handleReveal);
   }, [setActiveFile]);
 
   // Clean up models for closed files
@@ -347,7 +390,7 @@ export default function Editor({
     const openPaths = new Set(openFiles.map((f: any) => f.path));
     const allModels = monaco.editor.getModels();
     for (const model of allModels) {
-      const normPath = model.uri.path.startsWith('/')
+      const normPath = model.uri.path.startsWith("/")
         ? model.uri.path.slice(1)
         : model.uri.path;
       if (!openPaths.has(normPath) && !openPaths.has(model.uri.path)) {
@@ -366,14 +409,14 @@ export default function Editor({
           {openFiles.map((f: any) => (
             <div
               key={f.path}
-              className={`editor-tab ${activeFile === f.path ? 'active' : ''}`}
+              className={`editor-tab ${activeFile === f.path ? "active" : ""}`}
               onClick={() => setActiveFile(f.path)}
               role="tab"
               aria-selected={activeFile === f.path}
               title={f.path}
             >
               {getLanguageIcon(f.path, 13)}
-              <span className="tab-filename">{f.path.split('/').pop()}</span>
+              <span className="tab-filename">{f.path.split("/").pop()}</span>
               {f.dirty && (
                 <span className="tab-dirty-indicator" title="Unsaved changes" />
               )}
@@ -408,10 +451,10 @@ export default function Editor({
         className="editor-wrapper"
         ref={editorRef}
         style={{
-          display: hasOpenFiles ? 'block' : 'none',
+          display: hasOpenFiles ? "block" : "none",
           flex: 1,
-          width: '100%',
-          height: hasOpenFiles ? 'calc(100% - 38px)' : '100%',
+          width: "100%",
+          height: hasOpenFiles ? "calc(100% - 38px)" : "100%",
         }}
       />
 
@@ -423,14 +466,14 @@ export default function Editor({
               <IconCode size={24} />
             </div>
             <div
-              style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}
+              style={{ display: "flex", flexDirection: "column", gap: "4px" }}
             >
               <h3
                 style={{
                   margin: 0,
-                  fontSize: 'var(--text-lg)',
+                  fontSize: "var(--text-lg)",
                   fontWeight: 600,
-                  color: 'var(--fg-primary)',
+                  color: "var(--fg-primary)",
                 }}
               >
                 No Open Files
@@ -438,8 +481,8 @@ export default function Editor({
               <p
                 style={{
                   margin: 0,
-                  fontSize: 'var(--text-sm)',
-                  color: 'var(--fg-muted)',
+                  fontSize: "var(--text-sm)",
+                  color: "var(--fg-muted)",
                 }}
               >
                 Select a file from the sidebar explorer, Quick Open (Ctrl+P), or
@@ -449,7 +492,7 @@ export default function Editor({
             {onCreateFile && (
               <button
                 className="glass-btn glass-btn-primary"
-                style={{ marginTop: '8px' }}
+                style={{ marginTop: "8px" }}
                 onClick={onCreateFile}
               >
                 + New File

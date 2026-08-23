@@ -11,6 +11,7 @@ import {
   readProjectFile,
   writeProjectFile,
   deleteProjectPath,
+  safeResolve,
 } from "../files/service.js";
 import { collaborationManager } from "../collab/manager.js";
 
@@ -133,18 +134,16 @@ export async function restoreSnapshot(
   const payload: SnapshotPayload = JSON.parse(decompressed.toString("utf8"));
 
   const cwd = await workspacePath(cfg, project.id);
-  // Clear current files in workspace
-  const currentFiles = await listFiles(cwd);
-  for (const f of currentFiles) {
-    try {
-      await deleteProjectPath(cwd, f);
-      // Keep any active collaboration room's Y.Text in sync, otherwise its
-      // next debounced flush would silently rewrite this file back to disk.
-      await collaborationManager.notifyExternalFileMutation(project.id, f, "");
-    } catch {}
-  }
 
-  // Restore snapshot files
+  // Restore snapshot files FIRST, delete leftovers second. If a write
+  // fails partway through (disk full, permission error, etc.), any file
+  // not yet reached is still whatever it was before this call — either an
+  // old file waiting to be superseded, or untouched. The previous
+  // delete-everything-then-write ordering meant a write failure after the
+  // delete pass had already run left the workspace with content gone and
+  // no way to recover it; this ordering's worst case is a stray old file
+  // left behind, not lost content.
+  const snapshotPaths = new Set(payload.files.map((f) => f.path));
   for (const f of payload.files) {
     await writeProjectFile(cwd, f.path, f.content);
     await collaborationManager.notifyExternalFileMutation(
@@ -152,6 +151,18 @@ export async function restoreSnapshot(
       f.path,
       f.content,
     );
+  }
+
+  // Remove any current file that doesn't belong in the restored snapshot.
+  const currentFiles = await listFiles(cwd);
+  for (const f of currentFiles) {
+    if (snapshotPaths.has(f)) continue;
+    try {
+      await deleteProjectPath(cwd, f);
+      // Keep any active collaboration room's Y.Text in sync, otherwise its
+      // next debounced flush would silently rewrite this file back to disk.
+      await collaborationManager.notifyExternalFileMutation(project.id, f, "");
+    } catch {}
   }
 }
 
@@ -163,7 +174,24 @@ export async function deleteSnapshot(
   snapshotId: string,
 ): Promise<void> {
   const project = requireOwnedProject(db, userId, projectId);
-  const archivePath = join(snapshotDir(cfg, project.id), `${snapshotId}.gz`);
+  // Gate on the DB row BEFORE touching the filesystem, exactly as
+  // restoreSnapshot() does. snapshotId comes straight off the URL path and is
+  // fully attacker-controlled; ids are server-generated randomUUID() values,
+  // so requiring a real row means only a UUID (no separators, no `..`) can
+  // ever reach the join() below.
+  const row = db
+    .prepare(
+      "SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
+    )
+    .get(snapshotId, project.id, userId) as SnapshotRecord | undefined;
+
+  if (!row) throw new ApiError(404, "snapshot not found", "not_found");
+
+  // Belt-and-braces: lexical containment check on top of the DB gate.
+  const archivePath = safeResolve(
+    snapshotDir(cfg, project.id),
+    `${snapshotId}.gz`,
+  );
   try {
     await fs.rm(archivePath, { force: true });
   } catch {}

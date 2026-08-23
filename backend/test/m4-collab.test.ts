@@ -1,11 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
-import { collaborationManager } from "../src/collab/manager.js";
+import {
+  collaborationManager,
+  CollaborationRoom,
+} from "../src/collab/manager.js";
 import {
   createProject,
   deleteProject,
@@ -23,6 +26,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
+const MESSAGE_CUSTOM = 3;
 
 function makeMockWs() {
   return {
@@ -71,6 +75,29 @@ function buildSyncUpdateFrame(clientDoc: Y.Doc, mutate: () => void) {
   encoding.writeVarUint(encoder, MESSAGE_SYNC);
   syncProtocol.writeUpdate(encoder, update!);
   return encoding.toUint8Array(encoder);
+}
+
+/**
+ * Builds a real MESSAGE_CUSTOM `file_open` frame the way an actual client
+ * would announce which file it just opened: the same JSON envelope
+ * handleMessage()'s MESSAGE_CUSTOM decoder reads via readVarString().
+ */
+function buildFileOpenFrame(path: string) {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
+  encoding.writeVarString(encoder, JSON.stringify({ type: "file_open", path }));
+  return encoding.toUint8Array(encoder);
+}
+
+/**
+ * handleMessage() dispatches file_open to ensureFileLoaded() as a floating
+ * promise, so the disk read completes after handleMessage() returns. Flush
+ * pending microtasks/I-O so assertions observe the settled state.
+ */
+async function flushAsync() {
+  // Real filesystem I/O (realpath/access/readFile) completes on the
+  // threadpool, so drain with a real timer rather than microtask ticks.
+  await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
 describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
@@ -510,5 +537,611 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     expect(room.doc.getText("main.py").toString()).toBe("print(1)");
 
     clientDoc.destroy();
+  });
+
+  it("12. A failed disk write keeps the file dirty so the next flush retries it (no silent false 'clean')", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("dana", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "FlushFailProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "test.txt";
+    const diskPath = join(projectDir(cfg, project.id), filePath);
+
+    room.doc.transact(() => {
+      room.doc.getText(filePath).insert(0, "unsaved collaborative edit");
+    });
+    room.markFileDirty(filePath);
+
+    const writeSpy = vi.spyOn(fs, "writeFile");
+    // Simulate one transient write failure (e.g. ENOSPC / permission hiccup).
+    writeSpy.mockRejectedValueOnce(
+      new Error("ENOSPC: no space left on device"),
+    );
+
+    await room.flushToDisk();
+
+    // The write never landed, so the file MUST still be tracked as dirty.
+    // Clearing it here would permanently strand the content in memory only.
+    expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+    await expect(fs.readFile(diskPath, "utf-8")).rejects.toThrow();
+
+    // Next flush (spy now falls through to the real writeFile) must retry it.
+    await room.flushToDisk();
+
+    expect((room as any).dirtyFiles.has(filePath)).toBe(false);
+    expect(await fs.readFile(diskPath, "utf-8")).toBe(
+      "unsaved collaborative edit",
+    );
+
+    writeSpy.mockRestore();
+    room.dispose();
+  });
+
+  it("13. Idle disposal is deferred while a flush failure leaves content unpersisted, and only disposes once the retry succeeds", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("eli", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "IdleDisposeProj",
+    });
+    const onDispose = vi.fn();
+    const writeSpy = vi.spyOn(fs, "writeFile");
+    // flushToDisk() resolves symlinks (fs.realpath/fs.access) before writing.
+    // Real filesystem I/O cannot be driven to completion by fake timers
+    // (advanceTimersByTimeAsync drains microtasks, not threadpool
+    // completions), so stub those two calls to a pass-through here. This test
+    // is about disposal backoff, not the boundary check — test 18 exercises
+    // the real symlink guard against a real planted symlink.
+    const realpathSpy = vi
+      .spyOn(fs, "realpath")
+      .mockImplementation(async (p: any) => p);
+    const accessSpy = vi
+      .spyOn(fs, "access")
+      .mockResolvedValue(undefined as never);
+    vi.useFakeTimers();
+
+    try {
+      const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+      const filePath = "test.txt";
+      const diskPath = join(projectDir(cfg, project.id), filePath);
+
+      const ws = makeMockWs();
+      await room.addClient(ws, { userId: 1, username: "eli", role: "editor" });
+
+      room.doc.transact(() => {
+        room.doc.getText(filePath).insert(0, "edits that must not be lost");
+      });
+      room.markFileDirty(filePath);
+
+      // Every write fails for now — a persistent transient-looking error.
+      writeSpy.mockRejectedValue(new Error("EIO: i/o error"));
+
+      // Last collaborator leaves -> 10s idle grace timer starts.
+      room.removeClient(ws);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      // The final flush failed, so the room must NOT be destroyed: its Y.Doc
+      // holds the only surviving copy of the content.
+      expect(onDispose).not.toHaveBeenCalled();
+      expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+      expect(room.doc.getText(filePath).toString()).toBe(
+        "edits that must not be lost",
+      );
+
+      // The disk error clears; the rescheduled grace period retries the flush.
+      // (Resolved mock rather than real I/O so the assertion stays
+      // deterministic under fake timers; test 12 covers the real disk write.)
+      // The retry backs off exponentially (10s -> 20s), so the second grace
+      // period is 20s, not another 10s.
+      writeSpy.mockReset();
+      writeSpy.mockResolvedValue(undefined as never);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      // Content was persisted on the retry, and only then was the room freed.
+      expect(writeSpy).toHaveBeenLastCalledWith(
+        diskPath,
+        "edits that must not be lost",
+        "utf-8",
+      );
+      expect(onDispose).toHaveBeenCalledWith(project.id);
+    } finally {
+      writeSpy.mockRestore();
+      realpathSpy.mockRestore();
+      accessSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("13b. Idle-disposal retry backs off exponentially, capped at 5 minutes, and never stops retrying", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("ida", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "BackoffCapProj",
+    });
+    const onDispose = vi.fn();
+    const writeSpy = vi.spyOn(fs, "writeFile");
+    // See test 13: fake timers cannot drive the real fs.realpath/fs.access
+    // calls flushToDisk() makes before each write. Test 18 covers the real
+    // symlink guard.
+    const realpathSpy = vi
+      .spyOn(fs, "realpath")
+      .mockImplementation(async (p: any) => p);
+    const accessSpy = vi
+      .spyOn(fs, "access")
+      .mockResolvedValue(undefined as never);
+    vi.useFakeTimers();
+
+    try {
+      const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+      const filePath = "test.txt";
+      const ws = makeMockWs();
+      await room.addClient(ws, { userId: 1, username: "ida", role: "editor" });
+
+      room.doc.transact(() => {
+        room.doc.getText(filePath).insert(0, "content that must not be lost");
+      });
+      room.markFileDirty(filePath);
+
+      // Every write fails permanently (e.g. workspace directory gone, disk
+      // full forever) — the retry loop must never give up, but must not keep
+      // hammering the filesystem/log at a fixed 10s cadence either.
+      writeSpy.mockRejectedValue(new Error("ENOSPC: no space left on device"));
+
+      room.removeClient(ws);
+
+      // 10s -> 20s -> 40s -> 80s -> 160s -> 300s(capped, would be 320s
+      // uncapped) -> 300s again. Advance through several cycles and confirm
+      // the delay never exceeds the 5-minute cap and retries keep happening.
+      const expectedDelays = [
+        10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000,
+      ];
+      let callsBefore = writeSpy.mock.calls.length;
+      for (const delay of expectedDelays) {
+        await vi.advanceTimersByTimeAsync(delay);
+        expect(writeSpy.mock.calls.length).toBeGreaterThan(callsBefore);
+        callsBefore = writeSpy.mock.calls.length;
+      }
+
+      // Content was never dropped, and the room was never disposed despite
+      // the permanent failure.
+      expect(onDispose).not.toHaveBeenCalled();
+      expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+      expect(room.doc.getText(filePath).toString()).toBe(
+        "content that must not be lost",
+      );
+
+      room.dispose();
+    } finally {
+      writeSpy.mockRestore();
+      realpathSpy.mockRestore();
+      accessSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("14. A real sync-protocol edit marks the edited file dirty, even for a file the server never opened", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("frank", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "SyncDirtyProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const ws = makeMockWs();
+    await room.addClient(ws, { userId: 1, username: "frank", role: "editor" });
+
+    // Deliberately NO ensureFileLoaded / file_open for this path: the server
+    // learns about the file purely from the incoming update. Yjs materializes
+    // such a key as a bare AbstractType, which never fires .observe() and
+    // never appears in transaction.changedParentTypes — so a fix hooked on
+    // either of those would miss this file entirely.
+    const filePath = "never-opened.py";
+    const clientDoc = new Y.Doc();
+    const clientText = clientDoc.getText(filePath);
+
+    expect((room as any).dirtyFiles.has(filePath)).toBe(false);
+
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () =>
+        clientText.insert(0, "print('real collaborative edit')"),
+      ),
+    );
+
+    // The edit landed in the room's doc...
+    expect(room.doc.getText(filePath).toString()).toBe(
+      "print('real collaborative edit')",
+    );
+    // ...and, crucially, was recorded as dirty. This was permanently false
+    // before the fix (markFileDirty was never called from any real request
+    // path), which silently disabled flush-retry and disposal deferral.
+    expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+
+    // End-to-end: the tracked file actually persists and then goes clean.
+    await room.flushToDisk();
+    expect(
+      await fs.readFile(join(projectDir(cfg, project.id), filePath), "utf-8"),
+    ).toBe("print('real collaborative edit')");
+    expect((room as any).dirtyFiles.has(filePath)).toBe(false);
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("15. Two different files edited via separate real sync messages are both tracked dirty", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("grace", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "SyncMultiDirtyProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const ws = makeMockWs();
+    await room.addClient(ws, { userId: 1, username: "grace", role: "editor" });
+
+    const clientDoc = new Y.Doc();
+    const textA = clientDoc.getText("alpha.py");
+    const textB = clientDoc.getText("beta.js");
+
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => textA.insert(0, "alpha = 1")),
+    );
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => textB.insert(0, "const beta = 2;")),
+    );
+
+    const dirty: Set<string> = (room as any).dirtyFiles;
+    expect(dirty.has("alpha.py")).toBe(true);
+    expect(dirty.has("beta.js")).toBe(true);
+
+    // Both must survive a failed write and be retried, which is only possible
+    // because they were tracked in the first place.
+    const writeSpy = vi.spyOn(fs, "writeFile");
+    writeSpy.mockRejectedValueOnce(new Error("EIO: i/o error"));
+    await room.flushToDisk();
+    expect(dirty.size).toBe(1);
+    writeSpy.mockRestore();
+
+    await room.flushToDisk();
+    expect(dirty.size).toBe(0);
+    expect(
+      await fs.readFile(join(projectDir(cfg, project.id), "alpha.py"), "utf-8"),
+    ).toBe("alpha = 1");
+    expect(
+      await fs.readFile(join(projectDir(cfg, project.id), "beta.js"), "utf-8"),
+    ).toBe("const beta = 2;");
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("16. External mutations are never queued as dirty, so a deleted file is not resurrected by the next flush", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("heidi", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "ExtDirtyProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const ws = makeMockWs();
+    await room.addClient(ws, { userId: 1, username: "heidi", role: "editor" });
+
+    const filePath = "doomed.py";
+    const diskPath = join(projectDir(cfg, project.id), filePath);
+    const clientDoc = new Y.Doc();
+    const clientText = clientDoc.getText(filePath);
+
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => clientText.insert(0, "print(1)")),
+    );
+    expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+
+    // Mirrors the REST delete route: the file is removed from disk FIRST,
+    // then the room is notified with empty content.
+    await fs.rm(diskPath, { force: true });
+    await room.handleExternalFileMutation(filePath, "");
+
+    // The external write must not re-queue the path — otherwise the next
+    // flush would recreate the just-deleted file as an empty file.
+    expect((room as any).dirtyFiles.has(filePath)).toBe(false);
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("17. A crafted shared-type key cannot queue a write outside the project workspace", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("ivan", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "TraversalProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const ws = makeMockWs();
+    await room.addClient(ws, { userId: 1, username: "ivan", role: "editor" });
+
+    // Yjs keys are entirely client-controlled, and flushToDisk() joins them
+    // onto the project directory.
+    const evilPath = "../../escaped.txt";
+    const clientDoc = new Y.Doc();
+    const evilText = clientDoc.getText(evilPath);
+
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => evilText.insert(0, "pwned")),
+    );
+
+    expect((room as any).dirtyFiles.has(evilPath)).toBe(false);
+    expect((room as any).dirtyFiles.size).toBe(0);
+
+    await room.flushToDisk();
+    await expect(
+      fs.readFile(join(projectDir(cfg, project.id), evilPath), "utf-8"),
+    ).rejects.toThrow();
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("18. A valid in-workspace collaborative path persists, while a path resolving through a planted symlink is refused", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("judy", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "SymlinkProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const ws = makeMockWs();
+    await room.addClient(ws, { userId: 1, username: "judy", role: "editor" });
+    const workspace = projectDir(cfg, project.id);
+    const clientDoc = new Y.Doc();
+
+    // A directory OUTSIDE the project workspace, standing in for a sibling
+    // project's directory (real deployments put every project directory under
+    // one shared workspacesDir parent) or any host path.
+    const outsideDir = await fs.mkdtemp(join(tmpdir(), "cloudide-m4-outside-"));
+    const victimFile = join(outsideDir, "victim.txt");
+    await fs.writeFile(victimFile, "ORIGINAL", "utf-8");
+
+    // The attacker plants the symlink from inside their own sandbox, which is
+    // bind-mounted to this workspace. A *directory* link is used because it is
+    // creatable unelevated on Windows (junction) as well as on POSIX, unlike a
+    // file symlink (EPERM without Developer Mode) — see the it.skipIf(IS_WINDOWS)
+    // symlink cases in api.test.ts. If even this is unavailable, the platform
+    // cannot host the attack, so skip rather than assert nothing.
+    let symlinkSupported = true;
+    try {
+      await fs.symlink(outsideDir, join(workspace, "escape"), "junction");
+    } catch {
+      symlinkSupported = false;
+    }
+
+    try {
+      // 1. A legitimate in-workspace path still persists end to end.
+      const goodPath = "src/app.py";
+      await fs.mkdir(join(workspace, "src"), { recursive: true });
+      const goodText = clientDoc.getText(goodPath);
+      room.handleMessage(
+        ws,
+        buildSyncUpdateFrame(clientDoc, () =>
+          goodText.insert(0, "print('legit collaborative edit')"),
+        ),
+      );
+      expect((room as any).dirtyFiles.has(goodPath)).toBe(true);
+
+      // 2. The symlinked path passes the lexical check (no ".." at all), so it
+      // reaches dirtyFiles — the realpath guard must stop it at write time.
+      const evilPath = "escape/victim.txt";
+      if (symlinkSupported) {
+        const evilText = clientDoc.getText(evilPath);
+        room.handleMessage(
+          ws,
+          buildSyncUpdateFrame(clientDoc, () => evilText.insert(0, "pwned")),
+        );
+        expect((room as any).dirtyFiles.has(evilPath)).toBe(true);
+      }
+
+      await room.flushToDisk();
+
+      // The legitimate file landed inside the real workspace and went clean.
+      expect(await fs.readFile(join(workspace, goodPath), "utf-8")).toBe(
+        "print('legit collaborative edit')",
+      );
+      expect((room as any).dirtyFiles.has(goodPath)).toBe(false);
+
+      if (symlinkSupported) {
+        // THE ASSERTION THAT MATTERS: nothing was written through the symlink.
+        // The file outside the workspace is byte-for-byte untouched.
+        expect(await fs.readFile(victimFile, "utf-8")).toBe("ORIGINAL");
+        // ...and the rejected path is dropped permanently rather than retried
+        // forever, which would otherwise wedge scheduleIdleDisposal()'s
+        // backoff loop and keep the room alive indefinitely.
+        expect((room as any).dirtyFiles.has(evilPath)).toBe(false);
+        expect((room as any).dirtyFiles.size).toBe(0);
+      }
+    } finally {
+      clientDoc.destroy();
+      room.dispose();
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("19. A real file_open message loads an in-workspace file into the room doc and broadcasts it to peers", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("kate", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "FileOpenProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+
+    const filePath = "src/main.py";
+    await fs.mkdir(join(projectDir(cfg, project.id), "src"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      join(projectDir(cfg, project.id), filePath),
+      "print('on disk')",
+      "utf-8",
+    );
+
+    const wsA = makeMockWs();
+    const peerFrames: Uint8Array[] = [];
+    const wsPeer = makeMockWs();
+    wsPeer.send = (m: Uint8Array) => peerFrames.push(m);
+
+    await room.addClient(wsA, { userId: 1, username: "kate", role: "editor" });
+    await room.addClient(wsPeer, {
+      userId: 1,
+      username: "kate2",
+      role: "viewer",
+    });
+    peerFrames.length = 0; // drop the initial sync/awareness handshake frames
+
+    room.handleMessage(wsA, buildFileOpenFrame(filePath));
+    await flushAsync();
+
+    // Disk content is now live in the shared doc under the real key...
+    expect(room.doc.getText(filePath).toString()).toBe("print('on disk')");
+    expect((room as any).doc.share.has(filePath)).toBe(true);
+    // ...and the load was broadcast to the other connected collaborator.
+    expect(peerFrames.length).toBeGreaterThan(0);
+
+    room.dispose();
+  });
+
+  it("20. A traversal path in a file_open message cannot make the server read a file outside the workspace", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("liam", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "OpenTraversalProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+
+    // A real, readable file OUTSIDE the project workspace (a sibling of the
+    // project directory), standing in for /etc/passwd or another tenant's file.
+    const victimFile = join(tempWorkspacesDir, "victim-secret.txt");
+    await fs.writeFile(victimFile, "TOP SECRET HOST CONTENT", "utf-8");
+    const evilPath = "../victim-secret.txt";
+
+    const wsA = makeMockWs();
+    const peerFrames: Uint8Array[] = [];
+    const wsPeer = makeMockWs();
+    wsPeer.send = (m: Uint8Array) => peerFrames.push(m);
+
+    // Lowest-privilege role: MESSAGE_CUSTOM is reachable by a viewer.
+    await room.addClient(wsA, { userId: 1, username: "liam", role: "viewer" });
+    await room.addClient(wsPeer, {
+      userId: 1,
+      username: "liam2",
+      role: "viewer",
+    });
+    peerFrames.length = 0;
+
+    expect(() =>
+      room.handleMessage(wsA, buildFileOpenFrame(evilPath)),
+    ).not.toThrow();
+    await flushAsync();
+
+    // Nothing outside the workspace was read into the shared doc...
+    expect(room.doc.getText(evilPath).toString()).toBe("");
+    // ...and nothing was pushed to the other collaborators in the room.
+    expect(peerFrames.length).toBe(0);
+    // The victim file itself is untouched and its content never leaked.
+    expect(await fs.readFile(victimFile, "utf-8")).toBe(
+      "TOP SECRET HOST CONTENT",
+    );
+
+    room.dispose();
+  });
+
+  it("21. A file_open path resolving through a planted symlink is refused, and a rejected key is never registered in doc.share", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("mia", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "OpenSymlinkProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const workspace = projectDir(cfg, project.id);
+
+    const outsideDir = await fs.mkdtemp(join(tmpdir(), "cloudide-m4-outside-"));
+    const victimFile = join(outsideDir, "victim.txt");
+    await fs.writeFile(victimFile, "TOP SECRET HOST CONTENT", "utf-8");
+
+    // Same technique as test 18: a directory link is creatable unelevated on
+    // both Windows (junction) and POSIX. If the platform cannot host the
+    // attack, skip rather than assert nothing.
+    let symlinkSupported = true;
+    try {
+      await fs.symlink(outsideDir, join(workspace, "escape"), "junction");
+    } catch {
+      symlinkSupported = false;
+    }
+
+    try {
+      // Contains no "..", so it clears the lexical check — only the realpath
+      // guard can stop it.
+      const evilPath = "escape/victim.txt";
+
+      const wsA = makeMockWs();
+      const peerFrames: Uint8Array[] = [];
+      const wsPeer = makeMockWs();
+      wsPeer.send = (m: Uint8Array) => peerFrames.push(m);
+
+      await room.addClient(wsA, { userId: 1, username: "mia", role: "viewer" });
+      await room.addClient(wsPeer, {
+        userId: 1,
+        username: "mia2",
+        role: "viewer",
+      });
+      peerFrames.length = 0;
+
+      if (symlinkSupported) {
+        room.handleMessage(wsA, buildFileOpenFrame(evilPath));
+        await flushAsync();
+
+        // The external file's content never enters the room's doc...
+        expect(room.doc.getText(evilPath).toString()).toBe("");
+        // ...and was never broadcast to the other collaborator.
+        expect(peerFrames.length).toBe(0);
+        expect(await fs.readFile(victimFile, "utf-8")).toBe(
+          "TOP SECRET HOST CONTENT",
+        );
+      }
+
+      // A rejected key must never be materialized in doc.share (Y.Doc.get()
+      // is what registers it), otherwise it lingers as a dangling empty
+      // Y.Text that flushToDisk()'s "no dirty files" fallback would pick up.
+      const traversalPath = "../../escaped-open.txt";
+      room.handleMessage(wsA, buildFileOpenFrame(traversalPath));
+      await flushAsync();
+      expect((room as any).doc.share.has(traversalPath)).toBe(false);
+
+      // The rejected path also never reaches disk via the fallback flush.
+      await room.flushToDisk();
+      await expect(
+        fs.readFile(join(workspace, traversalPath), "utf-8"),
+      ).rejects.toThrow();
+    } finally {
+      room.dispose();
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });

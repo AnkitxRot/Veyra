@@ -310,7 +310,7 @@ export default function IDE({
     fetchStats();
     const timer = setInterval(fetchStats, 2500);
     return () => clearInterval(timer);
-  }, [project]);
+  }, [project?.id]);
 
   useEffect(() => {
     loadProjects();

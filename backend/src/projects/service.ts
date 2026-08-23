@@ -233,6 +233,13 @@ export async function deleteProject(
   } catch {
     // Best-effort: container may already be gone
   }
+  // Release in-memory telemetry state before the project record disappears
+  try {
+    const { telemetryHistorian } = await import("../execution/historian.js");
+    telemetryHistorian.disposeProject(project.id);
+  } catch {
+    // Best-effort: historian may not be initialized in this context
+  }
   await fs.rm(projectDir(cfg, project.id), { recursive: true, force: true });
   db.prepare("DELETE FROM projects WHERE id = ?").run(id);
 }

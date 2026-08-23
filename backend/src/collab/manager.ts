@@ -5,10 +5,10 @@ import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import type { WebSocket } from "ws";
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
+import { assertInsideWorkspace, safeResolve } from "../files/service.js";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -79,6 +79,55 @@ export class CollaborationRoom {
       }
     });
 
+    // Per-file dirty tracking for genuine remote edits.
+    //
+    // The "update" listener above only arms the flush timers; it cannot tell
+    // WHICH file changed. Incoming client edits arrive via
+    // syncProtocol.readSyncMessage(), which mutates this.doc directly and
+    // never routes through ensureFileLoaded()/markFileDirty(). Without the
+    // hook below, dirtyFiles stays permanently empty in production, so
+    // flushToDisk()'s per-file retry tracking and scheduleIdleDisposal()'s
+    // "never dispose while content is unpersisted" guard never engage — a
+    // failed write would be logged and the only copy of the content dropped.
+    //
+    // This uses transaction.changed rather than per-Y.Text .observe() or
+    // transaction.changedParentTypes, because neither of those can see a file
+    // the server never explicitly opened: when an incoming update references
+    // an unknown key, Yjs materializes it as a bare AbstractType whose
+    // _callObserver() is a no-op, so it never fires .observe() and never
+    // lands in changedParentTypes. transaction.changed is populated by
+    // Item.integrate() regardless of the type's concrete class, so it is the
+    // only signal that cannot miss a file.
+    this.doc.on("afterTransaction", (tr: Y.Transaction) => {
+      // Content applied under these origins already matches disk, so it must
+      // not be queued for a write-back. Every handleExternalFileMutation()
+      // caller writes (or deletes) the file itself BEFORE notifying the room;
+      // marking those dirty would issue a redundant write, and for the delete
+      // case would resurrect the just-deleted file as an empty file on the
+      // next flush. "initial_disk_load" seeds a Y.Text from the very file it
+      // just read.
+      if (
+        tr.origin === "external_mutation" ||
+        tr.origin === "initial_disk_load"
+      ) {
+        return;
+      }
+      if (tr.changed.size === 0) return;
+
+      const shares = this.doc.share as Map<string, unknown>;
+      for (const changedType of tr.changed.keys()) {
+        // Map the changed shared type back to its top-level key (the file
+        // path). Nested types match nothing here and are correctly ignored —
+        // files are always top-level Y.Text instances.
+        for (const [key, type] of shares.entries()) {
+          if (type === changedType) {
+            this.markFileDirty(key);
+            break;
+          }
+        }
+      }
+    });
+
     // Track awareness changes and broadcast to room
     this.awareness.on(
       "update",
@@ -108,11 +157,42 @@ export class CollaborationRoom {
 
   /**
    * Initializes a file's collaborative Y.Text from the workspace filesystem if not already loaded.
+   *
+   * `filePath` originates from a client-controlled `file_open` message, so it
+   * must clear the same boundary the REST file routes enforce (safeResolve +
+   * assertInsideWorkspace) BEFORE it is used for a read or handed to
+   * doc.getText(). Without it, a crafted key made the server process read an
+   * arbitrary host file and broadcast its contents to every client in the
+   * room. The realpath half is required, not just the lexical one: a symlink
+   * planted inside the attacker's own bind-mounted workspace escapes a
+   * traversal-string check (same attack already blocked in flushToDisk()).
+   *
+   * Validation runs before doc.getText() because Y.Doc.get() materializes the
+   * key in doc.share as a side effect; a rejected path must never be
+   * registered there, where flushToDisk()'s "no dirty files" fallback would
+   * later pick it up and it would linger for the room's lifetime.
+   *
+   * The sole caller invokes this as a floating promise, so neither a rejected
+   * path nor a missing file may throw: both resolve to an empty Y.Text.
    */
   public async ensureFileLoaded(filePath: string): Promise<Y.Text> {
+    const baseDir = projectDir(this.cfg, this.projectId);
+    let fullPath: string;
+    try {
+      fullPath = safeResolve(baseDir, filePath);
+      await assertInsideWorkspace(baseDir, fullPath);
+    } catch (err) {
+      console.warn(
+        `[CollabRoom:${this.projectId}] Refusing to load ${filePath}: path escapes the workspace`,
+        err,
+      );
+      // Detached instance: never registered in doc.share, so it is never
+      // broadcast, never flushed, and holds no room state.
+      return new Y.Text();
+    }
+
     const yText = this.doc.getText(filePath);
     if (yText.length === 0) {
-      const fullPath = join(projectDir(this.cfg, this.projectId), filePath);
       try {
         const content = await fs.readFile(fullPath, "utf-8");
         // Only insert if Y.Text is still empty
@@ -360,8 +440,34 @@ export class CollaborationRoom {
    * Marks a file as dirty and triggers debounced persistence to workspace filesystem.
    */
   public markFileDirty(filePath: string): void {
+    if (!this.isPersistablePath(filePath)) return;
     this.dirtyFiles.add(filePath);
     this.scheduleDebouncedPersistence();
+  }
+
+  /**
+   * Yjs shared-type keys are client-controlled: a client can bring any key
+   * into existence just by editing it, and flushToDisk() joins that key onto
+   * the project directory. Now that those keys reach dirtyFiles, validate
+   * them through the same lexical guard the REST file routes use, so a
+   * crafted key (e.g. "../../../etc/passwd") can never be queued for a write
+   * outside the workspace.
+   *
+   * This is the cheap, synchronous half of the check only (it must stay
+   * synchronous: the sole caller runs inside a synchronous Yjs
+   * "afterTransaction" handler). The realpath/symlink half is enforced in
+   * flushToDisk(), immediately before the write.
+   */
+  private isPersistablePath(filePath: string): boolean {
+    try {
+      safeResolve(projectDir(this.cfg, this.projectId), filePath);
+      return true;
+    } catch {
+      console.warn(
+        `[CollabRoom:${this.projectId}] Ignoring unsafe collaborative file key: ${filePath}`,
+      );
+      return false;
+    }
   }
 
   private scheduleDebouncedPersistence(): void {
@@ -410,11 +516,41 @@ export class CollaborationRoom {
     }
 
     for (const filePath of filesToFlush) {
+      // Realpath boundary enforcement, mirroring the REST file routes
+      // (safeResolve + assertInsideWorkspace). markFileDirty()'s lexical
+      // check cannot see symlinks, and a user with terminal/docker-exec
+      // access to their own sandbox can plant one inside their own
+      // bind-mounted workspace pointing at a sibling project or anywhere on
+      // the host. Since this loop is the only place collaborative content
+      // reaches the filesystem — and it also flushes doc keys that never
+      // passed through markFileDirty() at all (the "dirtyFiles is empty"
+      // fallback above) — it is the single choke point that must resolve
+      // symlinks before writing with the server's privileges.
+      let fullPath: string;
+      try {
+        fullPath = safeResolve(baseDir, filePath);
+        await assertInsideWorkspace(baseDir, fullPath);
+      } catch (err) {
+        // Unlike a transient write failure, this can never succeed later, so
+        // drop it permanently instead of leaving it dirty: an un-writable
+        // path retained here would block idle disposal forever via the
+        // scheduleIdleDisposal() retry/backoff loop.
+        this.dirtyFiles.delete(filePath);
+        console.warn(
+          `[CollabRoom:${this.projectId}] Refusing to persist ${filePath}: path escapes the workspace`,
+          err,
+        );
+        continue;
+      }
+
       try {
         const yText = this.doc.getText(filePath);
         const content = yText.toString();
-        const fullPath = join(baseDir, filePath);
         await fs.writeFile(fullPath, content, "utf-8");
+        // Only mark clean once the write actually landed. Clearing
+        // unconditionally would falsely mark a failed write as persisted,
+        // and nothing would ever retry it.
+        this.dirtyFiles.delete(filePath);
       } catch (err) {
         console.error(
           `[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`,
@@ -423,20 +559,44 @@ export class CollaborationRoom {
       }
     }
 
-    this.dirtyFiles.clear();
     this.lastFlushTime = Date.now();
   }
 
-  private scheduleIdleDisposal(): void {
+  private static readonly IDLE_DISPOSE_BASE_MS = 10000;
+  private static readonly IDLE_DISPOSE_RETRY_CAP_MS = 5 * 60 * 1000;
+
+  private scheduleIdleDisposal(
+    delayMs: number = CollaborationRoom.IDLE_DISPOSE_BASE_MS,
+  ): void {
     if (this.idleDisposeTimer) clearTimeout(this.idleDisposeTimer);
 
-    // 10s idle grace timer before freeing room from memory
+    // Idle grace timer before freeing room from memory. On retry (a prior
+    // flush left files dirty) the delay doubles, capped at
+    // IDLE_DISPOSE_RETRY_CAP_MS, so a permanently failing write (disk full,
+    // permissions lost, workspace removed without the project being deleted)
+    // degrades to an infrequent retry instead of hammering the filesystem
+    // and logs forever at a fixed 10s cadence. Content is never dropped —
+    // only the retry cadence backs off.
     this.idleDisposeTimer = setTimeout(async () => {
       if (this.clients.size === 0) {
         await this.flushToDisk();
-        this.dispose();
+        if (this.dirtyFiles.size === 0) {
+          this.dispose();
+        } else {
+          // Disposing here would destroy the Y.Doc holding the only remaining
+          // copy of content that failed to persist. Retry after a
+          // (back-off-capped) grace period instead.
+          const nextDelay = Math.min(
+            delayMs * 2,
+            CollaborationRoom.IDLE_DISPOSE_RETRY_CAP_MS,
+          );
+          console.error(
+            `[CollabRoom:${this.projectId}] idle disposal deferred: ${this.dirtyFiles.size} file(s) failed to flush, retrying in ${nextDelay}ms`,
+          );
+          this.scheduleIdleDisposal(nextDelay);
+        }
       }
-    }, 10000);
+    }, delayMs);
   }
 
   /**

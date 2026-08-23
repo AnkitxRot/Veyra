@@ -14,7 +14,7 @@ import {
   projectDir,
 } from "../src/projects/service.js";
 import { promises as fs, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 describe("M5 — Verification-Aware AI Engineering Assistant", () => {
@@ -250,5 +250,126 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
 
     // CRITICAL COLLABORATION INVARIANT: In-memory Y.Doc updates to match patched code
     expect(yText.toString()).toBe(patchedContent);
+  });
+
+  it("6. Context Engine Security: a legitimate in-workspace activeFilePath is read, while '../' traversal to a sibling project or the host filesystem reads nothing", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("mallory", "h", "user"); // id 1
+
+    const attacker = await createProject(cfg, db, 1, { name: "AttackerProj" });
+    const victim = await createProject(cfg, db, 1, { name: "VictimProj" });
+    const attackerDir = projectDir(cfg, attacker.id);
+    const victimDir = projectDir(cfg, victim.id);
+
+    // The attacker's own legitimate file.
+    await fs.writeFile(
+      join(attackerDir, "main.py"),
+      "print('my own code')\n",
+      "utf-8",
+    );
+    // A sibling project's secret, one level up from the attacker's workspace.
+    await fs.writeFile(
+      join(victimDir, ".env"),
+      "SIBLING_PROJECT_SECRET=deadbeef\n",
+      "utf-8",
+    );
+    // A secret entirely outside workspacesDir, standing in for any host file.
+    const outsideDir = await fs.mkdtemp(join(tmpdir(), "cloudide-m5-outside-"));
+    const hostSecretFile = join(outsideDir, "id_rsa");
+    await fs.writeFile(hostSecretFile, "HOST_PRIVATE_KEY_MATERIAL\n", "utf-8");
+
+    const provider = new DeterministicEngineeringProvider();
+
+    try {
+      // 1. Baseline: a real in-workspace path still works, unchanged.
+      const goodCtx = await buildAIContext(cfg, db, attacker.id, 1, {
+        activeFilePath: "main.py",
+      });
+      expect(goodCtx.fileContent).toContain("my own code");
+      // ...and is observably echoed back through the action response, which is
+      // the exfiltration channel this guard protects.
+      const goodRes = await provider.executeAction("docstring", goodCtx);
+      expect(goodRes.patch?.originalContent).toContain("my own code");
+
+      // 2. Sibling-project traversal: join() would have resolved this straight
+      // into the victim's directory.
+      const siblingCtx = await buildAIContext(cfg, db, attacker.id, 1, {
+        activeFilePath: `../${victim.id}/.env`,
+      });
+      expect(siblingCtx.fileContent).toBe("");
+
+      // 3. Traversal clean out of workspacesDir onto the host filesystem.
+      const escapeDepth = "../".repeat(12);
+      const hostCtx = await buildAIContext(cfg, db, attacker.id, 1, {
+        activeFilePath:
+          escapeDepth + relative("/", hostSecretFile).split(sep).join("/"),
+      });
+      expect(hostCtx.fileContent).toBe("");
+
+      // THE ASSERTION THAT MATTERS: no outside content reaches the response
+      // body the caller actually receives, for either traversal target.
+      for (const ctx of [siblingCtx, hostCtx]) {
+        const res = await provider.executeAction("docstring", ctx);
+        const serialized = JSON.stringify(res);
+        expect(serialized).not.toContain("SIBLING_PROJECT_SECRET");
+        expect(serialized).not.toContain("HOST_PRIVATE_KEY_MATERIAL");
+      }
+
+      // The targeted files themselves are untouched on disk.
+      expect(await fs.readFile(join(victimDir, ".env"), "utf-8")).toContain(
+        "SIBLING_PROJECT_SECRET",
+      );
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("7. Context Engine Security: an activeFilePath resolving through a planted symlink reads nothing", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("trudy", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "AISymlinkProj" });
+    const workspace = projectDir(cfg, project.id);
+
+    const outsideDir = await fs.mkdtemp(join(tmpdir(), "cloudide-m5-outside-"));
+    const victimFile = join(outsideDir, "victim.txt");
+    await fs.writeFile(victimFile, "TOP SECRET HOST CONTENT", "utf-8");
+
+    // Same technique as m4-collab tests 18/21: a *directory* link is creatable
+    // unelevated on Windows (junction) as well as POSIX, unlike a file symlink.
+    // If the platform cannot host the attack, skip rather than assert nothing.
+    let symlinkSupported = true;
+    try {
+      await fs.symlink(outsideDir, join(workspace, "escape"), "junction");
+    } catch {
+      symlinkSupported = false;
+    }
+
+    try {
+      if (symlinkSupported) {
+        // Contains no "..", so it clears every lexical check — only the
+        // realpath guard in assertInsideWorkspace can stop it.
+        const ctx = await buildAIContext(cfg, db, project.id, 1, {
+          activeFilePath: "escape/victim.txt",
+        });
+        expect(ctx.fileContent).toBe("");
+
+        const res = await new DeterministicEngineeringProvider().executeAction(
+          "docstring",
+          ctx,
+        );
+        expect(JSON.stringify(res)).not.toContain("TOP SECRET HOST CONTENT");
+
+        // The victim file is byte-for-byte untouched.
+        expect(await fs.readFile(victimFile, "utf-8")).toBe(
+          "TOP SECRET HOST CONTENT",
+        );
+      }
+    } finally {
+      await fs.rm(join(workspace, "escape"), { recursive: true, force: true });
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });

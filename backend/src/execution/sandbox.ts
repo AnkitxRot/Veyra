@@ -21,6 +21,7 @@ export interface SandboxOptions {
   onStdout?: (data: string) => void;
   onStderr?: (data: string) => void;
   onController?: (ctrl: SandboxController) => void;
+  isCancelled?: () => boolean;
   timeoutMs: number;
   kind: "run" | "build";
   config: AppConfig;
@@ -615,6 +616,25 @@ export async function sandboxRun(
     return {
       stdout: "",
       stderr: `[sandbox] failed to start project container: ${err.message}`,
+      exitCode: null,
+      signal: null,
+      timedOut: false,
+      oom: false,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  // The client can disconnect at any point while the container is being
+  // started (a `docker inspect` round-trip, or a full `docker run` + network
+  // setup). `onController` is only handed out below, once the process exists,
+  // so a close during that window has nothing to kill. Bail here — the single
+  // choke point every compile- and run-phase call passes through — rather than
+  // spawning work for a client that is already gone.
+  if (opts.isCancelled?.()) {
+    return {
+      stdout: "",
+      stderr:
+        "[sandbox] execution cancelled: client disconnected before the process started",
       exitCode: null,
       signal: null,
       timedOut: false,

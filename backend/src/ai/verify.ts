@@ -1,10 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import type { Db } from '../db.js';
-import type { AppConfig } from '../config.js';
-import { runProject, RunResult } from '../execution/pipeline.js';
-import { workspacePath } from '../projects/service.js';
+import { randomUUID } from "node:crypto";
+import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
+import { runProject, RunResult } from "../execution/pipeline.js";
+import { runGate } from "../execution/runGate.js";
+import { workspacePath } from "../projects/service.js";
 
-export type AIVerificationStatus = 'VERIFIED' | 'FAILED' | 'UNVERIFIED';
+export type AIVerificationStatus = "VERIFIED" | "FAILED" | "UNVERIFIED";
 
 export interface VerificationRequest {
   projectId: string;
@@ -38,20 +39,20 @@ export interface VerificationResult {
 export async function runAIVerification(
   cfg: AppConfig,
   db: Db,
-  req: VerificationRequest
+  req: VerificationRequest,
 ): Promise<VerificationResult> {
   const verificationId = randomUUID();
   const t0 = performance.now();
 
   // 1. Explicit Skip Verification Path
   if (req.skipVerification) {
-    const skipReason = 'Verification skipped by user.';
+    const skipReason = "Verification skipped by user.";
     db.prepare(
       `INSERT INTO ai_verifications (
         id, project_id, user_id, action, provider_type, model_name,
         status, file_path, explanation, diff_summary, snapshot_id,
         skip_reason, duration_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       verificationId,
       req.projectId,
@@ -59,21 +60,21 @@ export async function runAIVerification(
       req.action,
       req.providerType,
       req.modelName,
-      'UNVERIFIED',
+      "UNVERIFIED",
       req.filePath,
       req.explanation,
-      req.diffSummary || '',
+      req.diffSummary || "",
       req.snapshotId || null,
       skipReason,
-      0
+      0,
     );
 
     return {
       id: verificationId,
-      status: 'UNVERIFIED',
+      status: "UNVERIFIED",
       exitCode: null,
-      stdoutSummary: '',
-      stderrSummary: '',
+      stdoutSummary: "",
+      stderrSummary: "",
       skipReason,
       durationMs: 0,
       createdAt: new Date().toISOString(),
@@ -82,33 +83,62 @@ export async function runAIVerification(
 
   // 2. Authoritative Sandbox Verification Run
   let runResult: RunResult | null = null;
-  let status: AIVerificationStatus = 'UNVERIFIED';
+  let status: AIVerificationStatus = "UNVERIFIED";
   let skipReason: string | undefined = undefined;
 
-  try {
-    const cwd = await workspacePath(cfg, req.projectId);
-    runResult = await runProject(cfg, req.projectId, cwd, {
-      activeFile: req.filePath,
-    });
+  // This endpoint spawns a real sandbox execution, so it must consume the same
+  // per-user budget as the REST run, WebSocket execute and install paths.
+  // Without it, a client looping this route could launch unbounded concurrent
+  // `docker exec` processes and bypass `maxConcurrentRuns` entirely.
+  const gateAcquired = runGate.acquire(req.userId, cfg.maxConcurrentRuns);
 
-    if (runResult.type === 'missing_toolchain' || runResult.type === 'not_runnable' || runResult.type === 'no_language') {
-      status = 'UNVERIFIED';
-      skipReason = `Execution skipped: ${runResult.type.replace(/_/g, ' ')}`;
-    } else if (runResult.type === 'compile_error' || (runResult.exitCode !== null && runResult.exitCode !== 0)) {
-      status = 'FAILED';
-    } else if (runResult.exitCode === 0) {
-      status = 'VERIFIED';
-    } else {
-      status = 'UNVERIFIED';
+  if (!gateAcquired) {
+    // Degrade gracefully like `missing_toolchain`: the patch simply goes
+    // unverified and is journalled as such, rather than failing the request.
+    status = "UNVERIFIED";
+    skipReason =
+      "Verification skipped: too many concurrent executions for this user";
+  } else {
+    try {
+      const cwd = await workspacePath(cfg, req.projectId);
+      runResult = await runProject(cfg, req.projectId, cwd, {
+        activeFile: req.filePath,
+      });
+
+      if (
+        runResult.type === "missing_toolchain" ||
+        runResult.type === "not_runnable" ||
+        runResult.type === "no_language"
+      ) {
+        status = "UNVERIFIED";
+        skipReason = `Execution skipped: ${runResult.type.replace(/_/g, " ")}`;
+      } else if (
+        runResult.type === "compile_error" ||
+        (runResult.exitCode !== null && runResult.exitCode !== 0)
+      ) {
+        status = "FAILED";
+      } else if (runResult.exitCode === 0) {
+        status = "VERIFIED";
+      } else {
+        status = "UNVERIFIED";
+      }
+    } catch (err: any) {
+      status = "FAILED";
+      skipReason = err.message || "Execution error";
+    } finally {
+      // Always hand the slot back, whether the run succeeded, returned a
+      // non-success outcome, or threw.
+      runGate.release(req.userId);
     }
-  } catch (err: any) {
-    status = 'FAILED';
-    skipReason = err.message || 'Execution error';
   }
 
   const durationMs = Math.round(performance.now() - t0);
-  const stdoutSummary = runResult?.stdout ? runResult.stdout.slice(0, 1000) : '';
-  const stderrSummary = runResult?.stderr ? runResult.stderr.slice(0, 1500) : (skipReason || '');
+  const stdoutSummary = runResult?.stdout
+    ? runResult.stdout.slice(0, 1000)
+    : "";
+  const stderrSummary = runResult?.stderr
+    ? runResult.stderr.slice(0, 1500)
+    : skipReason || "";
   const exitCode = runResult?.exitCode ?? null;
 
   // 3. Record in ai_verifications Journal Table
@@ -117,7 +147,7 @@ export async function runAIVerification(
       id, project_id, user_id, action, provider_type, model_name,
       status, file_path, explanation, diff_summary, snapshot_id,
       exit_code, stdout_summary, stderr_summary, skip_reason, duration_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     verificationId,
     req.projectId,
@@ -128,13 +158,13 @@ export async function runAIVerification(
     status,
     req.filePath,
     req.explanation,
-    req.diffSummary || '',
+    req.diffSummary || "",
     req.snapshotId || null,
     exitCode,
     stdoutSummary,
     stderrSummary,
     skipReason || null,
-    durationMs
+    durationMs,
   );
 
   return {

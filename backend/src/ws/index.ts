@@ -76,6 +76,14 @@ export function setupWebSocketServer(
       wss.handleUpgrade(req, socket, head, (ws) => {
         registerConnection(row.id, ws);
         ws.on("close", () => unregisterConnection(row.id, ws));
+        // Own the 'error' path here rather than relying on addClient()
+        // happening to attach one: an 'error' event with zero listeners
+        // throws synchronously and takes down the whole process, and the
+        // connection registry must be cleaned up on the error path too.
+        ws.on("error", (err) => {
+          console.error("[ws] admin socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
         adminStreamManager.addClient(ws);
       });
       return;
@@ -132,6 +140,14 @@ export function setupWebSocketServer(
       wss.handleUpgrade(req, socket, head, (ws) => {
         registerConnection(row.id, ws);
         ws.on("close", () => unregisterConnection(row.id, ws));
+        // ws (the library) throws and crashes the process on an 'error'
+        // event with no listeners — a single client sending a malformed
+        // frame or dropping the TCP connection abnormally would otherwise
+        // take down the whole server for every connected user.
+        ws.on("error", (err) => {
+          console.error("[ws] terminal socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
         handleTerminalConnection(ws, projectId, cfg).catch((err) => {
           console.error("[ws] terminal connection error:", err);
           ws.close();
@@ -141,6 +157,10 @@ export function setupWebSocketServer(
       wss.handleUpgrade(req, socket, head, (ws) => {
         registerConnection(row.id, ws);
         ws.on("close", () => unregisterConnection(row.id, ws));
+        ws.on("error", (err) => {
+          console.error("[ws] execution socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
         handleExecutionConnection(ws, projectId, row.id, cfg, db).catch(
           (err) => {
             console.error("[ws] execution connection error:", err);

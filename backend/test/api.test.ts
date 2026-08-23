@@ -527,16 +527,12 @@ describe("search concurrency gate", () => {
         token: gateToken,
         body: { query: "needle" },
       }),
-      gateApi.request(
-        "GET",
-        `/api/projects/${gateProjectId}/search?q=needle`,
-        { token: gateToken },
-      ),
-      gateApi.request(
-        "GET",
-        `/api/projects/${gateProjectId}/search?q=needle`,
-        { token: gateToken },
-      ),
+      gateApi.request("GET", `/api/projects/${gateProjectId}/search?q=needle`, {
+        token: gateToken,
+      }),
+      gateApi.request("GET", `/api/projects/${gateProjectId}/search?q=needle`, {
+        token: gateToken,
+      }),
     ]);
     expect(results.filter((r) => r.status === 429).length).toBeGreaterThan(0);
   });
@@ -569,5 +565,100 @@ describe("search concurrency gate", () => {
       { token: gateToken },
     );
     expect(ok.status).toBe(200);
+  });
+});
+
+describe("AI apply-patch: requested safety snapshot must not fail silently", () => {
+  // Own isolated config/server: the test deliberately corrupts the
+  // snapshots directory location, which would otherwise break snapshot
+  // creation for every other test sharing the top-level `cfg`.
+  let snapCfg: ReturnType<typeof makeTestConfig>;
+  let snapApi: TestApi;
+  let snapToken: string;
+  let snapProjectId: string;
+
+  beforeAll(async () => {
+    snapCfg = makeTestConfig();
+    snapApi = await startTestApi(snapCfg);
+    const reg = await snapApi.request("POST", "/api/auth/register", {
+      body: { username: "snapuser", password: "secret123" },
+    });
+    snapToken = reg.data.token;
+    const proj = await snapApi.request("POST", "/api/projects", {
+      token: snapToken,
+      body: { name: "snap-fail" },
+    });
+    snapProjectId = proj.data.project.id;
+    await snapApi.request("POST", `/api/projects/${snapProjectId}/file`, {
+      token: snapToken,
+      body: { path: "main.py", content: 'print("original")\n' },
+    });
+
+    // createSnapshot() writes to join(cfg.dataDir, 'snapshots', projectId)
+    // via fs.mkdir(dir, { recursive: true }). Pre-creating a plain FILE at
+    // the 'snapshots' path component forces that mkdir to fail with
+    // ENOTDIR — a genuine, realistic failure (e.g. disk/permission issue),
+    // not a mock.
+    writeFileSync(join(snapCfg.dataDir, "snapshots"), "not a directory");
+  });
+
+  afterAll(async () => {
+    await snapApi?.close();
+  });
+
+  it("aborts the patch (does not write the file) when the requested safety snapshot cannot be created", async () => {
+    const res = await snapApi.request(
+      "POST",
+      `/api/projects/${snapProjectId}/ai/apply-patch`,
+      {
+        token: snapToken,
+        body: {
+          filePath: "main.py",
+          content: 'print("patched by AI")\n',
+          createSafetySnapshot: true,
+          explanation: "test patch",
+        },
+      },
+    );
+
+    // Must fail loudly, not return { ok: true, snapshotId: undefined } as
+    // if nothing was requested.
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(res.data.error.code).toBe("snapshot_failed");
+
+    // The patch must not have been applied: a requested-but-failed safety
+    // net must not leave the caller with an unprotected, already-applied
+    // change and no way to tell it happened.
+    const got = await snapApi.request(
+      "GET",
+      `/api/projects/${snapProjectId}/file?path=main.py`,
+      { token: snapToken },
+    );
+    expect(got.data.content).toBe('print("original")\n');
+  });
+
+  it("still applies the patch normally when no safety snapshot is requested", async () => {
+    const res = await snapApi.request(
+      "POST",
+      `/api/projects/${snapProjectId}/ai/apply-patch`,
+      {
+        token: snapToken,
+        body: {
+          filePath: "main.py",
+          content: 'print("patched without snapshot")\n',
+          createSafetySnapshot: false,
+        },
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(res.data.ok).toBe(true);
+    expect(res.data.snapshotId).toBeUndefined();
+
+    const got = await snapApi.request(
+      "GET",
+      `/api/projects/${snapProjectId}/file?path=main.py`,
+      { token: snapToken },
+    );
+    expect(got.data.content).toBe('print("patched without snapshot")\n');
   });
 });
