@@ -31,6 +31,7 @@ const AIExplainModal = React.lazy(() => import("../AI/AIExplainModal"));
 import AIVerificationCard from "../AI/AIVerificationCard";
 const Tour = React.lazy(() => import("../common/Tour"));
 import CommandPaletteModal from "../common/CommandPaletteModal";
+import { ErrorBoundary } from "../common/ErrorBoundary";
 import WorkspaceSearchModal from "../Search/WorkspaceSearchModal";
 import type {
   CollaborationClient,
@@ -1139,47 +1140,49 @@ export default function IDE({
         {/* Central Editor & Bottom Workspace */}
         <div className="ide-workspace" style={{ flexDirection: "column" }}>
           <div className="ide-editor-area">
-            <Suspense
-              fallback={
-                <div
-                  style={{
-                    display: "flex",
-                    height: "100%",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
+            <ErrorBoundary label="Editor">
+              <Suspense
+                fallback={
                   <div
                     style={{
-                      width: "24px",
-                      height: "24px",
-                      border: "3px solid var(--border)",
-                      borderTopColor: "var(--accent)",
-                      borderRadius: "50%",
-                      animation: "editor-suspense-spin 1s linear infinite",
+                      display: "flex",
+                      height: "100%",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
-                  />
-                  <style>{`@keyframes editor-suspense-spin { to { transform: rotate(360deg); } }`}</style>
-                </div>
-              }
-            >
-              <Editor
-                project={project}
-                openFiles={openFiles}
-                setOpenFiles={setOpenFiles}
-                activeFile={activeFile}
-                setActiveFile={setActiveFile}
-                diagnostics={diagnostics}
-                collabClient={collabClient}
-                isReadOnly={projectRole === "viewer"}
-                onCreateFile={() => {
-                  const el = document.querySelector(
-                    'button[title="New File"]',
-                  ) as HTMLButtonElement;
-                  el?.click();
-                }}
-              />
-            </Suspense>
+                  >
+                    <div
+                      style={{
+                        width: "24px",
+                        height: "24px",
+                        border: "3px solid var(--border)",
+                        borderTopColor: "var(--accent)",
+                        borderRadius: "50%",
+                        animation: "editor-suspense-spin 1s linear infinite",
+                      }}
+                    />
+                    <style>{`@keyframes editor-suspense-spin { to { transform: rotate(360deg); } }`}</style>
+                  </div>
+                }
+              >
+                <Editor
+                  project={project}
+                  openFiles={openFiles}
+                  setOpenFiles={setOpenFiles}
+                  activeFile={activeFile}
+                  setActiveFile={setActiveFile}
+                  diagnostics={diagnostics}
+                  collabClient={collabClient}
+                  isReadOnly={projectRole === "viewer"}
+                  onCreateFile={() => {
+                    const el = document.querySelector(
+                      'button[title="New File"]',
+                    ) as HTMLButtonElement;
+                    el?.click();
+                  }}
+                />
+              </Suspense>
+            </ErrorBoundary>
           </div>
 
           {/* Vertical Resizer Bar */}
