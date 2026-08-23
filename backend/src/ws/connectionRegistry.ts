@@ -1,16 +1,19 @@
 import type { WebSocket } from "ws";
+import type { Socket } from "node:net";
 
 /**
  * Tracks every live, authenticated WebSocket connection (terminal, execute,
- * collab, admin telemetry) by userId. WS auth is only checked once, at
- * upgrade time (see ws/index.ts) — there is no per-message re-validation.
- * Without this registry, revoking a user's session (admin password reset,
- * admin user deletion) only stops *new* connections/requests from
- * authenticating; any WebSocket the user already had open keeps working
- * indefinitely, retaining full terminal shell access, code execution, and
- * live collaborative editing regardless of the revocation.
+ * collab, admin telemetry) by userId, plus every raw proxied socket (web
+ * preview WebSocket upgrades). WS auth is only checked once, at upgrade
+ * time (see ws/index.ts) — there is no per-message re-validation. Without
+ * this registry, revoking a user's session (admin password reset, admin
+ * user deletion) only stops *new* connections/requests from authenticating;
+ * any WebSocket the user already had open keeps working indefinitely,
+ * retaining full terminal shell access, code execution, and live
+ * collaborative editing regardless of the revocation.
  */
 const connectionsByUser = new Map<number, Set<WebSocket>>();
+const proxySocketsByUser = new Map<number, Set<Socket>>();
 
 export function registerConnection(userId: number, ws: WebSocket): void {
   let set = connectionsByUser.get(userId);
@@ -27,6 +30,24 @@ export function unregisterConnection(userId: number, ws: WebSocket): void {
   set.delete(ws);
   if (set.size === 0) {
     connectionsByUser.delete(userId);
+  }
+}
+
+export function registerProxySocket(userId: number, socket: Socket): void {
+  let set = proxySocketsByUser.get(userId);
+  if (!set) {
+    set = new Set();
+    proxySocketsByUser.set(userId, set);
+  }
+  set.add(socket);
+}
+
+export function unregisterProxySocket(userId: number, socket: Socket): void {
+  const set = proxySocketsByUser.get(userId);
+  if (!set) return;
+  set.delete(socket);
+  if (set.size === 0) {
+    proxySocketsByUser.delete(userId);
   }
 }
 
@@ -51,17 +72,31 @@ export function closeAllConnectionsForUser(
   reason = "Session revoked",
 ): void {
   const set = connectionsByUser.get(userId);
-  if (!set) return;
-  for (const ws of Array.from(set)) {
-    try {
-      ws.close(code, reason);
-    } catch {}
-    const timer = setTimeout(() => {
+  if (set) {
+    for (const ws of Array.from(set)) {
       try {
-        ws.terminate();
+        ws.close(code, reason);
       } catch {}
-    }, FORCE_TERMINATE_AFTER_MS);
-    timer.unref?.();
+      const timer = setTimeout(() => {
+        try {
+          ws.terminate();
+        } catch {}
+      }, FORCE_TERMINATE_AFTER_MS);
+      timer.unref?.();
+    }
+  }
+
+  // Raw proxied sockets (web preview WebSocket upgrades) have no WebSocket
+  // close handshake — destroy them immediately rather than deferring, which
+  // is both correct and strictly safer than the graceful-close-then-terminate
+  // pattern above.
+  const proxySet = proxySocketsByUser.get(userId);
+  if (proxySet) {
+    for (const socket of Array.from(proxySet)) {
+      try {
+        socket.destroy();
+      } catch {}
+    }
   }
 }
 

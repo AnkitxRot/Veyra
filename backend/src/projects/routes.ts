@@ -26,7 +26,7 @@ import {
   writeProjectFile,
 } from "../files/service.js";
 import { runProject } from "../execution/pipeline.js";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import { resolveProxyEntry } from "./proxyTargets.js";
 import { sandboxManager, sandboxRun } from "../execution/sandbox.js";
 import { runGate, searchGate } from "../execution/runGate.js";
 import { STARTER_TEMPLATES, applyTemplate } from "./templates.js";
@@ -719,57 +719,15 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     }
   });
 
-  // Keyed by projectId+port (not by target): in non-containerized mode
-  // `getProxyTarget` embeds a Docker-assigned ephemeral host port that
-  // changes every time a sandbox is recreated (idle reap, manual restart,
-  // etc). Keying on the target itself would leave one permanently-cached
-  // http-proxy-middleware instance per historical target, growing without
-  // bound over the server's lifetime. Keying on the stable (projectId, port)
-  // pair instead means each restart just replaces the one existing entry.
-  const proxyCache = new Map<
-    string,
-    { target: string; proxy: ReturnType<typeof createProxyMiddleware> }
-  >();
-
   router.use("/:id/proxy/:port", async (req, res, next) => {
     try {
-      const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-
-      const port = parseInt(req.params.port, 10);
-      const allowedPorts = [3000, 4173, 5173, 8000, 8080];
-      if (isNaN(port) || !allowedPorts.includes(port)) {
-        throw new ApiError(400, "Invalid port", "invalid_port");
-      }
-
-      const target = await sandboxManager.getProxyTarget(
-        project.id,
-        port,
-        cfg.containerized,
+      const { entry } = await resolveProxyEntry(
+        db,
+        userOf(req).id,
+        req.params.id,
+        req.params.port,
+        cfg,
       );
-      if (!target) {
-        throw new ApiError(
-          404,
-          `Port ${port} is not published by the sandbox`,
-          "not_found",
-        );
-      }
-
-      const prefix = `/api/projects/${req.params.id}/proxy/${port}`;
-      const cacheKey = `${req.params.id}:${port}`;
-      let entry = proxyCache.get(cacheKey);
-      if (!entry || entry.target !== target) {
-        entry = {
-          target,
-          proxy: createProxyMiddleware({
-            target,
-            changeOrigin: true,
-            pathRewrite: { [`^${prefix}`]: "" },
-            ws: true,
-          }),
-        };
-        proxyCache.set(cacheKey, entry);
-      }
-
       entry.proxy(req as any, res as any, next);
     } catch (err) {
       next(err);
