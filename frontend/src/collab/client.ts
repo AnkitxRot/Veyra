@@ -62,10 +62,47 @@ export class CollaborationClient {
       role: user.role === "admin" ? "owner" : "editor",
     });
 
-    // Notify listeners when awareness changes
+    // Notify local listeners when awareness changes
     this.awareness.on("change", () => {
       this.emit("awareness_change", this.getOnlineCollaborators());
     });
+
+    // 1. Transmit local document updates to server
+    this.doc.on("update", (update: Uint8Array, origin: any) => {
+      if (origin !== this) {
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, MESSAGE_SYNC);
+        syncProtocol.writeUpdate(encoder, update);
+        this.send(encoding.toUint8Array(encoder));
+      }
+    });
+
+    // 2. Transmit local awareness updates (cursor, selection, active file) to server
+    this.awareness.on(
+      "update",
+      (
+        {
+          added,
+          updated,
+          removed,
+        }: { added: number[]; updated: number[]; removed: number[] },
+        origin: any,
+      ) => {
+        if (origin !== this) {
+          const changedClients = added.concat(updated).concat(removed);
+          const encoder = encoding.createEncoder();
+          encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+          encoding.writeVarUint8Array(
+            encoder,
+            awarenessProtocol.encodeAwarenessUpdate(
+              this.awareness,
+              changedClients,
+            ),
+          );
+          this.send(encoding.toUint8Array(encoder));
+        }
+      },
+    );
 
     this.connect();
   }
@@ -215,12 +252,47 @@ export class CollaborationClient {
     }
 
     try {
-      this.currentBinding = new MonacoBinding(
+      const binding = new MonacoBinding(
         yText,
         model,
         new Set([editor]),
         this.awareness,
       );
+
+      // Defer decoration re-rendering to next animation frame and guard against
+      // re-entrant deltaDecorations calls triggered by Monaco cursor selection events.
+      const origRerender = (binding as any)._rerenderDecorations;
+      if (typeof origRerender === "function") {
+        let isRerendering = false;
+        let pendingRaf: number | null = null;
+        const safeRerender = () => {
+          if (isRerendering) return;
+          if (pendingRaf !== null) return;
+          pendingRaf = requestAnimationFrame(() => {
+            pendingRaf = null;
+            if (
+              !this.isDisposed &&
+              this.currentBinding === binding &&
+              !isRerendering
+            ) {
+              isRerendering = true;
+              try {
+                origRerender();
+              } catch {} finally {
+                isRerendering = false;
+              }
+            }
+          });
+        };
+
+        (binding as any)._rerenderDecorations = safeRerender;
+        if (this.awareness) {
+          this.awareness.off("change", origRerender);
+          this.awareness.on("change", safeRerender);
+        }
+      }
+
+      this.currentBinding = binding;
       this.boundModel = model;
     } catch (err) {
       console.error("[CollabClient] Failed to bind Monaco editor:", err);
@@ -258,8 +330,18 @@ export class CollaborationClient {
     return collaborators;
   }
 
+  private cursorTimer: number | null = null;
+
   public updateCursorPosition(line: number, column: number): void {
-    this.awareness.setLocalStateField("cursor", { line, column });
+    if (this.cursorTimer !== null) {
+      cancelAnimationFrame(this.cursorTimer);
+    }
+    this.cursorTimer = requestAnimationFrame(() => {
+      this.cursorTimer = null;
+      if (!this.isDisposed) {
+        this.awareness.setLocalStateField("cursor", { line, column });
+      }
+    });
   }
 
   private send(data: Uint8Array): void {
@@ -306,6 +388,10 @@ export class CollaborationClient {
   public dispose(): void {
     this.isDisposed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.cursorTimer !== null) {
+      cancelAnimationFrame(this.cursorTimer);
+      this.cursorTimer = null;
+    }
     this.unbindCurrentModel();
     if (this.ws) {
       try {

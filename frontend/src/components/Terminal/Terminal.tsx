@@ -99,7 +99,7 @@ export default function Terminal({ project }: any) {
     };
     cleanupRef.current = cleanup;
     return cleanup;
-  }, [project]);
+  }, [project?.id]);
 
   useEffect(() => {
     initTerminal();

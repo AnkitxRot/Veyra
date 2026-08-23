@@ -289,6 +289,10 @@ export default function Editor({
         }
       }
 
+      if (needsFullSetup && collabClient) {
+        collabClient.unbindCurrentModel();
+      }
+
       if (monacoRef.current.getModel() !== model) {
         monacoRef.current.setModel(model);
       }

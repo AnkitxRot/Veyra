@@ -123,6 +123,29 @@ export default function Output({ project, onRefreshTree }: any) {
       let exitedNormally = false;
       let accStdout = '';
       let accStderr = '';
+      let logBuffer: LogLine[] = [];
+      let rafId: number | null = null;
+
+      const flushLogs = () => {
+        if (logBuffer.length === 0) return;
+        const toAppend = logBuffer;
+        logBuffer = [];
+        setLogs((prev) => {
+          const next = [...prev, ...toAppend];
+          return next.length > 2000 ? next.slice(next.length - 2000) : next;
+        });
+      };
+
+      const appendLog = (logLine: Omit<LogLine, 'time'>) => {
+        const now = new Date().toLocaleTimeString();
+        logBuffer.push({ ...logLine, time: now });
+        if (rafId === null) {
+          rafId = requestAnimationFrame(() => {
+            rafId = null;
+            flushLogs();
+          });
+        }
+      };
 
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'start', language, activeFile }));
@@ -131,14 +154,6 @@ export default function Output({ project, onRefreshTree }: any) {
       ws.onmessage = (msg) => {
         try {
           const parsed = JSON.parse(msg.data);
-          const now = new Date().toLocaleTimeString();
-
-          const appendLog = (logLine: Omit<LogLine, 'time'>) => {
-            setLogs((prev) => {
-              const next = [...prev, { ...logLine, time: now }];
-              return next.length > 2000 ? next.slice(next.length - 2000) : next;
-            });
-          };
 
           if (parsed.type === 'stdout') {
             accStdout += parsed.data;
@@ -172,6 +187,12 @@ export default function Output({ project, onRefreshTree }: any) {
               });
             }
 
+            if (rafId !== null) {
+              cancelAnimationFrame(rafId);
+              rafId = null;
+            }
+            flushLogs();
+
             setIsRunning(false);
             setStatusBadge({
               text: exitCode === 0 ? 'Exited (0)' : `Exited (${exitCode})`,
@@ -202,6 +223,12 @@ export default function Output({ project, onRefreshTree }: any) {
       };
 
       ws.onclose = () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        flushLogs();
+
         if (!exitedNormally) {
           setLogs((prev) => [
             ...prev,

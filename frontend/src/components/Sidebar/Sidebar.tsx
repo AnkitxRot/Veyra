@@ -356,10 +356,13 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
     return items
       .map((item) => {
         if (item.type === 'file' && item.name.toLowerCase().includes(lower)) return item;
-        if (item.type === 'dir' && item.children) {
-          const matchingChildren = filterNodes(item.children);
-          if (matchingChildren.length > 0) {
-            return { ...item, children: matchingChildren };
+        if (item.type === 'dir') {
+          if (item.name.toLowerCase().includes(lower)) return item;
+          if (item.children) {
+            const matchingChildren = filterNodes(item.children);
+            if (matchingChildren.length > 0) {
+              return { ...item, children: matchingChildren };
+            }
           }
         }
         return null;
