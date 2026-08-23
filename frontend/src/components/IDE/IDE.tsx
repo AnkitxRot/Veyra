@@ -17,7 +17,9 @@ import {
 } from "../../api";
 import Sidebar from "../Sidebar/Sidebar";
 import Toolbar from "../Toolbar/Toolbar";
-import Editor from "../Editor/Editor";
+// Lazy: pulls in monaco-editor (~4.5MB raw); a static import here put that
+// weight in the entry bundle, downloading before even the login screen showed.
+const Editor = React.lazy(() => import("../Editor/Editor"));
 import Output from "../Output/Output";
 import Terminal from "../Terminal/Terminal";
 import Preview from "../Preview/Preview";
@@ -1137,22 +1139,47 @@ export default function IDE({
         {/* Central Editor & Bottom Workspace */}
         <div className="ide-workspace" style={{ flexDirection: "column" }}>
           <div className="ide-editor-area">
-            <Editor
-              project={project}
-              openFiles={openFiles}
-              setOpenFiles={setOpenFiles}
-              activeFile={activeFile}
-              setActiveFile={setActiveFile}
-              diagnostics={diagnostics}
-              collabClient={collabClient}
-              isReadOnly={projectRole === "viewer"}
-              onCreateFile={() => {
-                const el = document.querySelector(
-                  'button[title="New File"]',
-                ) as HTMLButtonElement;
-                el?.click();
-              }}
-            />
+            <Suspense
+              fallback={
+                <div
+                  style={{
+                    display: "flex",
+                    height: "100%",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "24px",
+                      height: "24px",
+                      border: "3px solid var(--border)",
+                      borderTopColor: "var(--accent)",
+                      borderRadius: "50%",
+                      animation: "editor-suspense-spin 1s linear infinite",
+                    }}
+                  />
+                  <style>{`@keyframes editor-suspense-spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+              }
+            >
+              <Editor
+                project={project}
+                openFiles={openFiles}
+                setOpenFiles={setOpenFiles}
+                activeFile={activeFile}
+                setActiveFile={setActiveFile}
+                diagnostics={diagnostics}
+                collabClient={collabClient}
+                isReadOnly={projectRole === "viewer"}
+                onCreateFile={() => {
+                  const el = document.querySelector(
+                    'button[title="New File"]',
+                  ) as HTMLButtonElement;
+                  el?.click();
+                }}
+              />
+            </Suspense>
           </div>
 
           {/* Vertical Resizer Bar */}
