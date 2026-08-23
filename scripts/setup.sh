@@ -30,7 +30,7 @@ ensure java default-jdk-headless
 
 # Unprivileged sandbox user (skip if it already exists or cannot be created)
 if ! id ide >/dev/null 2>&1; then
-  useradd -r -m -s /bin/bash ide && echo "  created sandbox user 'ide'" || echo "  WARNING: could not create 'ide' user (will fall back to nobody)"
+  useradd -r -m -s /bin/bash -u 1000 ide && echo "  created sandbox user 'ide'" || echo "  WARNING: could not create 'ide' user (will fall back to nobody)"
 fi
 
 mkdir -p /var/lib/cloud-ide/workspaces

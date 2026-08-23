@@ -192,11 +192,22 @@ export async function createProject(
   await fs.mkdir(dir, { recursive: true });
 
   if (!IS_WINDOWS) {
+    // chown to the sandbox run user requires root/CAP_CHOWN, which this
+    // process does not always have — kept as a best-effort optimization,
+    // but it must not gate the chmod below: the sandbox container always
+    // writes here as its fixed, image-baked-in `ide` user (see
+    // docker/Dockerfile.runner), unrelated to whatever uid this process
+    // runs as, so only a world-writable mode reliably works whether or not
+    // the chown above succeeded.
     try {
       await fs.chown(dir, cfg.runUser.uid, cfg.runUser.gid);
-      await fs.chmod(dir, 0o770);
     } catch {
-      // best-effort: workspace still usable when running as non-root owner
+      // best-effort
+    }
+    try {
+      await fs.chmod(dir, 0o777);
+    } catch {
+      // best-effort
     }
   }
 

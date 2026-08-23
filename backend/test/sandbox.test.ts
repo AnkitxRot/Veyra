@@ -11,6 +11,7 @@ import { writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { runProject } from "../src/execution/pipeline.js";
 import { DEFAULT_LIMITS, IS_WINDOWS } from "../src/config.js";
 import { isDockerRunning } from "../src/tools.js";
@@ -50,22 +51,36 @@ describe.skipIf(!isDockerRunning())("sandbox", () => {
     expect(uid).toBe(cfg.runUser.uid);
   });
 
-  // cgroup cleanup only on Linux
+  // Resource limits are applied per-container via `docker run --memory
+  // --cpus --pids-limit` (cgroup v2 delegated to Docker itself) — there is
+  // no manually-managed cgroup directory tree to inspect. The real cleanup
+  // contract is that the project's persistent sandbox container is removed
+  // once cleanupAllSandboxes() runs.
   it.skipIf(IS_WINDOWS)(
-    "cleans up cgroup directories after a run",
+    "removes the sandbox container once cleanupAllSandboxes() runs",
     async () => {
-      const { readdirSync } = await import("node:fs");
-      const cfg = makeTestConfig({
-        cgroupRoot: "/sys/fs/cgroup/cloudide-test-cleanup",
-      });
+      const projectId = `test-${randomUUID()}`;
       const ws = makeWorkspace(cfg);
       writeFileSync(join(ws, "main.py"), 'print("cleanup check")\n');
-      await runProject(cfg, `test-${randomUUID()}`, ws, {});
-      const uuid = /^[0-9a-f-]{36}$/;
-      const leftoverRunDirs = readdirSync(cfg.cgroupRoot).filter((d) =>
-        uuid.test(d),
-      );
-      expect(leftoverRunDirs).toHaveLength(0);
+      await runProject(cfg, projectId, ws, {});
+
+      const containerName = `ide-sandbox-${projectId}`;
+      const nameFilter = `name=^/${containerName}$`;
+      const before = execFileSync(
+        "docker",
+        ["ps", "-a", "-q", "-f", nameFilter],
+        { encoding: "utf8" },
+      ).trim();
+      expect(before.length).toBeGreaterThan(0);
+
+      await sandboxManager.cleanupAllSandboxes();
+
+      const after = execFileSync(
+        "docker",
+        ["ps", "-a", "-q", "-f", nameFilter],
+        { encoding: "utf8" },
+      ).trim();
+      expect(after).toBe("");
     },
   );
 });

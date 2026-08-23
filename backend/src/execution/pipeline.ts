@@ -2,6 +2,7 @@ import { promises as fs, constants } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
+import { IS_WINDOWS } from "../config.js";
 import { listFiles } from "../files/service.js";
 import { detectLanguage, resolveMainFile } from "./detect.js";
 import { getLang } from "./languages.js";
@@ -123,6 +124,21 @@ export async function runProject(
   if (lang.compile) {
     if (spec.onStatus) spec.onStatus(`Compiling with ${lang.compile.cmd}...`);
     await fs.mkdir(buildDir, { recursive: true });
+    if (!IS_WINDOWS) {
+      // fs.mkdir's default mode (0755, owned by whoever this process runs
+      // as) is not automatically inherited from the already-writable
+      // workspace root — a freshly-created directory gets its own default
+      // permissions. The sandbox container always writes compiler output
+      // here as its fixed, image-baked-in `ide` user (see
+      // docker/Dockerfile.runner), which is almost never the uid of the
+      // process running this backend, so this needs its own explicit,
+      // permissive mode regardless of who created it.
+      try {
+        await fs.chmod(buildDir, 0o777);
+      } catch {
+        // best-effort
+      }
+    }
 
     const compileRes = await sandboxRun(projectId, workspaceDir, {
       command: lang.compile.cmd,

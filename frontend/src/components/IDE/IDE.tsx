@@ -155,6 +155,7 @@ export default function IDE({
     providerType?: string;
     linesAdded: number;
     linesRemoved: number;
+    baseRevision?: string;
   }>({
     isOpen: false,
     filePath: "",
@@ -606,6 +607,7 @@ export default function IDE({
             providerType: resp.providerType,
             linesAdded: resp.patch.linesAdded,
             linesRemoved: resp.patch.linesRemoved,
+            baseRevision: resp.patch.baseRevision,
           });
         } else {
           setAiExplainState({
@@ -646,6 +648,7 @@ export default function IDE({
         content: aiPatchState.modifiedContent,
         createSafetySnapshot: createSnapshot,
         explanation: aiPatchState.explanation,
+        baseRevision: aiPatchState.baseRevision || "",
       });
 
       // Update in local openFiles state
@@ -674,6 +677,13 @@ export default function IDE({
 
       setAiVerification(verifRes.verification);
     } catch (err: any) {
+      if (err.code === "stale_patch") {
+        alert(
+          "This file changed since the AI patch was generated. Please re-run the AI action to get an updated patch.",
+        );
+        setAiPatchState((prev) => ({ ...prev, isOpen: false }));
+        return;
+      }
       alert(`Failed to apply patch: ${err.message || "Error"}`);
     }
   };
