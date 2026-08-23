@@ -1,15 +1,47 @@
 import { Router } from "express";
 import type { Request } from "express";
+import { createHash } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 import { requireProjectAccess, workspacePath } from "../projects/service.js";
-import { writeProjectFile } from "../files/service.js";
+import { writeProjectFile, readProjectFile } from "../files/service.js";
 import { createSnapshot } from "../projects/snapshots.js";
 import { collaborationManager } from "../collab/manager.js";
 import { aiProviderRegistry, type AIAction } from "./provider.js";
 import { buildAIContext } from "./context.js";
 import { runAIVerification } from "./verify.js";
+
+// Stateless "revision token" for a file's content, used to detect whether
+// the authoritative content has changed between when an AI patch was
+// generated and when the user accepts it (stale-patch conflict detection).
+function computeRevision(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+// Resolves the content that should be treated as "current" for a given
+// project + path: if a collaboration room is active, its (possibly
+// unflushed) Yjs document content takes precedence over disk, since that
+// is the live source of truth collaborators are editing. Otherwise, fall
+// back to the on-disk content, treating a missing file as "".
+async function getAuthoritativeFileContent(
+  cfg: AppConfig,
+  projectId: string,
+  filePath: string,
+): Promise<string> {
+  const room = collaborationManager.getRoom(projectId);
+  if (room) {
+    const yText = await room.ensureFileLoaded(filePath);
+    return yText.toString();
+  }
+  const cwd = await workspacePath(cfg, projectId);
+  try {
+    const { content } = await readProjectFile(cwd, filePath);
+    return content;
+  } catch {
+    return "";
+  }
+}
 
 export function aiRoutes(cfg: AppConfig, db: Db): Router {
   const router = Router({ mergeParams: true });
@@ -62,7 +94,18 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
         context,
       );
 
-      res.json({ response });
+      const baseRevision = response.patch
+        ? computeRevision(context.fileContent)
+        : undefined;
+
+      res.json({
+        response: {
+          ...response,
+          patch: response.patch
+            ? { ...response.patch, baseRevision }
+            : response.patch,
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -77,14 +120,26 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id,
         "editor",
       );
-      const { filePath, content, createSafetySnapshot, explanation } =
-        req.body ?? {};
+      const {
+        filePath,
+        content,
+        createSafetySnapshot,
+        explanation,
+        baseRevision,
+      } = req.body ?? {};
 
       if (typeof filePath !== "string" || !filePath.trim()) {
         throw new ApiError(400, "filePath is required", "invalid_path");
       }
       if (typeof content !== "string") {
         throw new ApiError(400, "content is required", "invalid_content");
+      }
+      if (typeof baseRevision !== "string" || !baseRevision) {
+        throw new ApiError(
+          400,
+          "baseRevision is required",
+          "invalid_base_revision",
+        );
       }
 
       // Security: Path containment validation
@@ -97,6 +152,25 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
           400,
           "Invalid file path traversal attempt",
           "invalid_path",
+        );
+      }
+
+      // Stale-patch conflict detection: the file's authoritative content
+      // (live collaboration room content if one is active, else on-disk
+      // content) must still match what the AI patch was computed against.
+      // This must run before any mutation (snapshot, write, or collab
+      // notify) so a stale patch can never clobber intervening changes.
+      const currentContent = await getAuthoritativeFileContent(
+        cfg,
+        project.id,
+        filePath,
+      );
+      const currentRevision = computeRevision(currentContent);
+      if (currentRevision !== baseRevision) {
+        throw new ApiError(
+          409,
+          "This file has changed since the AI patch was generated. Re-run the AI action to get an updated patch.",
+          "stale_patch",
         );
       }
 

@@ -2,10 +2,17 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { existsSync, writeFileSync, symlinkSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { IS_WINDOWS } from "../src/config";
 import { isDockerRunning } from "../src/tools.js";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
 import { collaborationManager } from "../src/collab/manager.js";
+
+// Mirrors backend/src/ai/routes.ts's computeRevision() so tests can compute
+// the expected baseRevision for known content without importing internals.
+function revOf(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
 
 let api: TestApi;
 let cfg: ReturnType<typeof makeTestConfig>;
@@ -617,6 +624,7 @@ describe("AI apply-patch: requested safety snapshot must not fail silently", () 
           content: 'print("patched by AI")\n',
           createSafetySnapshot: true,
           explanation: "test patch",
+          baseRevision: revOf('print("original")\n'),
         },
       },
     );
@@ -647,6 +655,7 @@ describe("AI apply-patch: requested safety snapshot must not fail silently", () 
           filePath: "main.py",
           content: 'print("patched without snapshot")\n',
           createSafetySnapshot: false,
+          baseRevision: revOf('print("original")\n'),
         },
       },
     );
@@ -660,5 +669,191 @@ describe("AI apply-patch: requested safety snapshot must not fail silently", () 
       { token: snapToken },
     );
     expect(got.data.content).toBe('print("patched without snapshot")\n');
+  });
+});
+
+describe("AI apply-patch: stale-patch conflict detection", () => {
+  async function makeProject(name: string): Promise<string> {
+    const proj = await api.request("POST", "/api/projects", {
+      token,
+      body: { name },
+    });
+    return proj.data.project.id;
+  }
+
+  it("happy path: applying with a fresh baseRevision succeeds and writes the new content", async () => {
+    const pid = await makeProject("stale-happy-path");
+    const original = 'print("v1")\n';
+    await api.request("POST", `/api/projects/${pid}/file`, {
+      token,
+      body: { path: "main.py", content: original },
+    });
+
+    const baseRevision = revOf(original);
+    const res = await api.request(
+      "POST",
+      `/api/projects/${pid}/ai/apply-patch`,
+      {
+        token,
+        body: {
+          filePath: "main.py",
+          content: 'print("v2, ai patch")\n',
+          baseRevision,
+        },
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.data.ok).toBe(true);
+
+    const got = await api.request(
+      "GET",
+      `/api/projects/${pid}/file?path=main.py`,
+      { token },
+    );
+    expect(got.data.content).toBe('print("v2, ai patch")\n');
+  });
+
+  it("rejects with 409 stale_patch when the file was edited on disk after the patch's baseRevision was computed, and leaves the edit intact", async () => {
+    const pid = await makeProject("stale-local-edit");
+    const original = 'print("v1")\n';
+    await api.request("POST", `/api/projects/${pid}/file`, {
+      token,
+      body: { path: "main.py", content: original },
+    });
+
+    // baseRevision reflects `original`, computed as of "patch generation time".
+    const baseRevision = revOf(original);
+
+    // An intervening edit lands on disk through the normal file-write path
+    // before the AI patch is accepted.
+    const editedContent = 'print("edited by someone else")\n';
+    await api.request("POST", `/api/projects/${pid}/file`, {
+      token,
+      body: { path: "main.py", content: editedContent },
+    });
+
+    const res = await api.request(
+      "POST",
+      `/api/projects/${pid}/ai/apply-patch`,
+      {
+        token,
+        body: {
+          filePath: "main.py",
+          content: 'print("ai patch, would clobber the edit")\n',
+          baseRevision,
+        },
+      },
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.data.error.code).toBe("stale_patch");
+
+    const got = await api.request(
+      "GET",
+      `/api/projects/${pid}/file?path=main.py`,
+      { token },
+    );
+    expect(got.data.content).toBe(editedContent);
+  });
+
+  it("rejects with 409 stale_patch when a live collaborator has an unflushed edit after the patch's baseRevision was computed, and leaves the collaborator's Y.Text intact", async () => {
+    const pid = await makeProject("stale-collab-edit");
+    const filePath = "main.py";
+    const original = 'print("v1")\n';
+    await api.request("POST", `/api/projects/${pid}/file`, {
+      token,
+      body: { path: filePath, content: original },
+    });
+
+    // No collaboration room is active yet, so this baseRevision reflects
+    // plain disk content.
+    const baseRevision = revOf(original);
+
+    // A live collaborator now opens the file (creating the room) and makes
+    // an edit that has not been flushed to disk.
+    const room = collaborationManager.getOrCreateRoom(pid);
+    room.doc.transact(() => {
+      room.doc.getText(filePath).insert(0, "unsaved collaborative edit ");
+    });
+
+    try {
+      const res = await api.request(
+        "POST",
+        `/api/projects/${pid}/ai/apply-patch`,
+        {
+          token,
+          body: {
+            filePath,
+            content: 'print("ai patch, would clobber the collaborator")\n',
+            baseRevision,
+          },
+        },
+      );
+
+      expect(res.status).toBe(409);
+      expect(res.data.error.code).toBe("stale_patch");
+
+      expect(room.doc.getText(filePath).toString()).toBe(
+        "unsaved collaborative edit ",
+      );
+    } finally {
+      room.dispose();
+    }
+  });
+
+  it("rejects a second acceptance of the same (now-stale) patch after the first acceptance already changed the authoritative content", async () => {
+    const pid = await makeProject("stale-repeat-accept");
+    const original = 'print("v1")\n';
+    await api.request("POST", `/api/projects/${pid}/file`, {
+      token,
+      body: { path: "main.py", content: original },
+    });
+
+    const baseRevision = revOf(original);
+    const applyBody = {
+      filePath: "main.py",
+      content: 'print("v2, ai patch")\n',
+      baseRevision,
+    };
+
+    const first = await api.request(
+      "POST",
+      `/api/projects/${pid}/ai/apply-patch`,
+      { token, body: applyBody },
+    );
+    expect(first.status).toBe(200);
+    expect(first.data.ok).toBe(true);
+
+    const second = await api.request(
+      "POST",
+      `/api/projects/${pid}/ai/apply-patch`,
+      { token, body: applyBody },
+    );
+    expect(second.status).toBe(409);
+    expect(second.data.error.code).toBe("stale_patch");
+  });
+
+  it("rejects with 400 invalid_base_revision when baseRevision is missing", async () => {
+    const pid = await makeProject("stale-missing-revision");
+    await api.request("POST", `/api/projects/${pid}/file`, {
+      token,
+      body: { path: "main.py", content: 'print("v1")\n' },
+    });
+
+    const res = await api.request(
+      "POST",
+      `/api/projects/${pid}/ai/apply-patch`,
+      {
+        token,
+        body: {
+          filePath: "main.py",
+          content: 'print("v2, ai patch")\n',
+        },
+      },
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.data.error.code).toBe("invalid_base_revision");
   });
 });

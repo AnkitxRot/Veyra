@@ -4,27 +4,29 @@ export interface ApiErrorBody {
 
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(opts.headers as Record<string, string> || {}),
+    "Content-Type": "application/json",
+    ...((opts.headers as Record<string, string>) || {}),
   };
-  
-  const res = await fetch(path, { credentials: 'include', ...opts, headers });
-  
+
+  const res = await fetch(path, { credentials: "include", ...opts, headers });
+
   // if 204 No Content, return empty object to prevent JSON parse error
   if (res.status === 204) {
     return {} as T;
   }
-  
+
   const data = (await res.json().catch(() => ({}))) as T & ApiErrorBody;
   if (!res.ok) {
     const message = data?.error?.message ?? `request failed (${res.status})`;
-    throw new Error(message);
+    const err = new Error(message);
+    (err as any).code = data?.error?.code;
+    throw err;
   }
   return data;
 }
 
 export function getWebSocketUrl(path: string, projectId: string): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
   return `${protocol}//${host}${path}?projectId=${projectId}`;
 }
@@ -43,15 +45,15 @@ export interface Capabilities {
   toolchains: {
     python: boolean;
     node: boolean;
-    'ts-node': boolean;
+    "ts-node": boolean;
     gcc: boolean;
-    'g++': boolean;
+    "g++": boolean;
     jdk: boolean;
   };
 }
 
 export async function getCapabilities(): Promise<Capabilities> {
-  return api<Capabilities>('/api/system/capabilities');
+  return api<Capabilities>("/api/system/capabilities");
 }
 
 export interface AIResponsePayload {
@@ -67,8 +69,9 @@ export interface AIResponsePayload {
     explanation: string;
     linesAdded: number;
     linesRemoved: number;
+    baseRevision?: string;
   } | null;
-  confidence: 'high' | 'medium' | 'low';
+  confidence: "high" | "medium" | "low";
   evidence: string[];
   suggestedTests?: string;
   approxTokens: { input: number; output: number };
@@ -81,7 +84,7 @@ export interface AIVerificationRecord {
   action: string;
   provider_type: string;
   model_name?: string;
-  status: 'VERIFIED' | 'FAILED' | 'UNVERIFIED';
+  status: "VERIFIED" | "FAILED" | "UNVERIFIED";
   file_path?: string;
   explanation?: string;
   diff_summary?: string;
@@ -105,12 +108,15 @@ export async function triggerAIAction(
     diagnostics?: any[];
     searchQuery?: string;
     providerId?: string;
-  }
+  },
 ): Promise<{ response: AIResponsePayload }> {
-  return api<{ response: AIResponsePayload }>(`/api/projects/${projectId}/ai/action`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  return api<{ response: AIResponsePayload }>(
+    `/api/projects/${projectId}/ai/action`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export async function applyAIPatch(
@@ -120,12 +126,16 @@ export async function applyAIPatch(
     content: string;
     createSafetySnapshot?: boolean;
     explanation?: string;
-  }
+    baseRevision: string;
+  },
 ): Promise<{ ok: boolean; snapshotId?: string }> {
-  return api<{ ok: boolean; snapshotId?: string }>(`/api/projects/${projectId}/ai/apply-patch`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  return api<{ ok: boolean; snapshotId?: string }>(
+    `/api/projects/${projectId}/ai/apply-patch`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export async function verifyAIPatch(
@@ -139,16 +149,21 @@ export async function verifyAIPatch(
     diffSummary?: string;
     snapshotId?: string;
     skipVerification?: boolean;
-  }
+  },
 ): Promise<{ verification: AIVerificationRecord }> {
-  return api<{ verification: AIVerificationRecord }>(`/api/projects/${projectId}/ai/verify`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  return api<{ verification: AIVerificationRecord }>(
+    `/api/projects/${projectId}/ai/verify`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export async function listAIVerifications(
-  projectId: string
+  projectId: string,
 ): Promise<{ verifications: AIVerificationRecord[] }> {
-  return api<{ verifications: AIVerificationRecord[] }>(`/api/projects/${projectId}/ai/verifications`);
+  return api<{ verifications: AIVerificationRecord[] }>(
+    `/api/projects/${projectId}/ai/verifications`,
+  );
 }
