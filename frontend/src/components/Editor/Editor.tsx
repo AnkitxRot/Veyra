@@ -89,14 +89,12 @@ export default function Editor({
         if (isUpdatingModelRef.current) return;
         const currentPath = activeFileRef.current;
         if (!currentPath) return;
-        const val = monacoRef.current?.getValue();
-        if (val === undefined) return;
 
         setOpenFiles((prev: any) => {
           const currentFile = prev.find((f: any) => f.path === currentPath);
-          if (currentFile && currentFile.content !== val) {
+          if (currentFile && !currentFile.dirty) {
             return prev.map((f: any) =>
-              f.path === currentPath ? { ...f, content: val, dirty: true } : f,
+              f.path === currentPath ? { ...f, dirty: true } : f,
             );
           }
           return prev;
@@ -352,7 +350,7 @@ export default function Editor({
 
       monaco.editor.setModelMarkers(model, "cloudeee-problems", markers);
     }
-  }, [diagnostics, activeFile, openFiles]);
+  }, [diagnostics, activeFile]);
 
   // Listen for Reveal Location events (from Problems panel or Workspace Search)
   useEffect(() => {
