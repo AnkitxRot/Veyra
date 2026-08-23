@@ -26,14 +26,11 @@ export function setupWebSocketServer(
   server.on("upgrade", (req: IncomingMessage, socket: any, head: Buffer) => {
     const { pathname, query } = parse(req.url || "", true);
 
-    // Auth validation — session cookie or header
+    // Auth validation — session cookie
     let token = "";
     if (req.headers.cookie) {
       const match = req.headers.cookie.match(/(?:^|;\s*)session_token=([^;]+)/);
       if (match) token = match[1];
-    }
-    if (!token && typeof query.token === "string") {
-      token = query.token;
     }
 
     if (!token) {
