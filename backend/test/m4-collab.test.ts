@@ -104,13 +104,16 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   let db: any;
   let cfg: any;
   let tempWorkspacesDir: string;
+  let tempDataDir: string;
 
   beforeEach(async () => {
     tempWorkspacesDir = mkdtempSync(join(tmpdir(), "cloudide-m4-test-"));
+    tempDataDir = mkdtempSync(join(tmpdir(), "cloudide-m4-data-"));
     db = openDb(":memory:");
     cfg = {
       ...resolveConfig(),
       workspacesDir: tempWorkspacesDir,
+      dataDir: tempDataDir,
     };
     collaborationManager.init(cfg, db);
   });
@@ -118,6 +121,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   afterEach(async () => {
     try {
       rmSync(tempWorkspacesDir, { recursive: true, force: true });
+    } catch {}
+    try {
+      rmSync(tempDataDir, { recursive: true, force: true });
     } catch {}
   });
 
