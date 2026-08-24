@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process';
-import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { execFileSync } from "node:child_process";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
-export const IS_WINDOWS = process.platform === 'win32';
+export const IS_WINDOWS = process.platform === "win32";
 
 export interface Limits {
   /** CPU seconds (rlimit, Linux only) */
@@ -46,6 +46,8 @@ export interface AppConfig {
   trustProxy: boolean;
   cookieSecure: boolean;
   maxSandboxes: number;
+  maxSandboxesPerUser: number;
+  maxTerminalsPerUser: number;
   shutdownGraceMs: number;
   frontendDist: string;
   containerized: boolean;
@@ -73,83 +75,138 @@ export const DEFAULT_LIMITS: Limits = {
  */
 export function resolveRunUser(want: string): RunUser {
   if (IS_WINDOWS) {
-    return { user: process.env.USERNAME ?? 'user', uid: -1, gid: -1 };
+    return { user: process.env.USERNAME ?? "user", uid: -1, gid: -1 };
   }
 
-  const candidates = [want, 'nobody'];
+  const candidates = [want, "nobody"];
   for (const user of candidates) {
     try {
-      const uid = parseInt(execFileSync('id', ['-u', user], { encoding: 'utf8' }).trim(), 10);
-      const gid = parseInt(execFileSync('id', ['-g', user], { encoding: 'utf8' }).trim(), 10);
+      const uid = parseInt(
+        execFileSync("id", ["-u", user], { encoding: "utf8" }).trim(),
+        10,
+      );
+      const gid = parseInt(
+        execFileSync("id", ["-g", user], { encoding: "utf8" }).trim(),
+        10,
+      );
       return { user, uid, gid };
     } catch {
       // try next candidate
     }
   }
   // Last resort: use current process uid
-  return { user: 'current', uid: process.getuid?.() ?? -1, gid: process.getgid?.() ?? -1 };
+  return {
+    user: "current",
+    uid: process.getuid?.() ?? -1,
+    gid: process.getgid?.() ?? -1,
+  };
 }
 
-export type ConfigOverrides = Partial<Omit<AppConfig, 'runUser' | 'limits'>> & {
+export type ConfigOverrides = Partial<Omit<AppConfig, "runUser" | "limits">> & {
   runUser?: RunUser;
   limits?: Limits;
 };
 
 export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
   const defaultDataDir = IS_WINDOWS
-    ? join(homedir(), '.cloud-ide')
-    : '/var/lib/cloud-ide';
+    ? join(homedir(), ".cloud-ide")
+    : "/var/lib/cloud-ide";
 
   const dataDir = overrides.dataDir ?? process.env.DATA_DIR ?? defaultDataDir;
   return {
     port: overrides.port ?? Number(process.env.PORT ?? 3000),
-    adminUsername: overrides.adminUsername ?? process.env.ADMIN_USERNAME ?? 'admin',
+    adminUsername:
+      overrides.adminUsername ?? process.env.ADMIN_USERNAME ?? "admin",
     dataDir,
-    dbPath: overrides.dbPath ?? process.env.DATABASE_PATH ?? join(dataDir, 'cloudide.db'),
-    cgroupRoot: overrides.cgroupRoot ?? process.env.CGROUP_ROOT ?? '/sys/fs/cgroup/cloudide',
-    runUser: overrides.runUser ?? resolveRunUser(process.env.RUN_USER ?? 'ide'),
+    dbPath:
+      overrides.dbPath ??
+      process.env.DATABASE_PATH ??
+      join(dataDir, "cloudide.db"),
+    cgroupRoot:
+      overrides.cgroupRoot ??
+      process.env.CGROUP_ROOT ??
+      "/sys/fs/cgroup/cloudide",
+    runUser: overrides.runUser ?? resolveRunUser(process.env.RUN_USER ?? "ide"),
     sessionTtlMs: overrides.sessionTtlMs ?? 30 * 24 * 3600 * 1000,
     runTimeoutMs: overrides.runTimeoutMs ?? 15_000,
     buildTimeoutMs: overrides.buildTimeoutMs ?? 60_000,
     limits: overrides.limits ?? DEFAULT_LIMITS,
-    workspacesDir: join(dataDir, 'workspaces'),
+    workspacesDir: join(dataDir, "workspaces"),
     authRateLimit: overrides.authRateLimit ?? {
       max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 20),
       windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS ?? 60_000),
     },
-    minPasswordLength: overrides.minPasswordLength ?? Number(process.env.MIN_PASSWORD_LENGTH ?? 8),
-    projectQuota: overrides.projectQuota ?? Number(process.env.PROJECT_QUOTA ?? 20),
-    maxConcurrentRuns: overrides.maxConcurrentRuns ?? Number(process.env.MAX_CONCURRENT_RUNS ?? 3),
+    minPasswordLength:
+      overrides.minPasswordLength ??
+      Number(process.env.MIN_PASSWORD_LENGTH ?? 8),
+    projectQuota:
+      overrides.projectQuota ?? Number(process.env.PROJECT_QUOTA ?? 20),
+    maxConcurrentRuns:
+      overrides.maxConcurrentRuns ??
+      Number(process.env.MAX_CONCURRENT_RUNS ?? 3),
     sandboxIdleTimeoutMs:
-      overrides.sandboxIdleTimeoutMs ?? Number(process.env.SANDBOX_IDLE_TIMEOUT_MS ?? 30 * 60_000),
+      overrides.sandboxIdleTimeoutMs ??
+      Number(process.env.SANDBOX_IDLE_TIMEOUT_MS ?? 30 * 60_000),
     sandboxReaperIntervalMs:
-      overrides.sandboxReaperIntervalMs ?? Number(process.env.SANDBOX_REAPER_INTERVAL_MS ?? 60_000),
+      overrides.sandboxReaperIntervalMs ??
+      Number(process.env.SANDBOX_REAPER_INTERVAL_MS ?? 60_000),
     sessionGcIntervalMs:
-      overrides.sessionGcIntervalMs ?? Number(process.env.SESSION_GC_INTERVAL_MS ?? 3_600_000),
+      overrides.sessionGcIntervalMs ??
+      Number(process.env.SESSION_GC_INTERVAL_MS ?? 3_600_000),
     trustProxy:
       overrides.trustProxy ??
       (process.env.TRUST_PROXY !== undefined
-        ? process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY.toLowerCase() === 'true'
+        ? process.env.TRUST_PROXY === "1" ||
+          process.env.TRUST_PROXY.toLowerCase() === "true"
         : false),
     cookieSecure:
       overrides.cookieSecure ??
       (process.env.COOKIE_SECURE !== undefined
-        ? process.env.COOKIE_SECURE === '1' || process.env.COOKIE_SECURE.toLowerCase() === 'true'
-        : process.env.NODE_ENV === 'production'),
-    maxSandboxes: overrides.maxSandboxes ?? Number(process.env.MAX_SANDBOXES ?? 20),
-    shutdownGraceMs: overrides.shutdownGraceMs ?? Number(process.env.SHUTDOWN_GRACE_MS ?? 10_000),
+        ? process.env.COOKIE_SECURE === "1" ||
+          process.env.COOKIE_SECURE.toLowerCase() === "true"
+        : process.env.NODE_ENV === "production"),
+    maxSandboxes:
+      overrides.maxSandboxes ?? Number(process.env.MAX_SANDBOXES ?? 20),
+    // Global maxSandboxes is a host-wide safety cap; this is the per-owner
+    // fairness limit underneath it, so one user opening many projects can't
+    // consume the whole host's sandbox budget alone. 5 is generous for
+    // normal multi-project work while staying well under the default global
+    // cap of 20 (mirrors projectQuota's per-owner convention).
+    maxSandboxesPerUser:
+      overrides.maxSandboxesPerUser ??
+      Number(process.env.MAX_SANDBOXES_PER_USER ?? 5),
+    // Terminal PTYs are a distinct resource class from live sandbox count (a
+    // user can have many terminal tabs open against one project's single
+    // sandbox), so they get their own budget — same reasoning as searchGate
+    // being separate from runGate.
+    maxTerminalsPerUser:
+      overrides.maxTerminalsPerUser ??
+      Number(process.env.MAX_TERMINALS_PER_USER ?? 5),
+    shutdownGraceMs:
+      overrides.shutdownGraceMs ??
+      Number(process.env.SHUTDOWN_GRACE_MS ?? 10_000),
     frontendDist:
       overrides.frontendDist ??
       process.env.FRONTEND_DIST ??
-      join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'frontend', 'dist'),
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "frontend",
+        "dist",
+      ),
     containerized:
       overrides.containerized ??
-      (process.env.APP_CONTAINERIZED === '1' || process.env.APP_CONTAINERIZED === 'true'),
+      (process.env.APP_CONTAINERIZED === "1" ||
+        process.env.APP_CONTAINERIZED === "true"),
     telemetryRetentionHours:
-      overrides.telemetryRetentionHours ?? Number(process.env.TELEMETRY_RETENTION_HOURS ?? 2),
+      overrides.telemetryRetentionHours ??
+      Number(process.env.TELEMETRY_RETENTION_HOURS ?? 2),
     telemetryFlushIntervalMs:
-      overrides.telemetryFlushIntervalMs ?? Number(process.env.TELEMETRY_FLUSH_INTERVAL_MS ?? 5000),
+      overrides.telemetryFlushIntervalMs ??
+      Number(process.env.TELEMETRY_FLUSH_INTERVAL_MS ?? 5000),
     telemetrySampleIntervalMs:
-      overrides.telemetrySampleIntervalMs ?? Number(process.env.TELEMETRY_SAMPLE_INTERVAL_MS ?? 2000),
+      overrides.telemetrySampleIntervalMs ??
+      Number(process.env.TELEMETRY_SAMPLE_INTERVAL_MS ?? 2000),
   };
 }

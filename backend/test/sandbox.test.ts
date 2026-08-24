@@ -33,7 +33,7 @@ describe.skipIf(!isDockerRunning())("sandbox", () => {
     const ws = makeWorkspace(cfg);
     writeFileSync(join(ws, "main.py"), "while True:\n    pass\n");
     const start = Date.now();
-    const r = await runProject(cfg, `test-${randomUUID()}`, ws, {});
+    const r = await runProject(cfg, `test-${randomUUID()}`, ws, { userId: 1 });
     const elapsed = Date.now() - start;
     expect(r.timedOut).toBe(true);
     expect(elapsed).toBeLessThan(15000);
@@ -44,7 +44,7 @@ describe.skipIf(!isDockerRunning())("sandbox", () => {
   it.skipIf(IS_WINDOWS)("does not run user code as root", async () => {
     const ws = makeWorkspace(cfg);
     writeFileSync(join(ws, "main.py"), "import os\nprint(os.getuid())\n");
-    const r = await runProject(cfg, `test-${randomUUID()}`, ws, {});
+    const r = await runProject(cfg, `test-${randomUUID()}`, ws, { userId: 1 });
     expect(r.type).toBe("success");
     const uid = Number(r.stdout.trim());
     expect(uid).not.toBe(0);
@@ -62,7 +62,7 @@ describe.skipIf(!isDockerRunning())("sandbox", () => {
       const projectId = `test-${randomUUID()}`;
       const ws = makeWorkspace(cfg);
       writeFileSync(join(ws, "main.py"), 'print("cleanup check")\n');
-      await runProject(cfg, projectId, ws, {});
+      await runProject(cfg, projectId, ws, { userId: 1 });
 
       const containerName = `ide-sandbox-${projectId}`;
       const nameFilter = `name=^/${containerName}$`;
@@ -99,6 +99,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 async function loadManagerWithFakeDocker(handler: DockerHandler): Promise<{
   manager: import("../src/execution/sandbox.js").SandboxManager;
   calls: DockerCall[];
+  sandboxGate: import("../src/execution/runGate.js").RunGate;
 }> {
   const calls: DockerCall[] = [];
   const { promisify } = await import("node:util");
@@ -124,7 +125,11 @@ async function loadManagerWithFakeDocker(handler: DockerHandler): Promise<{
   }));
 
   const mod = await import("../src/execution/sandbox.js");
-  return { manager: new mod.SandboxManager(), calls };
+  return {
+    manager: new mod.SandboxManager(),
+    calls,
+    sandboxGate: mod.sandboxGate,
+  };
 }
 
 describe("ensureProjectSandbox in-flight deduplication", () => {
@@ -140,11 +145,13 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
 
   it("runs a single creation sequence for concurrent same-project calls", async () => {
     let runCount = 0;
+    let created = false;
     const { manager } = await loadManagerWithFakeDocker(async (args) => {
       if (args[0] === "run") {
         runCount++;
         // keep the creation sequence open so both callers overlap
         await sleep(50);
+        created = true;
         return { stdout: "deadbeef\n", stderr: "" };
       }
       if (args[0] === "port") {
@@ -153,6 +160,15 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
       if (args[0] === "network" && args[1] === "inspect") {
         throw new Error("no such network");
       }
+      if (args[0] === "inspect") {
+        // Matches a real daemon: once `docker run` has succeeded, the
+        // container it created reports as running. Lifecycle operations for
+        // the same project are now strictly serialized (see
+        // SandboxManager.withProjectLock), so a second concurrent caller's
+        // own inspect check must see this fast path, exactly like it would
+        // against a real Docker daemon.
+        return { stdout: created ? "true\n" : "", stderr: "" };
+      }
       return { stdout: "", stderr: "" };
     });
 
@@ -160,8 +176,8 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
     const ws = makeWorkspace(cfg);
 
     const [a, b] = await Promise.all([
-      manager.ensureProjectSandbox(projectId, cfg, ws),
-      manager.ensureProjectSandbox(projectId, cfg, ws),
+      manager.ensureProjectSandbox(projectId, cfg, ws, 1),
+      manager.ensureProjectSandbox(projectId, cfg, ws, 1),
     ]);
 
     expect(runCount).toBe(1);
@@ -200,8 +216,8 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
     const second = `beta-${randomUUID()}`;
 
     const ids = await Promise.all([
-      manager.ensureProjectSandbox(first, cfg, ws),
-      manager.ensureProjectSandbox(second, cfg, ws),
+      manager.ensureProjectSandbox(first, cfg, ws, 1),
+      manager.ensureProjectSandbox(second, cfg, ws, 1),
     ]);
 
     expect(ids).toEqual([`ide-sandbox-${first}`, `ide-sandbox-${second}`]);
@@ -229,10 +245,12 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
     const ws = makeWorkspace(cfg);
 
     await expect(
-      manager.ensureProjectSandbox(projectId, cfg, ws),
+      manager.ensureProjectSandbox(projectId, cfg, ws, 1),
     ).rejects.toThrow(/docker run exploded/);
 
-    const id = await manager.ensureProjectSandbox(projectId, cfg, ws);
+    // The failed attempt above must not have leaked the per-user slot it
+    // acquired: this retry uses the same userId and must succeed.
+    const id = await manager.ensureProjectSandbox(projectId, cfg, ws, 1);
     expect(id).toBe(`ide-sandbox-${projectId}`);
     expect(attempts).toBe(2);
   });
@@ -266,7 +284,7 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
     const projectId = `stop-race-${randomUUID()}`;
     const ws = makeWorkspace(cfg);
 
-    const creation = manager.ensureProjectSandbox(projectId, cfg, ws);
+    const creation = manager.ensureProjectSandbox(projectId, cfg, ws, 1);
     // Let creation actually enter `docker run` before racing the stop.
     await sleep(10);
 
@@ -281,6 +299,272 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
 
     const active = await manager.getAllActiveSandboxes();
     expect(active.find((s) => s.projectId === projectId)).toBeUndefined();
+  });
+});
+
+/** A DockerHandler that answers every call generically, for tests that only
+ *  care about admission behavior, not the specific docker command sequence. */
+const genericDockerHandler: DockerHandler = async (args) => {
+  if (args[0] === "run") return { stdout: "deadbeef\n", stderr: "" };
+  if (args[0] === "port")
+    return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+  if (args[0] === "network" && args[1] === "inspect")
+    throw new Error("no such network");
+  return { stdout: "", stderr: "" };
+};
+
+describe("sandboxGate — per-user live-sandbox quota", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.doUnmock("node:child_process");
+    vi.doUnmock("../src/tools.js");
+    vi.resetModules();
+  });
+
+  it("blocks a user from exceeding their per-user sandbox quota, independent of the global cap", async () => {
+    const { manager, sandboxGate } =
+      await loadManagerWithFakeDocker(genericDockerHandler);
+    const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 2 });
+    const ws = makeWorkspace(cfg);
+
+    await manager.ensureProjectSandbox(
+      `u1-a-${randomUUID()}`,
+      perUserCfg,
+      ws,
+      1,
+    );
+    await manager.ensureProjectSandbox(
+      `u1-b-${randomUUID()}`,
+      perUserCfg,
+      ws,
+      1,
+    );
+    expect(sandboxGate.activeCount(1)).toBe(2);
+
+    await expect(
+      manager.ensureProjectSandbox(`u1-c-${randomUUID()}`, perUserCfg, ws, 1),
+    ).rejects.toThrow(/per-user sandbox limit reached/);
+    // The rejected attempt must not have incremented the count either.
+    expect(sandboxGate.activeCount(1)).toBe(2);
+  });
+
+  it("tracks different users' sandbox counts separately", async () => {
+    const { manager, sandboxGate } =
+      await loadManagerWithFakeDocker(genericDockerHandler);
+    const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
+    const ws = makeWorkspace(cfg);
+
+    await manager.ensureProjectSandbox(`u1-${randomUUID()}`, perUserCfg, ws, 1);
+    // A second user is unaffected by the first user's quota being full.
+    await manager.ensureProjectSandbox(`u2-${randomUUID()}`, perUserCfg, ws, 2);
+
+    expect(sandboxGate.activeCount(1)).toBe(1);
+    expect(sandboxGate.activeCount(2)).toBe(1);
+
+    await expect(
+      manager.ensureProjectSandbox(
+        `u1-again-${randomUUID()}`,
+        perUserCfg,
+        ws,
+        1,
+      ),
+    ).rejects.toThrow(/per-user sandbox limit reached/);
+  });
+
+  it("returns the slot to the pool once the sandbox is destroyed", async () => {
+    const { manager, sandboxGate } =
+      await loadManagerWithFakeDocker(genericDockerHandler);
+    const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
+    const ws = makeWorkspace(cfg);
+    const projectId = `destroy-${randomUUID()}`;
+
+    await manager.ensureProjectSandbox(projectId, perUserCfg, ws, 1);
+    expect(sandboxGate.activeCount(1)).toBe(1);
+
+    await manager.stopProjectSandbox(projectId);
+    expect(sandboxGate.activeCount(1)).toBe(0);
+
+    // The freed slot is immediately usable again, by the same user.
+    await manager.ensureProjectSandbox(
+      `destroy-2-${randomUUID()}`,
+      perUserCfg,
+      ws,
+      1,
+    );
+    expect(sandboxGate.activeCount(1)).toBe(1);
+  });
+
+  it("never leaks the per-user slot when container provisioning fails after it was acquired", async () => {
+    let attempt = 0;
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(
+      async (args) => {
+        if (args[0] === "run") {
+          attempt++;
+          // Every attempt fails: the per-user slot must be released every
+          // single time, not just once, or repeated failures would
+          // eventually exhaust the quota for a user who never has a single
+          // live sandbox.
+          throw new Error(`docker run exploded (attempt ${attempt})`);
+        }
+        if (args[0] === "network" && args[1] === "inspect") {
+          throw new Error("no such network");
+        }
+        return { stdout: "", stderr: "" };
+      },
+    );
+    const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
+    const ws = makeWorkspace(cfg);
+
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        manager.ensureProjectSandbox(`fail-${randomUUID()}`, perUserCfg, ws, 1),
+      ).rejects.toThrow(/docker run exploded/);
+      // If the slot leaked on failure, this would read 1 after the first
+      // iteration and every subsequent attempt would fail with "per-user
+      // sandbox limit reached" instead of "docker run exploded".
+      expect(sandboxGate.activeCount(1)).toBe(0);
+    }
+    expect(attempt).toBe(3);
+  });
+
+  it("still enforces the global maxSandboxes cap even when per-user quota has room", async () => {
+    const { manager } = await loadManagerWithFakeDocker(genericDockerHandler);
+    const tightGlobalCfg = makeTestConfig({
+      maxSandboxes: 1,
+      maxSandboxesPerUser: 10,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    const ws = makeWorkspace(cfg);
+
+    // Different users, so the per-user gate has plenty of room — only the
+    // global cap should be the blocker here.
+    await manager.ensureProjectSandbox(
+      `g1-${randomUUID()}`,
+      tightGlobalCfg,
+      ws,
+      1,
+    );
+    await expect(
+      manager.ensureProjectSandbox(`g2-${randomUUID()}`, tightGlobalCfg, ws, 2),
+    ).rejects.toThrow(/sandbox limit reached/);
+  });
+
+  it("does not double-count concurrent duplicate creation calls for the same project", async () => {
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(
+      async (args) => {
+        if (args[0] === "run") {
+          await sleep(20);
+          return { stdout: "deadbeef\n", stderr: "" };
+        }
+        if (args[0] === "network" && args[1] === "inspect") {
+          throw new Error("no such network");
+        }
+        if (args[0] === "port")
+          return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+    );
+    const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
+    const ws = makeWorkspace(cfg);
+    const projectId = `dup-${randomUUID()}`;
+
+    // Both callers race into the same in-flight creation (see the dedup
+    // suite above) — this must count as ONE sandbox against the quota, not
+    // two, even though ensureProjectSandbox was called twice.
+    await Promise.all([
+      manager.ensureProjectSandbox(projectId, perUserCfg, ws, 1),
+      manager.ensureProjectSandbox(projectId, perUserCfg, ws, 1),
+    ]);
+
+    expect(sandboxGate.activeCount(1)).toBe(1);
+  });
+
+  it("never double-releases a slot when stopProjectSandbox races a concurrent ensureProjectSandbox for the same project", async () => {
+    // Deterministic barrier: performStop's second docker call (`network
+    // rm`) pauses here until the test explicitly lets it through, giving
+    // full control over the exact interleaving point — no sleep-based
+    // timing guesses.
+    let releaseNetworkRm!: () => void;
+    const networkRmGate = new Promise<void>((resolve) => {
+      releaseNetworkRm = resolve;
+    });
+    let containerRemoved = false;
+
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(
+      async (args) => {
+        if (args[0] === "run") return { stdout: "deadbeef\n", stderr: "" };
+        if (args[0] === "port")
+          return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+        if (args[0] === "network" && args[1] === "inspect") {
+          throw new Error("no such network");
+        }
+        if (args[0] === "rm") {
+          // stopProjectSandbox's teardown `docker rm -f` for the project
+          // under test: mark the container gone, matching a real daemon.
+          containerRemoved = true;
+          return { stdout: "", stderr: "" };
+        }
+        if (args[0] === "network" && args[1] === "rm") {
+          // Pause performStop here — *after* the container has already
+          // been removed (containerRemoved=true) but *before*
+          // sandboxGate.release() runs. This is exactly the unguarded
+          // window the security gate identified.
+          await networkRmGate;
+          return { stdout: "", stderr: "" };
+        }
+        if (args[0] === "inspect") {
+          return { stdout: containerRemoved ? "" : "true\n", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    );
+    const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 5 });
+    const ws = makeWorkspace(cfg);
+    const ownerId = 1;
+    const projectP = `race-p-${randomUUID()}`;
+    const projectQ = `race-q-${randomUUID()}`;
+
+    // ownerId holds two independent live sandboxes: P (about to be torn
+    // down) and Q (untouched). A double-release of P's slot would corrupt
+    // ownerId's count below the true value (1, for Q) rather than leaving
+    // it exactly right — that corruption is what this test proves can't
+    // happen.
+    await manager.ensureProjectSandbox(projectP, perUserCfg, ws, ownerId);
+    await manager.ensureProjectSandbox(projectQ, perUserCfg, ws, ownerId);
+    expect(sandboxGate.activeCount(ownerId)).toBe(2);
+
+    // Start teardown of P; it will pause at the network-rm barrier above,
+    // i.e. mid-flight, after the container is gone but before the gate is
+    // released.
+    const stopPromise = manager.stopProjectSandbox(projectP);
+
+    // While the stop is paused mid-flight, race a concurrent ensure for the
+    // SAME project — without withProjectLock serializing them, this call
+    // would independently see the container as gone (containerRemoved is
+    // already true) and take the staleOwnerId release path, releasing
+    // ownerId's slot a SECOND time before the paused stop releases it once.
+    const otherOwnerId = 2;
+    const ensurePromise = manager.ensureProjectSandbox(
+      projectP,
+      perUserCfg,
+      ws,
+      otherOwnerId,
+    );
+
+    // Let the paused teardown proceed only now — after the race window has
+    // had a chance to be entered incorrectly, if it were going to be.
+    releaseNetworkRm();
+
+    await stopPromise;
+    await ensurePromise;
+
+    // Exactly one release for P: ownerId's count reflects only Q.
+    expect(sandboxGate.activeCount(ownerId)).toBe(1);
+    // The re-creation for the new owner succeeded and was counted once.
+    expect(sandboxGate.activeCount(otherOwnerId)).toBe(1);
   });
 });
 
@@ -357,6 +641,7 @@ describe("sandboxRun cancellation before spawn", () => {
     kind: "run" as const,
     timeoutMs: 5000,
     config: cfg,
+    userId: 1,
   });
 
   it("does not spawn the process when the client disconnected during container startup", async () => {

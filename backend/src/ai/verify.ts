@@ -103,6 +103,7 @@ export async function runAIVerification(
       const cwd = await workspacePath(cfg, req.projectId);
       runResult = await runProject(cfg, req.projectId, cwd, {
         activeFile: req.filePath,
+        userId: req.userId,
       });
 
       if (

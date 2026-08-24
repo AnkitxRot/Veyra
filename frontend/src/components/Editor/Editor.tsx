@@ -6,6 +6,87 @@ import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import type { CollaborationClient } from "../../collab/client";
 
+// ---------------------------------------------------------------------------
+// Live content registry (M1: truthful save primitive)
+//
+// Commit cc55a1a made React state (`openFiles[].content`) intentionally stale
+// during typing: the content-change handler only flips the `dirty` flag so a
+// keystroke never rebuilds the array (render-churn fix). That means React
+// state must NEVER be treated as the save-time source of truth anymore.
+//
+// This module-level map is the authoritative side-channel from save consumers
+// (IDE.tsx) to the Monaco models that hold what the user actually sees.
+// Keys are workspace-relative paths with any leading "/" stripped, matching
+// the normalization this file already applies when comparing openFiles paths
+// against model URIs.
+//
+// Lifecycle:
+//  - registered in the model-management effect (both branches: newly created
+//    and pre-existing models found under the same URI),
+//  - pruned whenever the closed-files cleanup effect disposes a model,
+//    plus a defensive sweep for externally-disposed entries,
+//  - detached entirely when the editor instance unmounts, so a late save can
+//    never observe content from a dead editor.
+// ---------------------------------------------------------------------------
+const liveModels = new Map<string, monaco.editor.ITextModel>();
+
+function normalizeModelKey(path: string): string {
+  return path.startsWith("/") ? path.slice(1) : path;
+}
+
+/**
+ * Returns the content currently visible in the live Monaco model for `path`,
+ * or null when no live model exists (file not materialized in an editor).
+ * Synchronous by design: save handlers need a consistent point-in-time read.
+ *
+ * Exported from a component file deliberately: M1's strict file boundary
+ * forbids adding a shared module, and a value import here would drag the
+ * Editor/Monaco chunk out of its lazy boundary for consumers anyway (IDE.tsx
+ * accesses these through LiveContentApi ref indirection instead).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function getLiveContent(path: string): string | null {
+  const model = liveModels.get(normalizeModelKey(path));
+  if (!model || model.isDisposed()) return null;
+  return model.getValue();
+}
+
+/**
+ * Replaces the full contents of the live model for `path` as a single,
+ * undo-able edit. Returns false when no live model exists, letting callers
+ * fall back to state-only updates (previous behavior).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function applyLiveContent(path: string, content: string): boolean {
+  const model = liveModels.get(normalizeModelKey(path));
+  if (!model || model.isDisposed()) return false;
+  model.pushEditOperations(
+    [],
+    [{ range: model.getFullModelRange(), text: content }],
+    () => null,
+  );
+  return true;
+}
+
+function registerLiveModel(
+  path: string,
+  model: monaco.editor.ITextModel,
+): void {
+  liveModels.set(normalizeModelKey(path), model);
+}
+
+/**
+ * Handle through which the lazily-loaded Editor exposes the live-content API
+ * to IDE.tsx without forcing Editor (and therefore Monaco) into the entry
+ * bundle. IDE holds a ref; this component populates it on mount and detaches
+ * on unmount. Typed via `import type` on the consumer side so the lazy chunk
+ * boundary is preserved.
+ */
+export interface LiveContentApi {
+  get(path: string): string | null;
+  apply(path: string, content: string): boolean;
+}
+
 export interface EditorProps {
   project: any;
   openFiles: any[];
@@ -16,6 +97,7 @@ export interface EditorProps {
   diagnostics?: Diagnostic[];
   collabClient?: CollaborationClient | null;
   isReadOnly?: boolean;
+  liveApiRef?: React.MutableRefObject<LiveContentApi | null>;
 }
 
 export default function Editor({
@@ -28,6 +110,7 @@ export default function Editor({
   diagnostics = [],
   collabClient,
   isReadOnly = false,
+  liveApiRef,
 }: EditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -75,6 +158,13 @@ export default function Editor({
         bracketPairColorization: { enabled: true },
         readOnly: isReadOnlyRef.current,
       });
+
+      // Publish the live-content API for save consumers. Done as soon as the
+      // editor exists so Ctrl+S issued while chunks/models settle still
+      // resolves truthfully (or falls back cleanly when it cannot).
+      if (liveApiRef) {
+        liveApiRef.current = { get: getLiveContent, apply: applyLiveContent };
+      }
 
       monacoRef.current.onDidChangeCursorPosition((e) => {
         if (collabClientRef.current) {
@@ -211,12 +301,22 @@ export default function Editor({
     }
 
     return () => {
+      // Detach the live-content API first: after this point a save must never
+      // observe content from a dying editor. Registry entries are dropped;
+      // the models themselves stay governed by the openFiles cleanup effect
+      // exactly as before (no disposal-order change for collab bindings).
+      if (liveApiRef && liveApiRef.current) {
+        liveApiRef.current = null;
+      }
+      liveModels.clear();
       if (monacoRef.current) {
         monacoRef.current.dispose();
         monacoRef.current = null;
       }
     };
-  }, [setOpenFiles]);
+    // liveApiRef is a stable ref object passed down from IDE; including it
+    // satisfies exhaustive-deps without changing effect cadence.
+  }, [setOpenFiles, liveApiRef]);
 
   // Sync read-only status with Monaco options
   useEffect(() => {
@@ -258,6 +358,9 @@ export default function Editor({
       lastKey.isReadOnly !== isReadOnly ||
       monacoRef.current.getModel() !== model;
 
+    // Both paths (freshly created or pre-existing under the same URI) flow
+    // through here: from this moment the live model is the save-time source
+    // of truth for this path.
     isUpdatingModelRef.current = true;
     try {
       let didSetValue = false;
@@ -286,6 +389,11 @@ export default function Editor({
           monaco.editor.setModelLanguage(model, langInfo.monacoId);
         }
       }
+
+      // Both paths (freshly created above, or pre-existing under the same
+      // URI) flow through here with a non-null model: from this moment the
+      // live model is the save-time source of truth for this path.
+      registerLiveModel(activeFile, model);
 
       if (needsFullSetup && collabClient) {
         collabClient.unbindCurrentModel();
@@ -389,6 +497,12 @@ export default function Editor({
 
   // Clean up models for closed files
   useEffect(() => {
+    // Defensive sweep: drop registry entries whose model was disposed by any
+    // other path, so getLiveContent can never read from a disposed model.
+    for (const [key, m] of liveModels) {
+      if (m.isDisposed()) liveModels.delete(key);
+    }
+
     const openPaths = new Set(openFiles.map((f: any) => f.path));
     const allModels = monaco.editor.getModels();
     for (const model of allModels) {
@@ -396,6 +510,7 @@ export default function Editor({
         ? model.uri.path.slice(1)
         : model.uri.path;
       if (!openPaths.has(normPath) && !openPaths.has(model.uri.path)) {
+        liveModels.delete(normPath);
         model.dispose();
       }
     }

@@ -20,6 +20,9 @@ import Toolbar from "../Toolbar/Toolbar";
 // Lazy: pulls in monaco-editor (~4.5MB raw); a static import here put that
 // weight in the entry bundle, downloading before even the login screen showed.
 const Editor = React.lazy(() => import("../Editor/Editor"));
+// Type-only import: erased at compile time, so the lazy chunk boundary for
+// Monaco is preserved while IDE stays typed against the live-content API.
+import type { LiveContentApi } from "../Editor/Editor";
 import Output from "../Output/Output";
 import Terminal from "../Terminal/Terminal";
 import Preview from "../Preview/Preview";
@@ -78,6 +81,9 @@ export default function IDE({
     { path: string; content: string; dirty?: boolean }[]
   >([]);
   const openFilesRef = useRef(openFiles);
+  // Populated by the (lazily loaded) Editor on mount: the live Monaco model
+  // registry that serves as the save-time source of truth. See M1.
+  const liveApiRef = useRef<LiveContentApi | null>(null);
   const [bottomTab, setBottomTab] = useState<
     "output" | "problems" | "resources" | "terminal" | "preview"
   >("output");
@@ -357,6 +363,49 @@ export default function IDE({
     openFilesRef.current = openFiles;
   }, [openFiles]);
 
+  // ---------------------------------------------------------------------------
+  // M1 truthful-content resolution.
+  //
+  // Since cc55a1a, `openFiles[].content` freezes at file-open time (keystrokes
+  // only flip `dirty` to avoid render churn), so React state must never be
+  // treated as save-time truth. Resolution order:
+  //   1. live Monaco model — what the user actually sees right now;
+  //   2. Yjs document — for dirty files whose model was torn down while a
+  //      collaboration room holds newer content than disk/state;
+  //   3. stored snapshot — last resort; only ever correct for clean buffers
+  //      or when neither of the above exists.
+  // Returns null when nothing can vouch for the content, which callers must
+  // treat as "do not save".
+  const resolveLiveFileContent = useCallback((path: string): string | null => {
+    const live = liveApiRef.current?.get(path);
+    if (live !== null && live !== undefined) return live;
+
+    const stored = openFilesRef.current.find((f) => f.path === path);
+    if (!stored) return null;
+
+    if (stored.dirty && collabClientRef.current) {
+      try {
+        return collabClientRef.current.doc.getText(path).toString();
+      } catch {
+        // fall through to the stored snapshot
+      }
+    }
+    return stored.content;
+  }, []);
+
+  // Single funnel for every Ctrl+S / palette / programmatic save trigger:
+  // dispatch the ide-save contract with an authoritative path. The ide-save
+  // listener resolves the content itself (live-model first), so no dispatcher
+  // can ever smuggle stale bytes into the persistence path.
+  const dispatchCanonicalSave = useCallback(
+    (explicitPath?: string) => {
+      const path = explicitPath ?? activeFile;
+      if (!project || !path) return;
+      document.dispatchEvent(new CustomEvent("ide-save", { detail: { path } }));
+    },
+    [project, activeFile],
+  );
+
   // M2: Format Document handler
   const handleFormatDocument = useCallback(
     async (targetFilePath?: string) => {
@@ -378,11 +427,24 @@ export default function IDE({
           method: "POST",
           body: JSON.stringify({
             path: targetFile.path,
-            content: targetFile.content,
+            // M1: format what the user actually sees, not the stale snapshot.
+            content: resolveLiveFileContent(targetFile.path) ?? targetFile.content,
           }),
         });
 
         if (res.changed) {
+          // Apply to the live model FIRST so both modes converge visibly:
+          // solo — the model now matches the state update below; collab —
+          // the model edit propagates through y-monaco into the room's
+          // Y.Text and out to every peer. State-only updates would desync
+          // here (the external-sync effect skips dirty buffers).
+          // Routed through liveApiRef (not a value import) so this file never
+          // pulls the Editor/Monaco chunk out of its lazy boundary.
+          const appliedToModel = liveApiRef.current?.apply(
+            targetFile.path,
+            res.formatted,
+          );
+          void appliedToModel;
           setOpenFiles((prev) =>
             prev.map((f) =>
               f.path === targetFile.path
@@ -400,69 +462,56 @@ export default function IDE({
         console.warn("Formatting skipped:", err.message);
       }
     },
-    [project, activeFile],
+    [project, activeFile, resolveLiveFileContent],
   );
 
-  const handleSaveActiveFile = useCallback(async () => {
-    if (!project || !activeFile) return;
-    const targetFile = openFilesRef.current.find((f) => f.path === activeFile);
-    if (!targetFile) return;
+  // M1: Ctrl+S / palette saves funnel through dispatchCanonicalSave → the
+  // ide-save listener below, which resolves content from the live editor
+  // model. The former direct-POST implementation read `openFiles[].content`,
+  // which has been stale-during-typing since cc55a1a and silently persisted
+  // file-open-time bytes (BUG-1).
+  const handleSaveActiveFile = useCallback(() => {
+    dispatchCanonicalSave();
+  }, [dispatchCanonicalSave]);
 
-    let contentToSave = targetFile.content;
-
-    // If Format on Save is enabled, format prior to saving
-    if (formatOnSave) {
-      try {
-        const res = await api<{
-          formatted: string;
-          changed: boolean;
-          formatter: string;
-        }>(`/api/projects/${project.id}/format`, {
-          method: "POST",
-          body: JSON.stringify({
-            path: targetFile.path,
-            content: targetFile.content,
-          }),
-        });
-        if (res.changed) {
-          contentToSave = res.formatted;
-        }
-      } catch {}
-    }
-
-    try {
-      await api(`/api/projects/${project.id}/file`, {
-        method: "POST",
-        body: JSON.stringify({ path: targetFile.path, content: contentToSave }),
-      });
-      setOpenFiles((prev) =>
-        prev.map((f) =>
-          f.path === targetFile.path
-            ? { ...f, content: contentToSave, dirty: false }
-            : f,
-        ),
-      );
-      setSaveToast(`Saved ${targetFile.path.split("/").pop()}`);
-      setTimeout(() => setSaveToast(null), 2000);
-    } catch (err: any) {
-      alert(`Save failed: ${err.message}`);
-    }
-  }, [project, activeFile, formatOnSave]);
-
-  // Listen to ide-save event from Monaco Editor
+  // M1 canonical save listener: the ONLY code path that POSTs file contents.
+  // Content is re-resolved here from the live editor model regardless of what
+  // the dispatcher attached, so every trigger (Monaco command, global
+  // shortcut, palette, future callers) shares one truthful contract.
   useEffect(() => {
     const handleSave = async (e: Event) => {
-      const { path, content } = (e as CustomEvent).detail;
-      if (!project) return;
+      const detail = ((e as CustomEvent).detail ?? {}) as {
+        path?: string;
+        content?: string;
+      };
+      const path = typeof detail.path === "string" ? detail.path : null;
+      if (!project || !path) return;
 
-      let finalContent = content;
+      let finalContent = resolveLiveFileContent(path);
+      if (
+        (finalContent === null || finalContent === undefined) &&
+        typeof detail.content === "string"
+      ) {
+        // Back-compat for dispatchers that pre-resolve content.
+        finalContent = detail.content;
+      }
+      if (typeof finalContent !== "string") {
+        alert(`Save failed: no live content available for ${path}`);
+        return;
+      }
+
+      // If Format on Save is enabled, format the live content prior to saving.
+      // Post-save convergence is automatic in both modes: solo — the external
+      // sync effect setValue()s the formatted bytes into the model once the
+      // buffer is marked clean; collab — notifyExternalFileMutation() on the
+      // server flows the formatted bytes back through Yjs into every model.
       if (formatOnSave) {
         try {
           const res = await api<{ formatted: string; changed: boolean }>(
             `/api/projects/${project.id}/format`,
             {
               method: "POST",
-              body: JSON.stringify({ path, content }),
+              body: JSON.stringify({ path, content: finalContent }),
             },
           );
           if (res.changed) finalContent = res.formatted;
@@ -488,7 +537,7 @@ export default function IDE({
 
     document.addEventListener("ide-save", handleSave);
     return () => document.removeEventListener("ide-save", handleSave);
-  }, [project, formatOnSave]);
+  }, [project, formatOnSave, resolveLiveFileContent]);
 
   // Listen to ide-run event from Toolbar
   useEffect(() => {
@@ -500,17 +549,31 @@ export default function IDE({
       } = (e as CustomEvent).detail;
       if (!project) return;
 
-      // Auto-save dirty files before executing
+      // Auto-save dirty files before executing. M1: content comes from the
+      // live editor model (openFiles[].content is stale during typing), and
+      // only files whose save actually succeeded are marked clean — the old
+      // code cleared `dirty` even when the POST threw.
       const dirtyFiles = openFiles.filter((f) => f.dirty);
+      const savedContents = new Map<string, string>();
       for (const f of dirtyFiles) {
+        const content = resolveLiveFileContent(f.path);
+        if (content === null) continue;
         try {
           await api(`/api/projects/${project.id}/file`, {
             method: "POST",
-            body: JSON.stringify({ path: f.path, content: f.content }),
+            body: JSON.stringify({ path: f.path, content }),
           });
+          savedContents.set(f.path, content);
         } catch {}
       }
-      setOpenFiles((prev) => prev.map((f) => ({ ...f, dirty: false })));
+      setOpenFiles((prev) =>
+        prev.map((f) => {
+          const saved = savedContents.get(f.path);
+          return saved !== undefined
+            ? { ...f, content: saved, dirty: false }
+            : f;
+        }),
+      );
 
       // Switch to output tab and expand drawer if collapsed
       setBottomTab("output");
@@ -526,7 +589,7 @@ export default function IDE({
 
     document.addEventListener("ide-run", handleRunRequest);
     return () => document.removeEventListener("ide-run", handleRunRequest);
-  }, [project, openFiles]);
+  }, [project, openFiles, resolveLiveFileContent]);
 
   // Listen for execution completion events to parse compiler/runtime diagnostics
   useEffect(() => {
@@ -1002,9 +1065,9 @@ export default function IDE({
       setPaletteMode("files");
       setIsPaletteOpen(true);
     },
-    onSave: () => {
-      handleSaveActiveFile();
-    },
+    // M1: the hook dispatches the canonical ide-save event itself using this
+    // path accessor; the listener below resolves live content and persists.
+    getActiveFile: () => activeFile,
     onToggleSidebar: () => {
       setIsSidebarHidden((prev) => !prev);
     },
@@ -1184,6 +1247,7 @@ export default function IDE({
                   diagnostics={diagnostics}
                   collabClient={collabClient}
                   isReadOnly={projectRole === "viewer"}
+                  liveApiRef={liveApiRef}
                   onCreateFile={() => {
                     const el = document.querySelector(
                       'button[title="New File"]',

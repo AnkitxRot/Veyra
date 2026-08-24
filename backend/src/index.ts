@@ -1,16 +1,15 @@
 import { createApp } from './app.js';
-import { resolveConfig, IS_WINDOWS } from './config.js';
-import { openDb } from './db.js';
-import { setupWebSocketServer } from './ws/index.js';
+import { resolveConfig, IS_WINDOWS, type AppConfig } from './config.js';
+import { openDb, type Db } from './db.js';
+import { setupWebSocketServer, getHeartbeatController } from './ws/index.js';
 import { sandboxManager } from './execution/sandbox.js';
 import { telemetryHistorian } from './execution/historian.js';
 import { deleteExpiredSessions } from './auth/middleware.js';
 import { hashPassword } from './auth/passwords.js';
 import { ensureAdminUser } from './db.js';
-
-const config = resolveConfig();
-const db = openDb(config.dbPath);
-const app = createApp(config, db);
+import { collaborationManager } from './collab/manager.js';
+import type { WebSocketServer } from 'ws';
+import type { Server as HttpServer } from 'node:http';
 
 const ADMIN_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -23,7 +22,7 @@ const ADMIN_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
  * public registration in auth/routes.ts, so this can't be pre-empted by a
  * squatted username.
  */
-async function bootstrapAdmin(): Promise<void> {
+async function bootstrapAdmin(config: AppConfig, db: Db): Promise<void> {
   const adminUser = config.adminUsername;
   const adminPass = process.env.ADMIN_PASSWORD;
 
@@ -55,9 +54,121 @@ async function bootstrapAdmin(): Promise<void> {
   const hash = await hashPassword(adminPass);
   ensureAdminUser(db, adminUser, hash);
 }
+export interface GracefulShutdownContext {
+  server: HttpServer;
+  wss: WebSocketServer;
+  db: Db;
+  config: AppConfig;
+}
+
+/**
+ * M2 (BUG-2 fix): graceful teardown with collaboration persistence.
+ *
+ * Ordering contract:
+ *   0. Background maintenance stops (reaper / telemetry sampling) so no new
+ *      Docker or DB work starts while draining.
+ *   1. Stop accepting new HTTP requests; drop idle keep-alive sockets.
+ *   2. Stop accepting new WS upgrades; close (then hard-terminate stragglers)
+ *      every live WS client.
+ *   3. Flush ALL dirty collaboration rooms to disk — bounded by a timeout
+ *      guard so one wedged room can never hold the process hostage. This is
+ *      the step whose absence dropped up to 10s of collaborative edits on
+ *      every restart/deploy.
+ *   4. Close the SQLite database.
+ *   5. Exit(0) via the injected exit hook (overridable in tests).
+ *
+ * A force-exit timer armed across the whole sequence guarantees termination
+ * even if some socket refuses to drain, matching the previous behavior.
+ */
+export async function performGracefulShutdown(
+  ctx: GracefulShutdownContext,
+  options: { signal?: string; exit?: (code: number) => void } = {},
+): Promise<void> {
+  const exit = options.exit ?? ((code: number) => process.exit(code));
+  const { server, wss, db, config } = ctx;
+  console.log(
+    `[shutdown] ${options.signal ?? 'shutdown'} received, draining...`,
+  );
+
+  // Force-exit fallback armed for the entire sequence.
+  const forceTimer = setTimeout(() => {
+    console.error('[shutdown] grace period elapsed, forcing exit');
+    exit(0);
+  }, config.shutdownGraceMs);
+  forceTimer.unref();
+
+  // 0. Stop background maintenance. The WS heartbeat sweep is maintenance:
+  //    halting it first guarantees no terminate/ping work races the socket
+  //    teardown below, and its (unref'd) interval can never delay exit.
+  getHeartbeatController(wss)?.stop();
+  sandboxManager.stopReaper();
+  try {
+    telemetryHistorian.stop();
+  } catch (err) {
+    console.error('[shutdown] telemetry historian stop failed:', err);
+  }
+
+  // 1. Stop accepting new HTTP requests. Idle keep-alive sockets are closed
+  //    explicitly so the drain promise below resolves promptly even when
+  //    browsers hold connection pools open.
+  server.closeIdleConnections?.();
+  const drained = new Promise<void>((resolve) => server.close(() => resolve()));
+
+  // 2. Close every live WS client gracefully; stragglers that ignore the
+  //    close handshake are terminated shortly so they cannot stall the drain.
+  for (const client of wss.clients) {
+    try {
+      client.close(1001, 'server shutting down');
+    } catch {}
+    const terminateTimer = setTimeout(() => {
+      try {
+        client.terminate();
+      } catch {}
+    }, 2000);
+    terminateTimer.unref?.();
+  }
+  wss.close();
+
+  // 3. Persist all dirty collaboration rooms. Budget: min(5s, grace-1s),
+  //    i.e. bounded strictly inside the force-exit window so the database
+  //    close below still runs under any plausible timing.
+  const flushBudgetMs = Math.max(
+    0,
+    Math.min(5000, config.shutdownGraceMs - 1000),
+  );
+  const flushed = Promise.race([
+    collaborationManager.flushAllRooms(),
+    new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, flushBudgetMs);
+      t.unref?.();
+    }),
+  ]).catch((err) => {
+    console.error('[shutdown] collaboration room flush failed:', err);
+  });
+
+  await Promise.all([drained, flushed]);
+
+  // 4. Durable resources last.
+  clearTimeout(forceTimer);
+  try {
+    db.close();
+  } catch {}
+
+  console.log('[shutdown] graceful shutdown complete');
+  // 5.
+  exit(0);
+}
 
 async function start(): Promise<void> {
-  await bootstrapAdmin();
+  // Bootstrap is deliberately INSIDE start() so that importing this module
+  // (e.g. from the shutdown regression tests, which need
+  // performGracefulShutdown) never opens the real database, binds :3000, or
+  // kicks off background maintenance as an import side effect.
+  const config = resolveConfig();
+  const db = openDb(config.dbPath);
+  const app = createApp(config, db);
+
+  await bootstrapAdmin(config, db);
 
   // Startup hardening: drop expired sessions, then reconcile Docker state
   // (removes orphaned containers, rebuilds preview port mappings). Reconcile is
@@ -95,51 +206,24 @@ async function start(): Promise<void> {
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[shutdown] ${signal} received, draining...`);
-
-    // Stop background maintenance first.
-    sandboxManager.stopReaper();
     clearInterval(sessionGcTimer);
-    try {
-      telemetryHistorian.stop();
-    } catch (err) {
-      console.error('[shutdown] telemetry historian stop failed:', err);
-    }
-
-    // Close WebSocket connections cleanly. Closing each client triggers its
-    // teardown (kills in-flight exec controllers and PTY sessions).
-    for (const client of wss.clients) {
-      try {
-        client.close(1001, 'server shutting down');
-      } catch {}
-    }
-    wss.close();
-
-    // Force-exit fallback in case long-lived connections never drain. This is
-    // safe: persistent sandboxes, workspaces and the WAL-mode SQLite database
-    // are left intact and recovered on the next startup.
-    const forceTimer = setTimeout(() => {
-      console.error('[shutdown] grace period elapsed, forcing exit');
-      process.exit(0);
-    }, config.shutdownGraceMs);
-    forceTimer.unref();
-
-    // Stop accepting new connections and wait for in-flight requests.
-    server.close(() => {
-      clearTimeout(forceTimer);
-      try {
-        db.close();
-      } catch {}
-      console.log('[shutdown] graceful shutdown complete');
-      process.exit(0);
-    });
+    void performGracefulShutdown({ server, wss, db, config }, { signal });
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-start().catch((err) => {
-  console.error('[startup] fatal error:', err);
-  process.exit(1);
-});
+// Auto-start only in real runtime. Under test runners (vitest sets VITEST=1;
+// NODE_ENV=test is the conventional signal) importing this module must stay
+// side-effect free — tests construct their own config/db/app and invoke
+// performGracefulShutdown() directly.
+const SHOULD_AUTO_START =
+  !process.env.VITEST && process.env.NODE_ENV !== 'test';
+
+if (SHOULD_AUTO_START) {
+  start().catch((err) => {
+    console.error('[startup] fatal error:', err);
+    process.exit(1);
+  });
+}

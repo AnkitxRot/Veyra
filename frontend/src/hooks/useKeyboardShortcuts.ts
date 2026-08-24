@@ -5,8 +5,13 @@ export const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/
 export interface ShortcutHandlers {
   onOpenCommandPalette: () => void;
   onOpenQuickOpen: () => void;
-  onSave?: () => void;
-  onRun?: () => void;
+  /**
+   * M1: Ctrl+S no longer routes through a save callback that could read stale
+   * React state. The hook resolves the active file path via this accessor and
+   * dispatches the canonical `ide-save` CustomEvent; IDE's single save
+   * listener re-resolves content from the live Monaco model and persists it.
+   */
+  getActiveFile?: () => string | null;
   onToggleSidebar?: () => void;
   onToggleBottomPanel?: () => void;
 }
@@ -41,11 +46,19 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
         return;
       }
 
-      // 3. Save File: Ctrl+S / Cmd+S
+      // 3. Save File: Ctrl+S / Cmd+S → canonical ide-save dispatch.
+      //    preventDefault suppresses the browser "save page" dialog;
+      //    stopPropagation keeps Monaco's own Ctrl+S command from double-
+      //    firing: both paths converge on the same listener, but only one
+      //    event must be dispatched per keystroke.
       if (isMod && !e.shiftKey && key === 's') {
         e.preventDefault();
         e.stopPropagation();
-        if (currentHandlers.onSave) currentHandlers.onSave();
+        document.dispatchEvent(
+          new CustomEvent('ide-save', {
+            detail: { path: currentHandlers.getActiveFile?.() ?? null },
+          }),
+        );
         return;
       }
 

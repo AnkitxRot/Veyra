@@ -16,6 +16,26 @@ const MESSAGE_AWARENESS = 1;
 const _MESSAGE_AUTH = 2;
 const MESSAGE_CUSTOM = 3;
 
+/** Rejects if the wrapped promise has not settled within `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    timer.unref?.();
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export interface CollaboratorClientState {
   userId: number;
   username: string;
@@ -690,9 +710,75 @@ export class CollaborationManager {
     return this.rooms.size;
   }
 
-  public async flushAllRooms(): Promise<void> {
-    for (const room of this.rooms.values()) {
-      await room.flushToDisk();
+  /**
+   * Default per-room flush bound. A room whose disk write hangs ( wedged
+   * NFS/fuse, dead handle) must never be able to wedge the manager: after
+   * this budget the room's slot rejects, allSettled contains it, and the
+   * pass completes so subsequent passes can run.
+   */
+  private static readonly PER_ROOM_FLUSH_TIMEOUT_MS = 5000;
+
+  /**
+   * Flushes every active room's dirty Y.Text content to the workspace
+   * filesystem. Called by the graceful-shutdown sequence (see index.ts) and
+   * available to tests/ops tooling.
+   *
+   * Guarantees:
+   *  - Rooms are flushed CONCURRENTLY via Promise.allSettled: one room's
+   *    failure (disk full, permission loss, poisoned path) is contained,
+   *    logged with its projectId, and can never abort or starve another
+   *    room's persistence.
+   *  - Each individual room flush is bounded by `perRoomTimeoutMs`
+   *    (default {@link CollaborationManager.PER_ROOM_FLUSH_TIMEOUT_MS}), so a
+   *    hung write degrades into a contained rejection instead of wedging this
+   *    pass — or any future pass — indefinitely.
+   *  - The returned promise settles only when every room's flush attempt has
+   *    finished — successful, failed, or timed out.
+   *
+   * Note: overlapping invocations each run their own pass rather than sharing
+   * one. Full-file rewrites of identical content are idempotent in practice,
+   * whereas promise-caching dedupe would let one hung room block every future
+   * caller forever — the worse failure mode by far.
+   */
+  public flushAllRooms(options: { perRoomTimeoutMs?: number } = {}): Promise<void> {
+    const perRoomTimeoutMs =
+      options.perRoomTimeoutMs ??
+      CollaborationManager.PER_ROOM_FLUSH_TIMEOUT_MS;
+    return this.runFlushAllRooms(perRoomTimeoutMs);
+  }
+
+  private async runFlushAllRooms(perRoomTimeoutMs: number): Promise<void> {
+    const rooms = Array.from(this.rooms.values());
+    if (rooms.length === 0) return;
+
+    const results = await Promise.allSettled(
+      rooms.map((room) =>
+        withTimeout(
+          (async () => {
+            try {
+              await room.flushToDisk();
+            } catch (err) {
+              // flushToDisk() already contains per-file error handling; this
+              // catch exists so an unexpected throw in the room-level plumbing
+              // is attributed and contained rather than aborting siblings.
+              console.error(
+                `[CollabManager] room ${room.projectId} failed to flush:`,
+                err,
+              );
+              throw err;
+            }
+          })(),
+          perRoomTimeoutMs,
+          `room ${room.projectId} flush`,
+        ),
+      ),
+    );
+
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed > 0) {
+      console.error(
+        `[CollabManager] flushAllRooms finished with ${failed}/${rooms.length} room(s) failed — unpersisted content remains dirty in those rooms`,
+      );
     }
   }
 }

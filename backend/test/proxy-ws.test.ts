@@ -238,7 +238,12 @@ describe("preview proxy WebSocket upgrade", () => {
         const { sandboxManager } = await import("../src/execution/sandbox.js");
         const { makeWorkspace } = await import("./helpers.js");
         const workspaceDir = makeWorkspace(cfg);
-        await sandboxManager.ensureProjectSandbox(projectId, cfg, workspaceDir);
+        await sandboxManager.ensureProjectSandbox(
+          projectId,
+          cfg,
+          workspaceDir,
+          1,
+        );
         sandboxStarted = true;
 
         // Start a trivial TCP/HTTP-upgrade-capable listener *inside* the

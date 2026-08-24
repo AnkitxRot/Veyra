@@ -857,3 +857,101 @@ describe("AI apply-patch: stale-patch conflict detection", () => {
     expect(res.data.error.code).toBe("invalid_base_revision");
   });
 });
+
+// ---------------------------------------------------------------------------
+// M1 "save-truthfulness" backend contract.
+//
+// The frontend now persists whatever bytes the live editor model holds; this
+// suite pins the server half of that contract: POST /file must store exactly
+// the posted string and an immediate GET must return it byte-identically,
+// including unicode, missing trailing newlines, and CRLF endings. Isolated
+// `contract/` paths avoid collisions with the shared main.py fixtures above
+// (which are moved and deleted by earlier tests in this file).
+// ---------------------------------------------------------------------------
+describe("save-truthfulness backend contract (M1)", () => {
+  const readBack = async (path: string) =>
+    api.request(
+      "GET",
+      `/api/projects/${projectId}/file?path=${encodeURIComponent(path)}`,
+      { token },
+    );
+
+  it("persists exactly the bytes posted and reads them back byte-identically", async () => {
+    const path = "contract/probe.txt";
+    // Deliberate adversarial payload: BOM-free unicode, a lambda, emoji,
+    // internal blank line, and NO trailing newline — none of which may be
+    // normalized, trimmed, or re-encoded anywhere on the save path.
+    const payload = [
+      "// M1 canonical save contract probe",
+      "const λ = 'üñíçø∂é → ✅';",
+      "",
+      "function trailing(noNewlineAtEof){return 1}",
+    ].join("\n");
+
+    const write = await api.request(
+      "POST",
+      `/api/projects/${projectId}/file`,
+      { token, body: { path, content: payload } },
+    );
+    expect(write.status).toBe(200);
+
+    const read = await readBack(path);
+    expect(read.status).toBe(200);
+    expect(read.data.content).toBe(payload);
+    expect(read.data.size).toBe(Buffer.byteLength(payload, "utf8"));
+  });
+
+  it("round-trips CRLF line endings without normalization", async () => {
+    const path = "contract/crlf.txt";
+    const payload = "line1\r\nline2\r\n";
+
+    const write = await api.request(
+      "POST",
+      `/api/projects/${projectId}/file`,
+      { token, body: { path, content: payload } },
+    );
+    expect(write.status).toBe(200);
+
+    const read = await readBack(path);
+    expect(read.status).toBe(200);
+    expect(read.data.content).toBe(payload);
+    expect(read.data.size).toBe(Buffer.byteLength(payload, "utf8"));
+  });
+
+  it("an identical overwrite save is stable (idempotent re-save of the same bytes)", async () => {
+    const path = "contract/stable.txt";
+    const payload = "stable content\nno edits between saves\n";
+
+    for (let i = 0; i < 2; i++) {
+      const write = await api.request(
+        "POST",
+        `/api/projects/${projectId}/file`,
+        { token, body: { path, content: payload } },
+      );
+      expect(write.status).toBe(200);
+    }
+
+    const read = await readBack(path);
+    expect(read.status).toBe(200);
+    expect(read.data.content).toBe(payload);
+  });
+
+  it("a second save over different content fully replaces the first (no merge/append artifacts)", async () => {
+    const path = "contract/replace.txt";
+    const first = "export const version = 1;\n";
+    const second = "export const version = 2;\nexport const extra = true;\n";
+
+    await api.request("POST", `/api/projects/${projectId}/file`, {
+      token,
+      body: { path, content: first },
+    });
+    await api.request("POST", `/api/projects/${projectId}/file`, {
+      token,
+      body: { path, content: second },
+    });
+
+    const read = await readBack(path);
+    expect(read.status).toBe(200);
+    expect(read.data.content).toBe(second);
+  });
+});

@@ -5,8 +5,16 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
 import { isDockerRunning, isRunnerImageAvailable } from "../tools.js";
 import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
+import { RunGate } from "./runGate.js";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Per-owner live-sandbox count, separate from the global `maxSandboxes`
+ * safety cap. Exported so tests can inspect/reset it directly (mirrors how
+ * `getHeartbeatController` is exposed for the same reason in ws/index.ts).
+ */
+export const sandboxGate = new RunGate();
 
 export interface SandboxController {
   writeStdin(data: string): void;
@@ -26,6 +34,10 @@ export interface SandboxOptions {
   timeoutMs: number;
   kind: "run" | "build";
   config: AppConfig;
+  /** Charged against the per-owner sandbox quota if this call actually
+   *  creates a new container (a no-op when the project's sandbox already
+   *  exists and is running). */
+  userId: number;
 }
 
 export interface SandboxResult {
@@ -72,10 +84,36 @@ export class SandboxManager {
   private static instance: SandboxManager;
   private projectContainers = new Map<
     string,
-    { containerId: string; ports: Record<number, number>; lastUsed: number }
+    {
+      containerId: string;
+      ports: Record<number, number>;
+      lastUsed: number;
+      /** Owner charged against `sandboxGate` for this live container.
+       *  Undefined only for entries adopted by `reconcile()` when the
+       *  owning project's row could not be resolved. */
+      ownerId: number | undefined;
+    }
   >();
   /** In-flight creation sequences keyed by projectId, so concurrent callers share one `docker run`. */
   private creating = new Map<string, Promise<string>>();
+  /**
+   * Serializes sandbox *lifecycle* operations (the create-or-reuse decision
+   * in ensureProjectSandbox, and teardown in stopProjectSandbox) per
+   * projectId, so ownership accounting for the same project never executes
+   * concurrently — different projectIds remain fully independent.
+   *
+   * This exists specifically to prevent a double-release of sandboxGate: an
+   * ensureProjectSandbox() call that observes a container as stale (crashed,
+   * externally removed) releases that dead entry's owner slot, and a
+   * stopProjectSandbox() teardown also releases its captured owner's slot.
+   * Without serialization, either pairing (stop racing a stale-triggering
+   * ensure, or two concurrent stops) can both fire for the same live
+   * container, releasing one owner's quota slot twice. A one-shot "wait if
+   * something is already in flight" check does not close this — the other
+   * operation can just as easily start *during* an await inside the first
+   * one's critical section. Only strict per-project mutual exclusion does.
+   */
+  private lifecycleTail = new Map<string, Promise<void>>();
   private reaperTimer: NodeJS.Timeout | null = null;
 
   static getInstance(): SandboxManager {
@@ -83,10 +121,51 @@ export class SandboxManager {
     return this.instance;
   }
 
+  /** Runs `fn` exclusively for `projectId`: queued behind any other
+   *  lifecycle operation already running for the same project, but never
+   *  blocked by activity on a different project. */
+  private async withProjectLock<T>(
+    projectId: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const prior = this.lifecycleTail.get(projectId) ?? Promise.resolve();
+    let releaseNext!: () => void;
+    const next = new Promise<void>((resolve) => {
+      releaseNext = resolve;
+    });
+    // Publish our slot in the queue before awaiting `prior`, so any caller
+    // arriving synchronously right after us chains behind `next`, not
+    // behind `prior` again.
+    this.lifecycleTail.set(projectId, next);
+    await prior;
+    try {
+      return await fn();
+    } finally {
+      releaseNext();
+      // Only the last queued operation cleans up, so the map doesn't retain
+      // a stale tail entry once every queued operation has finished.
+      if (this.lifecycleTail.get(projectId) === next) {
+        this.lifecycleTail.delete(projectId);
+      }
+    }
+  }
+
   async ensureProjectSandbox(
     projectId: string,
     config: AppConfig,
     workspaceDir: string,
+    userId: number,
+  ): Promise<string> {
+    return this.withProjectLock(projectId, () =>
+      this.doEnsureProjectSandbox(projectId, config, workspaceDir, userId),
+    );
+  }
+
+  private async doEnsureProjectSandbox(
+    projectId: string,
+    config: AppConfig,
+    workspaceDir: string,
+    userId: number,
   ): Promise<string> {
     const existing = this.projectContainers.get(projectId);
     if (existing) {
@@ -118,6 +197,8 @@ export class SandboxManager {
       config,
       workspaceDir,
       existing !== undefined,
+      userId,
+      existing?.ownerId,
     ).finally(() => {
       this.creating.delete(projectId);
     });
@@ -130,7 +211,23 @@ export class SandboxManager {
     config: AppConfig,
     workspaceDir: string,
     hasStaleEntry: boolean,
+    userId: number,
+    staleOwnerId: number | undefined,
   ): Promise<string> {
+    // The previously tracked container for this project (if any) was found
+    // not-running above — it died outside our control (crash, manual `docker
+    // rm`, host restart without a clean stopProjectSandbox call). Free its
+    // owner's per-user slot now. This function body runs at most once per
+    // in-flight creation window (deduped via `this.creating`), so this can
+    // never double-release even under concurrent callers.
+    if (staleOwnerId !== undefined) {
+      sandboxGate.release(staleOwnerId);
+      // Drop the dead entry now, not just on success below — otherwise a
+      // later stopProjectSandbox() call (e.g. this creation subsequently
+      // fails) would still find it and release staleOwnerId a second time.
+      this.projectContainers.delete(projectId);
+    }
+
     if (!hasStaleEntry && this.projectContainers.size >= config.maxSandboxes) {
       await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs);
       if (this.projectContainers.size >= config.maxSandboxes) {
@@ -138,6 +235,46 @@ export class SandboxManager {
       }
     }
 
+    if (!sandboxGate.acquire(userId, config.maxSandboxesPerUser)) {
+      throw new Error(
+        `per-user sandbox limit reached (max ${config.maxSandboxesPerUser})`,
+      );
+    }
+
+    // From here on, every exit path must either reach the success
+    // `projectContainers.set()` below or release the per-user slot just
+    // acquired — a failed creation must never permanently consume quota.
+    let containerId: string;
+    let portMapping: Record<number, number>;
+    try {
+      const provisioned = await this.provisionContainer(
+        projectId,
+        config,
+        workspaceDir,
+      );
+      containerId = provisioned.containerId;
+      portMapping = provisioned.portMapping;
+    } catch (err) {
+      sandboxGate.release(userId);
+      throw err;
+    }
+
+    this.projectContainers.set(projectId, {
+      containerId,
+      ports: portMapping,
+      lastUsed: Date.now(),
+      ownerId: userId,
+    });
+    return containerId;
+  }
+
+  /** Docker provisioning steps only — no gate/map bookkeeping, so callers
+   *  can wrap this precisely in a release-on-failure try/catch. */
+  private async provisionContainer(
+    projectId: string,
+    config: AppConfig,
+    workspaceDir: string,
+  ): Promise<{ containerId: string; portMapping: Record<number, number> }> {
     if (!isDockerRunning()) throw new Error("Docker daemon is not running");
     if (!isRunnerImageAvailable())
       throw new Error("cloudeeeide-runner:latest is not available");
@@ -226,24 +363,20 @@ export class SandboxManager {
       }
     }
 
-    this.projectContainers.set(projectId, {
-      containerId,
-      ports: portMapping,
-      lastUsed: Date.now(),
-    });
-    return containerId;
+    return { containerId, portMapping };
   }
 
   async stopProjectSandbox(projectId: string): Promise<void> {
-    // If a creation is still in flight for this project, let it settle
-    // first. Otherwise a creation that finishes after this stop would
-    // silently resurrect the container/entry the caller just tore down
-    // (docker run completing, then `projectContainers.set()` re-adding it).
-    const inFlight = this.creating.get(projectId);
-    if (inFlight) {
-      await inFlight.catch(() => {});
-    }
+    // Queued behind any other lifecycle operation for this project (an
+    // in-flight ensureProjectSandbox(), or another stopProjectSandbox()) via
+    // the same lock ensureProjectSandbox uses — see withProjectLock's doc
+    // comment. This is what makes "capture info, await docker calls, release
+    // the owner's slot" safe: nothing else can be mid-way through its own
+    // capture-and-release for this projectId while we run.
+    return this.withProjectLock(projectId, () => this.performStop(projectId));
+  }
 
+  private async performStop(projectId: string): Promise<void> {
     const info = this.projectContainers.get(projectId);
     const cid = info ? info.containerId : `ide-sandbox-${projectId}`;
     try {
@@ -252,6 +385,12 @@ export class SandboxManager {
     try {
       await execFileAsync("docker", ["network", "rm", `ide-net-${projectId}`]);
     } catch {}
+    // Release exactly once: `this.projectContainers.delete` below removes the
+    // entry, so a repeat stopProjectSandbox() call on the same projectId
+    // finds no `info` and correctly does nothing here.
+    if (info && info.ownerId !== undefined) {
+      sandboxGate.release(info.ownerId);
+    }
     this.projectContainers.delete(projectId);
     this.connectedNetworks.delete(projectId);
   }
@@ -292,6 +431,9 @@ export class SandboxManager {
         } catch {}
       }
     } catch {}
+    for (const info of this.projectContainers.values()) {
+      if (info.ownerId !== undefined) sandboxGate.release(info.ownerId);
+    }
     this.projectContainers.clear();
   }
 
@@ -402,6 +544,15 @@ export class SandboxManager {
     const reaped: string[] = [];
     for (const [projectId, info] of [...this.projectContainers.entries()]) {
       if (now - info.lastUsed >= idleTimeoutMs) {
+        // Skip a project with an in-flight lifecycle operation rather than
+        // queuing behind it: this method can itself be called from inside
+        // ensureProjectSandbox's own lock-held cap-pressure check (a
+        // different projectId), and blocking here on another project's lock
+        // while *our* caller holds ours would risk two projects reaping each
+        // other at the same instant and deadlocking. A project actively
+        // mid-creation/teardown isn't meaningfully "idle" anyway — it'll be
+        // picked up by the next reap pass once it settles.
+        if (this.lifecycleTail.has(projectId)) continue;
         await this.stopProjectSandbox(projectId);
         reaped.push(projectId);
       }
@@ -539,6 +690,13 @@ export class SandboxManager {
       return row !== undefined;
     };
 
+    const ownerOf = (projectId: string): number | undefined => {
+      const row = db
+        .prepare("SELECT owner_id FROM projects WHERE id = ?")
+        .get(projectId) as { owner_id?: number } | undefined;
+      return row?.owner_id;
+    };
+
     for (const line of listing.split("\n")) {
       const [name, state] = line.split("\t");
       if (!name || !name.startsWith("ide-sandbox-")) continue;
@@ -550,10 +708,23 @@ export class SandboxManager {
       }
       if (state?.trim().toLowerCase() === "running") {
         const ports = await this.readPortMapping(name);
+        const ownerId = ownerOf(projectId);
+        // Only account for a container the first time this process adopts
+        // it — reconcile() re-running (e.g. a future periodic health pass)
+        // must not re-increment sandboxGate for a container it already
+        // knows about. Adopting a container that already exists from a
+        // prior process life must still reflect reality in sandboxGate,
+        // regardless of the current per-user max: this is accounting for
+        // an already-live resource, not a new creation request to admit or
+        // reject, so acquire() uses an unbounded ceiling.
+        if (ownerId !== undefined && !this.projectContainers.has(projectId)) {
+          sandboxGate.acquire(ownerId, Number.POSITIVE_INFINITY);
+        }
         this.projectContainers.set(projectId, {
           containerId: name,
           ports,
           lastUsed: Date.now(),
+          ownerId,
         });
       }
     }
@@ -610,6 +781,7 @@ export async function sandboxRun(
       projectId,
       opts.config,
       workspaceDir,
+      opts.userId,
     );
     sandboxManager.touch(projectId);
   } catch (err: any) {

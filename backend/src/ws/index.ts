@@ -1,4 +1,5 @@
 import { WebSocketServer } from "ws";
+import type { WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import { parse } from "node:url";
 import type { Db } from "../db.js";
@@ -18,14 +19,177 @@ import {
   unregisterProxySocket,
 } from "./connectionRegistry.js";
 
+// ---------------------------------------------------------------------------
+// M3 (BUG-4): WebSocket hardening — payload limits + heartbeat reaper.
+//
+// Two failure classes are closed here:
+//  1. Frame-size abuse: without `maxPayload`, ws accepts ~100 MiB frames,
+//     letting any authenticated socket allocate unbounded memory before any
+//     handler runs. The limit now matches the REST JSON body budget (1 MiB);
+//     violations fail the connection with standard close code 1009.
+//  2. Dead peers: half-open TCP connections (sleep, NAT drops, crashes) held
+//     PTY terminals, room seats, and registry entries until OS-level timeouts
+//     fired. A server-initiated ping/pong sweep now detects non-responders
+//     within two intervals and terminates them; existing per-route
+//     close/error handlers perform the actual resource cleanup.
+//
+// Design notes:
+//  - Controller + socket metadata live in module-level WeakMaps so multiple
+//    server instances (tests!) never contaminate each other and finished
+//    sockets are GC-able without manual deregistration.
+//  - The public signature of setupWebSocketServer is unchanged; cadence is
+//    configured via WS_HEARTBEAT_INTERVAL_MS (read at start()).
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_WS_MAX_PAYLOAD = 1024 * 1024; // 1 MiB
+export const DEFAULT_WS_HEARTBEAT_INTERVAL_MS = 30_000;
+
+export interface HeartbeatController {
+  /** Idempotently arms the periodic sweep (no-op while already running). */
+  start(): void;
+  /** Clears the interval. Safe to call repeatedly; sweep() stays usable. */
+  stop(): void;
+  /** Synchronous single pass over wss.clients — deterministic testing hook
+   *  and the primitive the interval drives in production. */
+  sweep(): void;
+}
+
+interface SocketMetadata {
+  isAlive: boolean;
+  pathname?: string;
+  userId?: string;
+}
+
+const heartbeatControllers = new WeakMap<
+  WebSocketServer,
+  HeartbeatController
+>();
+const socketMeta = new WeakMap<WebSocket, SocketMetadata>();
+
+function resolveHeartbeatIntervalMs(): number {
+  const raw = Number(process.env.WS_HEARTBEAT_INTERVAL_MS);
+  return Number.isFinite(raw) && raw > 0
+    ? raw
+    : DEFAULT_WS_HEARTBEAT_INTERVAL_MS;
+}
+
+/**
+ * Registers a freshly upgraded WebSocket with the heartbeat subsystem:
+ * seeds liveness metadata, refreshes it on pong, and adds an observational
+ * error listener that attributes frame-limit violations (the socket's own
+ * route handler remains responsible for teardown/logging semantics).
+ */
+function adoptClient(
+  ws: WebSocket,
+  meta: Omit<SocketMetadata, "isAlive">,
+): void {
+  socketMeta.set(ws, { isAlive: true, ...meta });
+
+  ws.on("pong", () => {
+    const m = socketMeta.get(ws);
+    if (m) m.isAlive = true;
+  });
+
+  // Observational only: oversized frames make ws emit a RangeError
+  // (code WS_ERR_UNSUPPORTED_MESSAGE_LENGTH) and fail the connection with
+  // 1009 on its own. We log attribution here so abuse is traceable without
+  // altering the route-specific error handling that already exists.
+  ws.on("error", (err) => {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === "string" && code.startsWith("WS_ERR_")) {
+      const m = socketMeta.get(ws);
+      console.warn(
+        "[ws] frame_limit_violation",
+        JSON.stringify({
+          event: "ws_frame_limit_violation",
+          code,
+          message: err instanceof Error ? err.message : String(err),
+          pathname: m?.pathname ?? null,
+          userId: m?.userId ?? null,
+        }),
+      );
+    }
+  });
+}
+
+function createHeartbeatController(wss: WebSocketServer): HeartbeatController {
+  let timer: NodeJS.Timeout | null = null;
+
+  const sweep = (): void => {
+    for (const client of wss.clients) {
+      const meta = socketMeta.get(client);
+      if (!meta) continue; // foreign/unmanaged socket (e.g. raw proxy pipe)
+
+      if (meta.isAlive === false) {
+        console.warn(
+          "[ws] heartbeat timeout",
+          JSON.stringify({
+            event: "ws_heartbeat_timeout",
+            pathname: meta.pathname ?? null,
+            userId: meta.userId ?? null,
+            reason: "heartbeat_timeout",
+          }),
+        );
+        try {
+          client.terminate();
+        } catch {}
+      } else {
+        meta.isAlive = false;
+        try {
+          client.ping();
+        } catch {
+          try {
+            client.terminate();
+          } catch {}
+        }
+      }
+    }
+  };
+
+  const stop = (): void => {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+
+  const start = (): void => {
+    if (!timer) {
+      timer = setInterval(sweep, resolveHeartbeatIntervalMs());
+      // Never hold the process open on our account; performGracefulShutdown
+      // additionally stops us explicitly.
+      timer.unref?.();
+    }
+  };
+
+  return { start, stop, sweep };
+}
+
+/**
+ * Returns the heartbeat controller bound to this server instance, or
+ * undefined when the server was not created through setupWebSocketServer.
+ */
+export function getHeartbeatController(
+  wss: WebSocketServer,
+): HeartbeatController | undefined {
+  return heartbeatControllers.get(wss);
+}
+
 export function setupWebSocketServer(
   server: any,
   db: Db,
   cfg: AppConfig,
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: DEFAULT_WS_MAX_PAYLOAD,
+  });
   const adminStreamManager = AdminTelemetryStreamManager.getInstance();
   adminStreamManager.init(db, cfg);
+
+  const heartbeat = createHeartbeatController(wss);
+  heartbeatControllers.set(wss, heartbeat);
+  heartbeat.start();
 
   server.on(
     "upgrade",
@@ -79,6 +243,10 @@ export function setupWebSocketServer(
         }
 
         wss.handleUpgrade(req, socket, head, (ws) => {
+          adoptClient(ws, {
+            pathname: pathname ?? undefined,
+            userId: String(row.id),
+          });
           registerConnection(row.id, ws);
           ws.on("close", () => unregisterConnection(row.id, ws));
           // Own the 'error' path here rather than relying on addClient()
@@ -165,6 +333,10 @@ export function setupWebSocketServer(
       if (pathname === "/ws/collab") {
         const room = collaborationManager.getOrCreateRoom(projectId);
         wss.handleUpgrade(req, socket, head, (ws) => {
+          adoptClient(ws, {
+            pathname: pathname ?? undefined,
+            userId: String(row.id),
+          });
           registerConnection(row.id, ws);
           room.addClient(ws, {
             userId: row.id,
@@ -189,6 +361,10 @@ export function setupWebSocketServer(
         });
       } else if (pathname === "/ws/terminal") {
         wss.handleUpgrade(req, socket, head, (ws) => {
+          adoptClient(ws, {
+            pathname: pathname ?? undefined,
+            userId: String(row.id),
+          });
           registerConnection(row.id, ws);
           ws.on("close", () => unregisterConnection(row.id, ws));
           // ws (the library) throws and crashes the process on an 'error'
@@ -199,13 +375,17 @@ export function setupWebSocketServer(
             console.error("[ws] terminal socket error:", err);
             unregisterConnection(row.id, ws);
           });
-          handleTerminalConnection(ws, projectId, cfg).catch((err) => {
+          handleTerminalConnection(ws, projectId, cfg, row.id).catch((err) => {
             console.error("[ws] terminal connection error:", err);
             ws.close();
           });
         });
       } else if (pathname === "/ws/execute") {
         wss.handleUpgrade(req, socket, head, (ws) => {
+          adoptClient(ws, {
+            pathname: pathname ?? undefined,
+            userId: String(row.id),
+          });
           registerConnection(row.id, ws);
           ws.on("close", () => unregisterConnection(row.id, ws));
           ws.on("error", (err) => {

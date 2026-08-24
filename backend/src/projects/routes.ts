@@ -649,6 +649,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         const result = await runProject(cfg, project.id, cwd, {
           language,
           stdin,
+          userId,
         });
         res.json(result);
       } finally {
@@ -698,6 +699,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           timeoutMs: 60000,
           kind: "build",
           config: cfg,
+          userId,
           onStdout: (data) => res.write(data),
           onStderr: (data) => res.write(data),
         });

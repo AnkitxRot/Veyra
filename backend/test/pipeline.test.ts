@@ -133,6 +133,7 @@ describe("runProject compile-phase cancellation wiring", () => {
         onController,
         onStdout: vi.fn(),
         onStderr: vi.fn(),
+        userId: 1,
       });
 
       const compileCall = calls.find((c) => c.kind === "build");

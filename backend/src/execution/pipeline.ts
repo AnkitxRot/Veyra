@@ -39,6 +39,8 @@ interface RunSpec {
   onStatus?: (data: string) => void;
   onController?: (ctrl: SandboxController) => void;
   isCancelled?: () => boolean;
+  /** Charged against the per-owner sandbox quota — see SandboxOptions.userId. */
+  userId: number;
 }
 
 export async function runProject(
@@ -157,6 +159,7 @@ export async function runProject(
       kind: "build",
       timeoutMs: cfg.buildTimeoutMs,
       config: cfg,
+      userId: spec.userId,
     });
     if (compileRes.exitCode !== 0) {
       await fs.rm(buildDir, { recursive: true, force: true });
@@ -190,6 +193,7 @@ export async function runProject(
     kind: "run",
     timeoutMs: cfg.runTimeoutMs,
     config: cfg,
+    userId: spec.userId,
   });
 
   if (lang.compile) {

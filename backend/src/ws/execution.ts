@@ -82,6 +82,7 @@ export async function handleExecutionConnection(
           const result = await runProject(cfg, projectId, cwd, {
             language: parsed.language,
             activeFile: parsed.activeFile,
+            userId,
             onStdout: (data) => {
               if (ws.readyState === ws.OPEN)
                 ws.send(JSON.stringify({ type: "stdout", data }));

@@ -3,12 +3,46 @@ import * as pty from "node-pty";
 import type { AppConfig } from "../config.js";
 import { workspacePath } from "../projects/service.js";
 import { sandboxManager } from "../execution/sandbox.js";
+import { RunGate } from "../execution/runGate.js";
+
+/**
+ * Per-user concurrent terminal PTY count. Separate resource class from
+ * `sandboxGate` (sandbox.ts) — a user can have many terminal tabs open
+ * against one project's single sandbox — same reasoning as searchGate being
+ * separate from runGate. Exported so tests can inspect/reset it directly.
+ */
+export const terminalGate = new RunGate();
 
 export async function handleTerminalConnection(
   ws: WebSocket,
   projectId: string,
   cfg: AppConfig,
+  userId: number,
 ): Promise<void> {
+  if (!terminalGate.acquire(userId, cfg.maxTerminalsPerUser)) {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "data",
+          data: `[terminal] too many concurrent terminals (max ${cfg.maxTerminalsPerUser})\r\n`,
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
+
+  // Every exit path below — sandbox failure, disconnect-during-startup,
+  // normal close, socket error — must release exactly once. Guard with a
+  // flag rather than relying on a single call site, since 'close' and
+  // 'error' can both fire for the same connection.
+  let permitReleased = false;
+  const releasePermit = () => {
+    if (permitReleased) return;
+    permitReleased = true;
+    terminalGate.release(userId);
+  };
+
   const cwd = await workspacePath(cfg, projectId);
 
   let containerId: string;
@@ -17,8 +51,10 @@ export async function handleTerminalConnection(
       projectId,
       cfg,
       cwd,
+      userId,
     );
   } catch (err: any) {
+    releasePermit();
     if (ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
@@ -35,6 +71,7 @@ export async function handleTerminalConnection(
   // ws 'close' listener below is registered too late to ever see that event, so
   // spawning here would leak an orphaned `docker exec` shell nobody kills.
   if (ws.readyState !== ws.OPEN) {
+    releasePermit();
     return;
   }
 
@@ -73,9 +110,18 @@ export async function handleTerminalConnection(
     }
   });
 
-  ws.on("close", () => {
+  // Both 'close' and 'error' can fire for the same connection (an abrupt
+  // socket error isn't always followed by 'close' promptly); guard the
+  // whole teardown once so the pty is never signaled twice.
+  let torndown = false;
+  const teardown = () => {
+    if (torndown) return;
+    torndown = true;
+    releasePermit();
     ptyProcess.kill();
-  });
+  };
+  ws.on("close", teardown);
+  ws.on("error", teardown);
 
   ptyProcess.onExit(() => {
     if (ws.readyState === ws.OPEN) {
