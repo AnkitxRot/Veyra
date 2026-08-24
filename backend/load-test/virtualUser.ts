@@ -23,7 +23,9 @@ export type BehaviorName =
   | "execution_heavy"
   | "preview_heavy"
   | "reconnecting"
-  | "rapid_typing";
+  | "rapid_typing"
+  | "file_save_heavy"
+  | "metadata_write_heavy";
 
 export interface VirtualUserContext {
   baseUrl: string;
@@ -33,6 +35,13 @@ export interface VirtualUserContext {
   vuIndex: number;
   /** Pre-shared project ids for "busy_room" / "collab_pair" concentration. */
   sharedProjectIds: string[];
+  /**
+   * M5c write-contention cross-check only: when set, "file_save_heavy" VUs
+   * write to this single pre-existing project/file instead of each creating
+   * their own — concentrates every write onto the same DB row/file to
+   * isolate write serialization from ordinary cross-project write spread.
+   */
+  sharedWriteTarget?: { projectId: string; path: string };
 }
 
 function classifyStatus(status: number, bodyText: string): Outcome {
@@ -180,6 +189,93 @@ async function runActiveEditor(
     );
     ctx.metrics.saveLatency.record(performance.now() - start);
     await sleep(jitter(2000, 1500), ctx.signal);
+  }
+}
+
+/**
+ * M5c write-contention workload: near-continuous real file saves (real
+ * `UPDATE projects` + real file write per call, same endpoint as
+ * runActiveEditor but at a much shorter interval — this is deliberately
+ * concentrated write pressure, not an approximation of ordinary typing).
+ * When `ctx.sharedWriteTarget` is set (the burst cross-check), every VU
+ * writes to the SAME project/file instead of its own, to isolate write
+ * serialization from cross-project write spread.
+ */
+async function runFileSaveHeavy(
+  ctx: VirtualUserContext,
+  token: string,
+): Promise<void> {
+  const target = ctx.sharedWriteTarget
+    ? ctx.sharedWriteTarget
+    : { projectId: await createProject(ctx, token), path: "main.py" };
+  if (!target.projectId) return;
+  let n = 0;
+  while (!ctx.signal.aborted) {
+    n++;
+    const start = performance.now();
+    await timedFetch(
+      ctx,
+      "file_save_heavy",
+      `${ctx.baseUrl}/api/projects/${target.projectId}/file`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          path: target.path,
+          content: `print("vu${ctx.vuIndex} edit ${n} at ${Date.now()}")\n`,
+        }),
+      },
+    );
+    ctx.metrics.saveLatency.record(performance.now() - start);
+    await sleep(jitter(150, 150), ctx.signal);
+  }
+}
+
+/**
+ * M5c write-contention workload: repeated real snapshot creation — a real
+ * INSERT into the `snapshots` table (a different table than file saves
+ * touch) plus real gzip + filesystem work, exercising a distinct write path
+ * under the same SQLite connection.
+ */
+async function runMetadataWriteHeavy(
+  ctx: VirtualUserContext,
+  token: string,
+): Promise<void> {
+  const projectId = await createProject(ctx, token);
+  if (!projectId) return;
+  await timedFetch(
+    ctx,
+    "file_save",
+    `${ctx.baseUrl}/api/projects/${projectId}/file`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ path: "main.py", content: "print('seed')\n" }),
+    },
+  );
+  let n = 0;
+  while (!ctx.signal.aborted) {
+    n++;
+    await timedFetch(
+      ctx,
+      "snapshot_create",
+      `${ctx.baseUrl}/api/projects/${projectId}/snapshots`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: `snap-${n}` }),
+      },
+    );
+    await sleep(jitter(800, 600), ctx.signal);
   }
 }
 
@@ -412,16 +508,34 @@ export async function runEditToPeerProbe(
 export async function runVirtualUser(
   behavior: BehaviorName,
   ctx: VirtualUserContext,
+  /**
+   * M5c write-burst cross-check only: when set, skips per-VU registration
+   * and reuses this already-authenticated token instead. The shared write
+   * target project is owned by this same identity, so every burst VU has
+   * genuine edit access to it — without this, distinct freshly-registered
+   * VUs would get 403s writing to a project they were never granted access
+   * to, which is a test-setup gap, not real DB contention evidence.
+   */
+  presetToken?: string,
 ): Promise<void> {
-  const identity = await registerAndLogin(ctx);
-  if (!identity) return;
-  const { token } = identity;
+  let token: string;
+  if (presetToken) {
+    token = presetToken;
+  } else {
+    const identity = await registerAndLogin(ctx);
+    if (!identity) return;
+    token = identity.token;
+  }
 
   switch (behavior) {
     case "idle":
       return runIdle(ctx, token);
     case "active_editor":
       return runActiveEditor(ctx, token);
+    case "file_save_heavy":
+      return runFileSaveHeavy(ctx, token);
+    case "metadata_write_heavy":
+      return runMetadataWriteHeavy(ctx, token);
     case "execution_heavy":
       return runExecutionHeavy(ctx, token);
     case "preview_heavy":

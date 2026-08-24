@@ -1,13 +1,19 @@
-// M5a load harness CLI. Boots a real in-process backend instance, ramps a
-// weighted mix of virtual users per the Milestone 5 architecture report's
-// §5 behavior model, holds steady state, ramps down, and writes a bounded
-// JSON + Markdown evidence report to load-test/results/.
+// M5a/M5c load harness CLI. Boots a real in-process backend instance, ramps
+// a weighted mix of virtual users, holds steady state, ramps down, and
+// writes a bounded JSON + Markdown evidence report to load-test/results/.
 //
-// Usage:
+// Usage (M5a general mix):
 //   npx tsx load-test/run.ts --level 1  --users 1  --ramp 30 --steady 60  --rampdown 15
 //   npx tsx load-test/run.ts --level 10 --users 10 --ramp 30 --steady 90  --rampdown 15
 //   npx tsx load-test/run.ts --level 50 --users 50 --ramp 30 --steady 120 --rampdown 15
 //   npx tsx load-test/run.ts --level 50-burst --users 50 --burst --steady 30
+//
+// Usage (M5c write-contention mix — deliberately write-heavy, not ordinary
+// user behavior; see CONTENTION_WEIGHTS below):
+//   npx tsx load-test/run.ts --level write-10  --users 10  --contention --ramp 60 --steady 300 --rampdown 60
+//   npx tsx load-test/run.ts --level write-50  --users 50  --contention --ramp 60 --steady 300 --rampdown 60
+//   npx tsx load-test/run.ts --level write-100 --users 100 --contention --ramp 60 --steady 300 --rampdown 60
+//   npx tsx load-test/run.ts --level write-burst-100 --users 100 --contention --burst --write-burst --steady 30 --rampdown 60
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,7 +43,22 @@ const BEHAVIOR_WEIGHTS: [BehaviorName, number][] = [
   ["reconnecting", 3],
   ["rapid_typing", 2],
 ];
-const TOTAL_WEIGHT = BEHAVIOR_WEIGHTS.reduce((s, [, w]) => s + w, 0);
+
+// M5c: deliberately concentrates writes rather than approximating ordinary
+// user behavior — the point is to characterize DatabaseSync under
+// contention, not to model a realistic traffic mix. "active collaborative"
+// reuses busy_room (shared-room Yjs edits); "read-heavy" reuses
+// preview_heavy (real SELECT-backed tree/stats reads, no writes at all —
+// this is what tests whether WAL's concurrent-reader guarantee actually
+// holds up against simultaneous writers).
+const CONTENTION_WEIGHTS: [BehaviorName, number][] = [
+  ["file_save_heavy", 40],
+  ["metadata_write_heavy", 20],
+  ["execution_heavy", 15],
+  ["busy_room", 10],
+  ["preview_heavy", 10],
+  ["reconnecting", 5],
+];
 
 /**
  * Smooth weighted round-robin: at each slot, pick whichever behavior is
@@ -47,15 +68,18 @@ const TOTAL_WEIGHT = BEHAVIOR_WEIGHTS.reduce((s, [, w]) => s + w, 0);
  * of ANY run all "idle" regardless of total user count. Deterministic and
  * reproducible from (users, vuIndex) alone — no RNG.
  */
-function buildWeightedPattern(): BehaviorName[] {
+function buildWeightedPattern(
+  weights: [BehaviorName, number][],
+): BehaviorName[] {
+  const total = weights.reduce((s, [, w]) => s + w, 0);
   const pattern: BehaviorName[] = [];
-  const assigned = BEHAVIOR_WEIGHTS.map(() => 0);
-  for (let slot = 1; slot <= TOTAL_WEIGHT; slot++) {
+  const assigned = weights.map(() => 0);
+  for (let slot = 1; slot <= total; slot++) {
     let bestIdx = 0;
     let bestDeficit = -Infinity;
-    for (let i = 0; i < BEHAVIOR_WEIGHTS.length; i++) {
-      const weight = BEHAVIOR_WEIGHTS[i][1];
-      const target = (weight / TOTAL_WEIGHT) * slot;
+    for (let i = 0; i < weights.length; i++) {
+      const weight = weights[i][1];
+      const target = (weight / total) * slot;
       const deficit = target - assigned[i];
       if (deficit > bestDeficit) {
         bestDeficit = deficit;
@@ -63,14 +87,16 @@ function buildWeightedPattern(): BehaviorName[] {
       }
     }
     assigned[bestIdx]++;
-    pattern.push(BEHAVIOR_WEIGHTS[bestIdx][0]);
+    pattern.push(weights[bestIdx][0]);
   }
   return pattern;
 }
-const WEIGHTED_PATTERN = buildWeightedPattern();
+const WEIGHTED_PATTERN = buildWeightedPattern(BEHAVIOR_WEIGHTS);
+const CONTENTION_PATTERN = buildWeightedPattern(CONTENTION_WEIGHTS);
 
-function pickBehavior(vuIndex: number): BehaviorName {
-  return WEIGHTED_PATTERN[vuIndex % WEIGHTED_PATTERN.length];
+function pickBehavior(vuIndex: number, contention: boolean): BehaviorName {
+  const pattern = contention ? CONTENTION_PATTERN : WEIGHTED_PATTERN;
+  return pattern[vuIndex % pattern.length];
 }
 
 interface Args {
@@ -92,6 +118,14 @@ interface Args {
    * second, explicitly-labeled data point isolating the other subsystems.
    */
   relaxAuthRateLimit: boolean;
+  /** M5c: use CONTENTION_WEIGHTS (deliberately write-heavy) instead of the
+   *  M5a general-mix BEHAVIOR_WEIGHTS. */
+  contention: boolean;
+  /** M5c cross-check only: in --burst mode, force every VU onto
+   *  file_save_heavy against one shared project/file instead of the
+   *  default burst assignment — isolates write serialization from ordinary
+   *  cross-project write spread. No effect without --burst. */
+  writeBurst: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -107,6 +141,8 @@ function parseArgs(argv: string[]): Args {
     rampdownSec: Number(get("--rampdown", "15")),
     burst: argv.includes("--burst"),
     relaxAuthRateLimit: argv.includes("--relax-auth-rate-limit"),
+    contention: argv.includes("--contention"),
+    writeBurst: argv.includes("--write-burst"),
   };
 }
 
@@ -132,6 +168,8 @@ async function main(): Promise<void> {
   // getting their own — this is what actually produces O(n) fan-out
   // pressure rather than N trivial 1-person rooms.
   const sharedProjectIds: string[] = [];
+  let sharedWriteTarget: { projectId: string; path: string } | undefined;
+  let seedToken = "";
   {
     const reg = (await fetch(`${server.baseUrl}/api/auth/register`, {
       method: "POST",
@@ -156,6 +194,7 @@ async function main(): Promise<void> {
       }).then((r) => r.json())) as { project?: { id: string } };
       if (proj?.project?.id) sharedProjectIds.push(proj.project.id);
     }
+    seedToken = reg.token;
 
     // Dedicated edit-to-peer latency probe, running for the whole test.
     if (sharedProjectIds[0]) {
@@ -172,6 +211,31 @@ async function main(): Promise<void> {
         sharedProjectIds[0],
       );
       controller.signal.addEventListener("abort", stopProbe);
+    }
+
+    // M5c write-burst cross-check only: one project/file every VU will
+    // write to simultaneously, to isolate write serialization from the
+    // ordinary cross-project write spread the ramped contention runs use.
+    if (args.writeBurst) {
+      const proj = (await fetch(`${server.baseUrl}/api/projects`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${reg.token}`,
+        },
+        body: JSON.stringify({ name: "shared-write-burst-target" }),
+      }).then((r) => r.json())) as { project?: { id: string } };
+      if (proj?.project?.id) {
+        sharedWriteTarget = { projectId: proj.project.id, path: "shared.py" };
+        await fetch(`${server.baseUrl}/api/projects/${proj.project.id}/file`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${reg.token}`,
+          },
+          body: JSON.stringify({ path: "shared.py", content: "seed\n" }),
+        });
+      }
     }
   }
 
@@ -190,13 +254,17 @@ async function main(): Promise<void> {
   const vus: Promise<void>[] = [];
 
   if (args.burst) {
-    // Zero ramp: every VU starts at once, targeting either a fresh project
-    // create+run (project-startup burst) or a save (save-cluster burst) —
-    // alternate so both burst scenarios from the report get real evidence
-    // in one pass.
+    // Zero ramp: every VU starts at once. Default burst assignment targets
+    // either a fresh project create+run (project-startup burst) or a save
+    // (save-cluster burst), alternating. --write-burst overrides this: every
+    // VU does file_save_heavy against the ONE shared project/file created
+    // above, to isolate write serialization (the M5c cross-check).
     for (let i = 0; i < args.users; i++) {
-      const behavior: BehaviorName =
-        i % 2 === 0 ? "execution_heavy" : "active_editor";
+      const behavior: BehaviorName = args.writeBurst
+        ? "file_save_heavy"
+        : i % 2 === 0
+          ? "execution_heavy"
+          : "active_editor";
       const ctx: VirtualUserContext = {
         baseUrl: server.baseUrl,
         wsBase: server.wsBase,
@@ -204,14 +272,21 @@ async function main(): Promise<void> {
         signal: controller.signal,
         vuIndex: i,
         sharedProjectIds,
+        sharedWriteTarget: args.writeBurst ? sharedWriteTarget : undefined,
       };
-      vus.push(runVirtualUser(behavior, ctx).catch(() => {}));
+      vus.push(
+        runVirtualUser(
+          behavior,
+          ctx,
+          args.writeBurst ? seedToken : undefined,
+        ).catch(() => {}),
+      );
     }
     await new Promise((r) => setTimeout(r, args.steadySec * 1000));
   } else {
     const rampMsPerUser = (args.rampSec * 1000) / Math.max(1, args.users);
     for (let i = 0; i < args.users; i++) {
-      const behavior = pickBehavior(i);
+      const behavior = pickBehavior(i, args.contention);
       const ctx: VirtualUserContext = {
         baseUrl: server.baseUrl,
         wsBase: server.wsBase,
@@ -223,7 +298,7 @@ async function main(): Promise<void> {
       vus.push(runVirtualUser(behavior, ctx).catch(() => {}));
       await new Promise((r) => setTimeout(r, rampMsPerUser));
     }
-    console.log(`[load-test] ramp-up complete, holding steady state`);
+    console.log(`[load-test] ramp-up (warm-up) complete, holding steady state`);
     await new Promise((r) => setTimeout(r, args.steadySec * 1000));
   }
 
@@ -274,6 +349,22 @@ export function renderMarkdown(report: any): string {
   );
   lines.push(`- Total duration: ${(report.durationMs / 1000).toFixed(1)}s`);
   lines.push(`- Rampdown wall time: ${(report.rampdownMs / 1000).toFixed(1)}s`);
+  lines.push("");
+
+  const durationSec = report.durationMs / 1000;
+  const totalSuccess = Object.values<any>(
+    report.metrics.byEndpointClass,
+  ).reduce((s, d) => s + d.outcomes.success, 0);
+  const totalDbCalls =
+    report.finalObservabilitySnapshot?.dbCalls?.overall?.count ?? 0;
+  lines.push("## Throughput");
+  lines.push("");
+  lines.push(
+    `- Successful requests/sec: ${(totalSuccess / durationSec).toFixed(1)} (${totalSuccess} over ${durationSec.toFixed(1)}s)`,
+  );
+  lines.push(
+    `- Completed DB operations/sec: ${(totalDbCalls / durationSec).toFixed(1)} (${totalDbCalls} over ${durationSec.toFixed(1)}s)`,
+  );
   lines.push("");
   lines.push("## Per-endpoint-class latency and outcomes");
   lines.push("");

@@ -14,14 +14,16 @@ Last updated: 2026-08-24.
   execution-hot-path async fixes + session cache + load-test baseline) at
   `6f433f2`. Milestone 5b (global sandbox admission correctness — fixes
   the cross-project `maxSandboxes` TOCTOU race Milestone 5a's burst test
-  discovered) at `2083f47`.
-- **This working tree:** Milestone 5b's live-Docker burst re-validation
-  (peak 20/20, independently confirmed) — the one item left open after
-  `2083f47` — implemented and verified; not yet committed. See below.
+  discovered) at `2083f47`, with its live-Docker burst re-validation
+  (peak 20/20, independently confirmed) at `6db6bc9`.
+- **This working tree:** Milestone 5c (SQLite write-contention
+  characterization — measurement only, no DB architecture change; decision:
+  DB-threading not justified) — implemented and verified; not yet
+  committed. See below.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
-`Milestone 2`/`Milestone 3`/`Milestone 4`/`Milestone 5a`/`Milestone 5b` (this doc's
+`Milestone 2`/`Milestone 3`/`Milestone 4`/`Milestone 5a`/`Milestone 5b`/`Milestone 5c` (this doc's
 contract-sequence numbering) are two independent, coincidentally-overlapping
 counters — e.g. `M3` (WS heartbeat) and `Milestone 3` (collab room lifecycle)
 are unrelated milestones committed separately. Not renumbered post hoc to
@@ -537,6 +539,117 @@ at higher concurrency, different workload shapes, or other environments,
 which remain evidence-gated future work like everything else in this
 document.
 
+### Milestone 5c — SQLite write-contention characterization (measurement only)
+
+Not yet committed (this working tree). Answers the primary open question
+from the architecture report and Milestone 5a: does the synchronous
+`DatabaseSync` architecture need a threading redesign? **Measurement only —
+no DB architecture, SQLite config, or WAL-mode change was made.**
+
+**Workload**: `backend/load-test/` gained a second, deliberately
+write-heavy behavior mix (`CONTENTION_WEIGHTS` in `run.ts`, selected via
+`--contention`) distinct from M5a's general mix — 40% `file_save_heavy`
+(near-continuous real `UPDATE projects` + file write, ~150-300ms interval,
+vs. M5a's ~2-3.5s), 20% `metadata_write_heavy` (repeated real `INSERT INTO
+snapshots` — a different table, real gzip+filesystem work), 15%
+`execution_heavy` (unchanged, real Docker), 10% `busy_room` (unchanged,
+shared-room Yjs), 10% `preview_heavy` (unchanged, real `SELECT`-only reads
+— tests whether WAL's concurrent-reader guarantee holds under simultaneous
+writers), 5% `reconnecting` (unchanged). A separate `--write-burst` mode
+(used only with `--burst`) forces every VU onto `file_save_heavy` against
+one pre-shared project/file (all VUs reuse one seed identity so every VU
+genuinely has edit access — a real bug was hit and fixed here: distinct
+freshly-registered VUs got 403s writing to a project only the seed user
+owned, which would have silently produced a near-zero-success "measurement"
+had it gone unnoticed) — isolates write serialization on a single row from
+ordinary cross-project write spread.
+
+**Runs** (all real SQLite, real HTTP/WS, real Docker where applicable; 60s
+warm-up (`--ramp`) + 300s steady + 60s rampdown for sustained levels, 30s
+steady + 60s rampdown for the burst, per the contract):
+
+- **Baseline reconciliation** (10 users, M5a's _general_ mix, low
+  contention): event-loop lag mean 30.5ms, DB p99 0.082ms — matches M5a's
+  original level-10 findings almost exactly. Methodology confirmed
+  reproducible before adding new measurements.
+- **WRITE_10** (control): 14,102 DB calls over 5min steady state, DB p99
+  stayed at **0.054ms**, event-loop lag flat at ~30ms mean throughout.
+- **WRITE_50**: 69,227 DB calls, DB p99 **0.063ms** — statistically
+  indistinguishable from WRITE_10. Event-loop lag crept from 33.3ms to
+  37.5ms p99 over the 5 minutes (mild, not alarming).
+- **WRITE_100**: 103,591 DB calls, DB p99 **0.061ms** — still flat, still
+  indistinguishable from WRITE_10/50. Event-loop lag, however, grew
+  noticeably: **33ms → 85.5ms p99**, a steady, roughly-linear climb over
+  the full 5-minute window (not a sudden spike). Process RSS grew
+  89MB → 399MB over the same window, tracking the SAME time-dependent
+  growth curve. The `sandboxes` gauge (execution-heavy VUs) reached 15 by
+  t≈60s and then held flat for the remaining ~300s — yet event-loop lag
+  _kept climbing_ well after that stabilized, ruling out "more active
+  containers" as the sole driver.
+- **BURST_100** (the cross-check — 100 VUs, zero ramp, all writing to the
+  exact same project/file simultaneously for 30s): 12,129 real writes, 100%
+  success, **zero** errors of any class. DB p99 **0.029ms** — the lowest of
+  any run. Event-loop lag p99 **34.1ms**, essentially unchanged from
+  baseline and _lower_ than the spread-out WRITE_100 run. Save round-trip
+  p50/p99: 11.8ms / 121.9ms.
+
+**Attribution — the decisive comparison is WRITE_100 vs. BURST_100.** If
+SQLite write serialization were the bottleneck, the scenario that maximizes
+single-row write contention (BURST_100) should show the _worst_ event-loop
+degradation. It shows the _least_ (34ms vs. 85.5ms p99) while completing 5x
+the per-second write throughput (402/s vs. WRITE_100's steady-state rate)
+with zero errors. Combined with DB call latency staying at 0.03-0.08ms
+across literally every run and workload shape tested — including this
+maximally-concentrated one — there is **no evidence DatabaseSync's
+synchronous nature is the source of the event-loop lag growth observed at
+100 sustained users.** The growth instead correlates with elapsed
+time/aggregate concurrent-request volume and, closely, with process RSS
+growth (plausibly GC pressure from a busier, longer-running process) — a
+distinct, real, worth-investigating finding, but not a DB-threading
+question, and explicitly out of this milestone's scope to chase further.
+
+**Data-quality caveat, disclosed**: `file_save_heavy`/`snapshot_create`'s
+reported p50/p95/p99 in WRITE_50/WRITE_100 are computed from only the
+first 20,000 chronologically-recorded samples (`MAX_SAMPLES_PER_CLASS` in
+`load-test/metrics.ts`, a pre-existing harness cap unrelated to this
+milestone) — the harness stopped sampling latency partway through each run
+once volume exceeded the cap, while outcome counts (success/error) are
+uncapped and accurate. This likely means the reported endpoint-latency
+percentiles understate the true late-run tail. **This does not affect the
+DB-threading conclusion above**, which is built entirely from
+`instrumentDb`'s native `node:perf_hooks` histograms (server-side,
+uncapped) — only the client-side per-endpoint latency figures are
+affected, and those are supporting color, not the decision evidence.
+
+**No data loss, no crashes, no unexplained hangs.** A small number of
+`connection_failure`s appeared at WRITE_100 (7 of 37,523 file-save
+attempts, 1 of 4,878 snapshot attempts — ~0.02%), consistent with ordinary
+transient load-test client/server churn at this concurrency, not a
+systemic failure.
+
+Files: `backend/load-test/run.ts`, `backend/load-test/virtualUser.ts`
+(both extended, no other production files touched — `observability.ts`
+was inspected and found sufficient as-is, no changes needed there).
+Evidence: `backend/load-test/results/level-{baseline-control,write-10,
+write-50,write-100,write-burst-100}-*.{json,md}`.
+
+Verification: typecheck PASS (0 errors); M1-M5b regression (11 files,
+Docker available) 164 passed / 0 failed / 4 skipped (Windows-only skips) —
+no regression; `git diff --check` clean; zero leftover managed containers
+or `ide-net-` networks after every run.
+
+**Decision: A — NOT JUSTIFIED.** DB latency remains low and stable
+(0.03-0.08ms p99) across every workload shape and concurrency level tested,
+including the one specifically designed to maximize SQLite write
+serialization. Event-loop degradation exists at the 100-user diagnostic
+tier but is clearly dominated by another cause (time/volume-correlated,
+tracking RSS growth, and _lower_ under maximum DB contention than under
+spread load) — not SQLite. An async-DB/worker-thread redesign is not
+supported by this evidence and should not be started from this finding.
+The RSS/event-loop-lag time-correlation is flagged as a separate,
+legitimate follow-up (likely a memory-profiling task, not a DB-architecture
+one) — not investigated further here, out of this milestone's scope.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -583,25 +696,34 @@ install`) runs in seconds against container-internal storage on a
 ## Current active work
 
 Milestone 5a (`6f433f2`) and Milestone 5b (`2083f47` plus its live-Docker
-verification commit) are all committed and fully closed out end-to-end,
+verification commit) are committed and fully closed out end-to-end,
 including the real-Docker burst re-validation (peak 20/20, see Milestone
-5b's section above). Manual QA execution for M1
-(`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
-unchanged from before.
+5b's section above). Milestone 5c (SQLite write-contention
+characterization) is implemented and verified in this working tree, **not
+yet committed** — see its section above. Decision: DB-threading is **not
+justified** by measured evidence; no DB architecture change was made.
+Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains
+outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. Decide the SQLite/DB-threading direction — but only after collecting more
-   evidence at higher write contention; Milestone 5a's own measurement found
-   _no_ measurable DB latency degradation up to 50 concurrent users on this
-   hardware, which narrows (does not resolve) the original concern.
-2. Server-side collab broadcast/awareness coalescing + WS backpressure
+The SQLite/DB-threading question is now resolved (Milestone 5c: **not
+justified**, do not revisit without new contention evidence at a different
+scale/shape). Remaining evidence-gated work, in dependency order:
+
+1. Server-side collab broadcast/awareness coalescing + WS backpressure
    (`ws.bufferedAmount` check) — still unimplemented, still a real gap per
    the architecture report's static analysis; Milestone 5a's `busy_room`/
    `many_rooms_thin` traffic at 50 users didn't reveal degradation yet, but
    wasn't concentrated enough (only ~5-9 active rooms) to stress this
    specifically — a room-concentrated load test is the right next
    measurement before implementing this.
+2. **New finding worth its own investigation**: Milestone 5c observed
+   process RSS growing steadily under sustained 100-user load (89MB→399MB
+   over 5 minutes), closely time-correlated with the event-loop lag growth
+   also observed there — plausibly GC pressure, not yet root-caused. A
+   memory-profiling pass (heap snapshots over time, not a load test) is the
+   right next step, separate from and lower-priority than item 1.
 3. Only after 1-2: attempt load levels 100/500/1000+, per the original
    report's staging. Not started; do not implement any of the above without
    a new contract.
