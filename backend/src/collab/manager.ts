@@ -17,7 +17,11 @@ const _MESSAGE_AUTH = 2;
 const MESSAGE_CUSTOM = 3;
 
 /** Rejects if the wrapped promise has not settled within `ms`. */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(`${label} timed out after ${ms}ms`));
@@ -600,6 +604,15 @@ export class CollaborationRoom {
     this.idleDisposeTimer = setTimeout(async () => {
       if (this.clients.size === 0) {
         await this.flushToDisk();
+        // A client can reconnect (addClient) while the await above is in
+        // flight — flushToDisk() does real I/O and does not hold any lock
+        // against new joins. Re-check here, not just at the top of this
+        // callback: disposing unconditionally on the stale "empty" read
+        // would destroy the room (and force-close the just-reconnected
+        // socket with 1001) out from under a client who is already back.
+        if (this.clients.size > 0) {
+          return;
+        }
         if (this.dirtyFiles.size === 0) {
           this.dispose();
         } else {
@@ -740,7 +753,9 @@ export class CollaborationManager {
    * whereas promise-caching dedupe would let one hung room block every future
    * caller forever — the worse failure mode by far.
    */
-  public flushAllRooms(options: { perRoomTimeoutMs?: number } = {}): Promise<void> {
+  public flushAllRooms(
+    options: { perRoomTimeoutMs?: number } = {},
+  ): Promise<void> {
     const perRoomTimeoutMs =
       options.perRoomTimeoutMs ??
       CollaborationManager.PER_ROOM_FLUSH_TIMEOUT_MS;

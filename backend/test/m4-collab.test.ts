@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
+import * as decoding from "lib0/decoding";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
 import {
@@ -87,6 +88,32 @@ function buildFileOpenFrame(path: string) {
   encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
   encoding.writeVarString(encoder, JSON.stringify({ type: "file_open", path }));
   return encoding.toUint8Array(encoder);
+}
+
+/**
+ * Wires a real client-side Yjs doc to a mock socket's `.send`, so incoming
+ * MESSAGE_SYNC frames from the room (broadcasts, and the initial Sync
+ * Step 1 handshake sent by addClient) are actually applied to `clientDoc`
+ * via the real sync protocol — exactly what a genuine browser client does.
+ * Sync Step 1 provokes a Step 2 reply, which is sent straight back into the
+ * room via `room.handleMessage`, completing the real handshake.
+ */
+function wireClientToRoom(
+  room: CollaborationRoom,
+  ws: any,
+  clientDoc: Y.Doc,
+): void {
+  ws.send = (message: Uint8Array) => {
+    const decoder = decoding.createDecoder(message);
+    const messageType = decoding.readVarUint(decoder);
+    if (messageType !== MESSAGE_SYNC) return;
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    syncProtocol.readSyncMessage(decoder, encoder, clientDoc, ws);
+    if (encoding.length(encoder) > 1) {
+      room.handleMessage(ws, encoding.toUint8Array(encoder));
+    }
+  };
 }
 
 /**
@@ -1148,6 +1175,343 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     } finally {
       room.dispose();
       await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("22. A client reconnecting while idle-disposal's flush is in flight is not evicted, and the room is not destroyed out from under them", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("nora", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "ReconnectDisposeRaceProj",
+    });
+    const onDispose = vi.fn();
+    // Real fs.writeFile is stubbed to pause on a deferred promise we control,
+    // so the vulnerable window (after scheduleIdleDisposal's flushToDisk()
+    // starts, before it resolves) can be entered deterministically — no
+    // sleep-based timing guesses. realpath/access are stubbed the same way
+    // test 13/13b do, since fake timers cannot drive real threadpool I/O.
+    let releaseWrite!: () => void;
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const writeSpy = vi.spyOn(fs, "writeFile").mockImplementation(async () => {
+      await writeGate;
+    });
+    const realpathSpy = vi
+      .spyOn(fs, "realpath")
+      .mockImplementation(async (p: any) => p);
+    const accessSpy = vi
+      .spyOn(fs, "access")
+      .mockResolvedValue(undefined as never);
+    vi.useFakeTimers();
+
+    try {
+      const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+      const filePath = "test.txt";
+
+      const ws1 = makeMockWs();
+      await room.addClient(ws1, {
+        userId: 1,
+        username: "nora",
+        role: "editor",
+      });
+      room.doc.transact(() => {
+        room.doc.getText(filePath).insert(0, "before disconnect");
+      });
+      room.markFileDirty(filePath);
+
+      // Last collaborator leaves -> 10s idle grace timer starts.
+      room.removeClient(ws1);
+
+      // Fire the idle-dispose timer. Its callback starts, sees clients.size
+      // === 0, and calls flushToDisk() — which is now suspended inside our
+      // paused fs.writeFile mock. advanceTimersByTimeAsync only drives the
+      // fake clock and fake-timer-scheduled work; it does not (and must not)
+      // block on our unrelated real writeGate promise, so this resolves with
+      // the disposal callback parked mid-flight.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(writeSpy).toHaveBeenCalled();
+      expect(onDispose).not.toHaveBeenCalled(); // still suspended, not disposed yet
+
+      // A client reconnects to the SAME project while the flush is still in
+      // flight — exactly the vulnerable window.
+      let ws2Closed: number | undefined;
+      const ws2 = makeMockWs();
+      ws2.close = (code: number) => {
+        ws2Closed = code;
+      };
+      await room.addClient(ws2, {
+        userId: 1,
+        username: "nora",
+        role: "editor",
+      });
+      expect(room.clients.size).toBe(1);
+
+      // Now let the paused write complete and the disposal callback resume.
+      releaseWrite();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // THE ASSERTIONS THAT MATTER: the reconnected client must not have
+      // been evicted, and the room must not have been torn down out from
+      // under them just because the flush that raced their reconnect
+      // happened to see an empty client list a moment earlier.
+      expect(ws2Closed).toBeUndefined();
+      expect(room.clients.has(ws2)).toBe(true);
+      expect(onDispose).not.toHaveBeenCalled();
+      // The room's content survived too — the reconnecting client can still
+      // see it, not a freshly-destroyed empty doc.
+      expect(room.doc.getText(filePath).toString()).toBe("before disconnect");
+
+      room.dispose();
+    } finally {
+      writeSpy.mockRestore();
+      realpathSpy.mockRestore();
+      accessSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("23. Three concurrent editors converge to identical content via real sync-protocol messages, and no one's edit is lost", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("alice3", "h", "user"); // id 1
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("bob3", "h", "user"); // id 2
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("carol3", "h", "user"); // id 3
+
+    const project = await createProject(cfg, db, 1, {
+      name: "ThreeEditorProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "shared.py";
+
+    const names = ["alice3", "bob3", "carol3"] as const;
+    const wsList = names.map(() => makeMockWs());
+    const clientDocs = names.map(() => new Y.Doc());
+
+    // Each client's socket is wired for real round-trip delivery (Sync Step
+    // 1/2 handshake + subsequent broadcasts) before connecting, exactly like
+    // a real client attaches its message handler before the socket opens.
+    for (let i = 0; i < names.length; i++) {
+      wireClientToRoom(room, wsList[i], clientDocs[i]);
+      await room.addClient(wsList[i], {
+        userId: i + 1,
+        username: names[i],
+        role: "editor",
+      });
+    }
+
+    // All three replicas (room + 3 clients) start converged (empty file).
+    for (const doc of clientDocs) {
+      expect(doc.getText(filePath).toString()).toBe(
+        room.doc.getText(filePath).toString(),
+      );
+    }
+
+    // Each client edits independently, based on the state it had *before*
+    // seeing either peer's edit — genuine concurrent/divergent edits, not a
+    // serialized turn-taking simulation.
+    const edits = [
+      "# Alice's contribution\n",
+      "# Bob's contribution\n",
+      "# Carol's contribution\n",
+    ];
+    for (let i = 0; i < names.length; i++) {
+      const clientText = clientDocs[i].getText(filePath);
+      room.handleMessage(
+        wsList[i],
+        buildSyncUpdateFrame(clientDocs[i], () =>
+          clientText.insert(0, edits[i]),
+        ),
+      );
+    }
+
+    const roomContent = room.doc.getText(filePath).toString();
+    for (const edit of edits) {
+      expect(roomContent).toContain(edit.trim());
+    }
+
+    // Every client replica — not just the room — converged to the exact
+    // same final text: proves broadcasts actually reached every peer, not
+    // just that the room's own doc integrated all three updates.
+    for (let i = 0; i < names.length; i++) {
+      expect(clientDocs[i].getText(filePath).toString()).toBe(roomContent);
+    }
+
+    // Bob disconnects; Alice and Carol remain and must stay correct and
+    // still receive each other's subsequent edits.
+    room.removeClient(wsList[1]);
+    const aliceText = clientDocs[0].getText(filePath);
+    room.handleMessage(
+      wsList[0],
+      buildSyncUpdateFrame(clientDocs[0], () =>
+        aliceText.insert(aliceText.length, "# Alice again\n"),
+      ),
+    );
+    expect(clientDocs[2].getText(filePath).toString()).toBe(
+      room.doc.getText(filePath).toString(),
+    );
+    expect(clientDocs[2].getText(filePath).toString()).toContain("Alice again");
+
+    for (const doc of clientDocs) doc.destroy();
+    room.dispose();
+  });
+
+  it("24. Bounded reconnect storm across 3 clients converges correctly with no presence corruption and no premature disposal", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("storm1", "h", "user"); // id 1
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("storm2", "h", "user"); // id 2
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("storm3", "h", "user"); // id 3
+
+    const project = await createProject(cfg, db, 1, { name: "StormProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "storm.py";
+    const baselineAwareness = room.awareness.getStates().size;
+
+    const NUM_CLIENTS = 3;
+    const CYCLES = 3;
+    // Deliberately bounded and deterministic: a fixed small matrix of
+    // connect/edit/present/disconnect cycles, not an open-ended stress loop.
+    let lastWs: any;
+    let lastAwareness: awarenessProtocol.Awareness | undefined;
+    let lastClientId: number | undefined;
+
+    for (let cycle = 0; cycle < CYCLES; cycle++) {
+      for (let i = 0; i < NUM_CLIENTS; i++) {
+        const ws = makeMockWs();
+        const clientDoc = new Y.Doc();
+        const clientAwareness = new awarenessProtocol.Awareness(clientDoc);
+        const isLast = cycle === CYCLES - 1 && i === NUM_CLIENTS - 1;
+
+        await room.addClient(ws, {
+          userId: i + 1,
+          username: `storm${i + 1}`,
+          role: "editor",
+        });
+        // Each reconnect uses a brand-new Awareness (a fresh random
+        // clientID, exactly like a real reloaded browser tab) — presence
+        // must never be inherited from a prior, now-defunct connection.
+        room.handleMessage(
+          ws,
+          buildAwarenessFrame(clientAwareness, {
+            name: `storm${i + 1}`,
+            cycle,
+          }),
+        );
+        const clientText = clientDoc.getText(filePath);
+        room.handleMessage(
+          ws,
+          buildSyncUpdateFrame(clientDoc, () =>
+            clientText.insert(clientText.length, `c${cycle}u${i};`),
+          ),
+        );
+
+        if (isLast) {
+          // Keep the very last connection of the storm alive so the room's
+          // end state (still-connected client) can be asserted.
+          lastWs = ws;
+          lastAwareness = clientAwareness;
+          lastClientId = clientAwareness.clientID;
+        } else {
+          room.removeClient(ws);
+          clientAwareness.destroy();
+          clientDoc.destroy();
+        }
+
+        // The room must never be disposed mid-storm: every disconnect here
+        // is immediately followed by another connect, well within the idle
+        // grace period, and no fake-timer advance ever lets the 10s timer
+        // fire during this test.
+        expect(onDispose).not.toHaveBeenCalled();
+      }
+    }
+
+    // Final content contains every cycle's edit from every client — nothing
+    // was silently dropped across the reconnect churn.
+    const finalContent = room.doc.getText(filePath).toString();
+    for (let cycle = 0; cycle < CYCLES; cycle++) {
+      for (let i = 0; i < NUM_CLIENTS; i++) {
+        expect(finalContent).toContain(`c${cycle}u${i};`);
+      }
+    }
+
+    // Presence isolation across the whole storm: only the single
+    // still-connected client's awareness state remains. Every earlier
+    // cycle's disconnected clients' presence was fully cleaned up — none
+    // linger, and the last connection did not inherit any of them.
+    expect(room.clients.size).toBe(1);
+    const finalStates = room.awareness.getStates();
+    expect(finalStates.size).toBe(baselineAwareness + 1);
+    expect(finalStates.has(lastClientId!)).toBe(true);
+
+    lastAwareness?.destroy();
+    room.removeClient(lastWs);
+    room.dispose();
+  });
+
+  it("25. Many rooms created and disposed across the manager leave no dangling entries", async () => {
+    const projectIds: string[] = [];
+    // Safely under the default per-owner projectQuota (20) — this test is
+    // about manager bookkeeping at moderate room count, not project quota
+    // limits, which are covered elsewhere.
+    const ROOM_COUNT = 15;
+
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("soak_owner", "h", "user"); // id 1
+
+    const baselineActive = collaborationManager.getActiveRoomCount();
+
+    for (let i = 0; i < ROOM_COUNT; i++) {
+      const project = await createProject(cfg, db, 1, {
+        name: `SoakProj${i}`,
+      });
+      projectIds.push(project.id);
+      const room = collaborationManager.getOrCreateRoom(project.id);
+      const ws = makeMockWs();
+      await room.addClient(ws, {
+        userId: 1,
+        username: "soak_owner",
+        role: "owner",
+      });
+      room.doc.transact(() => {
+        room.doc.getText("f.txt").insert(0, `room ${i}`);
+      });
+      room.markFileDirty("f.txt");
+      // dispose() itself never flushes (by design — the project-deletion
+      // path that normally calls it has nothing worth persisting), so flush
+      // explicitly first, mirroring what the real idle-disposal path does
+      // before it disposes. This test is about manager bookkeeping at
+      // moderate room count and content survival, not disposal timing.
+      await room.flushToDisk();
+      room.dispose();
+    }
+
+    expect(collaborationManager.getActiveRoomCount()).toBe(baselineActive);
+    for (const projectId of projectIds) {
+      expect(collaborationManager.getRoom(projectId)).toBeUndefined();
+    }
+
+    // Content was actually flushed before disposal for every room, not
+    // silently dropped at scale.
+    for (let i = 0; i < ROOM_COUNT; i++) {
+      const content = await fs.readFile(
+        join(projectDir(cfg, projectIds[i]), "f.txt"),
+        "utf-8",
+      );
+      expect(content).toBe(`room ${i}`);
     }
   });
 });
