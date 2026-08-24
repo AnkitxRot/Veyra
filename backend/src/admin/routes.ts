@@ -16,7 +16,12 @@ import { RateLimiter } from "../auth/ratelimit.js";
 import { hashPassword } from "../auth/passwords.js";
 import { telemetryHistorian } from "../execution/historian.js";
 import { collaborationManager } from "../collab/manager.js";
-import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
+import {
+  closeAllConnectionsForUser,
+  activeConnectionCount,
+} from "../ws/connectionRegistry.js";
+import { invalidateCachedSessionsForUser } from "../auth/sessionCache.js";
+import { getObservabilitySnapshot } from "../observability.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -111,6 +116,29 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
             pids: aggregatePids,
           },
         });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // 1b. M5a performance/load-test observability snapshot. Distinct from
+  // "System Overview" above (which is a stable, dashboard-consumed shape) —
+  // this is evidence for load-test runs: event-loop lag, per-operation DB
+  // call latency, and the same active-connection/room/sandbox gauges used
+  // elsewhere, all in one machine-readable snapshot for the load harness.
+  router.get(
+    "/observability",
+    (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        res.json(
+          getObservabilitySnapshot({
+            activeConnectionCount,
+            getActiveRoomCount: () => collaborationManager.getActiveRoomCount(),
+            getActiveSandboxCount: () => sandboxManager.getActiveSandboxCount(),
+          }),
+        );
       } catch (err) {
         next(err);
       }
@@ -668,6 +696,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
 
         // Session Invalidation: Terminate all active sessions for the user
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+        invalidateCachedSessionsForUser(userId);
         // WS auth is only checked once at connect time — deleting the DB
         // session row does nothing for a socket already established, so
         // any live terminal/execute/collab connection must be closed here
@@ -781,6 +810,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
 
         // 3. Delete sessions
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+        invalidateCachedSessionsForUser(userId);
         // Close any live terminal/execute/collab connections too — the
         // user's projects/workspace are being deleted in this same
         // request, so a connection they already hold open must not be

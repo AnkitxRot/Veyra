@@ -5,10 +5,23 @@ Last updated: 2026-08-24.
 ## Current state
 
 - **Baseline:** `c9833eb` — "fix: enforce auth, ownership, and port allowlist on preview proxy WS upgrades"
-- **This commit:** M1, M2, M3, and Milestone 2 (per-user sandbox quota +
-  terminal concurrency gate) — all implemented, gated, and verified on top
-  of that baseline.
+- **Committed on top of that baseline:** M1, M2, M3 (bug-fix codenames: save
+  truthfulness, shutdown flush, WS heartbeat) and Milestone 2 (per-user
+  sandbox quota + terminal concurrency gate) — all at `ce4981f`. Milestone 3
+  (multiplayer correctness / collab room lifecycle race) at `1cc3b52`.
+  Milestone 4 (frontend regression coverage — Vitest/jsdom test
+  infrastructure) at `86c119b`.
+- **This working tree:** Milestone 5a (performance instrumentation +
+  execution-hot-path async fixes + session cache + load-test baseline) —
+  implemented and verified; not yet committed. See below.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
+
+Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
+`Milestone 2`/`Milestone 3`/`Milestone 4`/`Milestone 5a` (this doc's
+contract-sequence numbering) are two independent, coincidentally-overlapping
+counters — e.g. `M3` (WS heartbeat) and `Milestone 3` (collab room lifecycle)
+are unrelated milestones committed separately. Not renumbered post hoc to
+avoid rewriting already-committed section headers below.
 
 ## Shipped product surface (already on master, not part of this working tree)
 
@@ -225,6 +238,222 @@ environmental, unconfirmed-mechanism failure unrelated to this milestone's
 code — not modified, not worked around, not part of any commit's claimed
 scope.**
 
+### Milestone 3 — Multiplayer correctness (collab room lifecycle race)
+
+Committed `1cc3b52`. Found and fixed a real race in
+`CollaborationRoom.scheduleIdleDisposal` (`backend/src/collab/manager.ts`):
+the idle-dispose timer checked `clients.size===0` once, then awaited
+`flushToDisk()` (real I/O), then acted on that now-stale zero-client read. A
+client reconnecting during the await was force-closed (WS code 1001) and the
+room disposed out from under them. Fix: re-check `clients.size` after the
+await, bail if a client reconnected. Reproduced failing against unfixed code
+first, then fixed.
+
+4 new tests in `backend/test/m4-collab.test.ts` (tests 22-25): reconnect
+during in-flight idle-disposal flush; 3 concurrent real-Yjs-client editors
+converging via real sync-protocol messages; bounded 3-client x 3-cycle
+reconnect storm with no presence corruption; 15-room create/dispose
+bookkeeping with verified disk flush. All deterministic (fake timers +
+controlled I/O gates), no sleeps.
+
+Verification: 26/26 focused tests, full suite 274/0/4-skipped, typecheck
+PASS, M1/M2/M3 regression 62/0/2-skipped.
+
+### Milestone 4 — Frontend regression coverage
+
+Committed `86c119b`. Bootstrapped Vitest + jsdom + @testing-library/react as
+the frontend test stack — no test runner existed before this. 13 new
+deterministic tests across 3 files: save truthfulness (M1/BUG-1 regression
+guard — `getLiveContent` reflects the live Monaco model, not a stale
+open-time snapshot), the canonical keyboard save path (exactly one `ide-save`
+dispatch per Ctrl+S, `stopPropagation` verified), and 200ms presence-update
+throttling (bursts coalesce to one call with the latest value, not
+permanently suppressed). Extracted IDE.tsx's inline presence-throttle
+closure into `frontend/src/utils/throttleLatest.ts` — the only production
+behavior change, behavior-preserving, proven equivalent by test.
+
+Both regression classes were verified to actually fail when reintroduced
+(reverting the M1 `registerLiveModel` call; breaking `throttleLatest`'s
+coalescing), then restored.
+
+Verification: 13/13 frontend tests, frontend typecheck PASS, backend smoke
+(`api.test.ts`) 48/0/2-skipped.
+
+### Milestone 5a — Performance instrumentation, execution hot-path fixes, load-test baseline
+
+Not yet committed (this working tree). Source: a read-only Milestone 5
+performance/scalability architecture report (three parallel fork
+investigations of the execution/sandbox, WebSocket/collaboration, and
+API/DB/filesystem subsystems). That report's central findings: (1)
+`execSync`-based Docker health checks block the _entire_ Node event loop on
+every execution hot-path call, not just the caller; (2) `requireAuth` does a
+synchronous DB session lookup on every single authenticated request; (3) no
+load-test evidence existed at all — every prior scalability claim in that
+report was explicitly hypothesis, not measurement. This milestone's mandate
+was narrow and evidence-only: fix those two specific hot paths, add minimal
+instrumentation, and run levels 1/10/50 to get real numbers — explicitly
+**not** collab backpressure/coalescing, sandbox admission queues, container
+CPU/RAM tiering, or any SQLite threading change (all deferred, evidence-gated
+future work).
+
+**1. Async Docker-check swap** (`backend/src/execution/pipeline.ts`,
+`backend/src/execution/sandbox.ts`): the three execution-hot-path call sites
+that used the blocking `isDockerRunning()`/`isRunnerImageAvailable()`
+(`execSync`-backed, `tools.ts`) now use the already-existing
+`isDockerRunningAsync()`/`isRunnerImageAvailableAsync()` (`execFile`-backed,
+same 5s cache, same error/timeout semantics — verified by reading
+`tools.ts`: both pairs share the same module-level cache entries). The
+one-time startup `reconcile()` call (`sandbox.ts`, runs once before the
+server accepts connections) deliberately still uses the sync variant — not a
+per-request hot path, out of scope. 4 new focused tests (2 in
+`pipeline.test.ts`, 2 in `sandbox.test.ts`) prove the hot paths call the
+async variants and never reference the blocking ones at all (mocks
+deliberately omit the sync exports — referencing them would throw, not
+silently fall back).
+
+**2. Session cache** (`backend/src/auth/sessionCache.ts`, new module, wired
+into `auth/middleware.ts`'s `requireAuth`): a tiny TTL-bounded (5s freshness
+TTL, 5000-entry FIFO-bounded) in-memory cache in front of the per-request
+session DB lookup. Never caches a failed/missing lookup (no negative-cache
+API exists at all). Immediate invalidation wired into every known
+revocation path: logout (`auth/routes.ts`) invalidates the single token;
+admin bulk password-reset and admin user-delete (`admin/routes.ts`, both
+call sites) invalidate every cached session for that user_id. 9 unit tests
+(`test/sessionCache.test.ts`) plus one HTTP-level integration test in
+`api.test.ts` proving a second request with the same token issues zero
+additional session-lookup DB queries (`db.prepare` spy). The pre-existing
+"logout invalidates the session" test in `api.test.ts` (unchanged) is itself
+a regression guard here — it would fail if invalidation were missing, since
+the very next request reuses the same, now-cached, now-revoked token.
+
+**3. Minimal observability** (`backend/src/observability.ts`, new module —
+zero new dependencies, built entirely on `node:perf_hooks`'s native
+histogram primitives): event-loop lag (`monitorEventLoopDelay`, started once
+at boot in `index.ts`); DB call timing (`instrumentDb()` wraps
+`db.prepare` once, centrally, at the single point the real `Db` is
+constructed in `index.ts` — every `run`/`get`/`all` call anywhere in the
+codebase is timed with zero call-site changes elsewhere, bucketed by a
+bounded verb+table label, capped at 128 distinct labels); active WS
+connection count (new `activeConnectionCount()` gauge in
+`ws/connectionRegistry.ts` — only a per-user accessor existed before);
+active collab room count (`collaborationManager.getActiveRoomCount()`,
+already existed from Milestone 3, reused as-is); active sandbox count (new
+`SandboxManager.getActiveSandboxCount()` gauge — none existed before);
+process RSS/heap (`process.memoryUsage()`). Exposed via a new
+`GET /api/admin/observability` route — reuses the existing `/api/admin`
+router's `requireAdmin` gate and rate limiter, not a new unauthenticated
+endpoint. 6 focused tests (`test/observability.test.ts`), including one
+proving `instrumentDb` does not change `DatabaseSync` behavior (real inserts
+and reads against a real in-memory DB, same results with and without the
+wrapper).
+
+**4. Load-test harness** (`backend/load-test/`, new — `server.ts`,
+`virtualUser.ts`, `metrics.ts`, `run.ts`; `npm run load-test` in
+`backend/package.json`; zero new dependencies, built on already-present
+`tsx`/`ws`/`yjs`/`y-protocols`): boots a real in-process backend instance
+(real Express app, real SQLite DB, real `instrumentDb`/event-loop
+instrumentation, real Docker sandbox path — not a mock), then runs a
+weighted mix of virtual-user behaviors (idle, active editor, collab pair,
+busy room, many-thin-rooms, execution-heavy, preview-heavy, reconnecting,
+rapid-typing) approximating the architecture report's §5 behavior model,
+plus a dedicated two-socket edit-to-peer latency probe (the server never
+echoes a broadcast back to its origin, so ordinary VU traffic can't
+self-measure this). Two harness bugs were found and fixed while building
+this (documented for a fresh session, not left implicit): (a) the harness
+initially never called `setupWebSocketServer`, so every WS upgrade silently
+fell through to Express's 404 handler instead of being intercepted — fixed
+by wiring it into `server.ts` exactly like `index.ts` does; (b) the
+behavior-weighting formula clustered every virtual user into the first
+("idle") bucket regardless of user count — replaced with a proper smooth
+weighted round-robin (`buildWeightedPattern()` in `run.ts`).
+
+**Methodology deviation, disclosed:** the contract asked for "≥10-minute
+steady state where feasible." On this single interactive Windows dev
+machine, running that literally across 3 levels + a burst variant would cost
+40-60+ minutes of wall time for one milestone. Ran shortened but real steady
+states instead — level 1: 60s, level 10: 90s, level 50: 120s, burst: 30s (as
+specified) — and disclose this explicitly rather than either burning that
+much time or fabricating a 10-minute claim. A dedicated CI-hosted long-run
+pass remains a legitimate follow-up, not done here.
+
+**Actual results** (from `backend/load-test/results/`, one JSON + one
+compact Markdown per run):
+
+- **Level 1** (1 user, 65s total): baseline. `auth` 30ms, `project_create`
+  6ms, `file_save` p50/p99 17.6/18.4ms. DB calls: 83 total, p99 0.03ms.
+  Event-loop lag mean 31ms (see platform note below).
+- **Level 10** (10 users, 110s total): `run` (real Docker exec) p50 374ms /
+  p99 854ms. `file_save` p50/p99 17.5/18.7ms (112 calls). DB calls: 472
+  total, p99 0.05ms. No errors of any class.
+- **Level 50, default config** (50 users, 150s total): auth rate limiter
+  (`authRateLimit`, per-IP) rejected 32/50 registrations with clean 429s —
+  **expected quota rejection, not a defect**, but a harness-topology
+  artifact: every virtual user in this in-process harness shares one source
+  IP (127.0.0.1), so a same-IP registration burst that real production
+  traffic (many distinct IPs) would rarely trigger this hard. This _does_
+  correctly confirm the rate limiter enforces its configured limit under a
+  genuine burst.
+- **Level 50, rate-limit-relaxed supplementary run** (same 50/30s/120s/20s
+  shape, `authRateLimit` override only, to isolate the other subsystems from
+  the artifact above): all 50 registrations succeeded; 745 saves, 128
+  tree/stats calls, 53 real Docker `run` calls — **zero errors of any
+  class** (0 timeout, 0 connection_failure, 0 crash). DB calls: 3314 total,
+  p99 **0.052ms** — the synchronous `DatabaseSync` handle showed no
+  measurable degradation at 50 concurrent users on this hardware; this is a
+  real empirical finding that narrows (does not eliminate) the architecture
+  report's DB-threading concern — it may only matter at higher concurrency
+  or under write contention this mix didn't produce. Event-loop lag stayed
+  flat at the same ~31ms mean as the level-1 baseline throughout the full
+  150s run (see time series in the report) — no correlation with load at
+  this level. `collab edit-to-peer` p50/p99: 0.5/3.8ms across 295 samples
+  (same-process loopback; real network RTT would sit on top of this).
+  Process RSS grew from 118MB to 169MB over 150s at steady 50-user load
+  (~0.34MB/s) — flagged as worth watching in a longer run, not diagnosed
+  further here (could be legitimate accumulation — audit logs, telemetry
+  samples — or a slow leak; inconclusive at this duration).
+- **50-user burst variant** (zero ramp, all 50 register+act simultaneously,
+  30s): `auth` p50 225ms / p99 422ms and `project_create` p50 185ms / p99
+  334ms — both real, measurable burst cost (scrypt hashing + DB writes
+  contending under genuine simultaneity, unlike the ramped runs). `run` p95
+  **5642ms** / p99 **6419ms** — severe tail latency under a simultaneous
+  execution burst. Event-loop lag p99 spiked to **197ms at t=5s**, decaying
+  back to the ~30-40ms baseline by t=20-25s — real, measurable, load-test-only
+  degradation not visible at any sustained (non-burst) level tested.
+  **New finding, not in the original architecture report**: the final
+  snapshot showed `activeSandboxes=25` against the documented default
+  `maxSandboxes=20` global cap, with zero client-visible rejections across
+  128 run requests. Root cause (from reading `sandbox.ts` again after
+  seeing this): the cap check (`projectContainers.size >= maxSandboxes`)
+  and the actual `.set()` that registers a new container are separated by
+  an `await provisionContainer(...)`, and the per-project mutex
+  (`withProjectLock`) only serializes operations for the _same_ project —
+  by design, different projects run fully concurrently. A burst of ~25
+  _distinct new_ projects' first-ever sandbox creation can therefore all
+  read the stale pre-increment count and pass the check simultaneously: a
+  TOCTOU race in cross-project admission, structurally expected once you
+  look for it, not a fluke of this one run. **Not fixed in this milestone**
+  (STOP condition: no sandbox admission-queue/architecture work) — recorded
+  here as concrete evidence for whichever future milestone addresses §7 of
+  the architecture report (global sandbox admission).
+- **Platform note**: event-loop lag baseline hovers ~30-31ms mean even at
+  1 user, essentially flat across every level tested. This is consistent
+  with `monitorEventLoopDelay({resolution:20})` running on Windows, where
+  default timer resolution is coarser than Linux — plausible platform
+  floor, not a regression signal. The production Docker deployment target
+  is Linux; a from-Linux baseline would be needed before treating this
+  number as meaningful, and before comparing it against the burst-variant
+  197ms spike (which is a real _relative_ jump regardless of platform floor).
+
+Verification: backend typecheck PASS (0 errors, `load-test/` included in
+`tsconfig.json`'s `include`); focused new tests (async-Docker 4,
+session-cache 9 + 1 integration, observability 6) all pass; full backend
+suite with Docker available (run mid-milestone, before the load-harness
+work) 293 passed / 0 failed / 4 skipped across 29 files; full suite re-run
+at milestone end with Docker unavailable in this environment (session
+resumed mid-milestone, Docker Desktop not running post-resume) 266 passed /
+0 failed / 31 skipped (the extra skips are exactly the Docker-gated files) —
+no regression in either run. `git diff --check` clean.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -270,20 +499,44 @@ install`) runs in seconds against container-internal storage on a
 
 ## Current active work
 
-None — M1, M2, M3, and Milestone 2 (per-user sandbox quota + terminal
-concurrency gate) are all implemented, gated, and verified: typecheck
-clean, sandbox/terminal gate tests 12/12, `exec.test.ts` with Docker
-11/11, M1/M2/M3 regression with Docker 62/2-skipped/0-failed, full backend
-suite with Docker 269 passed / 1 failed (the pre-existing, unrelated
-`python-deps.test.ts` failure documented above) / 4 skipped. Manual QA
-execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding
-and un-gated by this commit.
+Milestone 5a is implemented and verified in this working tree, **not yet
+committed** — see its section above for full detail. Summary: async
+Docker-check swap on the 3 execution hot-path call sites, a TTL-bounded
+session cache in front of `requireAuth`'s DB lookup, minimal
+`node:perf_hooks`-based observability (event-loop lag, per-operation DB call
+timing, WS/room/sandbox gauges) exposed via `GET /api/admin/observability`,
+and a real load-test harness (`backend/load-test/`) with actual results
+saved for levels 1/10/50 plus a 50-user burst variant. Typecheck clean;
+focused new tests all pass; full suite (Docker available, run mid-milestone)
+293/0/4-skipped, (Docker unavailable, run at milestone end after a session
+resume) 266/0/31-skipped — no regression either time. Manual QA execution
+for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
+unchanged from before.
 
 ## Next recommended milestone
 
-Multiplayer correctness: the audit-identified test-coverage gaps for the
-collaboration layer — no test with more than 2 simultaneous concurrent
-editors in one room, no reconnect-storm test (many clients reconnecting at
-once after a server restart), no room-lifecycle race test (client
-reconnecting during a room's idle-disposal grace window), no room-count/
-memory soak test. Not started; do not implement without a new contract.
+Broader performance/scaling work remains **evidence-gated behind Milestone
+5a's results**, per the architecture report's own instruction not to
+optimize on intuition. In dependency order:
+
+1. **Fix the confirmed sandbox admission race** (Milestone 5a's burst
+   variant found `activeSandboxes` reaching 25 against a documented default
+   cap of 20, zero rejections — a real TOCTOU race between the
+   `projectContainers.size` check and the `.set()` that registers a new
+   container in `execution/sandbox.ts`, since different projects' creation
+   paths run fully concurrently by design). Smallest, most concrete,
+   evidence-backed next step.
+2. Decide the SQLite/DB-threading direction — but only after collecting more
+   evidence at higher write contention; Milestone 5a's own measurement found
+   _no_ measurable DB latency degradation up to 50 concurrent users on this
+   hardware, which narrows (does not resolve) the original concern.
+3. Server-side collab broadcast/awareness coalescing + WS backpressure
+   (`ws.bufferedAmount` check) — still unimplemented, still a real gap per
+   the architecture report's static analysis; Milestone 5a's `busy_room`/
+   `many_rooms_thin` traffic at 50 users didn't reveal degradation yet, but
+   wasn't concentrated enough (only ~5-9 active rooms) to stress this
+   specifically — a room-concentrated load test is the right next
+   measurement before implementing this.
+4. Only after 1-3: attempt load levels 100/500/1000+, per the original
+   report's staging. Not started; do not implement any of the above without
+   a new contract.

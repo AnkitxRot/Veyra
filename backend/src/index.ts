@@ -1,15 +1,16 @@
-import { createApp } from './app.js';
-import { resolveConfig, IS_WINDOWS, type AppConfig } from './config.js';
-import { openDb, type Db } from './db.js';
-import { setupWebSocketServer, getHeartbeatController } from './ws/index.js';
-import { sandboxManager } from './execution/sandbox.js';
-import { telemetryHistorian } from './execution/historian.js';
-import { deleteExpiredSessions } from './auth/middleware.js';
-import { hashPassword } from './auth/passwords.js';
-import { ensureAdminUser } from './db.js';
-import { collaborationManager } from './collab/manager.js';
-import type { WebSocketServer } from 'ws';
-import type { Server as HttpServer } from 'node:http';
+import { createApp } from "./app.js";
+import { resolveConfig, IS_WINDOWS, type AppConfig } from "./config.js";
+import { openDb, type Db } from "./db.js";
+import { setupWebSocketServer, getHeartbeatController } from "./ws/index.js";
+import { sandboxManager } from "./execution/sandbox.js";
+import { telemetryHistorian } from "./execution/historian.js";
+import { deleteExpiredSessions } from "./auth/middleware.js";
+import { hashPassword } from "./auth/passwords.js";
+import { ensureAdminUser } from "./db.js";
+import { collaborationManager } from "./collab/manager.js";
+import { instrumentDb, startEventLoopMonitor } from "./observability.js";
+import type { WebSocketServer } from "ws";
+import type { Server as HttpServer } from "node:http";
 
 const ADMIN_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -32,8 +33,8 @@ async function bootstrapAdmin(config: AppConfig, db: Db): Promise<void> {
       .get() as { count: number };
     if (count === 0) {
       console.error(
-        '[admin] ADMIN_PASSWORD is not set and no administrator account exists. ' +
-          'Set ADMIN_USERNAME and ADMIN_PASSWORD and restart to provision the initial admin.',
+        "[admin] ADMIN_PASSWORD is not set and no administrator account exists. " +
+          "Set ADMIN_USERNAME and ADMIN_PASSWORD and restart to provision the initial admin.",
       );
       process.exit(1);
     }
@@ -41,12 +42,16 @@ async function bootstrapAdmin(config: AppConfig, db: Db): Promise<void> {
   }
 
   if (!ADMIN_USERNAME_RE.test(adminUser)) {
-    console.error(`[admin] ADMIN_USERNAME "${adminUser}" is invalid: must be 3-32 characters of [a-zA-Z0-9_].`);
+    console.error(
+      `[admin] ADMIN_USERNAME "${adminUser}" is invalid: must be 3-32 characters of [a-zA-Z0-9_].`,
+    );
     process.exit(1);
     return;
   }
   if (adminPass.length < config.minPasswordLength) {
-    console.error(`[admin] ADMIN_PASSWORD must be at least ${config.minPasswordLength} characters.`);
+    console.error(
+      `[admin] ADMIN_PASSWORD must be at least ${config.minPasswordLength} characters.`,
+    );
     process.exit(1);
     return;
   }
@@ -87,12 +92,12 @@ export async function performGracefulShutdown(
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const { server, wss, db, config } = ctx;
   console.log(
-    `[shutdown] ${options.signal ?? 'shutdown'} received, draining...`,
+    `[shutdown] ${options.signal ?? "shutdown"} received, draining...`,
   );
 
   // Force-exit fallback armed for the entire sequence.
   const forceTimer = setTimeout(() => {
-    console.error('[shutdown] grace period elapsed, forcing exit');
+    console.error("[shutdown] grace period elapsed, forcing exit");
     exit(0);
   }, config.shutdownGraceMs);
   forceTimer.unref();
@@ -105,7 +110,7 @@ export async function performGracefulShutdown(
   try {
     telemetryHistorian.stop();
   } catch (err) {
-    console.error('[shutdown] telemetry historian stop failed:', err);
+    console.error("[shutdown] telemetry historian stop failed:", err);
   }
 
   // 1. Stop accepting new HTTP requests. Idle keep-alive sockets are closed
@@ -118,7 +123,7 @@ export async function performGracefulShutdown(
   //    close handshake are terminated shortly so they cannot stall the drain.
   for (const client of wss.clients) {
     try {
-      client.close(1001, 'server shutting down');
+      client.close(1001, "server shutting down");
     } catch {}
     const terminateTimer = setTimeout(() => {
       try {
@@ -143,7 +148,7 @@ export async function performGracefulShutdown(
       t.unref?.();
     }),
   ]).catch((err) => {
-    console.error('[shutdown] collaboration room flush failed:', err);
+    console.error("[shutdown] collaboration room flush failed:", err);
   });
 
   await Promise.all([drained, flushed]);
@@ -154,7 +159,7 @@ export async function performGracefulShutdown(
     db.close();
   } catch {}
 
-  console.log('[shutdown] graceful shutdown complete');
+  console.log("[shutdown] graceful shutdown complete");
   // 5.
   exit(0);
 }
@@ -165,7 +170,8 @@ async function start(): Promise<void> {
   // performGracefulShutdown) never opens the real database, binds :3000, or
   // kicks off background maintenance as an import side effect.
   const config = resolveConfig();
-  const db = openDb(config.dbPath);
+  startEventLoopMonitor();
+  const db = instrumentDb(openDb(config.dbPath));
   const app = createApp(config, db);
 
   await bootstrapAdmin(config, db);
@@ -177,7 +183,7 @@ async function start(): Promise<void> {
   try {
     await sandboxManager.reconcile(config, db);
   } catch (err) {
-    console.error('[sandbox] startup reconciliation failed:', err);
+    console.error("[sandbox] startup reconciliation failed:", err);
   }
 
   sandboxManager.startReaper(config);
@@ -185,16 +191,20 @@ async function start(): Promise<void> {
     try {
       deleteExpiredSessions(db);
     } catch (err) {
-      console.error('[auth] session GC failed:', err);
+      console.error("[auth] session GC failed:", err);
     }
   }, config.sessionGcIntervalMs);
   sessionGcTimer.unref();
 
   const server = app.listen(config.port, () => {
-    console.log(`Cloud IDE backend listening on http://localhost:${config.port}`);
+    console.log(
+      `Cloud IDE backend listening on http://localhost:${config.port}`,
+    );
     console.log(`  data dir:    ${config.dataDir}`);
     console.log(`  platform:    ${process.platform}`);
-    console.log(`  run user:    ${config.runUser.user}${!IS_WINDOWS ? ` (uid ${config.runUser.uid})` : ''}`);
+    console.log(
+      `  run user:    ${config.runUser.user}${!IS_WINDOWS ? ` (uid ${config.runUser.uid})` : ""}`,
+    );
     if (!IS_WINDOWS) {
       console.log(`  cgroup root: ${config.cgroupRoot}`);
     }
@@ -210,8 +220,8 @@ async function start(): Promise<void> {
     void performGracefulShutdown({ server, wss, db, config }, { signal });
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 // Auto-start only in real runtime. Under test runners (vitest sets VITEST=1;
@@ -219,11 +229,11 @@ async function start(): Promise<void> {
 // side-effect free — tests construct their own config/db/app and invoke
 // performGracefulShutdown() directly.
 const SHOULD_AUTO_START =
-  !process.env.VITEST && process.env.NODE_ENV !== 'test';
+  !process.env.VITEST && process.env.NODE_ENV !== "test";
 
 if (SHOULD_AUTO_START) {
   start().catch((err) => {
-    console.error('[startup] fatal error:', err);
+    console.error("[startup] fatal error:", err);
     process.exit(1);
   });
 }

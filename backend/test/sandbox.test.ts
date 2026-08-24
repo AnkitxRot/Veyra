@@ -121,7 +121,8 @@ async function loadManagerWithFakeDocker(handler: DockerHandler): Promise<{
   });
   vi.doMock("../src/tools.js", () => ({
     isDockerRunning: () => true,
-    isRunnerImageAvailable: () => true,
+    isDockerRunningAsync: async () => true,
+    isRunnerImageAvailableAsync: async () => true,
   }));
 
   const mod = await import("../src/execution/sandbox.js");
@@ -616,7 +617,8 @@ async function loadSandboxRunWithFakeDocker(): Promise<{
   });
   vi.doMock("../src/tools.js", () => ({
     isDockerRunning: () => true,
-    isRunnerImageAvailable: () => true,
+    isDockerRunningAsync: async () => true,
+    isRunnerImageAvailableAsync: async () => true,
   }));
 
   const mod = await import("../src/execution/sandbox.js");
@@ -680,5 +682,45 @@ describe("sandboxRun cancellation before spawn", () => {
     const legacy = await sandboxRun(`legacy-${randomUUID()}`, ws, baseOpts(ws));
     expect(spawnCalls).toHaveLength(2);
     expect(legacy.exitCode).toBe(0);
+  });
+});
+
+describe("M5a: sandboxRun's Docker-down check uses the async variant, not blocking execSync", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.doUnmock("../src/tools.js");
+    vi.resetModules();
+  });
+
+  it("returns the Docker-down error via isDockerRunningAsync without ever calling the blocking sync isDockerRunning", async () => {
+    // No isDockerRunning export here: if sandboxRun's top-of-function check
+    // still referenced the blocking sync variant, this import would throw
+    // "is not a function" instead of silently shelling out synchronously.
+    let asyncCalled = false;
+    vi.doMock("../src/tools.js", () => ({
+      isDockerRunningAsync: async () => {
+        asyncCalled = true;
+        return false;
+      },
+    }));
+
+    const { sandboxRun } = await import("../src/execution/sandbox.js");
+    const ws = makeWorkspace(cfg);
+    const result = await sandboxRun(`docker-down-${randomUUID()}`, ws, {
+      command: "python",
+      args: ["-c", "print(1)"],
+      cwd: ws,
+      kind: "run" as const,
+      timeoutMs: 5000,
+      config: cfg,
+      userId: 1,
+    });
+
+    expect(asyncCalled).toBe(true);
+    expect(result.stderr).toContain("Docker daemon is not running");
+    expect(result.exitCode).toBeNull();
   });
 });

@@ -104,3 +104,10 @@ export function closeAllConnectionsForUser(
 export function activeConnectionCountForUser(userId: number): number {
   return connectionsByUser.get(userId)?.size ?? 0;
 }
+
+/** Observability-only gauge: total live authenticated WS connections across all users. */
+export function activeConnectionCount(): number {
+  let total = 0;
+  for (const set of connectionsByUser.values()) total += set.size;
+  return total;
+}

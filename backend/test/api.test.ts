@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { existsSync, writeFileSync, symlinkSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -74,6 +74,38 @@ describe("auth", () => {
       token: login.data.token,
     });
     expect(me.status).toBe(401);
+  });
+
+  it("M5a: a second authenticated request with the same token skips the DB session lookup (cache hit)", async () => {
+    const login = await api.request("POST", "/api/auth/login", {
+      body: { username: "alice", password: "secret123" },
+    });
+    const freshToken = login.data.token;
+
+    const prepareSpy = vi.spyOn(api.db, "prepare");
+    try {
+      const first = await api.request("GET", "/api/auth/me", {
+        token: freshToken,
+      });
+      expect(first.status).toBe(200);
+      const sessionLookupCallsAfterFirst = prepareSpy.mock.calls.filter(
+        (c) => typeof c[0] === "string" && c[0].includes("FROM sessions s"),
+      ).length;
+      expect(sessionLookupCallsAfterFirst).toBe(1);
+
+      const second = await api.request("GET", "/api/auth/me", {
+        token: freshToken,
+      });
+      expect(second.status).toBe(200);
+      expect(second.data.user.username).toBe("alice");
+      // The cache hit must not have issued a second session-lookup query.
+      const sessionLookupCallsAfterSecond = prepareSpy.mock.calls.filter(
+        (c) => typeof c[0] === "string" && c[0].includes("FROM sessions s"),
+      ).length;
+      expect(sessionLookupCallsAfterSecond).toBe(1);
+    } finally {
+      prepareSpy.mockRestore();
+    }
   });
 
   it("requires authentication for projects", async () => {
@@ -888,11 +920,10 @@ describe("save-truthfulness backend contract (M1)", () => {
       "function trailing(noNewlineAtEof){return 1}",
     ].join("\n");
 
-    const write = await api.request(
-      "POST",
-      `/api/projects/${projectId}/file`,
-      { token, body: { path, content: payload } },
-    );
+    const write = await api.request("POST", `/api/projects/${projectId}/file`, {
+      token,
+      body: { path, content: payload },
+    });
     expect(write.status).toBe(200);
 
     const read = await readBack(path);
@@ -905,11 +936,10 @@ describe("save-truthfulness backend contract (M1)", () => {
     const path = "contract/crlf.txt";
     const payload = "line1\r\nline2\r\n";
 
-    const write = await api.request(
-      "POST",
-      `/api/projects/${projectId}/file`,
-      { token, body: { path, content: payload } },
-    );
+    const write = await api.request("POST", `/api/projects/${projectId}/file`, {
+      token,
+      body: { path, content: payload },
+    });
     expect(write.status).toBe(200);
 
     const read = await readBack(path);

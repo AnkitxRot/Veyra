@@ -3,7 +3,11 @@ import { promisify } from "node:util";
 import { hostname } from "node:os";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
-import { isDockerRunning, isRunnerImageAvailable } from "../tools.js";
+import {
+  isDockerRunning,
+  isDockerRunningAsync,
+  isRunnerImageAvailableAsync,
+} from "../tools.js";
 import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
 import { RunGate } from "./runGate.js";
 
@@ -119,6 +123,11 @@ export class SandboxManager {
   static getInstance(): SandboxManager {
     if (!this.instance) this.instance = new SandboxManager();
     return this.instance;
+  }
+
+  /** Observability-only gauge: current number of tracked live containers. */
+  getActiveSandboxCount(): number {
+    return this.projectContainers.size;
   }
 
   /** Runs `fn` exclusively for `projectId`: queued behind any other
@@ -275,8 +284,9 @@ export class SandboxManager {
     config: AppConfig,
     workspaceDir: string,
   ): Promise<{ containerId: string; portMapping: Record<number, number> }> {
-    if (!isDockerRunning()) throw new Error("Docker daemon is not running");
-    if (!isRunnerImageAvailable())
+    if (!(await isDockerRunningAsync()))
+      throw new Error("Docker daemon is not running");
+    if (!(await isRunnerImageAvailableAsync()))
       throw new Error("cloudeeeide-runner:latest is not available");
 
     const containerId = `ide-sandbox-${projectId}`;
@@ -763,7 +773,7 @@ export async function sandboxRun(
 ): Promise<SandboxResult> {
   const start = Date.now();
 
-  if (!isDockerRunning()) {
+  if (!(await isDockerRunningAsync())) {
     return {
       stdout: "",
       stderr: "[sandbox] execution failed: Docker daemon is not running.",

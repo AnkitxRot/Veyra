@@ -114,8 +114,8 @@ describe("runProject compile-phase cancellation wiring", () => {
       },
     }));
     vi.doMock("../src/tools.js", () => ({
-      isDockerRunning: () => true,
-      isRunnerImageAvailable: () => true,
+      isDockerRunningAsync: async () => true,
+      isRunnerImageAvailableAsync: async () => true,
     }));
 
     const { runProject } = await import("../src/execution/pipeline.js");
@@ -146,6 +146,83 @@ describe("runProject compile-phase cancellation wiring", () => {
       // being set would leave the compile process's stdin pipe open,
       // which can hang some compilers waiting for input that never comes.
       expect(compileCall.stdin).toBe("");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("M5a: execution hot path uses async Docker checks, not blocking execSync", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.doUnmock("../src/tools.js");
+    vi.doUnmock("../src/execution/sandbox.js");
+    vi.resetModules();
+  });
+
+  it("runProject resolves via isDockerRunningAsync/isRunnerImageAvailableAsync without ever calling the blocking sync variants", async () => {
+    const asyncCalls: string[] = [];
+    // Deliberately no isDockerRunning / isRunnerImageAvailable export: if
+    // pipeline.ts's execution hot path still referenced the blocking sync
+    // variants, this import would throw "is not a function" instead of
+    // silently falling back to a real execSync call.
+    vi.doMock("../src/tools.js", () => ({
+      isDockerRunningAsync: async () => {
+        asyncCalls.push("isDockerRunningAsync");
+        return true;
+      },
+      isRunnerImageAvailableAsync: async () => {
+        asyncCalls.push("isRunnerImageAvailableAsync");
+        return true;
+      },
+    }));
+    vi.doMock("../src/execution/sandbox.js", () => ({
+      sandboxRun: async () => ({
+        stdout: "ok",
+        stderr: "",
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        oom: false,
+        durationMs: 1,
+      }),
+    }));
+
+    const { runProject } = await import("../src/execution/pipeline.js");
+    const cfg = makeTestConfig();
+    const ws = mkdtempSync(join(tmpdir(), "pipeline-async-docker-test-"));
+    try {
+      writeFileSync(join(ws, "main.py"), "print('hi')\n");
+      const result = await runProject(cfg, "test-project", ws, { userId: 1 });
+      expect(result.type).toBe("success");
+      expect(asyncCalls).toEqual([
+        "isDockerRunningAsync",
+        "isRunnerImageAvailableAsync",
+      ]);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("returns missing_toolchain (not a thrown error) when isDockerRunningAsync resolves false, and never reaches the runner-image check", async () => {
+    vi.doMock("../src/tools.js", () => ({
+      isDockerRunningAsync: async () => false,
+      isRunnerImageAvailableAsync: async () => {
+        throw new Error("must not be called when Docker itself is unavailable");
+      },
+    }));
+
+    const { runProject } = await import("../src/execution/pipeline.js");
+    const cfg = makeTestConfig();
+    const ws = mkdtempSync(join(tmpdir(), "pipeline-async-docker-down-test-"));
+    try {
+      writeFileSync(join(ws, "main.py"), "print('hi')\n");
+      const result = await runProject(cfg, "test-project", ws, { userId: 1 });
+      expect(result.type).toBe("missing_toolchain");
+      expect(result.stderr).toContain("Docker Sandbox unavailable");
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

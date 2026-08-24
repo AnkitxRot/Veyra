@@ -7,7 +7,7 @@ import { listFiles } from "../files/service.js";
 import { detectLanguage, resolveMainFile } from "./detect.js";
 import { getLang } from "./languages.js";
 import { sandboxRun, type SandboxController } from "./sandbox.js";
-import { isDockerRunning, isRunnerImageAvailable } from "../tools.js";
+import { isDockerRunningAsync, isRunnerImageAvailableAsync } from "../tools.js";
 
 export type RunOutcome =
   | "success"
@@ -75,7 +75,7 @@ export async function runProject(
     };
   }
 
-  if (!isDockerRunning()) {
+  if (!(await isDockerRunningAsync())) {
     return {
       ...base,
       type: "missing_toolchain",
@@ -85,7 +85,7 @@ export async function runProject(
     };
   }
 
-  if (!isRunnerImageAvailable()) {
+  if (!(await isRunnerImageAvailableAsync())) {
     return {
       ...base,
       type: "missing_toolchain",
