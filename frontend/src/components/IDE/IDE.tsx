@@ -51,6 +51,7 @@ import {
 } from "../../utils/recentStore";
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
+import { throttleLatest } from "../../utils/throttleLatest";
 import {
   IconTerminal,
   IconMonitor,
@@ -119,9 +120,6 @@ export default function IDE({
     null,
   );
   const collabClientRef = useRef<CollaborationClient | null>(null);
-  const awarenessThrottleTimer = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>(
     [],
   );
@@ -202,6 +200,9 @@ export default function IDE({
     let client: CollaborationClient | null = null;
     let unsubAwareness: (() => void) | undefined;
     let unsubConnection: (() => void) | undefined;
+    let throttledSetCollaborators: ReturnType<
+      typeof throttleLatest<CollaboratorPresence[]>
+    > | null = null;
 
     (async () => {
       const { CollaborationClient } = await import("../../collab/client");
@@ -215,20 +216,13 @@ export default function IDE({
       // collaborator on essentially every keystroke/click they make. Setting
       // state directly here would re-render this entire top-level IDE
       // component (and its whole child tree) at that same frequency.
-      // Coalesce bursts into at most one state update per throttle window,
-      // always keeping the latest presence snapshot.
-      let pendingCollaborators: CollaboratorPresence[] | null = null;
-      unsubAwareness = client.on(
-        "awareness_change",
-        (online: CollaboratorPresence[]) => {
-          pendingCollaborators = online;
-          if (awarenessThrottleTimer.current) return;
-          awarenessThrottleTimer.current = setTimeout(() => {
-            awarenessThrottleTimer.current = null;
-            if (pendingCollaborators) setCollaborators(pendingCollaborators);
-          }, 200);
-        },
+      // Coalesce bursts into at most one state update per 200ms window,
+      // always keeping the latest presence snapshot (see utils/throttleLatest).
+      throttledSetCollaborators = throttleLatest<CollaboratorPresence[]>(
+        setCollaborators,
+        200,
       );
+      unsubAwareness = client.on("awareness_change", throttledSetCollaborators);
 
       unsubConnection = client.on(
         "connection_change",
@@ -255,10 +249,7 @@ export default function IDE({
       if (collabClientRef.current === client) {
         collabClientRef.current = null;
       }
-      if (awarenessThrottleTimer.current) {
-        clearTimeout(awarenessThrottleTimer.current);
-        awarenessThrottleTimer.current = null;
-      }
+      throttledSetCollaborators?.cancel();
     };
     // project is tracked by id only to avoid reconnect churn when the object
     // reference changes without the id changing; collabClient is read via
@@ -428,7 +419,8 @@ export default function IDE({
           body: JSON.stringify({
             path: targetFile.path,
             // M1: format what the user actually sees, not the stale snapshot.
-            content: resolveLiveFileContent(targetFile.path) ?? targetFile.content,
+            content:
+              resolveLiveFileContent(targetFile.path) ?? targetFile.content,
           }),
         });
 
