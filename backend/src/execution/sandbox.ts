@@ -119,6 +119,28 @@ export class SandboxManager {
    */
   private lifecycleTail = new Map<string, Promise<void>>();
   private reaperTimer: NodeJS.Timeout | null = null;
+  /**
+   * Global admission reservations in flight: projectIds that have passed
+   * the `maxSandboxes` check and are being provisioned, but are not yet in
+   * `projectContainers` (provisioning is a multi-await Docker round trip —
+   * `docker rm`, network inspect/create, `docker run`, `docker port`).
+   *
+   * `projectContainers.size` alone is NOT the current global load: it only
+   * grows once provisioning *succeeds*, so a naive `size >= maxSandboxes`
+   * check reads stale capacity for every concurrent creation racing the
+   * same await window. Different projectIds are deliberately NOT
+   * serialized against each other by `withProjectLock` (see its doc
+   * comment), so N distinct new projects' admission checks can genuinely
+   * run concurrently. A reservation here is added and checked with no
+   * `await` in between (see `createProjectSandbox`), which is what makes
+   * it atomic: JS never interleaves two synchronous statements across an
+   * event-loop turn, so no concurrently-running check for a *different*
+   * project can observe a stale pre-reservation count. Always released
+   * exactly once — on success (superseded by the `projectContainers` entry
+   * it becomes), or in a `finally` on any failure — so a rejected or
+   * failed creation never permanently consumes capacity.
+   */
+  private reservedProjectIds = new Set<string>();
 
   static getInstance(): SandboxManager {
     if (!this.instance) this.instance = new SandboxManager();
@@ -128,6 +150,12 @@ export class SandboxManager {
   /** Observability-only gauge: current number of tracked live containers. */
   getActiveSandboxCount(): number {
     return this.projectContainers.size;
+  }
+
+  /** Live containers plus in-flight reservations: the true current load
+   *  against `maxSandboxes`, unlike `projectContainers.size` alone. */
+  private currentGlobalLoad(): number {
+    return this.projectContainers.size + this.reservedProjectIds.size;
   }
 
   /** Runs `fn` exclusively for `projectId`: queued behind any other
@@ -237,44 +265,61 @@ export class SandboxManager {
       this.projectContainers.delete(projectId);
     }
 
-    if (!hasStaleEntry && this.projectContainers.size >= config.maxSandboxes) {
-      await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs);
-      if (this.projectContainers.size >= config.maxSandboxes) {
+    // A stale-entry recreation (see above) is refreshing a slot that was
+    // already counted — not a new admission request — so it never
+    // reserves again, exactly matching the original `!hasStaleEntry` gate.
+    const needsGlobalSlot = !hasStaleEntry;
+    if (needsGlobalSlot) {
+      if (this.currentGlobalLoad() >= config.maxSandboxes) {
+        await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs);
+      }
+      // Atomic check-and-reserve: reading currentGlobalLoad() and adding to
+      // reservedProjectIds happen with no `await` between them (see the
+      // field's doc comment for why that's what makes this safe against a
+      // concurrent creation for a DIFFERENT project).
+      if (this.currentGlobalLoad() >= config.maxSandboxes) {
         throw new Error(`sandbox limit reached (max ${config.maxSandboxes})`);
       }
-    }
-
-    if (!sandboxGate.acquire(userId, config.maxSandboxesPerUser)) {
-      throw new Error(
-        `per-user sandbox limit reached (max ${config.maxSandboxesPerUser})`,
-      );
+      this.reservedProjectIds.add(projectId);
     }
 
     // From here on, every exit path must either reach the success
-    // `projectContainers.set()` below or release the per-user slot just
-    // acquired — a failed creation must never permanently consume quota.
-    let containerId: string;
-    let portMapping: Record<number, number>;
+    // `projectContainers.set()` below (which supersedes the reservation) or
+    // release both the reservation just taken (if any) and the per-user
+    // slot (if acquired) — a failed or rejected creation must never
+    // permanently consume quota of either kind.
     try {
-      const provisioned = await this.provisionContainer(
-        projectId,
-        config,
-        workspaceDir,
-      );
-      containerId = provisioned.containerId;
-      portMapping = provisioned.portMapping;
-    } catch (err) {
-      sandboxGate.release(userId);
-      throw err;
-    }
+      if (!sandboxGate.acquire(userId, config.maxSandboxesPerUser)) {
+        throw new Error(
+          `per-user sandbox limit reached (max ${config.maxSandboxesPerUser})`,
+        );
+      }
 
-    this.projectContainers.set(projectId, {
-      containerId,
-      ports: portMapping,
-      lastUsed: Date.now(),
-      ownerId: userId,
-    });
-    return containerId;
+      let containerId: string;
+      let portMapping: Record<number, number>;
+      try {
+        const provisioned = await this.provisionContainer(
+          projectId,
+          config,
+          workspaceDir,
+        );
+        containerId = provisioned.containerId;
+        portMapping = provisioned.portMapping;
+      } catch (err) {
+        sandboxGate.release(userId);
+        throw err;
+      }
+
+      this.projectContainers.set(projectId, {
+        containerId,
+        ports: portMapping,
+        lastUsed: Date.now(),
+        ownerId: userId,
+      });
+      return containerId;
+    } finally {
+      if (needsGlobalSlot) this.reservedProjectIds.delete(projectId);
+    }
   }
 
   /** Docker provisioning steps only — no gate/map bookkeeping, so callers

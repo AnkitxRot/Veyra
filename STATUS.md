@@ -10,14 +10,17 @@ Last updated: 2026-08-24.
   sandbox quota + terminal concurrency gate) — all at `ce4981f`. Milestone 3
   (multiplayer correctness / collab room lifecycle race) at `1cc3b52`.
   Milestone 4 (frontend regression coverage — Vitest/jsdom test
-  infrastructure) at `86c119b`.
-- **This working tree:** Milestone 5a (performance instrumentation +
-  execution-hot-path async fixes + session cache + load-test baseline) —
-  implemented and verified; not yet committed. See below.
+  infrastructure) at `86c119b`. Milestone 5a (performance instrumentation +
+  execution-hot-path async fixes + session cache + load-test baseline) at
+  `6f433f2`.
+- **This working tree:** Milestone 5b (global sandbox admission
+  correctness — fixes the cross-project `maxSandboxes` TOCTOU race
+  Milestone 5a's burst test discovered) — implemented and verified; not
+  yet committed. See below.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
-`Milestone 2`/`Milestone 3`/`Milestone 4`/`Milestone 5a` (this doc's
+`Milestone 2`/`Milestone 3`/`Milestone 4`/`Milestone 5a`/`Milestone 5b` (this doc's
 contract-sequence numbering) are two independent, coincidentally-overlapping
 counters — e.g. `M3` (WS heartbeat) and `Milestone 3` (collab room lifecycle)
 are unrelated milestones committed separately. Not renumbered post hoc to
@@ -431,10 +434,10 @@ compact Markdown per run):
   _distinct new_ projects' first-ever sandbox creation can therefore all
   read the stale pre-increment count and pass the check simultaneously: a
   TOCTOU race in cross-project admission, structurally expected once you
-  look for it, not a fluke of this one run. **Not fixed in this milestone**
-  (STOP condition: no sandbox admission-queue/architecture work) — recorded
-  here as concrete evidence for whichever future milestone addresses §7 of
-  the architecture report (global sandbox admission).
+  look for it, not a fluke of this one run. **Not fixed in this
+  milestone** (STOP condition: no sandbox admission-queue/architecture
+  work) — recorded here as concrete evidence for the milestone that
+  addressed it. **Fixed in Milestone 5b, see below.**
 - **Platform note**: event-loop lag baseline hovers ~30-31ms mean even at
   1 user, essentially flat across every level tested. This is consistent
   with `monitorEventLoopDelay({resolution:20})` running on Windows, where
@@ -453,6 +456,76 @@ at milestone end with Docker unavailable in this environment (session
 resumed mid-milestone, Docker Desktop not running post-resume) 266 passed /
 0 failed / 31 skipped (the extra skips are exactly the Docker-gated files) —
 no regression in either run. `git diff --check` clean.
+
+### Milestone 5b — Global sandbox admission correctness (fixes the M5a TOCTOU finding)
+
+Fixes the confirmed cross-project `maxSandboxes` race Milestone 5a's burst
+load test discovered (`activeSandboxes=25` against a documented cap of 20,
+zero client-visible rejections).
+
+**Root cause**: in `createProjectSandbox`
+(`backend/src/execution/sandbox.ts`), the global-cap check
+(`projectContainers.size >= maxSandboxes`) was read-only and separated from
+the only capacity-consuming mutation (`projectContainers.set(...)`) by a
+long `await provisionContainer(...)` (multiple sequential `docker` exec
+calls). `withProjectLock` only serializes operations for the _same_
+projectId — different projects run fully concurrently by design — so N
+concurrent NEW-project creations could all read the same stale
+pre-increment count before any of them wrote to it, all pass admission, and
+collectively exceed `maxSandboxes`.
+
+**Fix**: a new `reservedProjectIds: Set<string>` and
+`currentGlobalLoad() = projectContainers.size + reservedProjectIds.size`.
+The check-and-reserve (`currentGlobalLoad() >= maxSandboxes` → throw, else
+`reservedProjectIds.add(projectId)`) now happens as one synchronous
+statement pair with zero `await` in between — the reservation is what
+makes concurrent-different-project admission atomic, since JS never
+interleaves two synchronous statements across an event-loop turn. Released
+exactly once via a `finally`: on success it's superseded by the real
+`projectContainers` entry (set immediately before the `finally` runs, no
+counting gap); on any failure it's simply deleted. No queue, no
+system-wide mutex — different projects still provision fully concurrently
+once each has reserved its own slot. `reconcile()` is intentionally
+untouched: it adopts already-running containers unconditionally (even past
+a newly-lower cap) since destroying a live container to enforce a new cap
+would be an invented destructive policy, not this fix's job; those adopted
+containers correctly count toward `currentGlobalLoad()` for all subsequent
+NEW admission decisions.
+
+**Regression proof**: 2 new deterministic barrier-based tests (no sleeps)
+were run against the pre-fix code first and failed exactly as predicted —
+"two concurrent NEW projects never both admit past a 1-slot global cap"
+(`runCalls` 2, expected 1, both fulfilled) and "N concurrent NEW projects
+with `maxSandboxes=N-1`" for N=5 (`runCalls` 5, expected 4, all 5
+fulfilled) — then passed after the fix. 5 more new tests cover: failed
+provisioning releases the reservation; teardown releases exactly one
+global slot, immediately reusable; per-user and global quota compose
+correctly under concurrency; concurrent duplicate calls for the _same_
+project don't double-reserve; reconciliation adopts over-cap containers
+without destroying them and they correctly count afterward.
+
+Files: `backend/src/execution/sandbox.ts` (+76/-31),
+`backend/test/sandbox.test.ts` (+302, purely additive — no existing test
+modified).
+
+Verification: `test/sandbox.test.ts` 21 passed / 0 failed / 3 skipped
+(Docker-gated real-daemon tests, Docker unavailable this session); full
+backend suite 273 passed / 0 failed / 31 skipped (same Docker-unavailable
+environment) — no regression; typecheck PASS; `git diff --check` clean.
+
+**Outstanding — live-Docker burst re-validation NOT performed.** Docker
+was unavailable in this session (`docker info` failed). A re-run of the
+50-user burst load-test scenario was attempted but discarded: every
+sandbox-creation attempt short-circuited at the Docker-availability check
+before ever reaching the admission logic (`activeSandboxes` stayed at 0
+throughout), so it could not have exercised the fix and would have been
+misleading to keep as evidence. The fix itself is proven directly and
+deterministically by the barrier-controlled unit tests above, which don't
+depend on real Docker at all — but confirming `activeSandboxes` never
+exceeds `maxSandboxes` under a real Docker-backed 50-user burst (the exact
+scenario that originally found the bug) remains open and should be the
+first thing whoever picks this up next does, before treating this defect
+as fully closed end-to-end.
 
 ## Architecture decisions (do not rediscover)
 
@@ -499,33 +572,24 @@ install`) runs in seconds against container-internal storage on a
 
 ## Current active work
 
-Milestone 5a is implemented and verified in this working tree, **not yet
-committed** — see its section above for full detail. Summary: async
-Docker-check swap on the 3 execution hot-path call sites, a TTL-bounded
-session cache in front of `requireAuth`'s DB lookup, minimal
-`node:perf_hooks`-based observability (event-loop lag, per-operation DB call
-timing, WS/room/sandbox gauges) exposed via `GET /api/admin/observability`,
-and a real load-test harness (`backend/load-test/`) with actual results
-saved for levels 1/10/50 plus a 50-user burst variant. Typecheck clean;
-focused new tests all pass; full suite (Docker available, run mid-milestone)
-293/0/4-skipped, (Docker unavailable, run at milestone end after a session
-resume) 266/0/31-skipped — no regression either time. Manual QA execution
-for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
-unchanged from before.
+Milestone 5a (`6f433f2`) and Milestone 5b are both committed. Milestone 5b
+fixed the cross-project `maxSandboxes` TOCTOU race Milestone 5a's burst
+test discovered — see its section above for full detail. One item remains
+open from that fix: **live-Docker re-validation of the 50-user burst
+scenario was not performed** (Docker unavailable in this session); the fix
+is proven deterministically by unit tests, not yet re-confirmed against a
+real Docker daemon under the exact original repro scenario. Manual QA
+execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding
+and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-Broader performance/scaling work remains **evidence-gated behind Milestone
-5a's results**, per the architecture report's own instruction not to
-optimize on intuition. In dependency order:
-
-1. **Fix the confirmed sandbox admission race** (Milestone 5a's burst
-   variant found `activeSandboxes` reaching 25 against a documented default
-   cap of 20, zero rejections — a real TOCTOU race between the
-   `projectContainers.size` check and the `.set()` that registers a new
-   container in `execution/sandbox.ts`, since different projects' creation
-   paths run fully concurrently by design). Smallest, most concrete,
-   evidence-backed next step.
+1. **Re-run the 50-user Docker-backed burst load test** against Milestone
+   5b's fix, once Docker is available, and confirm `activeSandboxes` never
+   exceeds `maxSandboxes` under the exact scenario that originally found
+   the bug. This closes out Milestone 5b end-to-end; everything below
+   remains evidence-gated behind Milestone 5a's results either way, per
+   the architecture report's own instruction not to optimize on intuition.
 2. Decide the SQLite/DB-threading direction — but only after collecting more
    evidence at higher write contention; Milestone 5a's own measurement found
    _no_ measurable DB latency degradation up to 50 concurrent users on this

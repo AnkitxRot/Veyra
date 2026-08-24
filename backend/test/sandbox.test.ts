@@ -569,6 +569,308 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
   });
 });
 
+describe("global sandbox admission — cross-project concurrency (M5b)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.doUnmock("node:child_process");
+    vi.doUnmock("../src/tools.js");
+    vi.resetModules();
+  });
+
+  it("two concurrent NEW projects never both admit past a 1-slot global cap (TOCTOU race proof)", async () => {
+    // Barrier holds every admitted creation inside `docker run`, mid-flight
+    // — exactly the vulnerable window between reading capacity and the old
+    // code's only mutation (`projectContainers.set`, which happened after
+    // provisioning). No sleeps: the barrier is a deferred promise the test
+    // controls explicitly.
+    let releaseRun!: () => void;
+    const runBarrier = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    let runCalls = 0;
+
+    const { manager } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") {
+        runCalls++;
+        await runBarrier;
+        return { stdout: "deadbeef\n", stderr: "" };
+      }
+      if (args[0] === "port")
+        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect")
+        throw new Error("no such network");
+      return { stdout: "", stderr: "" };
+    });
+
+    const tightCfg = makeTestConfig({
+      maxSandboxes: 1,
+      maxSandboxesPerUser: 10,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    const ws = makeWorkspace(cfg);
+    const projectA = `raceA-${randomUUID()}`;
+    const projectB = `raceB-${randomUUID()}`;
+
+    // Different projects -> independent withProjectLock chains -> these
+    // genuinely run concurrently, by design (see withProjectLock's doc
+    // comment). Different users too, so the per-user gate can never be
+    // what blocks the second call — only the global cap should matter here.
+    const resultA = manager.ensureProjectSandbox(projectA, tightCfg, ws, 1);
+    const resultB = manager.ensureProjectSandbox(projectB, tightCfg, ws, 2);
+
+    releaseRun();
+    const settled = await Promise.allSettled([resultA, resultB]);
+
+    // The defining assertion. Before the fix, both concurrent admission
+    // checks read the same pre-increment `projectContainers.size` (0) and
+    // both pass -> this would be 2, and both would go on to succeed,
+    // leaving 2 live sandboxes against a cap of 1.
+    expect(runCalls).toBe(1);
+
+    const fulfilled = settled.filter((s) => s.status === "fulfilled");
+    const rejected = settled.filter(
+      (s) => s.status === "rejected",
+    ) as PromiseRejectedResult[];
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason.message).toMatch(/sandbox limit reached/);
+
+    const active = await manager.getAllActiveSandboxes();
+    expect(active.length).toBeLessThanOrEqual(1);
+  });
+
+  it("N concurrent NEW projects with maxSandboxes=N-1 yields exactly one clean rejection and never exceeds the cap", async () => {
+    const N = 5;
+    let releaseRun!: () => void;
+    const runBarrier = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    let runCalls = 0;
+
+    const { manager } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") {
+        runCalls++;
+        await runBarrier;
+        return { stdout: "deadbeef\n", stderr: "" };
+      }
+      if (args[0] === "port")
+        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect")
+        throw new Error("no such network");
+      return { stdout: "", stderr: "" };
+    });
+
+    const cfgN = makeTestConfig({
+      maxSandboxes: N - 1,
+      maxSandboxesPerUser: 100,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    const ws = makeWorkspace(cfg);
+    const projectIds = Array.from(
+      { length: N },
+      () => `burstN-${randomUUID()}`,
+    );
+
+    const results = projectIds.map((pid, i) =>
+      manager.ensureProjectSandbox(pid, cfgN, ws, i + 1),
+    );
+    releaseRun();
+    const settled = await Promise.allSettled(results);
+
+    expect(runCalls).toBe(N - 1);
+    expect(settled.filter((s) => s.status === "fulfilled")).toHaveLength(N - 1);
+    const rejections = settled.filter(
+      (s) => s.status === "rejected",
+    ) as PromiseRejectedResult[];
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0].reason.message).toMatch(/sandbox limit reached/);
+
+    const active = await manager.getAllActiveSandboxes();
+    expect(active.length).toBe(N - 1);
+  });
+
+  it("a failed provisioning releases the reserved global slot for a later different project", async () => {
+    let attempt = 0;
+    const { manager } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") {
+        attempt++;
+        if (attempt === 1) throw new Error("docker run exploded");
+        return { stdout: "deadbeef\n", stderr: "" };
+      }
+      if (args[0] === "port")
+        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect")
+        throw new Error("no such network");
+      return { stdout: "", stderr: "" };
+    });
+
+    const tightCfg = makeTestConfig({
+      maxSandboxes: 1,
+      maxSandboxesPerUser: 10,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    const ws = makeWorkspace(cfg);
+    const projectFailed = `failA-${randomUUID()}`;
+    const projectAfter = `failB-${randomUUID()}`;
+
+    await expect(
+      manager.ensureProjectSandbox(projectFailed, tightCfg, ws, 1),
+    ).rejects.toThrow(/docker run exploded/);
+
+    // A DIFFERENT project must be able to use the slot the failed attempt
+    // above reserved then released — if the reservation leaked, this would
+    // fail with "sandbox limit reached" instead.
+    const id = await manager.ensureProjectSandbox(
+      projectAfter,
+      tightCfg,
+      ws,
+      2,
+    );
+    expect(id).toBe(`ide-sandbox-${projectAfter}`);
+  });
+
+  it("stopProjectSandbox releases exactly one global slot, immediately reusable by a different project", async () => {
+    const { manager } = await loadManagerWithFakeDocker(genericDockerHandler);
+    const tightCfg = makeTestConfig({
+      maxSandboxes: 1,
+      maxSandboxesPerUser: 10,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    const ws = makeWorkspace(cfg);
+    const projectId = `glob-destroy-${randomUUID()}`;
+
+    await manager.ensureProjectSandbox(projectId, tightCfg, ws, 1);
+    await expect(
+      manager.ensureProjectSandbox(
+        `glob-blocked-${randomUUID()}`,
+        tightCfg,
+        ws,
+        2,
+      ),
+    ).rejects.toThrow(/sandbox limit reached/);
+
+    await manager.stopProjectSandbox(projectId);
+
+    const nextProject = `glob-after-${randomUUID()}`;
+    const id = await manager.ensureProjectSandbox(nextProject, tightCfg, ws, 2);
+    expect(id).toBe(`ide-sandbox-${nextProject}`);
+  });
+
+  it("per-user quota and global quota compose correctly under concurrent creation", async () => {
+    const { manager } = await loadManagerWithFakeDocker(genericDockerHandler);
+    const cfgBoth = makeTestConfig({
+      maxSandboxes: 3,
+      maxSandboxesPerUser: 1,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    const ws = makeWorkspace(cfg);
+
+    // 3 different users, each requesting 1 sandbox concurrently: the global
+    // cap (3) has exactly enough room, and each user's own per-user cap (1)
+    // is independently satisfied — all three must succeed.
+    const ids = await Promise.all([
+      manager.ensureProjectSandbox(`compose-a-${randomUUID()}`, cfgBoth, ws, 1),
+      manager.ensureProjectSandbox(`compose-b-${randomUUID()}`, cfgBoth, ws, 2),
+      manager.ensureProjectSandbox(`compose-c-${randomUUID()}`, cfgBoth, ws, 3),
+    ]);
+    expect(ids).toHaveLength(3);
+    expect(manager.getActiveSandboxCount()).toBe(3);
+
+    // A 4th, from a brand-new user, must be rejected by the now-exhausted
+    // GLOBAL cap even though that user's own per-user quota has room.
+    await expect(
+      manager.ensureProjectSandbox(`compose-d-${randomUUID()}`, cfgBoth, ws, 4),
+    ).rejects.toThrow(/sandbox limit reached/);
+  });
+
+  it("does not double-reserve a global slot for concurrent duplicate creation calls on the same project", async () => {
+    const { manager } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") {
+        await sleep(20);
+        return { stdout: "deadbeef\n", stderr: "" };
+      }
+      if (args[0] === "network" && args[1] === "inspect")
+        throw new Error("no such network");
+      if (args[0] === "port")
+        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+    const tightCfg = makeTestConfig({
+      maxSandboxes: 1,
+      maxSandboxesPerUser: 10,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    const ws = makeWorkspace(cfg);
+    const projectId = `dupglobal-${randomUUID()}`;
+
+    await Promise.all([
+      manager.ensureProjectSandbox(projectId, tightCfg, ws, 1),
+      manager.ensureProjectSandbox(projectId, tightCfg, ws, 1),
+    ]);
+
+    expect(manager.getActiveSandboxCount()).toBe(1);
+  });
+
+  it("reconciliation adopts pre-existing live containers exceeding the configured cap without rejecting or destroying them, and they correctly count toward future admission", async () => {
+    const { manager } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "ps") {
+        return {
+          stdout:
+            "ide-sandbox-recA\trunning\nide-sandbox-recB\trunning\nide-sandbox-recC\trunning\n",
+          stderr: "",
+        };
+      }
+      if (args[0] === "port")
+        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "ls")
+        return { stdout: "", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+
+    const { openDb } = await import("../src/db.js");
+    const db = openDb(":memory:");
+    db.prepare(
+      "INSERT INTO users (id, username, password_hash, role) VALUES (1, 'recuser1', 'x', 'user')",
+    ).run();
+    db.prepare(
+      "INSERT INTO users (id, username, password_hash, role) VALUES (2, 'recuser2', 'x', 'user')",
+    ).run();
+    for (const [id, owner] of [
+      ["recA", 1],
+      ["recB", 1],
+      ["recC", 2],
+    ] as [string, number][]) {
+      db.prepare(
+        "INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)",
+      ).run(id, owner, id);
+    }
+
+    const tightCfg = makeTestConfig({
+      maxSandboxes: 2,
+      maxSandboxesPerUser: 10,
+      sandboxIdleTimeoutMs: 60_000,
+    });
+    await manager.reconcile(tightCfg, db);
+
+    // Reconciliation reflects reality (3 live containers) even though it
+    // exceeds a cap of 2 — adopting an already-live resource is not a new
+    // admission decision to reject, and destroying a running container just
+    // because a newly-effective cap is lower would be a new, invented,
+    // destructive policy this fix does not introduce.
+    expect(manager.getActiveSandboxCount()).toBe(3);
+
+    // But those adopted containers must correctly count toward capacity for
+    // any NEW admission decision made afterward.
+    const ws = makeWorkspace(cfg);
+    await expect(
+      manager.ensureProjectSandbox(`recNew-${randomUUID()}`, tightCfg, ws, 1),
+    ).rejects.toThrow(/sandbox limit reached/);
+  });
+});
+
 /**
  * Loads a fresh `sandboxRun` with both `docker` CLI boundaries stubbed:
  * `execFile` (used by ensureProjectSandbox) resolves instantly, and `spawn`
