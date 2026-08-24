@@ -12,11 +12,12 @@ Last updated: 2026-08-24.
   Milestone 4 (frontend regression coverage — Vitest/jsdom test
   infrastructure) at `86c119b`. Milestone 5a (performance instrumentation +
   execution-hot-path async fixes + session cache + load-test baseline) at
-  `6f433f2`.
-- **This working tree:** Milestone 5b (global sandbox admission
-  correctness — fixes the cross-project `maxSandboxes` TOCTOU race
-  Milestone 5a's burst test discovered) — implemented and verified; not
-  yet committed. See below.
+  `6f433f2`. Milestone 5b (global sandbox admission correctness — fixes
+  the cross-project `maxSandboxes` TOCTOU race Milestone 5a's burst test
+  discovered) at `2083f47`.
+- **This working tree:** Milestone 5b's live-Docker burst re-validation
+  (peak 20/20, independently confirmed) — the one item left open after
+  `2083f47` — implemented and verified; not yet committed. See below.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -513,19 +514,28 @@ Verification: `test/sandbox.test.ts` 21 passed / 0 failed / 3 skipped
 backend suite 273 passed / 0 failed / 31 skipped (same Docker-unavailable
 environment) — no regression; typecheck PASS; `git diff --check` clean.
 
-**Outstanding — live-Docker burst re-validation NOT performed.** Docker
-was unavailable in this session (`docker info` failed). A re-run of the
-50-user burst load-test scenario was attempted but discarded: every
-sandbox-creation attempt short-circuited at the Docker-availability check
-before ever reaching the admission logic (`activeSandboxes` stayed at 0
-throughout), so it could not have exercised the fix and would have been
-misleading to keep as evidence. The fix itself is proven directly and
-deterministically by the barrier-controlled unit tests above, which don't
-depend on real Docker at all — but confirming `activeSandboxes` never
-exceeds `maxSandboxes` under a real Docker-backed 50-user burst (the exact
-scenario that originally found the bug) remains open and should be the
-first thing whoever picks this up next does, before treating this defect
-as fully closed end-to-end.
+**Live-Docker burst re-validation: COMPLETE.** In a later session Docker
+became available and the exact original triggering scenario was re-run
+(50 users, zero ramp, 30s steady, 15s rampdown, auth rate limit relaxed —
+identical to the run that originally found the bug). Peak managed
+containers reached exactly **20 / 20** (`maxSandboxes`) and never exceeded
+it, confirmed by two independent measurements agreeing exactly: the
+application's own `getActiveSandboxCount()` gauge (final snapshot: 20) and
+100 one-second external `docker ps -a -f label=cloudeeeide.managed=true`
+samples taken throughout and for 130+s after the run (peak: 20, same
+number, no discrepancy). Container count returned to 0 by t=38s and
+stayed at 0 for the remainder of the observation window; a direct
+post-run `docker ps -a` / `docker network ls` check confirmed zero
+leftover managed containers and zero leftover `ide-net-` networks. This
+directly reproduces and closes the original finding (`activeSandboxes=25`
+against a cap of 20, pre-fix) under the real Docker daemon, not just the
+deterministic unit tests. Evidence:
+`backend/load-test/results/level-50-burst-m5b-live2-2026-08-24T17-26-08-495Z.{json,md}`.
+This confirms the fix holds for the exact tested workload (50 users, this
+behavior mix, this host) — it is not a claim about capacity or correctness
+at higher concurrency, different workload shapes, or other environments,
+which remain evidence-gated future work like everything else in this
+document.
 
 ## Architecture decisions (do not rediscover)
 
@@ -572,35 +582,26 @@ install`) runs in seconds against container-internal storage on a
 
 ## Current active work
 
-Milestone 5a (`6f433f2`) and Milestone 5b are both committed. Milestone 5b
-fixed the cross-project `maxSandboxes` TOCTOU race Milestone 5a's burst
-test discovered — see its section above for full detail. One item remains
-open from that fix: **live-Docker re-validation of the 50-user burst
-scenario was not performed** (Docker unavailable in this session); the fix
-is proven deterministically by unit tests, not yet re-confirmed against a
-real Docker daemon under the exact original repro scenario. Manual QA
-execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding
-and un-gated, unchanged from before.
+Milestone 5a (`6f433f2`) and Milestone 5b (`2083f47` plus its live-Docker
+verification commit) are all committed and fully closed out end-to-end,
+including the real-Docker burst re-validation (peak 20/20, see Milestone
+5b's section above). Manual QA execution for M1
+(`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
+unchanged from before.
 
 ## Next recommended milestone
 
-1. **Re-run the 50-user Docker-backed burst load test** against Milestone
-   5b's fix, once Docker is available, and confirm `activeSandboxes` never
-   exceeds `maxSandboxes` under the exact scenario that originally found
-   the bug. This closes out Milestone 5b end-to-end; everything below
-   remains evidence-gated behind Milestone 5a's results either way, per
-   the architecture report's own instruction not to optimize on intuition.
-2. Decide the SQLite/DB-threading direction — but only after collecting more
+1. Decide the SQLite/DB-threading direction — but only after collecting more
    evidence at higher write contention; Milestone 5a's own measurement found
    _no_ measurable DB latency degradation up to 50 concurrent users on this
    hardware, which narrows (does not resolve) the original concern.
-3. Server-side collab broadcast/awareness coalescing + WS backpressure
+2. Server-side collab broadcast/awareness coalescing + WS backpressure
    (`ws.bufferedAmount` check) — still unimplemented, still a real gap per
    the architecture report's static analysis; Milestone 5a's `busy_room`/
    `many_rooms_thin` traffic at 50 users didn't reveal degradation yet, but
    wasn't concentrated enough (only ~5-9 active rooms) to stress this
    specifically — a room-concentrated load test is the right next
    measurement before implementing this.
-4. Only after 1-3: attempt load levels 100/500/1000+, per the original
+3. Only after 1-2: attempt load levels 100/500/1000+, per the original
    report's staging. Not started; do not implement any of the above without
    a new contract.
