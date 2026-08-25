@@ -19,7 +19,9 @@ Last updated: 2026-08-25.
   - Milestone 9 (scale validation at 100 to 1,000 VUs — measurement only; decision: single-process system stable under 1,000-VU stress workload, no distributed infrastructure justified) at `0e8a06c`.
   - Milestone 10 (performance hotspot investigation — Docker execution cold-start & filesystem stat fan-out decomposition; measurement only) at `a4bd070`.
   - Milestone 11 (targeted execution cold-start and filesystem stat/telemetry optimizations) at `aa180ea`.
-- **Current uncommitted work:** Milestone 12 (execution conflict-retry, lazy port mapping, and tree single-flight caching optimizations).
+  - Milestone 12 (execution conflict-retry, lazy port mapping, and tree single-flight caching optimizations) at `b990c46`.
+  - Milestone 13 (active sandbox liveness freshness optimization) in this commit.
+- **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -1269,7 +1271,7 @@ Verification: full backend suite 323 passed / 4 skipped / 0 failed (32 test file
 
 ### Milestone 12 — Execution conflict-retry, lazy port mapping, and tree single-flight caching optimizations
 
-Not yet committed (this working tree). Implements the next high-leverage optimizations for container provisioning and filesystem tree operations: (1) removes upfront synchronous `docker rm -f` calls during fresh container creation, replacing it with an automatic conflict-catch retry pattern, (2) adds lazy port-mapping resolution on `getProxyTarget`, and (3) implements in-flight deduplication and short-TTL (500ms) caching for `tree(root)` with immediate mutation invalidation on all file write/move/delete/snapshot operations.
+Committed at `b990c46`. Implements the next high-leverage optimizations for container provisioning and filesystem tree operations: (1) removes upfront synchronous `docker rm -f` calls during fresh container creation, replacing it with an automatic conflict-catch retry pattern, (2) adds lazy port-mapping resolution on `getProxyTarget`, and (3) implements in-flight deduplication and short-TTL (500ms) caching for `tree(root)` with immediate mutation invalidation on all file write/move/delete/snapshot operations.
 
 **Fast M11 Revalidation**:
 - Revalidation before M12 confirmed stable M11 performance (50-VU burst p50: 542.2ms vs baseline 9,189.7ms, 94.1% improvement; p95: 5.60s vs baseline 11.83s, 52.7% improvement).
@@ -1311,6 +1313,36 @@ Files:
 
 Verification: full backend suite 327 passed / 4 skipped / 0 failed (33 test files); focused collaboration suite 56/56 PASS; backend typecheck PASS; frontend typecheck PASS; `git diff --check` clean.
 
+### Milestone 13 — Active sandbox liveness freshness optimization
+
+Committed in this milestone. Implements a short liveness freshness window (2,000ms) in `SandboxManager.doEnsureProjectSandbox` for existing tracked project containers. When a container has been actively used or created within the past 2 seconds, the manager reuses the verified container reference directly without spawning a redundant synchronous `docker inspect` child process. If the container has been idle beyond 2,000ms, the full `docker inspect` check is executed as before.
+
+**Production Changes**:
+- `backend/src/execution/sandbox.ts`: In `doEnsureProjectSandbox`, added `now - existing.lastUsed < 2000` fast-path return.
+
+**Benchmark Results (M10 vs M12 vs M13)**:
+- **50-VU Execution Burst**:
+  - p50 latency: **448.4ms (M12) → 165.6ms (M13) (-63.1% reduction vs M12, -98.2% vs M10 baseline 9,189.7ms)**
+  - p95 latency: **4,564.0ms (M12) → 4,277.0ms (M13) (-6.3% reduction vs M12, -63.8% vs M10)**
+  - p99 latency: **4,833.3ms (M12) → 4,562.0ms (M13) (-5.6% reduction vs M12, -62.3% vs M10)**
+  - Total burst wall duration: **4.84s (M12) → 4.56s (M13) (-5.7% reduction vs M12, -62.3% vs M10)**
+- **Warm Reused Sandbox Execution**:
+  - p50 / p95: **118.4ms / 127.6ms**
+- **Cold Single Start**:
+  - Creation + exec: **~841.1ms**
+
+**Preserved Invariants & Security**:
+- Level 4 sandbox hardening flags (`--read-only` root, tmpfs mounts, drop `ALL` capabilities, `no-new-privileges`, CPU/memory/PIDs limits) remain 100% untouched.
+- Global `maxSandboxes=20` hard ceiling and per-user fairness quota (`sandboxGate`) remain strictly enforced and race-safe under `withProjectLock`.
+- In-memory freshness window applies only to the verified container belonging to the exact matching project and owner.
+- No distributed dependencies, queues, or warm pools introduced.
+
+Files:
+- Production: `backend/src/execution/sandbox.ts`.
+- Tests & Evidence: `backend/test/m13-optimization.test.ts`, `backend/load-test/verify-m13-optimizations.ts`, `backend/load-test/results/m13-exec-optimization-*.{json,md}`.
+
+Verification: full backend suite 329 passed / 4 skipped / 0 failed (34 test files); focused collaboration suite 56/56 PASS; backend typecheck PASS; frontend build/typecheck PASS; `git diff --check` clean.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -1348,10 +1380,7 @@ Verification: full backend suite 327 passed / 4 skipped / 0 failed (33 test file
 
 ## Current active work
 
-Milestones 1–11 are committed (`aa180ea`) and fully closed out. Milestone 12
-(execution conflict-retry, lazy port mapping, and tree single-flight caching
-optimizations) is implemented and verified in this working tree, **not yet
-committed** — see its section above. Manual QA execution for M1
+Milestones 1–13 are committed. Manual QA execution for M1
 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged
 from before.
 
@@ -1368,11 +1397,11 @@ not justified), scale validation at 100 to 1,000 VUs is complete (Milestone 9:
 **stable under 1,000-VU stress workload**, no architectural redesign justified),
 hotspot investigation is complete (Milestone 10: Docker cold start and
 sequential `fs.stat`/`docker stats` identified as root causes), and targeted
-optimizations are implemented (Milestones 11 & 12: 50-VU burst p50 -95.1%, p95
--61.4%, 100-caller tree latency -99.9%, stats latency -5,000x). Remaining
+optimizations are implemented (Milestones 11–13: 50-VU burst p50 -98.2%, p95
+-63.8%, 100-caller tree latency -99.9%, stats latency -5,000x). Remaining
 evidence-gated follow-up work:
 
-1. **Scale Re-Validation Under M11/M12 Optimizations**:
+1. **Scale Re-Validation Under M11–M13 Optimizations**:
    Re-run scale validation (100 to 1,000 VUs) to measure whole-system throughput
-   and tail latency improvements under high concurrency with M11 and M12
+   and tail latency improvements under high concurrency with M11–M13
    optimizations active. Not started; requires a new contract.

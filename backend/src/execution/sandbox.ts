@@ -212,6 +212,11 @@ export class SandboxManager {
   ): Promise<string> {
     const existing = this.projectContainers.get(projectId);
     if (existing) {
+      const now = Date.now();
+      if (now - existing.lastUsed < 2000) {
+        existing.lastUsed = now;
+        return existing.containerId;
+      }
       try {
         const { stdout } = await execFileAsync("docker", [
           "inspect",
@@ -220,7 +225,7 @@ export class SandboxManager {
           existing.containerId,
         ]);
         if (stdout.trim() === "true") {
-          existing.lastUsed = Date.now();
+          existing.lastUsed = now;
           return existing.containerId;
         }
       } catch {}
