@@ -15,7 +15,8 @@ Last updated: 2026-08-25.
   - Milestone 6 (collaboration broadcast coalescing and WS backpressure) at `f5d65ae`.
   - Milestone 7 (memory-attribution investigation — 100-user RSS/event-loop root-causing, no production behavior change; decision: no production memory-optimization milestone justified) at `61b3fcb`.
   - Milestone 7b (load-test harness hygiene — releases simulated collaboration clients' `Y.Doc`/WebSocket/listener resources) at `3911f47`.
-- **Current uncommitted work:** Milestone 8 (coalescing-window characterization — measurement only; decision: KEEP the fixed 25ms window, no adaptivity justified).
+  - Milestone 8 (coalescing-window characterization — measurement only; decision: KEEP the fixed 25ms window, no adaptivity justified) at `5d46642`.
+- **Current uncommitted work:** Milestone 9 (scale validation at 100 to 1,000 VUs — measurement only; decision: single-process system stable under 1,000-VU stress workload, no distributed infrastructure justified).
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -1032,7 +1033,7 @@ un-released harness-side replicas.
 
 ### Milestone 8 — Coalescing-window characterization (measurement only)
 
-Answers "Next recommended milestone" item 1 from Milestone 6: should the fixed
+Committed at `5d46642`. Answers "Next recommended milestone" item 1 from Milestone 6: should the fixed
 `DEFAULT_YJS_COALESCE_MS` (25ms) stay fixed, be reduced, or become adaptive?
 **Measurement only — `backend/src/**` untouched** (`collab/manager.ts`,
 `config.ts`, `ws/*` all byte-identical to `3911f47`; the production default
@@ -1146,10 +1147,31 @@ virtualUser.test.ts, observability.test.ts) 56/56 PASS; full backend suite
 (frontend untouched — no frontend typecheck required, none run);
 `git diff --check` clean.
 
-**Next implementation milestone**: unchanged from the prior list — item 1
-(the question this milestone answers) is now closed with decision A; the
-remaining evidence-gated item is scaling validation at levels 100/500/1000+
-per the original report's staging, under its own contract.
+### Milestone 9 — Scale validation (100 to 1000 VUs)
+
+Not yet committed (this working tree). Measures system-wide performance and degradation characteristics under high virtual user loads (100, 500, and 1,000 VUs) using the hardened M1–M8 codebase. **Measurement only — `backend/src/**` untouched.**
+
+**Workload**: General weighted behavior mix (idle, active editor, collab pair, busy room, many thin rooms, execution heavy, preview heavy, reconnecting, rapid typing) run through `backend/load-test/run.ts`.
+
+**Runs & Results**:
+- **Level 100 Steady** (`--users 100 --ramp 45 --steady 90 --rampdown 15 --relax-auth-rate-limit`, 135.9s total): 2,241 total requests (16.5 req/s), 5,569 DB calls (41.0 ops/s). Zero errors across all endpoints (0 timeout, 0 conn_fail, 0 crash). Auth p50/p99: 45.4/67.9ms; File save p50/p99: 17.4/24.3ms (1,287 saves); Run p50/p99: 187.8/720.9ms (109 Docker runs); Collab edit-to-peer p50/p99: 30.9/37.0ms. DB p99: 0.078ms. Event-loop lag p99: 33.2ms. Active WS: 17, Active rooms: 16, Active sandboxes: 5. RSS: 192.5 MB.
+- **Level 100 Burst** (`--users 100 --burst --steady 30 --rampdown 15 --relax-auth-rate-limit`, 30s total): Zero ramp (50 execution VUs + 50 active editors simultaneously). 983 requests (32.7 req/s), 2,545 DB calls (84.8 ops/s). Zero errors. Auth p50/p99: 501.3/938.2ms and Project create p50/p99: 435.2/805.3ms (simultaneous scrypt password hashing + SQLite writes contending). Run p95/p99: 13.3s/14.5s under simultaneous container spin-up. Event-loop lag p99 spiked to 384.8ms at t=10s, then decayed smoothly to 123.3ms at t=25s. Active sandboxes peaked at exactly **20 / 20** (`maxSandboxes`), confirming atomic admission invariant holds under maximum concurrency. DB p99: 0.090ms. RSS: 125.2 MB.
+- **Level 500** (`--users 500 --ramp 60 --steady 90 --rampdown 20 --relax-auth-rate-limit`, 151.9s total): 11,836 requests (77.9 req/s), 28,821 DB calls (189.7 ops/s). Zero errors (0 timeout, 0 conn_fail, 0 crash). Auth p50/p99: 45.5/75.1ms; File save p50/p99: 8.6/76.2ms (6,797 saves); Stats p50/p99: 49.4/130.9ms; Run p50/p99: 198.3/865.2ms (615 runs); Collab edit-to-peer p50/p99: 30.9/43.0ms. DB p99: 0.074ms (flat!). Event-loop lag p99: 34.4ms (flat!). Active WS: 78, Active rooms: 77, Active sandboxes: 20 (held at cap). RSS: stabilized cleanly at 306.0 MB.
+- **Level 1000** (`--users 1000 --ramp 90 --steady 90 --rampdown 30 --relax-auth-rate-limit`, 183.9s total): 26,646 requests (144.9 req/s), 63,580 DB calls (345.7 ops/s). Zero errors across all endpoints (0 timeout, 0 conn_fail, 0 crash). Auth p50/p99: 43.2/105.1ms; File save p50/p99: 9.4/125.0ms (15,367 saves); Stats p50/p99: 51.3/340.6ms; Run p50/p99: 170.8/1060.5ms (1,382 runs); Collab edit-to-peer p50/p99: 30.8/69.4ms. DB p99: 0.074ms (flat across 63k calls!). Event-loop lag p99: 38.7ms (mean 25.2ms, flat!). Active WS: 155, Active rooms: 154, Active sandboxes: 20 (held at cap). RSS: stabilized cleanly at 324.6 MB.
+
+**Bottleneck & Degradation Analysis**:
+1. **DatabaseSync & SQLite**: Not a bottleneck. DB p99 latency remained ≤0.09ms across all levels up to 63,580 calls at 1,000 VUs. Single-process synchronous SQLite with WAL mode continues to operate with exceptional headroom.
+2. **Event Loop & Node.js Runtime**: Stable under sustained load (event-loop p99 ~34–38ms at 500–1000 VUs). Transient spikes occur only under zero-ramp burst registrations due to synchronous scrypt CPU cost (384ms spike at 100-user burst).
+3. **Memory & Lifecycle**: RSS settled stably at ~306MB (500 VUs) and ~324MB (1000 VUs) with no runaway memory growth, confirming M7b harness hygiene and server lifecycle cleanup.
+4. **Primary Saturation Point**:
+   - **Docker Sandbox Capacity Gating**: Under high execution load and bursts, `maxSandboxes=20` correctly gates active containers; queued/serialized executions increase `run` p99 to ~1.06s at 1000 VUs and ~14s under 100-user burst. This is a clean, intentional resource cap, not an application crash or leak.
+   - **Filesystem Stats/Tree Fan-out**: Under 1000 VUs, directory listing / stats inspection across hundreds of active projects is the first endpoint to experience mild tail latency elongation (p99 ~340ms).
+
+Files: `backend/load-test/results/level-scale-{100-steady,100-burst,500,1000}-*.{json,md}`. No production file touched.
+
+Verification: full backend suite 317 passed / 4 skipped / 0 failed; backend typecheck PASS; `git diff --check` clean.
+
+**Decision: B / A — STABLE UNDER 1,000-VU STRESS WORKLOAD; DISTRIBUTED INFRASTRUCTURE UNJUSTIFIED.** The single-process system remained stable under a 1,000-VU stress workload and sustained approximately 145 req/s with zero observed application errors in this environment. Virtual-user concurrency scaled to 1,000 VUs with peak active WebSockets reaching ~155 across 154 rooms under the weighted mix. SQLite is NOT the bottleneck (DB p99 remained ~0.074–0.090ms across 63,580 calls). Node.js event loop is NOT saturated (p99 ~34–38ms in sustained runs). Global sandbox cap (20/20) remains strictly enforced, with container queuing under burst/execution pressure being the first primary tail latency pressure point, and directory stat inspection fan-out as a secondary latency point. No Redis, Postgres, queues, or horizontal-scaling changes are justified by these measurements. If burst execution or directory stat latency requires tuning, targeted optimizations (scrypt worker offloading / stat caching) are the appropriate engineering focus.
 
 ## Architecture decisions (do not rediscover)
 
@@ -1188,12 +1210,12 @@ per the original report's staging, under its own contract.
 
 ## Current active work
 
-Milestones 1–7b are committed (`3911f47`) and fully closed out. Milestone 8
-(coalescing-window characterization — measurement only; decision: **KEEP the
-fixed 25ms window**, no adaptivity justified) is implemented and verified in
-this working tree, **not yet committed** — see its section above. Manual QA
-execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding
-and un-gated, unchanged from before.
+Milestones 1–8 are committed (`5d46642`) and fully closed out. Milestone 9
+(scale validation at 100 to 1,000 VUs — measurement only; decision: single-process
+system stable under 1,000-VU stress workload, no distributed infrastructure
+justified) is implemented and verified in this working tree, **not yet committed** —
+see its section above. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
+remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
@@ -1202,10 +1224,13 @@ justified**), collaboration broadcast coalescing/backpressure is
 implemented (Milestone 6), the 100-user RSS/event-loop growth is
 attributed (Milestone 7: load-test harness client-replica lifecycle, not a
 production collab/manager.ts leak), the harness itself is fixed and
-confirmed to release those replicas (Milestone 7b), and the coalescing-window
+confirmed to release those replicas (Milestone 7b), the coalescing-window
 characterization is complete (Milestone 8: **KEEP 25ms**, adaptive coalescing
-not justified). No production memory-optimization or adaptive-coalescing work
-is currently justified. Remaining evidence-gated work:
+not justified), and scale validation at 100 to 1,000 VUs is complete
+(Milestone 9: **stable under 1,000-VU stress workload**, no architectural
+redesign justified). Remaining evidence-gated follow-up work:
 
-1. Attempt load levels 100/500/1000+, per the original report's staging.
-   Not started; do not implement without a new contract.
+1. Targeted burst latency optimizations (offloading scrypt password hashing
+   to worker threads / tuning parameters; caching directory stat/tree
+   inspections for active projects) if sub-second burst execution is required
+   by product SLOs. Not started; requires a new contract.
