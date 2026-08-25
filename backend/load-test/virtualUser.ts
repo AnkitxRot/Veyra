@@ -126,14 +126,29 @@ async function createProject(
   return res?.json?.project?.id ?? null;
 }
 
-async function sleep(ms: number, signal: AbortSignal): Promise<void> {
+// Exported for direct unit testing of listener/resource lifecycle
+// (backend/test/virtualUser.test.ts) — not used outside this module
+// otherwise.
+export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
   await new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
+    // Every sleep() call must remove its own "abort" listener before
+    // resolving — otherwise a long-running VU (hundreds of edits, each
+    // followed by a sleep()) permanently accumulates one listener per call
+    // on the single shared AbortSignal, none of which are ever invoked
+    // again after they fire once, but all of which stay reachable (and
+    // retain their closure scope) until the signal itself is released.
+    let t: NodeJS.Timeout;
+    const onAbort = () => {
       clearTimeout(t);
+      signal.removeEventListener("abort", onAbort);
       resolve();
-    });
+    };
+    t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort);
   });
 }
 
@@ -339,15 +354,23 @@ async function runPreviewHeavy(
   }
 }
 
-/** Real Yjs client wired to a collab WS socket — same shape as the frontend's CollaborationClient / the M4 test helper `wireClientToRoom`. */
-function wireYjsClient(ws: WebSocket, doc: Y.Doc): void {
-  ws.on("open", () => {
+/**
+ * Real Yjs client wired to a collab WS socket — same shape as the
+ * frontend's CollaborationClient / the M4 test helper `wireClientToRoom`.
+ * Returns a disposer that removes exactly the two listeners this function
+ * added (not `ws.removeAllListeners()`, which would also strip the `ws`
+ * library's own internal listeners and could interfere with its close
+ * handshake) — callers use this to guarantee the closure over `doc` does
+ * not outlive the socket.
+ */
+export function wireYjsClient(ws: WebSocket, doc: Y.Doc): () => void {
+  const onOpen = () => {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, doc);
     ws.send(encoding.toUint8Array(encoder));
-  });
-  ws.on("message", (data: Buffer) => {
+  };
+  const onMessage = (data: Buffer) => {
     const decoder = decoding.createDecoder(new Uint8Array(data));
     const messageType = decoding.readVarUint(decoder);
     if (messageType !== MESSAGE_SYNC) return;
@@ -357,7 +380,72 @@ function wireYjsClient(ws: WebSocket, doc: Y.Doc): void {
     if (encoding.length(encoder) > 1) {
       ws.send(encoding.toUint8Array(encoder));
     }
+  };
+  ws.on("open", onOpen);
+  ws.on("message", onMessage);
+  return () => {
+    ws.removeListener("open", onOpen);
+    ws.removeListener("message", onMessage);
+  };
+}
+
+/**
+ * Waits for the socket to open, error, or the shared AbortSignal to fire —
+ * whichever comes first — then removes every listener it registered
+ * (including on `signal`, which lives for the whole run and would
+ * otherwise accumulate one stale listener per call).
+ */
+export function waitForOpenOrAbort(
+  ws: WebSocket,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const cleanup = () => {
+      ws.removeListener("open", onOpen);
+      ws.removeListener("error", onError);
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      resolve();
+    };
+    const onAbort = () => {
+      cleanup();
+      resolve();
+    };
+    ws.once("open", onOpen);
+    ws.once("error", onError);
+    signal.addEventListener("abort", onAbort);
   });
+}
+
+/**
+ * Idempotent per-client teardown: releases exactly the listeners `unwire`
+ * was given, closes the socket, and destroys the client's local Yjs
+ * document — mirroring what a real browser tab does on navigation-away, so
+ * no simulated peer replica (and the CRDT structure it accumulated) can
+ * outlive its own virtual user. Safe to call more than once — e.g. once
+ * from a `finally` block and again from an outer abort handler.
+ */
+export function disposeCollabClient(
+  ws: WebSocket,
+  doc: Y.Doc,
+  unwire: () => void,
+): () => void {
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    unwire();
+    try {
+      ws.close();
+    } catch {}
+    doc.destroy();
+  };
 }
 
 function sendYjsInsert(
@@ -377,7 +465,7 @@ function sendYjsInsert(
   if (ws.readyState === WebSocket.OPEN) ws.send(encoding.toUint8Array(encoder));
 }
 
-async function runCollabRoom(
+export async function runCollabRoom(
   ctx: VirtualUserContext,
   token: string,
   projectId: string,
@@ -385,22 +473,23 @@ async function runCollabRoom(
 ): Promise<void> {
   const doc = new Y.Doc();
   const ws = connectCollab(ctx.wsBase, token, projectId);
-  wireYjsClient(ws, doc);
-  await new Promise<void>((resolve) => {
-    ws.once("open", () => resolve());
-    ws.once("error", () => resolve());
-    ctx.signal.addEventListener("abort", () => resolve());
-  });
-
-  let n = 0;
-  while (!ctx.signal.aborted && ws.readyState === WebSocket.OPEN) {
-    n++;
-    sendYjsInsert(ws, doc, "shared.txt", `vu${ctx.vuIndex}e${n};`);
-    await sleep(jitter(editIntervalMs, editIntervalMs / 2), ctx.signal);
-  }
+  const unwire = wireYjsClient(ws, doc);
+  const dispose = disposeCollabClient(ws, doc, unwire);
   try {
-    ws.close();
-  } catch {}
+    await waitForOpenOrAbort(ws, ctx.signal);
+
+    let n = 0;
+    while (!ctx.signal.aborted && ws.readyState === WebSocket.OPEN) {
+      n++;
+      sendYjsInsert(ws, doc, "shared.txt", `vu${ctx.vuIndex}e${n};`);
+      await sleep(jitter(editIntervalMs, editIntervalMs / 2), ctx.signal);
+    }
+  } finally {
+    // Runs on normal completion, on error, and on abort (the while loop's
+    // own condition exits as soon as ctx.signal.aborted flips) — no
+    // simulated client outlives this function call either way.
+    dispose();
+  }
 }
 
 async function runReconnecting(
@@ -411,16 +500,17 @@ async function runReconnecting(
   while (!ctx.signal.aborted) {
     const doc = new Y.Doc();
     const ws = connectCollab(ctx.wsBase, token, projectId);
-    wireYjsClient(ws, doc);
-    await new Promise<void>((resolve) => {
-      ws.once("open", () => resolve());
-      ws.once("error", () => resolve());
-      ctx.signal.addEventListener("abort", () => resolve());
-    });
-    await sleep(jitter(1500, 1000), ctx.signal);
+    const unwire = wireYjsClient(ws, doc);
+    const dispose = disposeCollabClient(ws, doc, unwire);
     try {
-      ws.close();
-    } catch {}
+      await waitForOpenOrAbort(ws, ctx.signal);
+      await sleep(jitter(1500, 1000), ctx.signal);
+    } finally {
+      // Each reconnect cycle creates a brand-new doc/socket pair — without
+      // this, every single reconnect iteration (not just the VU's overall
+      // lifetime) would leak its own replica.
+      dispose();
+    }
     await sleep(jitter(500, 500), ctx.signal);
   }
 }
@@ -441,15 +531,15 @@ export async function runEditToPeerProbe(
   const listenerDoc = new Y.Doc();
   const senderWs = connectCollab(ctx.wsBase, token, `${projectId}`);
   const listenerWs = connectCollab(ctx.wsBase, token, `${projectId}`);
-  wireYjsClient(senderWs, senderDoc);
+  const unwireSender = wireYjsClient(senderWs, senderDoc);
 
-  listenerWs.on("open", () => {
+  const onListenerOpen = () => {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, listenerDoc);
     listenerWs.send(encoding.toUint8Array(encoder));
-  });
-  listenerWs.on("message", (data: Buffer) => {
+  };
+  const onListenerMessage = (data: Buffer) => {
     const decoder = decoding.createDecoder(new Uint8Array(data));
     const messageType = decoding.readVarUint(decoder);
     if (messageType !== MESSAGE_SYNC) return;
@@ -471,7 +561,9 @@ export async function runEditToPeerProbe(
         );
       }
     }
-  });
+  };
+  listenerWs.on("open", onListenerOpen);
+  listenerWs.on("message", onListenerMessage);
 
   await Promise.all([
     new Promise<void>((resolve) => {
@@ -494,14 +586,22 @@ export async function runEditToPeerProbe(
     );
   }, 500);
 
+  let disposed = false;
   return () => {
+    if (disposed) return;
+    disposed = true;
     clearInterval(interval);
+    unwireSender();
+    listenerWs.removeListener("open", onListenerOpen);
+    listenerWs.removeListener("message", onListenerMessage);
     try {
       senderWs.close();
     } catch {}
     try {
       listenerWs.close();
     } catch {}
+    senderDoc.destroy();
+    listenerDoc.destroy();
   };
 }
 

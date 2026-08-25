@@ -943,6 +943,101 @@ Verification: backend 308 passed / 4 skipped / 0 failed (unchanged from
 before this investigation); backend + frontend typecheck PASS; `git diff
 --check` clean.
 
+### Milestone 7b — Load-test harness hygiene (fixes Milestone 7's findings)
+
+Harness-only fix, no production behavior changed. Implements the optional
+follow-up Milestone 7 identified: `backend/load-test/virtualUser.ts`
+never released a simulated collaboration client's `Y.Doc`/WebSocket
+listeners, and `sleep()` never removed its `AbortSignal` listener.
+
+**`sleep()` fix**: the `"abort"` listener now removes itself in both the
+normal-timeout path and the abort path (previously only `clearTimeout`
+ran on abort; the listener itself was never unregistered either way).
+Confirmed via `getEventListeners(signal, "abort")` staying at exactly 0
+after each call, including across 25 repeated calls on the same shared
+signal (test F).
+
+**Collaboration client cleanup**: `wireYjsClient()` now returns a
+disposer that removes exactly the two listeners it added (not
+`ws.removeAllListeners()`, which would also strip the `ws` library's own
+internal listeners and risk interfering with its close handshake). A new
+`waitForOpenOrAbort()` helper replaces the three ad hoc
+open/error/abort-wait blocks that existed in `runCollabRoom` and
+`runReconnecting`, cleaning up all three listeners regardless of which
+one wins. A new `disposeCollabClient()` factory returns a single,
+idempotent per-client teardown function (`unwire()` + `ws.close()` +
+`doc.destroy()`) used from a `finally` block in both `runCollabRoom` and
+`runReconnecting`, so cleanup runs on normal completion, on error, and on
+abort alike. `runEditToPeerProbe`'s `stopProbe` return value got the same
+treatment (idempotence guard + listener removal + `senderDoc.destroy()`/
+`listenerDoc.destroy()`) since it has the identical resource shape,
+though it only creates one doc pair per run, not one per VU.
+
+**Tests** (`backend/test/virtualUser.test.ts`, new, 9 tests, all
+deterministic — fake timers / mocked `ws` module / `getEventListeners`,
+no real network, no real sleeps): A (`runCollabRoom` disposes ws+doc on
+normal loop exit), B (`disposeCollabClient` teardown is idempotent), C
+(aborting before the socket ever opens still disposes), D (`sleep()`
+removes its listener after normal completion), E (`sleep()` removes its
+listener after abort), F (25 repeated `sleep()` calls never accumulate
+listeners), G (a simulated 3-VU workload leaves zero ws/doc/listener
+resources after everyone disconnects), plus two supplementary tests
+isolating `wireYjsClient`'s and `waitForOpenOrAbort`'s listener hygiene
+directly. `new WebSocket(...)` is mocked (`vi.mock("ws", ...)` with a
+minimal `EventEmitter`-based fake) rather than hitting a real socket.
+
+**Memory re-measurement** (same `collab-heavy-40` workload as Milestone
+7: 40 users, 45s/90s/20s ramp/steady/rampdown, 300s post-rampdown
+observation):
+
+|                                                           | Before (M7)                                          | After (M7b)                                                                            |
+| --------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Peak RSS / heapUsed (during active workload, ws=42)       | 723.9MB / 280.0MB                                    | 727.3MB / 281.5MB                                                                      |
+| Post-rampdown, ws=0/rooms=0, immediately                  | 677.1MB / 255.5MB                                    | 682.6MB / 246.4MB                                                                      |
+| Post-rampdown, +300s observation, final                   | **677.2MB / 249.7MB (flat since ~t=160s)**           | **456.1MB / 30.8MB**                                                                   |
+| Retained Yjs `Item` objects (post-rampdown heap snapshot) | 743,151                                              | **35,342 (-95.2%)**                                                                    |
+| `gc.major` count across the run                           | 23 (frozen from t=5s — no GC ever ran during growth) | 27 (GC actually ran post-rampdown, as expected once there was real garbage to collect) |
+
+Peak memory while the workload is actively running is (correctly)
+**unchanged** — 40 genuinely connected clients legitimately holding a
+live replica each is expected behavior, not something this milestone
+should or does change. The entire effect is in what happens **after**
+disconnection: before the fix, heapUsed sat completely flat at ~250MB
+forever (no GC activity at all after the initial ramp); after the fix,
+heapUsed naturally decays via ordinary (unforced, default-flag) GC over
+roughly the first ~220s of the observation window and settles at 30.8MB
+— within range of the run's own ~22MB starting baseline, not just
+"lower." The post-rampdown heap snapshot file itself shrank from 452MB
+to 35.1MB (-92%), and its retained-`Item` count dropped 95.2%,
+proportional to going from ~41 replicas of the shared document down to
+roughly 2 replicas' worth still resolvable at the snapshot instant. That
+small residual (~4MB self-size worth of `Item`/`ContentString` objects,
+not hundreds of MB) was not root-caused further — it is not "substantial
+unexplained memory" by any reasonable reading of that phrase, and
+chasing it further is exactly the kind of open-ended remediation this
+milestone's contract said not to start.
+
+Files: `backend/load-test/virtualUser.ts` (harness only — no production
+collaboration file touched), `backend/test/virtualUser.test.ts` (new).
+Evidence: `backend/load-test/results/memprofile-collab-heavy-40-postfix-*.{json,md}`
+plus a fifth local-only heap-snapshot set (same disclosed local-only
+convention as Milestone 7 — not sized for a git commit).
+
+Verification: harness tests 9/9 new + 308 pre-existing = 317 backend
+tests passed / 4 skipped / 0 failed; frontend 13/13 passed; backend +
+frontend typecheck PASS; `git diff --check` clean; no
+`backend/src/collab/manager.ts` or other production file touched; no
+M5/M6/M7 evidence file altered.
+
+**Classification: EXPECTED_REDUCTION.** The ~40× Yjs replica retention
+Milestone 7 attributed to the load-test harness disappears once the
+harness releases its own simulated clients — confirming Milestone 7's
+attribution was correct and that no production `CollaborationManager`
+memory fix is warranted. Future collaboration load-test evidence
+(post-rampdown memory in particular) is now a much cleaner signal of
+actual server-side behavior, since it is no longer dominated by
+un-released harness-side replicas.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -995,9 +1090,13 @@ WS backpressure, `f5d65ae`), and Milestone 7 (memory-attribution
 investigation) are committed and fully closed out — Milestone 5c's
 decision is DB-threading **not justified**; no DB architecture change was
 made. Milestone 7's decision is no memory-optimization milestone is
-justified on the server/production side — see its section above; the only
-open follow-up is optional, unimplemented load-test harness hygiene
-(Milestone 7b). Manual QA
+justified on the server/production side — see its section above.
+Milestone 7b (load-test harness hygiene — releases simulated
+collaboration clients' `Y.Doc`/WebSocket/listener resources) is
+implemented and verified in this working tree, **not yet committed** —
+see its section above; confirmed EXPECTED_REDUCTION (post-rampdown heap
+usage for the same workload dropped from a permanently-flat ~250MB to
+~31MB, converging near the run's own baseline). Manual QA
 execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding
 and un-gated, unchanged from before.
 
@@ -1005,28 +1104,20 @@ and un-gated, unchanged from before.
 
 The SQLite/DB-threading question is resolved (Milestone 5c: **not
 justified**), collaboration broadcast coalescing/backpressure is
-implemented (Milestone 6), and the 100-user RSS/event-loop growth is now
+implemented (Milestone 6), the 100-user RSS/event-loop growth is
 attributed (Milestone 7: load-test harness client-replica lifecycle, not a
-production collab/manager.ts leak — see its section above). Remaining
-evidence-gated work, in dependency order:
+production collab/manager.ts leak), and the harness itself is now fixed
+and confirmed to release those replicas (Milestone 7b). No production
+memory-optimization work is currently justified. Remaining evidence-gated
+work, in dependency order:
 
-1. **Milestone 7b — optional, low-priority harness hygiene** (not a
-   production change): the memory investigation found the load-test
-   harness itself doesn't release each virtual user's simulated Yjs
-   client (`Y.Doc`/WebSocket listeners never explicitly torn down in
-   `runCollabRoom`, `backend/load-test/virtualUser.ts`) and that
-   `sleep()`'s `AbortSignal` listener is never removed after firing.
-   Fixing this would let future collaboration load tests measure
-   server-side memory more cleanly (current measurements conflate
-   simulated-client and real-server memory, since the harness runs both
-   in one process by design). Not started; needs its own contract.
-2. Milestone 6 disclosed a real low-concentration latency tradeoff
+1. Milestone 6 disclosed a real low-concentration latency tradeoff
    (coalescing costs ~30ms of added edit-to-peer latency at 10-50 users for
    a 44-83% broadcast reduction, before it starts paying for itself in
    latency terms at higher concentration). If this proves to matter in
    practice, a follow-up could explore adaptive/smaller coalescing windows
    at low concurrency — not started, needs its own contract and measurement
    first, not intuition.
-3. Only after 1-2: attempt load levels 100/500/1000+, per the original
+2. Only after 1: attempt load levels 100/500/1000+, per the original
    report's staging. Not started; do not implement any of the above without
    a new contract.
