@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-08-25T09:13:56.124Z",
+  "projectSizeDecomposition": {
+    "tiny": {
+      "files": 5,
+      "depth": 1,
+      "treeMs": 9.241500000003725,
+      "listFilesMs": 0.252200000002631,
+      "statCount": 5
+    },
+    "medium": {
+      "files": 50,
+      "depth": 3,
+      "treeMs": 9.158100000000559,
+      "listFilesMs": 0.5832999999984168,
+      "statCount": 50
+    },
+    "large": {
+      "files": 300,
+      "depth": 5,
+      "treeMs": 20.69869999999355,
+      "listFilesMs": 0.9769000000087544,
+      "statCount": 300
+    }
+  }
+}
