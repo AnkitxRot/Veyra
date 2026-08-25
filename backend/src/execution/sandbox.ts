@@ -100,6 +100,12 @@ export class SandboxManager {
   >();
   /** In-flight creation sequences keyed by projectId, so concurrent callers share one `docker run`. */
   private creating = new Map<string, Promise<string>>();
+  private provisionedNetworks = new Set<string>();
+  private statsCache = new Map<
+    string,
+    { stats: ContainerStats; timestamp: number }
+  >();
+  private inFlightStats = new Map<string, Promise<ContainerStats>>();
   /**
    * Serializes sandbox *lifecycle* operations (the create-or-reuse decision
    * in ensureProjectSandbox, and teardown in stopProjectSandbox) per
@@ -340,18 +346,15 @@ export class SandboxManager {
       await execFileAsync("docker", ["rm", "-f", containerId]);
     } catch {}
 
-    try {
-      await execFileAsync("docker", [
-        "network",
-        "inspect",
-        `ide-net-${projectId}`,
-      ]);
-    } catch {
-      await execFileAsync("docker", [
-        "network",
-        "create",
-        `ide-net-${projectId}`,
-      ]);
+    if (!this.provisionedNetworks.has(projectId)) {
+      try {
+        await execFileAsync("docker", [
+          "network",
+          "create",
+          `ide-net-${projectId}`,
+        ]);
+      } catch {}
+      this.provisionedNetworks.add(projectId);
     }
 
     const limits = config.limits;
@@ -448,6 +451,9 @@ export class SandboxManager {
     }
     this.projectContainers.delete(projectId);
     this.connectedNetworks.delete(projectId);
+    this.provisionedNetworks.delete(projectId);
+    this.statsCache.delete(projectId);
+    this.inFlightStats.delete(projectId);
   }
 
   async cleanupAllSandboxes(): Promise<void> {
@@ -490,6 +496,9 @@ export class SandboxManager {
       if (info.ownerId !== undefined) sandboxGate.release(info.ownerId);
     }
     this.projectContainers.clear();
+    this.provisionedNetworks.clear();
+    this.statsCache.clear();
+    this.inFlightStats.clear();
   }
 
   getMappedPort(projectId: string, internalPort: number): number | null {
@@ -634,52 +643,7 @@ export class SandboxManager {
 
   /** Live real-time resource telemetry sampled from Docker daemon */
   async getContainerStats(projectId: string): Promise<ContainerStats> {
-    const containerId = `ide-sandbox-${projectId}`;
-    try {
-      const { stdout } = await execFileAsync("docker", [
-        "stats",
-        "--no-stream",
-        "--format",
-        "{{json .}}",
-        containerId,
-      ]);
-      if (!stdout.trim()) {
-        return {
-          running: false,
-          cpuPercent: 0,
-          memoryUsageBytes: 0,
-          memoryLimitBytes: 536870912,
-          memoryPercent: 0,
-          pids: 0,
-          netIO: "0B / 0B",
-          blockIO: "0B / 0B",
-        };
-      }
-      const parsed = JSON.parse(stdout.trim().split("\n")[0]);
-      const cpu = parseFloat((parsed.CPUPerc || "0%").replace("%", "")) || 0;
-      const memPerc =
-        parseFloat((parsed.MemPerc || "0%").replace("%", "")) || 0;
-
-      const memUsageStr = parsed.MemUsage || "";
-      let memUsageBytes = 0;
-      let memLimitBytes = 536870912;
-      if (memUsageStr.includes("/")) {
-        const [u, l] = memUsageStr.split("/").map((s: string) => s.trim());
-        memUsageBytes = parseByteUnits(u);
-        memLimitBytes = parseByteUnits(l) || 536870912;
-      }
-      const pids = parseInt(parsed.PIDs, 10) || 0;
-      return {
-        running: true,
-        cpuPercent: cpu,
-        memoryUsageBytes: memUsageBytes,
-        memoryLimitBytes: memLimitBytes,
-        memoryPercent: memPerc,
-        pids,
-        netIO: parsed.NetIO || "0B / 0B",
-        blockIO: parsed.BlockIO || "0B / 0B",
-      };
-    } catch {
+    if (!this.projectContainers.has(projectId)) {
       return {
         running: false,
         cpuPercent: 0,
@@ -691,6 +655,97 @@ export class SandboxManager {
         blockIO: "0B / 0B",
       };
     }
+
+    const cached = this.statsCache.get(projectId);
+    const now = Date.now();
+    if (cached && now - cached.timestamp < 1000) {
+      return cached.stats;
+    }
+
+    const inFlight = this.inFlightStats.get(projectId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const fetchPromise = (async () => {
+      const containerId = `ide-sandbox-${projectId}`;
+      try {
+        const { stdout } = await execFileAsync("docker", [
+          "stats",
+          "--no-stream",
+          "--format",
+          "{{json .}}",
+          containerId,
+        ]);
+        if (!stdout.trim()) {
+          const fallback: ContainerStats = {
+            running: false,
+            cpuPercent: 0,
+            memoryUsageBytes: 0,
+            memoryLimitBytes: 536870912,
+            memoryPercent: 0,
+            pids: 0,
+            netIO: "0B / 0B",
+            blockIO: "0B / 0B",
+          };
+          this.statsCache.set(projectId, {
+            stats: fallback,
+            timestamp: Date.now(),
+          });
+          return fallback;
+        }
+        const parsed = JSON.parse(stdout.trim().split("\n")[0]);
+        const cpu = parseFloat((parsed.CPUPerc || "0%").replace("%", "")) || 0;
+        const memPerc =
+          parseFloat((parsed.MemPerc || "0%").replace("%", "")) || 0;
+
+        const memUsageStr = parsed.MemUsage || "";
+        let memUsageBytes = 0;
+        let memLimitBytes = 536870912;
+        if (memUsageStr.includes("/")) {
+          const [u, l] = memUsageStr.split("/").map((s: string) => s.trim());
+          memUsageBytes = parseByteUnits(u);
+          memLimitBytes = parseByteUnits(l) || 536870912;
+        }
+        const pids = parseInt(parsed.PIDs, 10) || 0;
+        const stats: ContainerStats = {
+          running: true,
+          cpuPercent: cpu,
+          memoryUsageBytes: memUsageBytes,
+          memoryLimitBytes: memLimitBytes,
+          memoryPercent: memPerc,
+          pids,
+          netIO: parsed.NetIO || "0B / 0B",
+          blockIO: parsed.BlockIO || "0B / 0B",
+        };
+        this.statsCache.set(projectId, {
+          stats,
+          timestamp: Date.now(),
+        });
+        return stats;
+      } catch {
+        const fallback: ContainerStats = {
+          running: false,
+          cpuPercent: 0,
+          memoryUsageBytes: 0,
+          memoryLimitBytes: 536870912,
+          memoryPercent: 0,
+          pids: 0,
+          netIO: "0B / 0B",
+          blockIO: "0B / 0B",
+        };
+        this.statsCache.set(projectId, {
+          stats: fallback,
+          timestamp: Date.now(),
+        });
+        return fallback;
+      } finally {
+        this.inFlightStats.delete(projectId);
+      }
+    })();
+
+    this.inFlightStats.set(projectId, fetchPromise);
+    return fetchPromise;
   }
 
   private async readPortMapping(

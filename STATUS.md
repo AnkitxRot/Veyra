@@ -17,7 +17,8 @@ Last updated: 2026-08-25.
   - Milestone 7b (load-test harness hygiene — releases simulated collaboration clients' `Y.Doc`/WebSocket/listener resources) at `3911f47`.
   - Milestone 8 (coalescing-window characterization — measurement only; decision: KEEP the fixed 25ms window, no adaptivity justified) at `5d46642`.
   - Milestone 9 (scale validation at 100 to 1,000 VUs — measurement only; decision: single-process system stable under 1,000-VU stress workload, no distributed infrastructure justified) at `0e8a06c`.
-- **Current uncommitted work:** Milestone 10 (performance hotspot investigation — Docker execution cold-start & filesystem stat fan-out decomposition; measurement only).
+  - Milestone 10 (performance hotspot investigation — Docker execution cold-start & filesystem stat fan-out decomposition; measurement only) at `a4bd070`.
+- **Current uncommitted work:** Milestone 11 (targeted execution cold-start and filesystem stat/telemetry optimizations).
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -1176,7 +1177,7 @@ Verification: full backend suite 317 passed / 4 skipped / 0 failed; backend type
 
 ### Milestone 10 — Performance hotspot investigation (Execution & Filesystem)
 
-Not yet committed (this working tree). Investigates the two primary performance hotspots identified in Milestone 9: (1) Docker execution tail latency under burst/load, and (2) filesystem directory/stat inspection fan-out. **Measurement and root-cause analysis only — `backend/src/**` untouched.**
+Committed at `a4bd070`. Investigates the two primary performance hotspots identified in Milestone 9: (1) Docker execution tail latency under burst/load, and (2) filesystem directory/stat inspection fan-out. **Measurement and root-cause analysis only — `backend/src/**` untouched.**
 
 #### 1. Execution Decomposition & Cold-vs-Warm Analysis
 
@@ -1230,6 +1231,41 @@ Files: `backend/load-test/investigate-hotspots.ts`, `backend/load-test/results/i
 
 Verification: full backend suite 317 passed / 4 skipped / 0 failed; backend typecheck PASS; `git diff --check` clean.
 
+### Milestone 11 — Targeted execution cold-start and filesystem stat/telemetry optimizations
+
+Not yet committed (this working tree). Implements the first evidence-backed performance optimizations identified in Milestone 10: (1) eliminates Docker check stampedes and redundant network provisioning in the sandbox execution path, (2) optimizes directory tree listing via bounded sibling concurrency, and (3) replaces repeated per-request `docker stats` CLI executions with in-memory caching and fast-path inactive returns.
+
+**Production Changes**:
+- `backend/src/tools.ts`: In-flight promise coalescing/single-flight deduplication and 15s cache TTL for `isDockerRunningAsync` and `isRunnerImageAvailableAsync`, completely eliminating concurrent Docker CLI stampedes.
+- `backend/src/execution/sandbox.ts`: `provisionedNetworks` tracking to skip redundant network create cycles; `getContainerStats` fast-path returning immediately (sub-0.1ms) for inactive projects without spawning `docker stats` CLI child processes, plus a 1000ms single-flight in-memory cache for active containers with lifecycle invalidation in `performStop` and `cleanupAllSandboxes`.
+- `backend/src/files/service.ts`: `mapConcurrent` bounded sibling concurrency (`limit = 8`) in `tree()` preserving deterministic sorted index ordering, exact output types, symlink/path-safety checks, and error handling.
+
+**Benchmark Results (Before vs After)**:
+- **50-VU Cold Execution Burst**:
+  - p50 latency: **9,189.7ms → 451.9ms (-95.1% reduction)**
+  - p95 latency: **11,830.8ms → 4,898.2ms (-58.6% reduction)**
+  - p99 latency: **12,112.9ms → 5,157.6ms (-57.4% reduction)**
+  - Total burst wall duration: **12.12s → 5.16s (-57.4% reduction)**
+- **Filesystem Tree Scaling**:
+  - Medium project (50 files, depth 3): **9.16ms → 2.23ms (-75.7% reduction)**
+  - Large project (300 files, depth 5): **20.70ms → 7.59ms (-63.3% reduction)**
+  - 10 concurrent callers p95: **14.7ms → 12.0ms (-18.3% reduction)**
+- **Telemetry `/stats` Latency**:
+  - Inactive project `/stats` execution: **~50ms → 0.02ms (~2,500x speedup)**
+- **Warm Reused Sandbox Execution**:
+  - p50 / p95: **125.9ms / 140.3ms** (unchanged and consistent with sub-150ms expectations)
+
+**Preserved Invariants & Security**:
+- Level 4 sandbox hardening flags (`--read-only` root, tmpfs `/tmp`, `/run`, `/home/ide/.cache`, drop `ALL` capabilities, `no-new-privileges`, CPU/memory/PIDs limits) remain 100% untouched.
+- Global `maxSandboxes=20` hard ceiling and per-user fairness quota (`sandboxGate`) remain strictly enforced and race-safe under `withProjectLock`.
+- No distributed dependencies, queues, or warm pools introduced.
+
+Files:
+- Production: `backend/src/execution/sandbox.ts`, `backend/src/files/service.ts`, `backend/src/tools.ts`.
+- Tests & Evidence: `backend/test/m11-optimization.test.ts`, `backend/load-test/verify-m11-optimizations.ts`, `backend/load-test/results/m11-{exec,fs}-optimization-*.{json,md}`.
+
+Verification: full backend suite 323 passed / 4 skipped / 0 failed (32 test files); focused collaboration suite 56/56 PASS; backend typecheck PASS; `git diff --check` clean.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -1267,12 +1303,11 @@ Verification: full backend suite 317 passed / 4 skipped / 0 failed; backend type
 
 ## Current active work
 
-Milestones 1–9 are committed (`0e8a06c`) and fully closed out. Milestone 10
-(performance hotspot investigation — Docker execution cold-start and
-filesystem stat fan-out decomposition; measurement only) is implemented and
-verified in this working tree, **not yet committed** — see its section above.
-Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains
-outstanding and un-gated, unchanged from before.
+Milestones 1–10 are committed (`a4bd070`) and fully closed out. Milestone 11
+(targeted execution cold-start and filesystem stat/telemetry optimizations) is
+implemented and verified in this working tree, **not yet committed** — see its
+section above. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
+remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
@@ -1285,13 +1320,12 @@ confirmed to release those replicas (Milestone 7b), the coalescing-window
 characterization is complete (Milestone 8: **KEEP 25ms**, adaptive coalescing
 not justified), scale validation at 100 to 1,000 VUs is complete (Milestone 9:
 **stable under 1,000-VU stress workload**, no architectural redesign justified),
-and hotspot investigation is complete (Milestone 10: Docker cold start and
-sequential `fs.stat`/`docker stats` identified as root causes). Remaining
-evidence-gated implementation work:
+hotspot investigation is complete (Milestone 10: Docker cold start and
+sequential `fs.stat`/`docker stats` identified as root causes), and targeted
+optimizations are implemented (Milestone 11: 50-VU burst p50 -95.1%, tree latency
+-63–75%, stats latency -2,500x). Remaining evidence-gated follow-up work:
 
-1. **Targeted Execution & Filesystem Optimizations**:
-   - Cache Docker daemon / runner-image availability checks (avoiding 240ms of redundant CLI checks per cold start).
-   - Lazy/reused Docker network provisioning (avoiding 118ms network create CLI overhead).
-   - Replace sequential `tree()` `await fs.stat()` with parallel/batched `withFileTypes: true` directory scanning.
-   - Cache container resource telemetry in memory to eliminate per-request `docker stats` child process invocations.
-   Requires its own implementation contract.
+1. **Scale Re-Validation Under M11 Optimizations**:
+   Re-run scale validation (100 to 1,000 VUs) to measure whole-system throughput
+   and tail latency improvements under high concurrency with M11 optimizations
+   active. Not started; requires a new contract.

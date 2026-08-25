@@ -80,36 +80,62 @@ export async function listFiles(root: string, rel = '', out: string[] = []): Pro
   return out;
 }
 
+async function mapConcurrent<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let nextIdx = 0;
+
+  async function worker() {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+
+  const workerCount = Math.min(items.length, Math.max(1, limit));
+  const workers = Array.from({ length: workerCount }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 export async function tree(root: string): Promise<TreeNode[]> {
-  const nodes: TreeNode[] = [];
   let entries;
   try {
     entries = await fs.readdir(root, { withFileTypes: true });
   } catch {
     return [];
   }
-  
+
   entries.sort((a, b) =>
     a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1,
   );
-  
-  for (const e of entries) {
-    if (e.name.startsWith(BUILD_PREFIX)) continue;
+
+  const filtered = entries.filter((e) => !e.name.startsWith(BUILD_PREFIX));
+
+  const mapped = await mapConcurrent(filtered, 8, async (e): Promise<TreeNode | null> => {
     const relPath = e.name;
     const abs = join(root, relPath);
     if (e.isDirectory()) {
-      if (SKIP_DIRS.has(e.name)) continue;
-      nodes.push({ name: e.name, path: relPath, type: 'dir', children: await tree(abs) });
+      if (SKIP_DIRS.has(e.name)) return null;
+      const children = await tree(abs);
+      return { name: e.name, path: relPath, type: 'dir', children };
     } else if (e.isFile()) {
       try {
         const st = await fs.stat(abs);
-        nodes.push({ name: e.name, path: relPath, type: 'file', size: st.size });
+        return { name: e.name, path: relPath, type: 'file', size: st.size };
       } catch {
         // file might have disappeared
+        return null;
       }
     }
-  }
-  return nodes;
+    return null;
+  });
+
+  return mapped.filter((n): n is TreeNode => n !== null);
 }
 
 export async function readProjectFile(root: string, relPath: string): Promise<{ content: string; size: number }> {

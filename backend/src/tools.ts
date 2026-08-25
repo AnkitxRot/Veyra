@@ -24,21 +24,38 @@ interface CacheEntry<T> {
 
 let dockerCache: CacheEntry<boolean> | null = null;
 let runnerCache: CacheEntry<boolean> | null = null;
-const CACHE_TTL_MS = 5000;
+let inFlightDockerCheck: Promise<boolean> | null = null;
+let inFlightRunnerCheck: Promise<boolean> | null = null;
+const CACHE_TTL_MS = 15000;
+
+export function resetDockerCacheForTests(): void {
+  dockerCache = null;
+  runnerCache = null;
+  inFlightDockerCheck = null;
+  inFlightRunnerCheck = null;
+}
 
 export async function isDockerRunningAsync(): Promise<boolean> {
   const now = Date.now();
   if (dockerCache && now - dockerCache.timestamp < CACHE_TTL_MS) {
     return dockerCache.value;
   }
-  try {
-    await execFileAsync('docker', ['info']);
-    dockerCache = { value: true, timestamp: now };
-    return true;
-  } catch {
-    dockerCache = { value: false, timestamp: now };
-    return false;
+  if (inFlightDockerCheck) {
+    return inFlightDockerCheck;
   }
+  inFlightDockerCheck = (async () => {
+    try {
+      await execFileAsync('docker', ['info']);
+      dockerCache = { value: true, timestamp: Date.now() };
+      return true;
+    } catch {
+      dockerCache = { value: false, timestamp: Date.now() };
+      return false;
+    } finally {
+      inFlightDockerCheck = null;
+    }
+  })();
+  return inFlightDockerCheck;
 }
 
 export async function isRunnerImageAvailableAsync(): Promise<boolean> {
@@ -46,15 +63,23 @@ export async function isRunnerImageAvailableAsync(): Promise<boolean> {
   if (runnerCache && now - runnerCache.timestamp < CACHE_TTL_MS) {
     return runnerCache.value;
   }
-  try {
-    const { stdout } = await execFileAsync('docker', ['image', 'inspect', 'cloudeeeide-runner:latest']);
-    const available = stdout.includes('cloudeeeide-runner:latest');
-    runnerCache = { value: available, timestamp: now };
-    return available;
-  } catch {
-    runnerCache = { value: false, timestamp: now };
-    return false;
+  if (inFlightRunnerCheck) {
+    return inFlightRunnerCheck;
   }
+  inFlightRunnerCheck = (async () => {
+    try {
+      const { stdout } = await execFileAsync('docker', ['image', 'inspect', 'cloudeeeide-runner:latest']);
+      const available = stdout.includes('cloudeeeide-runner:latest');
+      runnerCache = { value: available, timestamp: Date.now() };
+      return available;
+    } catch {
+      runnerCache = { value: false, timestamp: Date.now() };
+      return false;
+    } finally {
+      inFlightRunnerCheck = null;
+    }
+  })();
+  return inFlightRunnerCheck;
 }
 
 export function isDockerRunning(): boolean {
