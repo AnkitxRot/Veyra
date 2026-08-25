@@ -126,6 +126,18 @@ export function openDb(dbPath: string): Db {
 
     CREATE INDEX IF NOT EXISTS idx_anomalies_project ON resource_anomalies(project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_anomalies_status ON resource_anomalies(status);
+
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id            INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      font_size          REAL NOT NULL DEFAULT 13.5,
+      tab_size           INTEGER NOT NULL DEFAULT 4,
+      word_wrap          TEXT NOT NULL DEFAULT 'off',
+      minimap            INTEGER NOT NULL DEFAULT 0,
+      line_numbers       TEXT NOT NULL DEFAULT 'on',
+      cursor_blinking    TEXT NOT NULL DEFAULT 'smooth',
+      render_whitespace  TEXT NOT NULL DEFAULT 'selection',
+      updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   runMigrations(db);
   return db;
@@ -301,6 +313,25 @@ const MIGRATIONS: Migration[] = [
 
         CREATE INDEX IF NOT EXISTS idx_ai_verif_proj ON ai_verifications(project_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_ai_verif_status ON ai_verifications(status);
+      `);
+    },
+  },
+  {
+    version: 8,
+    description: 'Create user_preferences table for M22 editor customization',
+    up(db: Db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_preferences (
+          user_id            INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          font_size          REAL NOT NULL DEFAULT 13.5,
+          tab_size           INTEGER NOT NULL DEFAULT 4,
+          word_wrap          TEXT NOT NULL DEFAULT 'off',
+          minimap            INTEGER NOT NULL DEFAULT 0,
+          line_numbers       TEXT NOT NULL DEFAULT 'on',
+          cursor_blinking    TEXT NOT NULL DEFAULT 'smooth',
+          render_whitespace  TEXT NOT NULL DEFAULT 'selection',
+          updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+        );
       `);
     },
   },

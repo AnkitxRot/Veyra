@@ -24,6 +24,7 @@ export type AuditEventType =
   | 'USER_UPDATED_BY_ADMIN'
   | 'USER_PASSWORD_RESET_BY_ADMIN'
   | 'USER_DELETED_BY_ADMIN'
+  | 'USER_PREFERENCES_UPDATED'
   | 'ADMIN_ACTION';
 
 export interface AuditRecord {

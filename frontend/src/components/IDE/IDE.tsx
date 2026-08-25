@@ -6,7 +6,7 @@ import React, {
   useRef,
   Suspense,
 } from "react";
-import { User, Project, TreeNode, ContainerStats } from "../../types";
+import { User, Project, TreeNode, ContainerStats, UserPreferences } from "../../types";
 import {
   api,
   getCapabilities,
@@ -29,6 +29,7 @@ import Preview from "../Preview/Preview";
 import ProblemsPanel from "../Output/ProblemsPanel";
 import ResourcesView from "../Resources/ResourcesView";
 import ProjectHealthModal from "../Health/ProjectHealthModal";
+import SettingsModal, { DEFAULT_PREFERENCES } from "../Settings/SettingsModal";
 const AIPatchModal = React.lazy(() => import("../AI/AIPatchModal"));
 const AIExplainModal = React.lazy(() => import("../AI/AIExplainModal"));
 import AIVerificationCard from "../AI/AIVerificationCard";
@@ -105,6 +106,32 @@ export default function IDE({
   const [formatOnSave, setFormatOnSave] = useState<boolean>(() => {
     return localStorage.getItem("cloudeee_format_on_save") === "true";
   });
+
+  // M22: User Preferences & Editor Settings States
+  const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    api<{ preferences: UserPreferences }>("/api/auth/preferences")
+      .then((r) => {
+        if (r && r.preferences) {
+          setPreferences(r.preferences);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load user preferences:", err);
+      });
+  }, []);
+
+  const handleUpdatePreferences = async (updated: Partial<UserPreferences>) => {
+    const res = await api<{ preferences: UserPreferences }>("/api/auth/preferences", {
+      method: "PUT",
+      body: JSON.stringify(updated),
+    });
+    if (res && res.preferences) {
+      setPreferences(res.preferences);
+    }
+  };
 
   // Layout Sizing States (Resizable Sidebar & Bottom Panel)
   const [sidebarWidth, setSidebarWidth] = useState(250);
@@ -1162,6 +1189,7 @@ export default function IDE({
           refreshTree={loadTree}
           width={sidebarWidth}
           onOpenTour={() => setShowTour(true)}
+          onOpenSettings={() => setShowSettings(true)}
         />
       )}
 
@@ -1240,6 +1268,7 @@ export default function IDE({
                   collabClient={collabClient}
                   isReadOnly={projectRole === "viewer"}
                   liveApiRef={liveApiRef}
+                  preferences={preferences}
                   onCreateFile={() => {
                     const el = document.querySelector(
                       'button[title="New File"]',
@@ -1622,6 +1651,14 @@ export default function IDE({
           />
         </Suspense>
       )}
+
+      {/* M22: Editor Preferences / Settings Modal */}
+      <SettingsModal
+        isOpen={showSettings}
+        preferences={preferences}
+        onSave={handleUpdatePreferences}
+        onClose={() => setShowSettings(false)}
+      />
     </div>
   );
 }

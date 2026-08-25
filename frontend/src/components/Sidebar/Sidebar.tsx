@@ -14,6 +14,7 @@ import {
   IconSparkles,
   IconDownload,
   IconUpload,
+  IconSettings,
 } from '../common/Icons';
 import { getLanguageIcon } from '../common/iconUtils';
 import { PromptModal, ConfirmModal } from '../common/Modal';
@@ -31,6 +32,7 @@ interface SidebarProps {
   refreshTree: () => void;
   width?: number;
   onOpenTour?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export default function Sidebar({
@@ -46,6 +48,7 @@ export default function Sidebar({
   refreshTree,
   width = 260,
   onOpenTour,
+  onOpenSettings,
 }: SidebarProps) {
   const [showProjectsAccordion, setShowProjectsAccordion] = useState(true);
   const [searchFilter, setSearchFilter] = useState('');
@@ -231,6 +234,16 @@ export default function Sidebar({
               aria-label="Guided Tour"
             >
               <IconSparkles size={13} color="var(--accent)" />
+            </button>
+          )}
+          {onOpenSettings && (
+            <button
+              className="glass-btn glass-btn-icon"
+              onClick={onOpenSettings}
+              title="Editor Settings"
+              aria-label="Editor Settings"
+            >
+              <IconSettings size={13} />
             </button>
           )}
           <button

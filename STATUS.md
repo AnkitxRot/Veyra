@@ -28,7 +28,8 @@ Last updated: 2026-08-25.
   - Milestone 18 (cold-wait decomposition & scheduling decision — measurement only; decision: ACCEPT current behavior, no scheduler justified) at `1a6bf07`.
   - Milestone 19 (session lifecycle & WebSocket security hardening — logout WS teardown & demo account GC) at `ae8a740`.
   - Milestone 20 (project snapshot quotas & retention management) at `1938e79`.
-  - Milestone 21 (project workspace export & import) in this commit.
+  - Milestone 21 (project workspace export & import) at `a4e933a`.
+  - Milestone 22 (user preferences & editor settings persistence) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1692,7 +1693,7 @@ Verification:
 
 ### Milestone 21 — Project Workspace Export & Import
 
-Implemented and verified in this working tree. Allows project owners to export their workspaces as portable ZIP archives and safely import archives with transactional staging and strict security defenses:
+Implemented and verified in commit `a4e933a`. Allows project owners to export their workspaces as portable ZIP archives and safely import archives with transactional staging and strict security defenses:
 
 1. **Zero-Dependency Universal PKZIP 2.0 Engine**:
    - Implemented standard Deflate/Stored ZIP encoding and decoding in `backend/src/projects/zip.ts` with zero external dependencies.
@@ -1728,6 +1729,43 @@ Verification:
 - Full backend regression suite: **362 passed / 2 failed / 4 skipped (38 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
 - Frontend build & typecheck: PASS (Vite built in 44.01s).
+- `git diff --check`: PASS.
+
+### Milestone 22 — User Preferences & Editor Settings Persistence
+
+Implemented and verified in this working tree. Persists user-specific editor preferences in SQLite and applies them dynamically to Monaco editor instances without page reloads, model recreation, or loss of unsaved editor state:
+
+1. **Database Schema & Migrations**:
+   - Dedicated `user_preferences` table in SQLite (`backend/src/db.ts`) with foreign key reference `REFERENCES users(id) ON DELETE CASCADE`.
+   - Fields: `user_id` (PRIMARY KEY), `font_size` (REAL, default 13.5), `tab_size` (INTEGER, default 4), `word_wrap` (TEXT, default 'off'), `minimap` (INTEGER, default 0), `line_numbers` (TEXT, default 'on'), `cursor_blinking` (TEXT, default 'smooth'), `render_whitespace` (TEXT, default 'selection'), `updated_at` (TEXT).
+   - Migration version 8 applies idempotently on startup; existing users without a row transparently receive exact defaults without errors.
+
+2. **Backend Domain Logic & REST Endpoints**:
+   - `backend/src/auth/preferences.ts`: provides `getUserPreferences(db, userId)` and `updateUserPreferences(db, userId, updates)`.
+   - `GET /api/auth/preferences`: returns current user's preferences (or defaults).
+   - `PUT /api/auth/preferences`: validates every field strictly, rejecting unknown keys, out-of-range font sizes (`8 <= fontSize <= 32`), invalid tab sizes (`2 | 4 | 8`), and invalid Monaco enums (`wordWrap`, `lineNumbers`, `cursorBlinking`, `renderWhitespace`). Partial updates preserve unspecified fields.
+   - Audit logging: records `USER_PREFERENCES_UPDATED` in `audit_logs` with updated keys.
+
+3. **Frontend State Synchronization & Monaco Options**:
+   - `UserPreferences` interface in `frontend/src/types.ts`.
+   - Loaded on mount in `frontend/src/components/IDE/IDE.tsx` via `GET /api/auth/preferences` and passed to `Editor`.
+   - `frontend/src/components/Editor/Editor.tsx` reacts to preference changes via `monacoRef.current.updateOptions(...)`, immediately updating the editor without remounting or re-instantiating text models.
+   - Unsaved editor state, undo history, and active collaborative Yjs bindings are 100% preserved.
+
+4. **Preferences / Settings Modal UI**:
+   - `SettingsModal` in `frontend/src/components/Settings/SettingsModal.tsx` provides clean controls for font size (slider + numeric input), tab size, word wrap, line numbers, cursor blinking style, whitespace visibility, and minimap toggle.
+   - Reset to Defaults and Save Preferences actions with clear saving and error states.
+   - Accessible via the Editor Settings gear icon button in the Sidebar user section.
+
+Files:
+- Production: `backend/src/db.ts`, `backend/src/auth/preferences.ts`, `backend/src/auth/routes.ts`, `backend/src/audit.ts`, `frontend/src/types.ts`, `frontend/src/components/common/Icons.tsx`, `frontend/src/components/Settings/SettingsModal.tsx`, `frontend/src/components/Editor/Editor.tsx`, `frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/IDE/IDE.tsx`.
+- Tests: `backend/test/preferences.test.ts` (13 tests covering defaults, persistence, partial updates, unknown key rejection, numeric bounds rejection, enum validation, auth gating, user isolation / IDOR protection, cascade deletion, audit logging, idempotency, and fallback for existing users without rows), `backend/test/migrations.test.ts`.
+
+Verification:
+- Focused suite `test/preferences.test.ts`: **13 passed / 0 failed** (1.41s).
+- Full backend regression suite: **348 passed / 2 failed / 31 skipped (39 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite built in 36.00s).
 - `git diff --check`: PASS.
 
 ## Architecture decisions (do not rediscover)
@@ -1769,6 +1807,9 @@ Verification:
   Archives are staged in temporary scratch locations before atomic
   workspace substitution, with strict limits on upload size (25MB),
   uncompressed size (50MB), single file size (10MB), and entry count (1000).
+- **User preferences are persisted per-user in SQLite with foreign key cascade.**
+  Editor options are synchronized dynamically to Monaco via `updateOptions`
+  without recreating models or discarding unsaved edits.
 
 ## Known non-blocking issues
 
@@ -1777,23 +1818,23 @@ Verification:
   unused `err` param lint warning in `proxy-ws.test.ts`;
   `proxyTargets.ts` pathRewrite non-canonical-port spelling wart;
   containerized-mode preview-port publication asymmetry in `getProxyTarget`.
-- Pre-existing test suite baseline expectations (362 passed / 2 failed / 4 skipped across 38 test files):
-  - `backend/test/lifecycle.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
+- Pre-existing test suite baseline expectations:
+  - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18/M19/M20/M21, reproduce identically on clean HEAD `477dfc7`, are not caused by M21, were not modified during M21, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18/M19/M20/M21/M22, reproduce identically on clean HEAD `477dfc7`, are not caused by M22, were not modified during M22, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–20 are committed. Milestone 21 (project workspace export & import)
+Milestones 1–21 are committed. Milestone 22 (user preferences & editor settings persistence)
 is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
 remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 21**:
-   Stage M21 production changes, test suite, and STATUS.md; commit and push to master.
-2. **Phase-1 Backlog — User Settings & Preferences / Custom Editor Themes**:
-   Persist per-user editor preferences (tab size, keybindings, font size, theme) in SQLite.
+1. **Commit and Publish Milestone 22**:
+   Stage M22 production changes, test suite, and STATUS.md; commit and push to master.
+2. **Phase-1 Backlog — Production Deployment Smoke Test & Readiness Verification Harness**:
+   Automated end-to-end smoke verification script for single-node Docker VPS stack.

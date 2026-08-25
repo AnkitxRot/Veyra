@@ -5,6 +5,7 @@ import { Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import type { CollaborationClient } from "../../collab/client";
+import type { UserPreferences } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Live content registry (M1: truthful save primitive)
@@ -98,6 +99,7 @@ export interface EditorProps {
   collabClient?: CollaborationClient | null;
   isReadOnly?: boolean;
   liveApiRef?: React.MutableRefObject<LiveContentApi | null>;
+  preferences?: UserPreferences;
 }
 
 export default function Editor({
@@ -111,6 +113,7 @@ export default function Editor({
   collabClient,
   isReadOnly = false,
   liveApiRef,
+  preferences,
 }: EditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -136,23 +139,37 @@ export default function Editor({
     collabClientRef.current = collabClient;
   }, [collabClient]);
 
+  // Dynamically apply preferences changes without remounting editor or replacing models
+  useEffect(() => {
+    if (!monacoRef.current || !preferences) return;
+    monacoRef.current.updateOptions({
+      fontSize: preferences.fontSize,
+      tabSize: preferences.tabSize,
+      wordWrap: preferences.wordWrap,
+      minimap: { enabled: preferences.minimap },
+      lineNumbers: preferences.lineNumbers,
+      cursorBlinking: preferences.cursorBlinking,
+      renderWhitespace: preferences.renderWhitespace,
+    });
+  }, [preferences]);
+
   // Create Monaco instance on component mount
   useEffect(() => {
     if (editorRef.current && !monacoRef.current) {
       monacoRef.current = monaco.editor.create(editorRef.current, {
         theme: "vs-dark",
         automaticLayout: true,
-        minimap: { enabled: false },
-        fontSize: 13.5,
-        lineNumbers: "on",
+        minimap: { enabled: preferences?.minimap ?? false },
+        fontSize: preferences?.fontSize ?? 13.5,
+        lineNumbers: preferences?.lineNumbers ?? "on",
         lineNumbersMinChars: 3,
         scrollBeyondLastLine: false,
-        renderWhitespace: "selection",
-        tabSize: 4,
-        wordWrap: "off",
+        renderWhitespace: preferences?.renderWhitespace ?? "selection",
+        tabSize: preferences?.tabSize ?? 4,
+        wordWrap: preferences?.wordWrap ?? "off",
         fontFamily: "var(--font-mono)",
         cursorSmoothCaretAnimation: "on",
-        cursorBlinking: "smooth",
+        cursorBlinking: preferences?.cursorBlinking ?? "smooth",
         smoothScrolling: true,
         padding: { top: 12, bottom: 12 },
         bracketPairColorization: { enabled: true },

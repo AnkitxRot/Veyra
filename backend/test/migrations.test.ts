@@ -6,7 +6,7 @@ describe('Database Schema & Migrations', () => {
     const db = openDb(':memory:');
     const version = getSchemaVersion(db);
     expect(version).toBeGreaterThanOrEqual(BASELINE_SCHEMA_VERSION);
-    expect(version).toBe(7);
+    expect(version).toBe(8);
 
     // Verify tables exist
     const tables = db
@@ -23,6 +23,7 @@ describe('Database Schema & Migrations', () => {
     expect(names).toContain('resource_anomalies');
     expect(names).toContain('project_collaborators');
     expect(names).toContain('ai_verifications');
+    expect(names).toContain('user_preferences');
     expect(names).toContain('schema_migrations');
 
     // Verify role column on users table
@@ -39,11 +40,11 @@ describe('Database Schema & Migrations', () => {
 
   it('handles existing databases gracefully and records migrations idempotently', () => {
     const db = openDb(':memory:');
-    expect(getSchemaVersion(db)).toBe(7);
+    expect(getSchemaVersion(db)).toBe(8);
     
     // Re-opening or querying should remain consistent
     const rows = db.prepare('SELECT version FROM schema_migrations ORDER BY version ASC').all() as Array<{ version: number }>;
-    expect(rows.length).toBe(7);
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(rows.length).toBe(8);
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 });

@@ -5,6 +5,17 @@ export interface User {
   isDemo?: boolean;
 }
 
+export interface UserPreferences {
+  fontSize: number;
+  tabSize: number;
+  wordWrap: 'off' | 'on' | 'wordWrapColumn' | 'bounded';
+  minimap: boolean;
+  lineNumbers: 'on' | 'off' | 'relative' | 'interval';
+  cursorBlinking: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
+  renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
+  updatedAt?: string;
+}
+
 export interface Project {
   id: string;
   name: string;

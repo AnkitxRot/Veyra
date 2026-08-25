@@ -12,6 +12,7 @@ import { createProject, projectDir } from "../projects/service.js";
 import { writeProjectFile } from "../files/service.js";
 import { recordAuditLog } from "../audit.js";
 import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
+import { getUserPreferences, updateUserPreferences } from "./preferences.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -464,6 +465,32 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
         isDemo: req.user?.username.startsWith("evaluator_") || false,
       },
     });
+  });
+
+  router.get("/preferences", requireAuth(db), (req, res, next) => {
+    try {
+      const preferences = getUserPreferences(db, req.user!.id);
+      res.json({ preferences });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put("/preferences", requireAuth(db), (req, res, next) => {
+    try {
+      const preferences = updateUserPreferences(db, req.user!.id, req.body);
+      try {
+        recordAuditLog(db, {
+          userId: req.user!.id,
+          eventType: "USER_PREFERENCES_UPDATED",
+          details: { updates: req.body },
+          ipAddress: req.ip,
+        });
+      } catch {}
+      res.json({ preferences });
+    } catch (err) {
+      next(err);
+    }
   });
 
   return router;
