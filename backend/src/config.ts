@@ -59,6 +59,10 @@ export interface AppConfig {
   maxSnapshotsPerProject: number;
   maxSnapshotBytesPerProject: number;
   maxSnapshotSizeBytes: number;
+  maxArchiveUploadBytes: number;
+  maxArchiveUncompressedBytes: number;
+  maxArchiveEntries: number;
+  maxArchiveSingleFileBytes: number;
   /** M6: collaboration broadcast coalescing + backpressure. Kept
    *  env-configurable, like every other tunable in this file, specifically
    *  so the load harness can vary them without touching production code —
@@ -252,5 +256,17 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     maxSnapshotSizeBytes:
       overrides.maxSnapshotSizeBytes ??
       Number(process.env.MAX_SNAPSHOT_SIZE_BYTES ?? 5 * 1024 * 1024),
+    maxArchiveUploadBytes:
+      overrides.maxArchiveUploadBytes ??
+      Number(process.env.MAX_ARCHIVE_UPLOAD_BYTES ?? 25 * 1024 * 1024),
+    maxArchiveUncompressedBytes:
+      overrides.maxArchiveUncompressedBytes ??
+      Number(process.env.MAX_ARCHIVE_UNCOMPRESSED_BYTES ?? 50 * 1024 * 1024),
+    maxArchiveEntries:
+      overrides.maxArchiveEntries ??
+      Number(process.env.MAX_ARCHIVE_ENTRIES ?? 1000),
+    maxArchiveSingleFileBytes:
+      overrides.maxArchiveSingleFileBytes ??
+      Number(process.env.MAX_ARCHIVE_SINGLE_FILE_BYTES ?? 10 * 1024 * 1024),
   };
 }

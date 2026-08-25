@@ -12,6 +12,8 @@ import {
   IconTrash,
   IconEdit,
   IconSparkles,
+  IconDownload,
+  IconUpload,
 } from '../common/Icons';
 import { getLanguageIcon } from '../common/iconUtils';
 import { PromptModal, ConfirmModal } from '../common/Modal';
@@ -72,6 +74,92 @@ export default function Sidebar({
       alert(`Error creating project: ${err.message}`);
     } finally {
       setModalState({ type: null });
+    }
+  };
+
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const replaceFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const handleExportProject = async () => {
+    if (!project) return;
+    try {
+      const res = await fetch(`/api/projects/${project.id}/export`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `Export failed with status ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'project'}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`Export failed: ${err.message}`);
+    }
+  };
+
+  const handleImportNewProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+      const projectName = file.name.replace(/\.zip$/i, '');
+      const res = await api<{ project: Project }>('/api/projects/import', {
+        method: 'POST',
+        body: JSON.stringify({ name: projectName, archiveBase64: base64 }),
+      });
+      onCreateProject();
+      if (res.project) {
+        onSelectProject(res.project);
+      }
+      alert(`Project "${res.project?.name || projectName}" imported successfully!`);
+    } catch (err: any) {
+      alert(`Import failed: ${err.message}`);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleImportWorkspace = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!project) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm(`Replace all workspace files in "${project.name}" with contents of ${file.name}?`)) {
+      if (replaceFileInputRef.current) replaceFileInputRef.current.value = '';
+      return;
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+      await api<{ ok: boolean; fileCount: number }>(`/api/projects/${project.id}/import?replace=true`, {
+        method: 'POST',
+        body: JSON.stringify({ archiveBase64: base64, replace: true }),
+      });
+      refreshTree();
+      alert(`Workspace updated with ${file.name}!`);
+    } catch (err: any) {
+      alert(`Workspace import failed: ${err.message}`);
+    } finally {
+      if (replaceFileInputRef.current) replaceFileInputRef.current.value = '';
     }
   };
 
@@ -176,6 +264,21 @@ export default function Sidebar({
               </span>
             </span>
             <div className="section-actions" onClick={(e) => e.stopPropagation()}>
+              <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                accept=".zip,application/zip"
+                onChange={handleImportNewProject}
+              />
+              <button
+                className="glass-btn glass-btn-icon"
+                onClick={() => fileInputRef.current?.click()}
+                title="Import Project (.zip)"
+                aria-label="Import Project (.zip)"
+              >
+                <IconUpload size={12} />
+              </button>
               <button
                 className="glass-btn glass-btn-icon"
                 onClick={() => setModalState({ type: 'new_project' })}
@@ -215,6 +318,29 @@ export default function Sidebar({
             <div className="section-header">
               <span>Files</span>
               <div className="section-actions">
+                <input
+                  type="file"
+                  ref={replaceFileInputRef}
+                  style={{ display: 'none' }}
+                  accept=".zip,application/zip"
+                  onChange={handleImportWorkspace}
+                />
+                <button
+                  className="glass-btn glass-btn-icon"
+                  onClick={handleExportProject}
+                  title="Export Workspace (.zip)"
+                  aria-label="Export Workspace (.zip)"
+                >
+                  <IconDownload size={12} />
+                </button>
+                <button
+                  className="glass-btn glass-btn-icon"
+                  onClick={() => replaceFileInputRef.current?.click()}
+                  title="Import / Replace Workspace (.zip)"
+                  aria-label="Import / Replace Workspace (.zip)"
+                >
+                  <IconUpload size={12} />
+                </button>
                 <button
                   className="glass-btn glass-btn-icon"
                   onClick={() => setModalState({ type: 'new_file' })}

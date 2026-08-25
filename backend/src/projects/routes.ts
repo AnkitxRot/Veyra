@@ -36,10 +36,16 @@ import {
   restoreSnapshot,
   deleteSnapshot,
 } from "./snapshots.js";
+import {
+  exportProjectZip,
+  importProjectZip,
+  importNewProjectZip,
+} from "./archive.js";
 import { searchProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { telemetryHistorian } from "../execution/historian.js";
 import { collaborationManager } from "../collab/manager.js";
+import { raw } from "express";
 
 export function projectRoutes(cfg: AppConfig, db: Db): Router {
   const router = Router();
@@ -88,6 +94,54 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       await applyTemplate(cwd, tpl.id);
 
       res.status(201).json({ project });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  const rawZipParser = raw({
+    type: [
+      "application/zip",
+      "application/x-zip-compressed",
+      "application/octet-stream",
+      "application/x-zip",
+      "application/binary",
+    ],
+    limit: cfg.maxArchiveUploadBytes ?? 25 * 1024 * 1024,
+  });
+
+  function getZipBuffer(req: Request): Buffer {
+    if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+      return req.body;
+    }
+    if (
+      req.body &&
+      typeof req.body.archiveBase64 === "string" &&
+      req.body.archiveBase64.length > 0
+    ) {
+      return Buffer.from(req.body.archiveBase64, "base64");
+    }
+    throw new ApiError(
+      400,
+      "ZIP archive is required (send binary zip body or JSON archiveBase64)",
+      "invalid_archive_payload",
+    );
+  }
+
+  // Import new project from ZIP
+  router.post("/import", rawZipParser, async (req, res, next) => {
+    try {
+      const zipBuffer = getZipBuffer(req);
+      const name = (req.query.name as string) || req.body?.name;
+      const language = (req.query.language as string) || req.body?.language;
+      const result = await importNewProjectZip(
+        cfg,
+        db,
+        userOf(req).id,
+        zipBuffer,
+        { name, language },
+      );
+      res.status(201).json(result);
     } catch (err) {
       next(err);
     }
@@ -370,6 +424,51 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.snapshotId,
       );
       res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Export workspace as ZIP archive
+  router.get("/:id/export", async (req, res, next) => {
+    try {
+      const { zipBuffer, projectName } = await exportProjectZip(
+        cfg,
+        db,
+        userOf(req).id,
+        req.params.id,
+      );
+      const safeFilename =
+        projectName.replace(/[^a-zA-Z0-9._-]/g, "_") || "project";
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeFilename}.zip"`,
+      );
+      res.setHeader("Content-Length", zipBuffer.length);
+      res.send(zipBuffer);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Import / replace workspace from ZIP archive
+  router.post("/:id/import", rawZipParser, async (req, res, next) => {
+    try {
+      const zipBuffer = getZipBuffer(req);
+      const replace =
+        req.query.replace === "true" ||
+        req.query.replace === "1" ||
+        req.body?.replace === true;
+      const result = await importProjectZip(
+        cfg,
+        db,
+        userOf(req).id,
+        req.params.id,
+        zipBuffer,
+        { replace },
+      );
+      res.json(result);
     } catch (err) {
       next(err);
     }

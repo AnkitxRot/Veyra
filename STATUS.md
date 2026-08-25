@@ -27,7 +27,8 @@ Last updated: 2026-08-25.
   - Milestone 17 (cumulative scale validation post-M16 — measurement only) at `477dfc7`.
   - Milestone 18 (cold-wait decomposition & scheduling decision — measurement only; decision: ACCEPT current behavior, no scheduler justified) at `1a6bf07`.
   - Milestone 19 (session lifecycle & WebSocket security hardening — logout WS teardown & demo account GC) at `ae8a740`.
-  - Milestone 20 (project snapshot quotas & retention management) in this commit.
+  - Milestone 20 (project snapshot quotas & retention management) at `1938e79`.
+  - Milestone 21 (project workspace export & import) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1660,7 +1661,7 @@ Verification:
 
 ### Milestone 20 — Project Snapshot Quotas & Retention Management
 
-Implemented and verified in this working tree. Bounds project snapshot storage to prevent unbounded disk growth while preserving seamless snapshot UX and automatic fallback for AI patches and manual revisions:
+Implemented and verified in commit `1938e79`. Bounds project snapshot storage to prevent unbounded disk growth while preserving seamless snapshot UX and automatic fallback for AI patches and manual revisions:
 
 1. **Configurable Snapshot Quota Dimensions**:
    - `maxSnapshotsPerProject`: Hard ceiling on the count of snapshots retained per project (default: 10, env `MAX_SNAPSHOTS_PER_PROJECT`).
@@ -1687,6 +1688,46 @@ Verification:
 - Full backend regression suite: **349 passed / 2 failed / 4 skipped (37 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
 - Frontend build & typecheck: PASS (Vite built in 32.45s).
+- `git diff --check`: PASS.
+
+### Milestone 21 — Project Workspace Export & Import
+
+Implemented and verified in this working tree. Allows project owners to export their workspaces as portable ZIP archives and safely import archives with transactional staging and strict security defenses:
+
+1. **Zero-Dependency Universal PKZIP 2.0 Engine**:
+   - Implemented standard Deflate/Stored ZIP encoding and decoding in `backend/src/projects/zip.ts` with zero external dependencies.
+   - Includes standard CRC-32 verification and local/central directory parsing.
+
+2. **Project Export (`GET /api/projects/:id/export`)**:
+   - Owner-authenticated endpoint streaming/sending standard ZIP archives.
+   - Automatically excludes non-portable directories (`.git`, `node_modules`, `.venv`, `.cloudide-build-*`).
+   - Preserves relative paths, directory structures, and standard POSIX file permissions.
+
+3. **Transactional Project Import (`POST /api/projects/import` & `POST /api/projects/:id/import`)**:
+   - Supports creating new projects directly from ZIP uploads or replacing existing project workspaces.
+   - Transactional staging: uncompresses and validates entirely within an isolated temporary staging directory (`dataDir/tmp_import_*`). If validation or extraction fails, the staging directory is cleaned and the target workspace is 100% untouched.
+   - Destructive replacement safety: non-empty projects require explicit `replace=true` confirmation.
+   - Active session coordination: disposes active Yjs collaboration rooms, stops running Docker sandboxes, and clears telemetry historian state before atomically swapping workspace files on disk.
+
+4. **Multi-Layered Security Defenses**:
+   - Path traversal prevention: rejects `../` segments, absolute paths (`/etc/shadow`, `C:\Windows`), and null bytes (`\0`).
+   - Symlink/hardlink rejection: forbids symlink archive entries to prevent escaping workspace roots.
+   - Zip-bomb and resource limits: enforces `maxArchiveUploadBytes` (25MB), `maxArchiveUncompressedBytes` (50MB), `maxArchiveEntries` (1000), and `maxArchiveSingleFileBytes` (10MB).
+   - Strict project quota enforcement on new project creation.
+
+5. **Frontend UI Integration**:
+   - Projects header in Sidebar provides "Import Project (.zip)" button with file picker.
+   - Files header in Sidebar provides "Export Workspace (.zip)" download button and "Import / Replace Workspace (.zip)" button with overwrite confirmation.
+
+Files:
+- Production: `backend/src/projects/zip.ts`, `backend/src/projects/archive.ts`, `backend/src/projects/routes.ts`, `backend/src/config.ts`, `backend/src/audit.ts`, `frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/common/Icons.tsx`.
+- Tests: `backend/test/archive-import-export.test.ts` (13 tests covering export, authorization, exclusions, nested hierarchies, import as new project, import overwrite, path traversal rejection, absolute path rejection, symlink rejection, resource bounds, atomicity rollback, session disposal, round-trip fidelity, replacement confirmation, and quota enforcement).
+
+Verification:
+- Focused suite `test/archive-import-export.test.ts`: **13 passed / 0 failed** (1.27s).
+- Full backend regression suite: **362 passed / 2 failed / 4 skipped (38 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite built in 44.01s).
 - `git diff --check`: PASS.
 
 ## Architecture decisions (do not rediscover)
@@ -1724,6 +1765,10 @@ Verification:
   Projects retain up to 10 snapshots and 20MB of compressed archives by
   default. Concurrent snapshot creation is serialized per-project via
   `withProjectSnapshotLock`.
+- **Project Export/Import uses pure zero-dependency PKZIP 2.0 format.**
+  Archives are staged in temporary scratch locations before atomic
+  workspace substitution, with strict limits on upload size (25MB),
+  uncompressed size (50MB), single file size (10MB), and entry count (1000).
 
 ## Known non-blocking issues
 
@@ -1732,23 +1777,23 @@ Verification:
   unused `err` param lint warning in `proxy-ws.test.ts`;
   `proxyTargets.ts` pathRewrite non-canonical-port spelling wart;
   containerized-mode preview-port publication asymmetry in `getProxyTarget`.
-- Pre-existing test suite baseline expectations (349 passed / 2 failed / 4 skipped across 37 test files):
+- Pre-existing test suite baseline expectations (362 passed / 2 failed / 4 skipped across 38 test files):
   - `backend/test/lifecycle.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18/M19/M20, reproduce identically on clean HEAD `477dfc7`, are not caused by M20, were not modified during M20, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18/M19/M20/M21, reproduce identically on clean HEAD `477dfc7`, are not caused by M21, were not modified during M21, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–19 are committed. Milestone 20 (project snapshot quotas & retention management)
+Milestones 1–20 are committed. Milestone 21 (project workspace export & import)
 is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
 remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 20**:
-   Stage M20 production changes, test suite, and STATUS.md; commit and push to master.
-2. **Phase-1 Backlog — Project Archive Import/Export or User Settings & Preferences**:
-   Allow users to download project workspaces as `.tar.gz` / `.zip` and import existing archives into new projects.
+1. **Commit and Publish Milestone 21**:
+   Stage M21 production changes, test suite, and STATUS.md; commit and push to master.
+2. **Phase-1 Backlog — User Settings & Preferences / Custom Editor Themes**:
+   Persist per-user editor preferences (tab size, keybindings, font size, theme) in SQLite.
