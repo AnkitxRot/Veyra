@@ -1,0 +1,53 @@
+{
+  "single": {
+    "daemonCheckMs": 229.9788,
+    "imageCheckMs": 84.8922,
+    "networkCreateMs": 91.19639999999998,
+    "dockerRunMs": 366.1001,
+    "portLookupMs": 51.519000000000005,
+    "execStartupMs": 139.74750000000006,
+    "totalMs": 963.4340000000001
+  },
+  "concurrencyMatrix": {
+    "c1": {
+      "concurrency": 1,
+      "p50": 639.6902,
+      "p95": 639.6902,
+      "p99": 639.6902,
+      "wallMs": 1629.0699,
+      "avgDockerRunMs": 366.3723,
+      "avgPortLookupMs": 50.16090000000031,
+      "avgNetCreateMs": 87.04570000000012
+    },
+    "c5": {
+      "concurrency": 5,
+      "p50": 1080.4037000000003,
+      "p95": 1320.6734999999999,
+      "p99": 1320.6734999999999,
+      "wallMs": 4900.772799999999,
+      "avgDockerRunMs": 700.0904200000002,
+      "avgPortLookupMs": 61.484439999999815,
+      "avgNetCreateMs": 151.65927999999994
+    },
+    "c10": {
+      "concurrency": 10,
+      "p50": 1720.8233,
+      "p95": 2266.8158999999996,
+      "p99": 2266.8158999999996,
+      "wallMs": 9494.3593,
+      "avgDockerRunMs": 1091.1250499999999,
+      "avgPortLookupMs": 68.54054000000015,
+      "avgNetCreateMs": 319.84869000000015
+    },
+    "c20": {
+      "concurrency": 20,
+      "p50": 3583.3042000000023,
+      "p95": 5173.733200000002,
+      "p99": 5173.733200000002,
+      "wallMs": 20544.191000000003,
+      "avgDockerRunMs": 2378.38354,
+      "avgPortLookupMs": 67.15831000000071,
+      "avgNetCreateMs": 617.8268400000001
+    }
+  }
+}

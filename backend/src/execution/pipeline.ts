@@ -75,7 +75,12 @@ export async function runProject(
     };
   }
 
-  if (!(await isDockerRunningAsync())) {
+  const [dockerRunning, runnerAvailable] = await Promise.all([
+    isDockerRunningAsync(),
+    isRunnerImageAvailableAsync(),
+  ]);
+
+  if (!dockerRunning) {
     return {
       ...base,
       type: "missing_toolchain",
@@ -85,7 +90,7 @@ export async function runProject(
     };
   }
 
-  if (!(await isRunnerImageAvailableAsync())) {
+  if (!runnerAvailable) {
     return {
       ...base,
       type: "missing_toolchain",

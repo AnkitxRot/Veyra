@@ -340,23 +340,17 @@ export class SandboxManager {
     config: AppConfig,
     workspaceDir: string,
   ): Promise<{ containerId: string; portMapping: Record<number, number> }> {
-    if (!(await isDockerRunningAsync()))
+    const [dockerRunning, runnerAvailable] = await Promise.all([
+      isDockerRunningAsync(),
+      isRunnerImageAvailableAsync(),
+      this.ensureProjectNetwork(projectId),
+    ]);
+    if (!dockerRunning)
       throw new Error("Docker daemon is not running");
-    if (!(await isRunnerImageAvailableAsync()))
+    if (!runnerAvailable)
       throw new Error("cloudeeeide-runner:latest is not available");
 
     const containerId = `ide-sandbox-${projectId}`;
-
-    if (!this.provisionedNetworks.has(projectId)) {
-      try {
-        await execFileAsync("docker", [
-          "network",
-          "create",
-          `ide-net-${projectId}`,
-        ]);
-      } catch {}
-      this.provisionedNetworks.add(projectId);
-    }
 
     const limits = config.limits;
     const previewPorts = [3000, 4173, 5173, 8000, 8080];
@@ -423,20 +417,21 @@ export class SandboxManager {
       }
     }
 
-    const portMapping: Record<number, number> = {};
-    if (!config.containerized) {
-      try {
-        const { stdout } = await execFileAsync("docker", ["port", containerId]);
-        for (const line of stdout.split("\n")) {
-          const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
-          if (match) {
-            portMapping[parseInt(match[1], 10)] = parseInt(match[2], 10);
-          }
-        }
-      } catch {}
-    }
+    // Lazy port mapping: preview proxy ports are resolved on-demand in getProxyTarget()
+    return { containerId, portMapping: {} };
+  }
 
-    return { containerId, portMapping };
+  private async ensureProjectNetwork(projectId: string): Promise<void> {
+    if (!this.provisionedNetworks.has(projectId)) {
+      try {
+        await execFileAsync("docker", [
+          "network",
+          "create",
+          `ide-net-${projectId}`,
+        ]);
+      } catch {}
+      this.provisionedNetworks.add(projectId);
+    }
   }
 
   async stopProjectSandbox(projectId: string): Promise<void> {
