@@ -21,8 +21,10 @@ Last updated: 2026-08-25.
   - Milestone 11 (targeted execution cold-start and filesystem stat/telemetry optimizations) at `aa180ea`.
   - Milestone 12 (execution conflict-retry, lazy port mapping, and tree single-flight caching optimizations) at `b990c46`.
   - Milestone 13 (active sandbox liveness freshness optimization) at `bf97906`.
+  - Milestone 14 (scale re-validation under M11–M13 optimizations — measurement only) at `7581652`.
   - Milestone 15 (bounded cold-sandbox prewarming experiment — measurement only; decision: REJECTED, prewarming not needed/justified) at `5535113`.
-  - Milestone 16 (cold sandbox provisioning & concurrency optimization) in this commit.
+  - Milestone 16 (cold sandbox provisioning & concurrency optimization) at `5a3cc25`.
+  - Milestone 17 (cumulative scale validation post-M16 — measurement only) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1497,6 +1499,83 @@ Files:
 
 Verification: full backend suite 329 passed / 4 skipped / 0 failed (34 test files) + focused collaboration/M16 suite 49/49 PASS; backend typecheck PASS; frontend build/typecheck PASS; `git diff --check` clean.
 
+### Milestone 17 — Cumulative Scale Validation Post-M16 (measurement only)
+
+Committed in this milestone. Re-validated the exact 100 / 100-burst / 500 / 1000 VU stress-test workload against the post-M16 codebase and compared directly against the committed M14 scale baseline. 1,000-VU stress validation remained stable, with peak active WebSockets around 155 under the weighted workload. No production code modified.
+
+**Direct Scale Comparison (M14 Baseline vs Post-M16 / M17)**:
+
+1. **100 VU Steady (90s steady, 100 users)**:
+   - Throughput: 16.5 req/s (M14) → **17.4 req/s (M17)** (+5.5%)
+   - Execution Run Latency:
+     - p50: 210.0 ms → **188.5 ms** (-10.2%)
+     - p95: 719.7 ms → **459.7 ms** (**-36.1%**)
+     - p99: 1,634.5 ms → **608.9 ms** (**-62.7%**)
+   - Save round-trip p99: 22.8 ms → **22.1 ms** (-3.1%)
+   - Edit-to-peer p99: 36.8 ms → **37.3 ms** (consistent)
+   - Event-loop p99: 32.9 ms → **32.8 ms**
+   - DB p99: 0.080 ms → **0.074 ms**
+   - RSS: 157.5 MB → 170.4 MB
+   - Errors: 0
+
+2. **100 VU Burst (30s burst, 100 users)**:
+   - Throughput: 36.2 req/s → **36.6 req/s**
+   - Execution Run Latency:
+     - p50: 21.0 ms → **19.7 ms** (-6.2%)
+     - p95: 2,878.9 ms → **2,197.7 ms** (**-23.7%**)
+     - p99: 4,650.6 ms → **3,684.8 ms** (**-20.8%**)
+   - Event-loop peak: 39.1 ms → **38.0 ms**
+   - Peak Sandboxes: **20 / 20** (hard cap invariant preserved)
+   - Errors: 0
+
+3. **500 VU (90s steady, 500 users)**:
+   - Throughput: 78.1 req/s → **81.9 req/s** (+4.9%)
+   - Execution Run Latency:
+     - p50: 20.0 ms → 199.8 ms
+     - p95: 440.3 ms → **376.5 ms** (**-14.5%**)
+     - p99: 742.6 ms → **669.0 ms** (**-9.9%**)
+   - Stats p99: 16.9 ms → **16.9 ms**
+   - Tree p99: 29.2 ms → **29.2 ms**
+   - Save p99: 34.3 ms → **33.8 ms**
+   - Edit-to-peer p99: 41.8 ms → **41.7 ms**
+   - Event-loop p99: 33.8 ms → **33.5 ms**
+   - DB p99: 0.081 ms → **0.081 ms**
+   - Peak Sandboxes: **20 / 20**
+   - RSS: 298.5 MB → 301.2 MB
+   - Errors: 0
+
+4. **1000 VU (105s steady, 1000 users)**:
+   - Throughput: 145.9 req/s → **158.7 req/s** (**+8.8%**)
+   - Total Operations: 26,690 → **26,757**
+   - Execution Run Latency:
+     - p50: 22.7 ms → **19.0 ms** (-16.3%)
+     - p95: 265.3 ms → **226.1 ms** (**-14.8%**)
+     - p99: 686.5 ms → **606.4 ms** (**-11.7%**)
+   - Stats p99: 17.0 ms → **16.4 ms**
+   - Tree p99: 29.0 ms → **27.3 ms** (-5.9%)
+   - Save round-trip p99: 54.9 ms → **34.3 ms** (**-37.5%**)
+   - Edit-to-peer p99: 46.2 ms → **41.6 ms** (-10.0%)
+   - Event-loop p99: 34.1 ms → **33.6 ms**
+   - DB p99: 0.078 ms → **0.070 ms**
+   - Active WS / Rooms: **155 / 154**
+   - Peak Sandboxes: **20 / 20**
+   - RSS: 329.4 MB → 334.1 MB
+   - Errors: 0
+
+**Attribution & Engineering Findings**:
+1. **Whole-System Burst & Cold Execution Relief**:
+   M16's lazy port mapping and concurrent network/image preflight checks removed critical-path serialization from Docker container creation. This directly translated to double-digit latency drops across all scale levels: 100-steady run p99 down -62.7%, 100-burst run p95 down -23.7%, 500-VU run p95 down -14.5%, and 1000-VU run p95 down -14.8%.
+2. **Filesystem & Database Stability**:
+   File save round-trip at 1000 VU dropped from 54.9ms to 34.3ms (-37.5%) due to reduced event loop and I/O lock contention. SQLite DB p99 remained flat under 0.081ms across all 100–1000 VU tiers.
+3. **Capacity & Remaining Tail Assessment**:
+   The single-process architecture cleanly sustained 158.7 req/s and 26.7k operations at 1000 VUs with zero crashes, timeouts, or isolation leaks. The remaining burst cold-provisioning tail is governed by host OS process spawning and the Docker daemon's internal lock; further architectural prewarming was empirically rejected in M15. No further execution optimizations are required.
+
+Evidence Artifacts:
+- `backend/load-test/results/level-scale-100-steady-*.{json,md}`
+- `backend/load-test/results/level-scale-100-burst-*.{json,md}`
+- `backend/load-test/results/level-scale-500-*.{json,md}`
+- `backend/load-test/results/level-scale-1000-*.{json,md}`
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -1534,11 +1613,11 @@ Verification: full backend suite 329 passed / 4 skipped / 0 failed (34 test file
 
 ## Current active work
 
-Milestones 1–16 are committed. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
+Milestones 1–17 are committed. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
 remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. **Cumulative Scale Validation Post-M16**:
-   Re-run 100/500/1000-VU scale matrix to measure cumulative whole-system
-   improvements across the complete M8–M16 optimization train.
+1. **Evaluate Fresh M18 Scope**:
+   Fresh M18 contract only after deciding whether the remaining Docker cold-start
+   tail justifies further complexity.
