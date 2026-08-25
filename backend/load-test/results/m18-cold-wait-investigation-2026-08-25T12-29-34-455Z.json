@@ -1,0 +1,1060 @@
+{
+  "timestamp": "2026-08-25T12:29:34.455Z",
+  "phase1_coldWaitDecomposition": {
+    "c1": {
+      "concurrency": 1,
+      "successCount": 1,
+      "rejections": 0,
+      "wallMs": 4860.4648,
+      "latencyPercentiles": {
+        "p50": 4860.0429,
+        "p95": 4860.0429,
+        "p99": 4860.0429,
+        "min": 4860.0429,
+        "max": 4860.0429,
+        "mean": 4860.0429
+      }
+    },
+    "c5": {
+      "concurrency": 5,
+      "successCount": 5,
+      "rejections": 0,
+      "wallMs": 1016.0691000000006,
+      "latencyPercentiles": {
+        "p50": 830.7767999999996,
+        "p95": 1013.7303000000002,
+        "p99": 1013.7303000000002,
+        "min": 633.1628000000001,
+        "max": 1013.7303000000002,
+        "mean": 826.7136799999998
+      }
+    },
+    "c10": {
+      "concurrency": 10,
+      "successCount": 10,
+      "rejections": 0,
+      "wallMs": 1749.866,
+      "latencyPercentiles": {
+        "p50": 1334.7957999999999,
+        "p95": 1748.7057000000004,
+        "p99": 1748.7057000000004,
+        "min": 857.4471999999987,
+        "max": 1748.7057000000004,
+        "mean": 1290.8399
+      }
+    },
+    "c20": {
+      "concurrency": 20,
+      "successCount": 20,
+      "rejections": 0,
+      "wallMs": 3924.7423000000017,
+      "latencyPercentiles": {
+        "p50": 2813.7413000000015,
+        "p95": 3921.4012000000002,
+        "p99": 3921.4012000000002,
+        "min": 1702.3845000000001,
+        "max": 3921.4012000000002,
+        "mean": 2764.5489700000003
+      }
+    },
+    "c40": {
+      "concurrency": 40,
+      "successCount": 40,
+      "rejections": 0,
+      "wallMs": 4159.212899999999,
+      "latencyPercentiles": {
+        "p50": 1763.8956000000035,
+        "p95": 4022.6949999999997,
+        "p99": 4156.989400000006,
+        "min": 331.72350000000006,
+        "max": 4156.989400000006,
+        "mean": 1619.0409575000003
+      }
+    }
+  },
+  "phase2_userImpact": {
+    "steady": {
+      "requestCount": 20,
+      "intervalMs": 500,
+      "wallMs": 22529.465599999996,
+      "latencyPercentiles": {
+        "p50": 620.4640999999974,
+        "p95": 838.357600000003,
+        "p99": 838.357600000003,
+        "min": 530.6573999999964,
+        "max": 838.357600000003,
+        "mean": 642.7014550000007
+      },
+      "distribution": {
+        "under1s": 20,
+        "between1s2s": 0,
+        "between2s5s": 0,
+        "over5s": 0
+      },
+      "successCount": 20,
+      "totalCount": 20
+    },
+    "burstC20": {
+      "latencyPercentiles": {
+        "p50": 2813.7413000000015,
+        "p95": 3921.4012000000002,
+        "p99": 3921.4012000000002,
+        "min": 1702.3845000000001,
+        "max": 3921.4012000000002,
+        "mean": 2764.5489700000003
+      },
+      "distribution": {
+        "under1s": 0,
+        "between1s2s": 3,
+        "between2s5s": 17,
+        "over5s": 0
+      },
+      "successCount": 20,
+      "rejections": 0,
+      "totalCount": 20
+    },
+    "burstC40": {
+      "latencyPercentiles": {
+        "p50": 1763.8956000000035,
+        "p95": 4022.6949999999997,
+        "p99": 4156.989400000006,
+        "min": 331.72350000000006,
+        "max": 4156.989400000006,
+        "mean": 1619.0409575000003
+      },
+      "distribution": {
+        "under1s": 20,
+        "between1s2s": 2,
+        "between2s5s": 18,
+        "over5s": 0
+      },
+      "successCount": 40,
+      "rejections": 0,
+      "totalCount": 40
+    }
+  },
+  "phase3_schedulingSimulation": {
+    "currentImmediate": {
+      "description": "Current: immediate admission, reject when maxSandboxes reached",
+      "analysis": "Under C≤20: all requests admitted, no queuing.\nUnder C>20: 0/40 requests rejected immediately (no wait, clear error).\nNo head-of-line blocking. No starvation. No queue memory.\nRejected requests can retry (client-side).\nThroughput data: C=1: 0.2 req/s, avg=4860ms; C=5: 4.9 req/s, avg=827ms; C=10: 5.7 req/s, avg=1291ms; C=20: 5.1 req/s, avg=2765ms; C=40: 9.6 req/s, avg=1619ms"
+    },
+    "strictFIFO": {
+      "description": "FIFO queue: hold excess requests until a slot opens, serve in order",
+      "analysis": "Would eliminate immediate rejections at C>20.\nBut: adds admission wait to ALL queued requests (at C=40, 20 requests wait for the first batch to complete).\nEstimated added wait for queued requests at C=40: ~3.9s (full C=20 batch wall time).\nRisks: head-of-line blocking, starvation under sustained load, unbounded queue growth.\nRequires: disconnect detection, cancellation, timeout, queue depth limit, per-user fairness.\nNet effect: converts fast rejection into slow queuing — user waits longer for the same outcome."
+    },
+    "shortestJob": {
+      "description": "Priority queue: estimate execution cost, run cheapest first",
+      "analysis": "All cold starts have similar cost (Docker provisioning dominates).\nCannot estimate job duration before running it.\nFor this system, all executions are roughly equivalent (print-hello).\nNo meaningful scheduling advantage over FIFO.\nAdds complexity: cost estimation, priority inversion, starvation prevention."
+    },
+    "boundedConcurrency": {
+      "description": "Limit Docker daemon concurrency to 5 to reduce daemon lock contention",
+      "analysis": "Optimal measured concurrency: C=5 (best throughput/latency ratio).\nCould reduce p95/p99 for the admitted batch by avoiding Docker daemon serialization.\nBut: current system already has maxSandboxes=20 which naturally bounds concurrency.\nAdding an inner concurrency limit below 20 would reduce effective capacity.\nThe Docker daemon is the bottleneck, not the admission logic.",
+      "optimalBound": 5
+    }
+  },
+  "rawResults": {
+    "sweeps": [
+      {
+        "concurrency": 1,
+        "wallMs": 4860.4648,
+        "rejections": 0,
+        "results": [
+          {
+            "idx": 0,
+            "totalMs": 4860.0429,
+            "admissionMs": 6.0429000000003725,
+            "provisioningMs": 4854,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          }
+        ]
+      },
+      {
+        "concurrency": 5,
+        "wallMs": 1016.0691000000006,
+        "rejections": 0,
+        "results": [
+          {
+            "idx": 0,
+            "totalMs": 830.7767999999996,
+            "admissionMs": 8.77679999999964,
+            "provisioningMs": 822,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 1,
+            "totalMs": 743.5262000000002,
+            "admissionMs": 10.526200000000244,
+            "provisioningMs": 733,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 2,
+            "totalMs": 912.3722999999991,
+            "admissionMs": 12.372299999999086,
+            "provisioningMs": 900,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 3,
+            "totalMs": 1013.7303000000002,
+            "admissionMs": 14.73030000000017,
+            "provisioningMs": 999,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 4,
+            "totalMs": 633.1628000000001,
+            "admissionMs": 16.16280000000006,
+            "provisioningMs": 617,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          }
+        ]
+      },
+      {
+        "concurrency": 10,
+        "wallMs": 1749.866,
+        "rejections": 0,
+        "results": [
+          {
+            "idx": 0,
+            "totalMs": 939.0421000000006,
+            "admissionMs": 10.042100000000573,
+            "provisioningMs": 929,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 1,
+            "totalMs": 857.4471999999987,
+            "admissionMs": 11.447199999998702,
+            "provisioningMs": 846,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 2,
+            "totalMs": 1027.0085,
+            "admissionMs": 15.008499999999913,
+            "provisioningMs": 1012,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 3,
+            "totalMs": 1133.4906999999985,
+            "admissionMs": 18.49069999999847,
+            "provisioningMs": 1115,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 4,
+            "totalMs": 1233.8791999999994,
+            "admissionMs": 20.8791999999994,
+            "provisioningMs": 1213,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 5,
+            "totalMs": 1334.7957999999999,
+            "admissionMs": 24.795799999999872,
+            "provisioningMs": 1310,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 6,
+            "totalMs": 1443.6262000000006,
+            "admissionMs": 27.62620000000061,
+            "provisioningMs": 1416,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 7,
+            "totalMs": 1540.8374000000003,
+            "admissionMs": 34.83740000000034,
+            "provisioningMs": 1506,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 8,
+            "totalMs": 1649.5662000000011,
+            "admissionMs": 38.56620000000112,
+            "provisioningMs": 1611,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 9,
+            "totalMs": 1748.7057000000004,
+            "admissionMs": 44.705700000000434,
+            "provisioningMs": 1704,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          }
+        ]
+      },
+      {
+        "concurrency": 20,
+        "wallMs": 3924.7423000000017,
+        "rejections": 0,
+        "results": [
+          {
+            "idx": 0,
+            "totalMs": 1901.6382999999987,
+            "admissionMs": 221.6382999999987,
+            "provisioningMs": 1680,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 1,
+            "totalMs": 2005.6243000000031,
+            "admissionMs": 221.62430000000313,
+            "provisioningMs": 1784,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 2,
+            "totalMs": 1702.3845000000001,
+            "admissionMs": 222.38450000000012,
+            "provisioningMs": 1480,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 3,
+            "totalMs": 2127.3961000000018,
+            "admissionMs": 221.39610000000175,
+            "provisioningMs": 1906,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 4,
+            "totalMs": 1815.2569000000003,
+            "admissionMs": 221.25690000000031,
+            "provisioningMs": 1594,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 5,
+            "totalMs": 2225.8276000000005,
+            "admissionMs": 221.82760000000053,
+            "provisioningMs": 2004,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 6,
+            "totalMs": 2320.6898,
+            "admissionMs": 221.6898000000001,
+            "provisioningMs": 2099,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 7,
+            "totalMs": 2660.6751000000004,
+            "admissionMs": 221.67510000000038,
+            "provisioningMs": 2439,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 8,
+            "totalMs": 2437.950499999999,
+            "admissionMs": 220.950499999999,
+            "provisioningMs": 2217,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 9,
+            "totalMs": 2561.319599999999,
+            "admissionMs": 221.3195999999989,
+            "provisioningMs": 2340,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 10,
+            "totalMs": 2813.7413000000015,
+            "admissionMs": 220.7413000000015,
+            "provisioningMs": 2593,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 11,
+            "totalMs": 2918.2021999999997,
+            "admissionMs": 221.20219999999972,
+            "provisioningMs": 2697,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 12,
+            "totalMs": 3028.0031000000017,
+            "admissionMs": 220.00310000000172,
+            "provisioningMs": 2808,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 13,
+            "totalMs": 3158.581399999999,
+            "admissionMs": 221.58139999999912,
+            "provisioningMs": 2937,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 14,
+            "totalMs": 3275.4087,
+            "admissionMs": 221.40869999999995,
+            "provisioningMs": 3054,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 15,
+            "totalMs": 3399.3209000000024,
+            "admissionMs": 221.32090000000244,
+            "provisioningMs": 3178,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 16,
+            "totalMs": 3524.8543000000027,
+            "admissionMs": 220.8543000000027,
+            "provisioningMs": 3304,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 17,
+            "totalMs": 3921.4012000000002,
+            "admissionMs": 220.40120000000024,
+            "provisioningMs": 3701,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 18,
+            "totalMs": 3814.3561999999984,
+            "admissionMs": 219.35619999999835,
+            "provisioningMs": 3595,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 19,
+            "totalMs": 3678.3473999999987,
+            "admissionMs": 220.34739999999874,
+            "provisioningMs": 3458,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          }
+        ]
+      },
+      {
+        "concurrency": 40,
+        "wallMs": 4159.212899999999,
+        "rejections": 0,
+        "results": [
+          {
+            "idx": 0,
+            "totalMs": 2224.3417999999947,
+            "admissionMs": 235.3417999999947,
+            "provisioningMs": 1989,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 1,
+            "totalMs": 2553.7428999999975,
+            "admissionMs": 234.74289999999746,
+            "provisioningMs": 2319,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 2,
+            "totalMs": 2002.001400000001,
+            "admissionMs": 235.001400000001,
+            "provisioningMs": 1767,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 3,
+            "totalMs": 1885.6172000000006,
+            "admissionMs": 234.6172000000006,
+            "provisioningMs": 1651,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 4,
+            "totalMs": 1763.8956000000035,
+            "admissionMs": 234.89560000000347,
+            "provisioningMs": 1529,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 5,
+            "totalMs": 2107.382899999997,
+            "admissionMs": 234.38289999999688,
+            "provisioningMs": 1873,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 6,
+            "totalMs": 2447.3606,
+            "admissionMs": 234.36059999999998,
+            "provisioningMs": 2213,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 7,
+            "totalMs": 2325.8749000000025,
+            "admissionMs": 234.87490000000253,
+            "provisioningMs": 2091,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 8,
+            "totalMs": 2794.1654000000053,
+            "admissionMs": 234.16540000000532,
+            "provisioningMs": 2560,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 9,
+            "totalMs": 2674.105899999995,
+            "admissionMs": 234.10589999999502,
+            "provisioningMs": 2440,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 10,
+            "totalMs": 3044.9720000000016,
+            "admissionMs": 233.97200000000157,
+            "provisioningMs": 2811,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 11,
+            "totalMs": 2916.0117000000027,
+            "admissionMs": 234.01170000000275,
+            "provisioningMs": 2682,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 12,
+            "totalMs": 3319.5244999999995,
+            "admissionMs": 233.52449999999953,
+            "provisioningMs": 3086,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 13,
+            "totalMs": 3183.0845999999947,
+            "admissionMs": 234.08459999999468,
+            "provisioningMs": 2949,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 14,
+            "totalMs": 3754.5507,
+            "admissionMs": 233.55069999999978,
+            "provisioningMs": 3521,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 15,
+            "totalMs": 3444.813000000002,
+            "admissionMs": 233.81300000000192,
+            "provisioningMs": 3211,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 16,
+            "totalMs": 3592.8623000000007,
+            "admissionMs": 232.8623000000007,
+            "provisioningMs": 3360,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 17,
+            "totalMs": 3891.9326,
+            "admissionMs": 233.9326000000001,
+            "provisioningMs": 3658,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 18,
+            "totalMs": 4022.6949999999997,
+            "admissionMs": 233.6949999999997,
+            "provisioningMs": 3789,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 19,
+            "totalMs": 4156.989400000006,
+            "admissionMs": 232.98940000000584,
+            "provisioningMs": 3924,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 20,
+            "totalMs": 331.72350000000006,
+            "admissionMs": 235.72350000000006,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 21,
+            "totalMs": 331.90729999999894,
+            "admissionMs": 235.90729999999894,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 22,
+            "totalMs": 332.0433000000048,
+            "admissionMs": 236.04330000000482,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 23,
+            "totalMs": 332.14420000000246,
+            "admissionMs": 236.14420000000246,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 24,
+            "totalMs": 332.2708999999959,
+            "admissionMs": 236.2708999999959,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 25,
+            "totalMs": 332.3804999999993,
+            "admissionMs": 236.3804999999993,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 26,
+            "totalMs": 332.4578000000038,
+            "admissionMs": 236.45780000000377,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 27,
+            "totalMs": 332.5824999999968,
+            "admissionMs": 236.5824999999968,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 28,
+            "totalMs": 332.61299999999756,
+            "admissionMs": 236.61299999999756,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 29,
+            "totalMs": 332.7207000000053,
+            "admissionMs": 236.7207000000053,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 30,
+            "totalMs": 332.8194000000003,
+            "admissionMs": 236.81940000000031,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 31,
+            "totalMs": 333.0679999999993,
+            "admissionMs": 237.0679999999993,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 32,
+            "totalMs": 332.8323999999993,
+            "admissionMs": 236.83239999999932,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 33,
+            "totalMs": 333.2955000000002,
+            "admissionMs": 237.29550000000017,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 34,
+            "totalMs": 333.07049999999435,
+            "admissionMs": 237.07049999999435,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 35,
+            "totalMs": 333.33720000000176,
+            "admissionMs": 237.33720000000176,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 36,
+            "totalMs": 333.4432000000015,
+            "admissionMs": 237.44320000000153,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 37,
+            "totalMs": 333.5624000000025,
+            "admissionMs": 237.56240000000253,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 38,
+            "totalMs": 333.6683000000048,
+            "admissionMs": 237.66830000000482,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          },
+          {
+            "idx": 39,
+            "totalMs": 333.77330000000075,
+            "admissionMs": 237.77330000000075,
+            "provisioningMs": 96,
+            "executionMs": 0,
+            "status": 200,
+            "success": true
+          }
+        ]
+      }
+    ],
+    "steady": [
+      {
+        "idx": 0,
+        "totalMs": 804.9889000000112,
+        "admissionMs": 242.9889000000112,
+        "provisioningMs": 562,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 1,
+        "totalMs": 620.4640999999974,
+        "admissionMs": 17.464099999997416,
+        "provisioningMs": 603,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 2,
+        "totalMs": 530.6573999999964,
+        "admissionMs": 17.657399999996414,
+        "provisioningMs": 513,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 3,
+        "totalMs": 569.6592999999993,
+        "admissionMs": 16.659299999999348,
+        "provisioningMs": 553,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 4,
+        "totalMs": 572.7180999999982,
+        "admissionMs": 16.71809999999823,
+        "provisioningMs": 556,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 5,
+        "totalMs": 605.3200999999972,
+        "admissionMs": 16.320099999997183,
+        "provisioningMs": 589,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 6,
+        "totalMs": 618.7312999999995,
+        "admissionMs": 18.731299999999464,
+        "provisioningMs": 600,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 7,
+        "totalMs": 669.9411000000109,
+        "admissionMs": 17.94110000001092,
+        "provisioningMs": 652,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 8,
+        "totalMs": 583.925700000007,
+        "admissionMs": 0.9257000000070548,
+        "provisioningMs": 583,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 9,
+        "totalMs": 615.7662000000128,
+        "admissionMs": 17.76620000001276,
+        "provisioningMs": 598,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 10,
+        "totalMs": 648.676999999996,
+        "admissionMs": 18.676999999996042,
+        "provisioningMs": 630,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 11,
+        "totalMs": 640.1156999999948,
+        "admissionMs": 19.11569999999483,
+        "provisioningMs": 621,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 12,
+        "totalMs": 676.2814999999973,
+        "admissionMs": 17.281499999997322,
+        "provisioningMs": 659,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 13,
+        "totalMs": 593.4075000000012,
+        "admissionMs": 17.407500000001164,
+        "provisioningMs": 576,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 14,
+        "totalMs": 838.357600000003,
+        "admissionMs": 227.357600000003,
+        "provisioningMs": 611,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 15,
+        "totalMs": 617.5317000000068,
+        "admissionMs": 17.531700000006822,
+        "provisioningMs": 600,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 16,
+        "totalMs": 666.6123999999982,
+        "admissionMs": 16.61239999999816,
+        "provisioningMs": 650,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 17,
+        "totalMs": 613.3968999999925,
+        "admissionMs": 16.396899999992456,
+        "provisioningMs": 597,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 18,
+        "totalMs": 714.6137999999919,
+        "admissionMs": 17.613799999991897,
+        "provisioningMs": 697,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      },
+      {
+        "idx": 19,
+        "totalMs": 652.8628000000026,
+        "admissionMs": 16.862800000002608,
+        "provisioningMs": 636,
+        "executionMs": 0,
+        "status": 200,
+        "success": true
+      }
+    ]
+  }
+}

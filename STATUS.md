@@ -24,7 +24,8 @@ Last updated: 2026-08-25.
   - Milestone 14 (scale re-validation under M11–M13 optimizations — measurement only) at `7581652`.
   - Milestone 15 (bounded cold-sandbox prewarming experiment — measurement only; decision: REJECTED, prewarming not needed/justified) at `5535113`.
   - Milestone 16 (cold sandbox provisioning & concurrency optimization) at `5a3cc25`.
-  - Milestone 17 (cumulative scale validation post-M16 — measurement only) in this commit.
+  - Milestone 17 (cumulative scale validation post-M16 — measurement only) at `477dfc7`.
+  - Milestone 18 (cold-wait decomposition & scheduling decision — measurement only; decision: ACCEPT current behavior, no scheduler justified) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1576,6 +1577,53 @@ Evidence Artifacts:
 - `backend/load-test/results/level-scale-500-*.{json,md}`
 - `backend/load-test/results/level-scale-1000-*.{json,md}`
 
+### Milestone 18 — Cold-Wait Decomposition & Scheduling Decision (measurement only)
+
+Committed in this milestone. Decomposed the remaining cold Docker sandbox provisioning latency at concurrency levels 1, 5, 10, 20, and 40 to determine whether execution scheduling/batching complexity is justified. No production code modified.
+
+**Phase 1 — Cold Wait Decomposition (maxSandboxes=20)**:
+
+| Concurrency | Success | Rejected | Total p50 (ms) | Total p95 (ms) | Total p99 (ms) | Wall (ms) |
+|---|---|---|---|---|---|---|
+| C=1 | 1/1 | 0 | 4,860 | 4,860 | 4,860 | 4,861 |
+| C=5 | 5/5 | 0 | 831 | 1,014 | 1,014 | 1,016 |
+| C=10 | 10/10 | 0 | 1,335 | 1,749 | 1,749 | 1,750 |
+| C=20 | 20/20 | 0 | 2,814 | 3,921 | 3,921 | 3,925 |
+| C=40 | 40/40 | 0 | 1,764 | 4,023 | 4,157 | 4,159 |
+
+**Key finding**: There is no admission queuing delay. All requests at C≤20 are admitted immediately; at C=40, idle sandbox reaping makes room for the excess 20 without rejection. The entire cold latency is Docker daemon provisioning + execution time. Docker daemon throughput peaks around C=5 (~4.9 req/s, avg 827ms) and degrades linearly under higher concurrency due to daemon-internal lock contention.
+
+**Phase 2 — User-Impact Latency Distribution**:
+
+- **Steady traffic** (20 sequential cold requests, 500ms apart): **100% under 1s** (p50=621ms, p95=838ms). Zero requests in any tail bucket.
+- **20-concurrent cold burst**: 0 under 1s, 3 in 1–2s, 17 in 2–5s, 0 over 5s. p50=2,814ms, p95=3,921ms.
+- **40-concurrent cold burst**: 20 under 1s, 2 in 1–2s, 18 in 2–5s, 0 over 5s. p50=1,764ms, p95=4,023ms.
+
+**Conclusion**: The >1s cold latency is exclusively a burst-path phenomenon. Under ordinary sequential user traffic, every cold execution completes under 1 second.
+
+**Phase 3 — Scheduling Strategy Simulation**:
+
+- **A. Current (immediate admission)**: No queuing. Fast, deterministic rejection when at capacity (not observed at C=40 due to idle reaping). No head-of-line blocking, no starvation, no queue memory.
+- **B. Strict FIFO queue**: Would convert fast rejection into ~3.9s additional wait for queued requests. Adds head-of-line blocking, starvation risk, disconnect handling, cancellation semantics.
+- **C. Shortest-job ordering**: No meaningful advantage — all cold starts have similar cost (Docker provisioning dominates). Cannot estimate job cost before execution.
+- **D. Bounded Docker concurrency**: Optimal measured throughput at C=5, but limiting below maxSandboxes=20 reduces effective capacity. Docker daemon is the bottleneck regardless of admission strategy.
+
+**Phase 4 — Resource & Fairness Tradeoff**:
+
+Any scheduling layer adds: queue memory, cancellation/disconnect handling, starvation risk, per-user fairness bookkeeping (must integrate with existing sandboxGate), project-lock interaction, and changed retry semantics. None of this increases Docker daemon throughput — it only changes the failure mode from fast rejection to slow waiting.
+
+**Decision: A — ACCEPT CURRENT BEHAVIOR**
+
+- Cold tail latency is burst-only; steady-state cold execution is 100% under 1 second.
+- Warm execution remains ~19–22ms p50 (effectively instant).
+- The Docker daemon is the throughput bottleneck; no admission strategy changes Docker's processing rate.
+- Scheduling complexity (queue, fairness, cancellation, starvation prevention) is not justified given the evidence.
+- The system's existing idle-reaping mechanism naturally handles over-admission without explicit rejection at tested concurrency levels.
+
+Evidence Artifacts:
+- `backend/load-test/investigate-m18-cold-wait.ts`
+- `backend/load-test/results/m18-cold-wait-investigation-*.{json,md}`
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -1597,6 +1645,12 @@ Evidence Artifacts:
   zero-external-dependency stance, not a scaling oversight. Any future
   multi-instance deployment plan must budget for this as real rework, not
   assume it's incremental.
+- **Execution scheduling is not justified — Milestone 18 closed the question.**
+  The remaining cold-provisioning tail is burst-only and governed by host
+  Docker daemon throughput, not admission logic. Steady-state cold execution
+  is 100% sub-second. Adding a scheduler, queue, or admission controller
+  would not increase Docker throughput and would convert fast, clear failures
+  into slow, opaque waits. See M18 evidence above.
 
 ## Known non-blocking issues
 
@@ -1605,6 +1659,10 @@ Evidence Artifacts:
   unused `err` param lint warning in `proxy-ws.test.ts`;
   `proxyTargets.ts` pathRewrite non-canonical-port spelling wart;
   containerized-mode preview-port publication asymmetry in `getProxyTarget`.
+- Pre-existing test suite baseline expectations (329 passed / 2 failed / 4 skipped across 35 test files):
+  - `backend/test/lifecycle.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
+  - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
+  - Both failures are pre-existing relative to M18, reproduce identically on clean HEAD `477dfc7`, are not caused by M18, were not modified during M18, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - M1 follow-ups queued elsewhere: demo-account GC absence, logout not tearing
   down live WS connections, snapshot quotas (tracked for Phase-1 backlog).
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
@@ -1613,11 +1671,14 @@ Evidence Artifacts:
 
 ## Current active work
 
-Milestones 1–17 are committed. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
-remains outstanding and un-gated, unchanged from before.
+Milestones 1–17 are committed. Milestone 18 (cold-wait decomposition & scheduling decision)
+documentation and evidence are complete in this working tree. The single-process
+performance-hardening investigation arc (M8–M18) is complete and concluded. Manual QA
+execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
+unchanged from before.
 
 ## Next recommended milestone
 
-1. **Evaluate Fresh M18 Scope**:
-   Fresh M18 contract only after deciding whether the remaining Docker cold-start
-   tail justifies further complexity.
+The M8–M18 performance investigation and optimization arc is concluded.
+Remaining engineering should shift to product features, deployment, or
+user-facing improvements rather than further single-process performance work.
