@@ -155,6 +155,35 @@ Caddy handles TLS and WebSocket upgrades automatically.
 
 The compose healthcheck uses `/api/health`.
 
+## Automated deployment smoke verification
+
+Validate the complete vertical stack of a running deployment in seconds:
+
+```bash
+# Run against local instance (default: http://localhost:3000)
+npm run deploy:smoke
+
+# Or specify a custom target URL (local or remote VPS)
+node scripts/smoke-test.js --url=https://ide.example.com
+```
+
+The smoke test exercises 11 automated scenarios in sequence:
+1. **Liveness**: verifies `GET /api/health` HTTP 200 and live status.
+2. **Readiness**: verifies `GET /api/health/ready` database, Docker daemon, and runner image checks.
+3. **Authentication**: provisions a disposable smoke user with strong credentials and tests session cookie issuance.
+4. **User Preferences**: tests `GET`/`PUT` preferences persistence and SQLite storage fidelity.
+5. **Project Creation**: creates a temporary project and lists directory tree.
+6. **File I/O**: writes Python code to `main.py` and verifies exact byte-level readback.
+7. **Docker Execution**: executes Python program inside an isolated sandbox container and verifies stdout matching.
+8. **Preview Proxy**: tests preview authorization and proxy routing on port 8000 (and validates port restrictions).
+9. **Workspace Export**: downloads `GET /api/projects/:id/export` ZIP archive, verifies PKZIP headers, and confirms content exclusions.
+10. **WebSocket Handshake**: connects to `/ws/collab` using session cookie authentication and verifies binary protocol sync frames.
+11. **Cleanup & Teardown**: deletes the temporary project and logs out the session in a guaranteed `finally` block.
+
+**Exit codes:**
+- `0`: All required deployment checks passed (instance is production ready).
+- `1`: One or more checks failed with detailed diagnostic error messages.
+
 ## Graceful shutdown
 
 `SIGTERM`/`SIGINT` triggers a drain: background timers stop, WebSocket clients are

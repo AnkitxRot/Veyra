@@ -29,7 +29,8 @@ Last updated: 2026-08-25.
   - Milestone 19 (session lifecycle & WebSocket security hardening — logout WS teardown & demo account GC) at `ae8a740`.
   - Milestone 20 (project snapshot quotas & retention management) at `1938e79`.
   - Milestone 21 (project workspace export & import) at `a4e933a`.
-  - Milestone 22 (user preferences & editor settings persistence) in this commit.
+  - Milestone 22 (user preferences & editor settings persistence) at `e138799`.
+  - Milestone 23 (automated production deployment smoke & readiness verification harness) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1733,7 +1734,7 @@ Verification:
 
 ### Milestone 22 — User Preferences & Editor Settings Persistence
 
-Implemented and verified in this working tree. Persists user-specific editor preferences in SQLite and applies them dynamically to Monaco editor instances without page reloads, model recreation, or loss of unsaved editor state:
+Implemented and verified in commit `e138799`. Persists user-specific editor preferences in SQLite and applies them dynamically to Monaco editor instances without page reloads, model recreation, or loss of unsaved editor state:
 
 1. **Database Schema & Migrations**:
    - Dedicated `user_preferences` table in SQLite (`backend/src/db.ts`) with foreign key reference `REFERENCES users(id) ON DELETE CASCADE`.
@@ -1766,6 +1767,46 @@ Verification:
 - Full backend regression suite: **348 passed / 2 failed / 31 skipped (39 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
 - Frontend build & typecheck: PASS (Vite built in 36.00s).
+- `git diff --check`: PASS.
+
+### Milestone 23 — Automated Production Deployment Smoke & Readiness Verification Harness
+
+Implemented and verified in this working tree. Provides a standalone, zero-runtime-dependency automated smoke testing harness that deterministically validates all vertical layers of a running Veyra deployment in seconds:
+
+1. **Automated Smoke Test Runner (`scripts/smoke-test.js`)**:
+   - Standalone CLI executable with strict target URL validation (`--url=<url>`, default `http://localhost:3000`), rejecting embedded user credentials, non-HTTP protocols, and malformed targets.
+   - Added npm shortcut: `npm run deploy:smoke`.
+   - Exercises 11 comprehensive deployment scenarios in sequence:
+     1. **Liveness**: verifies `GET /api/health` returns HTTP 200 with `{ ok: true, status: 'live' }`.
+     2. **Readiness**: verifies `GET /api/health/ready` database, Docker daemon, and runner image checks.
+     3. **Authentication**: provisions an ephemeral smoke user (`smoke_<runId>`) with a secure randomized password and tests session cookie issuance.
+     4. **User Preferences**: tests `GET`/`PUT` preferences persistence in SQLite, verifying that updated settings persist across requests.
+     5. **Project Creation**: creates a temporary project and lists directory tree.
+     6. **File I/O**: writes Python program to `main.py` and verifies exact byte-for-byte readback fidelity.
+     7. **Docker Execution**: executes Python program inside an isolated sandbox container, verifying stdout matching and exit code 0.
+     8. **Preview Proxy**: tests preview authorization and proxy routing for allowed port 8000 (and verifies rejection of unallowed ports like 9999).
+     9. **Workspace Export**: downloads `GET /api/projects/:id/export` ZIP archive, verifies PKZIP headers (`PK\x03\x04`), inspects central directory entries, and ensures runtime exclusion compliance.
+     10. **WebSocket Handshake**: connects to `/ws/collab` using session cookie authentication, verifying connection establishment and initial room binary sync frame delivery.
+     11. **Cleanup & Teardown**: deletes the temporary test project and logs out the session in a guaranteed `finally` block to prevent orphaned artifacts.
+
+2. **Zero-Dependency Transport & Archive Inspection**:
+   - Zero external testing dependencies: uses Node.js standard built-ins (`http`, `https`, `crypto`) with standard `ws` client compatibility.
+   - Pure JS binary PKZIP inspection logic to validate exported archives without requiring external unzip utilities.
+
+3. **Documentation & Deployment Integration**:
+   - Added automated smoke test instructions to `deploy/README.md`.
+   - Added `"type": "module"` and `"deploy:smoke": "node scripts/smoke-test.js"` in root `package.json`.
+
+Files:
+- Production/Scripts: `scripts/smoke-test.js`, `package.json`, `deploy/README.md`.
+- Tests: `backend/test/smoke-harness.test.ts` (5 tests covering help output, invalid URL rejection, protocol validation, embedded credential protection, and unreachable host diagnostics), `backend/test/smoke-live.test.ts` (1 test running the live smoke runner against an active server instance).
+
+Verification:
+- Focused suite `test/smoke-harness.test.ts`: **5 passed / 0 failed** (283ms).
+- Live server smoke test `test/smoke-live.test.ts`: **1 passed / 0 failed** (1.09s).
+- Full backend regression suite: **354 passed / 2 failed / 31 skipped (41 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite built in 39.11s).
 - `git diff --check`: PASS.
 
 ## Architecture decisions (do not rediscover)
@@ -1810,6 +1851,9 @@ Verification:
 - **User preferences are persisted per-user in SQLite with foreign key cascade.**
   Editor options are synchronized dynamically to Monaco via `updateOptions`
   without recreating models or discarding unsaved edits.
+- **Automated deployment smoke verification validates full vertical stack.**
+  `npm run deploy:smoke` exercises HTTP, auth, SQLite, preferences, file I/O,
+  Docker execution, preview proxying, PKZIP export, and WebSockets end-to-end.
 
 ## Known non-blocking issues
 
@@ -1821,20 +1865,20 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18/M19/M20/M21/M22, reproduce identically on clean HEAD `477dfc7`, are not caused by M22, were not modified during M22, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18/M19/M20/M21/M22/M23, reproduce identically on clean HEAD `477dfc7`, are not caused by M23, were not modified during M23, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–21 are committed. Milestone 22 (user preferences & editor settings persistence)
+Milestones 1–22 are committed. Milestone 23 (automated production deployment smoke & readiness verification harness)
 is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
 remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 22**:
-   Stage M22 production changes, test suite, and STATUS.md; commit and push to master.
-2. **Phase-1 Backlog — Production Deployment Smoke Test & Readiness Verification Harness**:
-   Automated end-to-end smoke verification script for single-node Docker VPS stack.
+1. **Commit and Publish Milestone 23**:
+   Stage M23 scripts, tests, package.json, deploy docs, and STATUS.md; commit and push to master.
+2. **Phase-1 Backlog — Production Recovery & Zero-Downtime Backup Automation**:
+   Automated online database backup (`VACUUM INTO`) and workspace archive tooling.
