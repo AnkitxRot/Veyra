@@ -9,6 +9,8 @@
 import {
   monitorEventLoopDelay,
   createHistogram,
+  PerformanceObserver,
+  constants as perfConstants,
   type IntervalHistogram,
   type RecordableHistogram,
 } from "node:perf_hooks";
@@ -28,6 +30,48 @@ export function startEventLoopMonitor(): void {
 export function stopEventLoopMonitor(): void {
   eventLoopMonitor?.disable();
   eventLoopMonitor = null;
+}
+
+// --- GC pauses (memory-investigation milestone: attribution evidence only,
+// no GC flags/tuning) -------------------------------------------------------
+
+export interface GcKindStats {
+  count: number;
+  totalDurationMs: number;
+}
+
+const GC_KIND_LABELS: Record<number, string> = {
+  [perfConstants.NODE_PERFORMANCE_GC_MAJOR]: "major",
+  [perfConstants.NODE_PERFORMANCE_GC_MINOR]: "minor",
+  [perfConstants.NODE_PERFORMANCE_GC_INCREMENTAL]: "incremental",
+  [perfConstants.NODE_PERFORMANCE_GC_WEAKCB]: "weakcb",
+};
+
+let gcObserver: PerformanceObserver | null = null;
+const gcStatsByKind = new Map<string, GcKindStats>();
+
+/** Idempotent, like startEventLoopMonitor. Uses Node's built-in GC
+ *  perf_hooks entries — no `--expose-gc` or GC flag required. */
+export function startGcObserver(): void {
+  if (gcObserver) return;
+  gcObserver = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      const label = GC_KIND_LABELS[(entry as any).kind] ?? "unknown";
+      const stats = gcStatsByKind.get(label) ?? {
+        count: 0,
+        totalDurationMs: 0,
+      };
+      stats.count++;
+      stats.totalDurationMs += entry.duration;
+      gcStatsByKind.set(label, stats);
+    }
+  });
+  gcObserver.observe({ entryTypes: ["gc"] });
+}
+
+export function stopGcObserver(): void {
+  gcObserver?.disconnect();
+  gcObserver = null;
 }
 
 // --- DB call timing -----------------------------------------------------
@@ -146,7 +190,22 @@ export interface ObservabilitySnapshot {
    *  the metric that demonstrates coalescing actually reduces message
    *  volume, not just theoretically. */
   totalCollabBroadcastSends: number;
-  memory: { rssBytes: number; heapUsedBytes: number; heapTotalBytes: number };
+  memory: {
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+    /** Native/off-heap memory (Buffers, sockets, etc.) — from
+     *  process.memoryUsage().external. Memory-investigation attribution
+     *  evidence: distinguishes JS heap growth from native/buffer growth. */
+    externalBytes: number;
+    arrayBuffersBytes: number;
+  };
+  /** Cumulative since process start (node:process.cpuUsage()) — callers
+   *  compute deltas between samples for point-in-time CPU utilization. */
+  cpuUsageMicros: { userMicros: number; systemMicros: number };
+  /** Cumulative GC pause count/duration by kind since startGcObserver() was
+   *  called (or since the last resetObservabilityForTests()). */
+  gc: Record<string, GcKindStats>;
 }
 
 export interface ObservabilityDeps {
@@ -185,7 +244,14 @@ export function getObservabilitySnapshot(
       rssBytes: mem.rss,
       heapUsedBytes: mem.heapUsed,
       heapTotalBytes: mem.heapTotal,
+      externalBytes: mem.external,
+      arrayBuffersBytes: mem.arrayBuffers,
     },
+    cpuUsageMicros: (() => {
+      const cpu = process.cpuUsage();
+      return { userMicros: cpu.user, systemMicros: cpu.system };
+    })(),
+    gc: Object.fromEntries(gcStatsByKind),
   };
 }
 
@@ -194,4 +260,5 @@ export function resetObservabilityForTests(): void {
   eventLoopMonitor?.reset();
   dbOverallHistogram.reset();
   dbHistogramsByLabel.clear();
+  gcStatsByKind.clear();
 }

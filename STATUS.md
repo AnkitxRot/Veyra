@@ -18,10 +18,12 @@ Last updated: 2026-08-25.
   (peak 20/20, independently confirmed) at `6db6bc9`.
 - Milestone 5c (SQLite write-contention characterization — measurement
   only, no DB architecture change; decision: DB-threading not justified)
-  committed at `1bf264a`.
-- **This working tree:** Milestone 6 (collaboration broadcast coalescing +
-  WS backpressure) — implemented and verified; not yet committed. See
-  below.
+  committed at `1bf264a`. Milestone 6 (collaboration broadcast coalescing
+  and WS backpressure) committed at `f5d65ae`.
+- Milestone 7 (memory-attribution investigation — 100-user RSS/event-loop
+  root-causing, no production behavior change; decision: no production
+  memory-optimization milestone justified) is committed alongside this
+  update. See below.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -654,7 +656,7 @@ one) — not investigated further here, out of this milestone's scope.
 
 ### Milestone 6 — Collaboration broadcast coalescing + WS backpressure
 
-Not yet committed (this working tree). Addresses item 1 from Milestone 5c's
+Committed at `f5d65ae`. Addresses item 1 from Milestone 5c's
 "Next recommended milestone" list: the collab/WS layer broadcast every Yjs
 update and every awareness change synchronously, per-event, to every
 connected client, with no protection against a slow WebSocket consumer
@@ -786,6 +788,161 @@ watermarks was done beyond the conservative defaults; the low-concentration
 latency tradeoff is disclosed, not hidden, and is a reasonable line item
 for a future milestone if it proves to matter in practice.
 
+### Milestone 7 — Memory investigation (100-user RSS/event-loop attribution)
+
+Investigation only, no production behavior changed. Answers item 1 from
+Milestone 6's "Next recommended milestone" list: why did M5c observe
+sustained RSS/event-loop growth under 100-user load, and why did M6's
+100-user collaboration RSS stay ~1.52GB before and after coalescing despite
+a 91.8% broadcast-volume reduction?
+
+**Instrumentation added** (additive only, no behavior change):
+`backend/src/observability.ts` gained `externalBytes`/`arrayBuffersBytes`
+on the memory snapshot, a `gc` field (cumulative pause count + duration by
+kind, via `node:perf_hooks`'s built-in GC performance entries — no
+`--expose-gc` or GC flag needed), and `cpuUsageMicros` (cumulative
+`process.cpuUsage()`); `backend/load-test/server.ts` wires
+`startGcObserver()`/`stopGcObserver()` alongside the existing event-loop
+monitor. `backend/load-test/memory-profile.ts` (new) is a standalone
+diagnostic script — deliberately **not** added as flags to `run.ts`, so
+the already-verified M5/M6 harness file is untouched — that reproduces a
+workload with heap snapshots (`node:v8` `writeHeapSnapshot`, no Chrome
+DevTools needed) at baseline/mid-run/peak/post-rampdown, plus a
+configurable post-rampdown observation window.
+`backend/load-test/analyze-heapsnapshot.cjs` (new) is a bounded, read-only
+histogram tool (self-size grouped by constructor name) for `.heapsnapshot`
+files, since the files involved (up to ~480MB) are too large for Chrome
+DevTools' UI to load comfortably on this machine.
+
+**Methodology note — scale**: the deep-dive (heap snapshots + full
+5-minute post-rampdown observation) ran at **40 concurrent users**, not
+100, specifically so heap snapshot files stay parseable
+(`JSON.parse`-able with a bumped `--max-old-space-size`) and reviewable —
+"bounded," per the contract. The qualitative pattern below is confirmed
+directly against the **actual 100-user M6 evidence**
+(`level-m6-baseline-100-*.json`, unmodified, read only) for the parts that
+don't need heap snapshots (RSS/heapUsed/heapTotal time series, gauge
+behavior) — both scales show the identical shape: continuous heap growth
+in lockstep with RSS, with connection count flat.
+
+**Runs** (all real HTTP/WS/SQLite/Docker, in-process harness, same
+45s/90s/20s ramp/steady/rampdown shape as M6 for comparability):
+
+- **`memprofile-collab-heavy-40`** (every VU is `rapid_typing`, one shared
+  room — same shape as M6's `--collab-only`; 4 heap snapshots + 300s
+  post-rampdown observation): RSS climbed **98.8MB → 723.9MB** over 137s
+  while WS connections were flat at 42 for the back half of that climb
+  (t=50 to t=137, RSS still roughly doubled during that flat-population
+  window). `externalBytes`/`arrayBuffersBytes` stayed pinned at ~8MB/~4MB
+  for the _entire_ run — ruling out native buffers/sockets as the driver.
+  `gc.major` count was frozen at 23 and `gc.minor` at 202 for the entire
+  run from t=5 onward — **no GC activity at all occurred during the
+  700MB+ climb**, meaning V8 was simply expanding live heap, not
+  struggling to reclaim garbage; GC pauses cannot be what's driving
+  event-loop lag here (event-loop p99 only rose modestly at this 40-user
+  scale, 32.8ms→36.9ms — the severe 372ms p99 seen in M6's real 100-user
+  run is presumably the same underlying mechanism at a scale where
+  per-flush encode/broadcast cost over a much larger accumulated document
+  finally dominates the tick).
+- **Post-rampdown retention (the decisive test)**: after `controller.abort()`,
+  WS connections and the collab room gauge both correctly returned to
+  **0** (confirming the M6 dispose-path fix and room lifecycle both work
+  correctly). Heap did **not** decay: heapUsed sat at ~250MB and RSS at
+  ~677MB, completely flat, for the entire remaining 296s of observation —
+  and the final `post-rampdown.heapsnapshot`, which `v8.writeHeapSnapshot`
+  takes only after forcing a full GC internally, still showed the same
+  ~250MB retained. This is genuine live retention, not garbage merely
+  awaiting a GC cycle that hadn't run yet.
+- **Heap snapshot class breakdown (the attribution)**: the retained memory
+  is overwhelmingly three Yjs-internal types — `Item`, `ID`, and
+  `ContentString` — growing monotonically across baseline (0 of each) →
+  mid-run (458,916 Items) → peak (760,848) → post-rampdown (743,151,
+  essentially unchanged from peak, confirming no decay). The real edit
+  count for this run is ~17,920 (40 VUs × ~448 avg edits each, computed
+  from the ramp/steady timing and the 200ms±jitter edit cadence). 743,151
+  ÷ 17,920 ≈ **41.5× replication** — matching almost exactly (40 VUs + a
+  couple of probe/server docs). **This is not one growing document; it is
+  ~40 independent full replicas of the same ever-growing document, one
+  per simulated client, none of which are ever explicitly released.**
+  Smaller contributors: ~17,700 leaked `Listener`/`Timeout` object pairs,
+  matching the load-test harness's own `sleep()` helper
+  (`backend/load-test/virtualUser.ts`) registering one `AbortSignal`
+  `"abort"` listener per call and never removing it — a real but minor
+  (~3MB) harness bug, dwarfed by the replication effect above.
+- **Control A — `memprofile-normal-40`** (M5a's general weighted mix,
+  mostly non-collaboration behaviors with a small collaboration
+  component): peak RSS **136.7MB**, essentially flat against a ~99MB
+  baseline. No heap snapshot needed — the numeric series alone shows no
+  meaningful growth.
+- **Control C — `memprofile-non-collab-40`** (collaboration behaviors
+  removed entirely, weight redistributed to idle/active_editor/
+  execution_heavy/preview_heavy): peak RSS **155.3MB** (a few real Docker
+  sandboxes account for the small excess over baseline), again
+  essentially flat.
+- **Attribution conclusion**: only the collaboration-heavy workload grows
+  at all; normal and non-collaboration traffic at the same user count and
+  duration are flat. Combined with the class breakdown, this points
+  specifically at Yjs client-replica retention, not generic backend load,
+  not native memory, not GC pressure.
+
+**What this means for M6's own "RSS didn't change" observation**: M6's
+100-user before/after RSS staying flat at ~1.52GB despite a 91.8%
+reduction in physical broadcast sends is now explained rather than
+puzzling — coalescing changes how many WS frames are needed to deliver a
+given set of CRDT operations, but every connected replica still ends up
+applying the _same total number of operations_ to its own full local
+copy either way. The dominant cost here is per-replica document size ×
+replica count, which coalescing was never designed to change and didn't.
+
+**Important scope caveat, disclosed explicitly**: because this harness
+runs the server and all simulated client replicas in one Node process
+(by design, for realistic WS/HTTP traffic without spinning up N browser
+processes), this measurement cannot cleanly separate "real server-side
+per-room memory" from "harness-simulated client replica memory" the way
+a production deployment would (there, each replica would live in a
+separate user's browser tab, not the server process). The ~40×
+replication effect measured here is **at least partly, and likely
+mostly, a load-test harness topology artifact** (classification **E**),
+compounded by a real but small harness cleanup bug in `sleep()`
+(classification **G**, minor) — not conclusively a `collab/manager.ts`
+production leak. `manager.ts` was out of scope for this investigation
+contract and was not touched or independently instrumented, so the
+server's own single-authoritative-document memory footprint in isolation
+was not directly measured here; the existing M6 dispose-path fix and
+correctly-zeroing `activeCollabRooms`/`activeWsConnections` gauges are
+circumstantial evidence the server-side room lifecycle itself is sound.
+
+**Attribution classification: primarily E (harness artifact, dominant) +
+G (minor harness listener leak), with C (retention) describing the
+_mechanism_ of what's retained** — not A (the growth is real and doesn't
+settle) and not D (external/arrayBuffers never moved) and not B (no GC
+activity occurred during the growth at all, ruling out GC pause pressure
+as the event-loop-lag driver at this scale).
+
+**Decision: no memory-optimization milestone is justified on the
+server/production side from this evidence.** The dominant driver
+identified is load-test-harness client-replica lifecycle, not
+`collab/manager.ts`. If a follow-up is wanted, it is harness-hygiene
+(explicitly destroy each VU's `Y.Doc`/close listeners in
+`runCollabRoom`, and fix `sleep()`'s unremoved abort listener) so future
+collaboration load tests measure server-side memory more cleanly — not a
+production code change. Given the small magnitude of the harness-hygiene
+item and that it does not block any other milestone, it is left
+unimplemented pending explicit prioritization, per this contract's "no
+remediation in this milestone" instruction.
+
+Files: `backend/src/observability.ts`, `backend/load-test/server.ts`
+(both additive, no behavior change), `backend/load-test/memory-profile.ts`
+(new), `backend/load-test/analyze-heapsnapshot.cjs` (new). Evidence:
+`backend/load-test/results/memprofile-{collab-heavy,normal,non-collab}-40-*.{json,md}`
+plus `backend/load-test/results/memprofile-heap-collab-heavy-40-*/*.heapsnapshot`
+(4 files, ~15MB/~280MB/~460MB/~450MB — kept locally for review, not sized
+for a git commit). No M5/M6 evidence file was read-modified or altered.
+
+Verification: backend 308 passed / 4 skipped / 0 failed (unchanged from
+before this investigation); backend + frontend typecheck PASS; `git diff
+--check` clean.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -832,28 +989,37 @@ install`) runs in seconds against container-internal storage on a
 ## Current active work
 
 Milestone 5a (`6f433f2`), Milestone 5b (`2083f47` plus its live-Docker
-verification commit), and Milestone 5c (SQLite write-contention
-characterization) are committed and fully closed out — Milestone 5c's
-decision is DB-threading **not justified** by measured evidence; no DB
-architecture change was made. Milestone 6 (collaboration broadcast
-coalescing + WS backpressure) is implemented and verified in this working
-tree, **not yet committed** — see its section above. Manual QA execution
-for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and
-un-gated, unchanged from before.
+verification commit), Milestone 5c (SQLite write-contention
+characterization), Milestone 6 (collaboration broadcast coalescing +
+WS backpressure, `f5d65ae`), and Milestone 7 (memory-attribution
+investigation) are committed and fully closed out — Milestone 5c's
+decision is DB-threading **not justified**; no DB architecture change was
+made. Milestone 7's decision is no memory-optimization milestone is
+justified on the server/production side — see its section above; the only
+open follow-up is optional, unimplemented load-test harness hygiene
+(Milestone 7b). Manual QA
+execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding
+and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
 The SQLite/DB-threading question is resolved (Milestone 5c: **not
-justified**) and collaboration broadcast coalescing/backpressure is now
-implemented (Milestone 6). Remaining evidence-gated work, in dependency
-order:
+justified**), collaboration broadcast coalescing/backpressure is
+implemented (Milestone 6), and the 100-user RSS/event-loop growth is now
+attributed (Milestone 7: load-test harness client-replica lifecycle, not a
+production collab/manager.ts leak — see its section above). Remaining
+evidence-gated work, in dependency order:
 
-1. **New finding worth its own investigation**: Milestone 5c observed
-   process RSS growing steadily under sustained 100-user load (89MB→399MB
-   over 5 minutes), closely time-correlated with the event-loop lag growth
-   also observed there — plausibly GC pressure, not yet root-caused. A
-   memory-profiling pass (heap snapshots over time, not a load test) is the
-   right next step.
+1. **Milestone 7b — optional, low-priority harness hygiene** (not a
+   production change): the memory investigation found the load-test
+   harness itself doesn't release each virtual user's simulated Yjs
+   client (`Y.Doc`/WebSocket listeners never explicitly torn down in
+   `runCollabRoom`, `backend/load-test/virtualUser.ts`) and that
+   `sleep()`'s `AbortSignal` listener is never removed after firing.
+   Fixing this would let future collaboration load tests measure
+   server-side memory more cleanly (current measurements conflate
+   simulated-client and real-server memory, since the harness runs both
+   in one process by design). Not started; needs its own contract.
 2. Milestone 6 disclosed a real low-concentration latency tradeoff
    (coalescing costs ~30ms of added edit-to-peer latency at 10-50 users for
    a 44-83% broadcast reduction, before it starts paying for itself in

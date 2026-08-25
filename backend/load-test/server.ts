@@ -16,6 +16,8 @@ import {
   instrumentDb,
   startEventLoopMonitor,
   stopEventLoopMonitor,
+  startGcObserver,
+  stopGcObserver,
   resetObservabilityForTests,
   getObservabilitySnapshot,
   type ObservabilitySnapshot,
@@ -45,6 +47,7 @@ export async function bootstrapLoadTestServer(
   const cfg = makeTestConfig(configOverrides);
   resetObservabilityForTests();
   startEventLoopMonitor();
+  startGcObserver();
   const db = instrumentDb(openDb(cfg.dbPath));
   ensureAdminUser(
     db,
@@ -87,6 +90,7 @@ export async function bootstrapLoadTestServer(
       }),
     close: async () => {
       stopEventLoopMonitor();
+      stopGcObserver();
       getHeartbeatController(wss)?.stop();
       for (const client of wss.clients) {
         try {
