@@ -19,8 +19,10 @@ Last updated: 2026-08-25.
   - Milestone 9 (scale validation at 100 to 1,000 VUs — measurement only; decision: single-process system stable under 1,000-VU stress workload, no distributed infrastructure justified) at `0e8a06c`.
   - Milestone 10 (performance hotspot investigation — Docker execution cold-start & filesystem stat fan-out decomposition; measurement only) at `a4bd070`.
   - Milestone 11 (targeted execution cold-start and filesystem stat/telemetry optimizations) at `aa180ea`.
+  - Milestone 12 (execution conflict-retry, lazy port mapping, and tree single-flight caching optimizations) at `b990c46`.
   - Milestone 13 (active sandbox liveness freshness optimization) at `bf97906`.
-  - Milestone 14 (scale re-validation under M11–M13 optimizations — measurement only) in this commit.
+  - Milestone 14 (scale re-validation under M11–M13 optimizations — measurement only) at `7581652`.
+  - Milestone 15 (bounded cold-sandbox prewarming experiment — measurement only; decision: REJECTED, prewarming not needed/justified) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1428,18 +1430,80 @@ Verification: full backend suite 329 passed / 4 skipped / 0 failed (34 test file
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
+### Milestone 15 — Bounded cold-sandbox prewarming experiment (measurement only; REJECTED)
+
+Committed in this milestone. Evaluated whether a bounded pool of prewarmed, unassigned sandbox containers (pool sizes 0, 1, 2, 4) could materially reduce cold execution latency under a 50-VU cold burst without violating project isolation, per-user quotas, Level-4 container hardening, or the `maxSandboxes=20` invariant.
+
+**50-VU Cold Execution Burst Results**:
+
+| Variant | Prewarm Pool Size | Prewarmed Hits | Cold Creations | Burst p50 (ms) | Burst p95 (ms) | Burst p99 (ms) | Wall Clock (s) | Peak Load (/20) | Isolation Violations | Leftovers |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **P0 (Baseline)** | 0 | 0 | 50 | 4,904.0 ms | 10,006.8 ms | 10,087.5 ms | 11.38 s | 20/20 | 0 | 0 |
+| **P1** | 1 | 1 | 49 | 5,151.4 ms | 10,624.7 ms | 10,870.3 ms | 12.79 s | 20/20 | 0 | 0 |
+| **P2 (Run 1)** | 2 | 2 | 48 | 5,487.7 ms | 9,587.6 ms | 9,700.0 ms | 11.91 s | 20/20 | 0 | 0 |
+| **P4** | 4 | 4 | 46 | 5,527.9 ms | 10,042.0 ms | 10,892.9 ms | 11.91 s | 20/20 | 0 | 0 |
+| **P2 (Repeat)** | 2 | 2 | 48 | 5,262.9 ms | 10,845.9 ms | 11,220.1 ms | 13.06 s | 20/20 | 0 | 0 |
+
+**Empirical Findings & Decision**:
+1. **Target ≥15% Improvement Not Met**:
+   P2 achieved a marginal -4.2% p95 reduction in its first run (9,587.6ms vs 10,006.8ms), but the improvement was non-reproducible; the repeated run showed p95 at 10,845.9ms (+8.4% vs baseline).
+2. **Background Lock Contention**:
+   Background refill tasks created transient Docker daemon lock and libuv thread contention against on-demand cold spawns, increasing burst p50 latency by +7% to +12%.
+3. **Safety & Isolation Verified**:
+   Zero isolation violations (strict 1:1 project lifecycle, zero cross-project reuse, tmpfs workspace sync), zero container leaks, and `maxSandboxes=20` was strictly preserved.
+4. **Decision: B — PREWARM NOT NEEDED / UNJUSTIFIED**:
+   Full container prewarming is rejected. No production prewarm implementation was introduced. The hardened M13/M14 baseline remains the production state.
+
+Files:
+- Harness: `backend/load-test/verify-prewarm-experiment.ts`.
+- Evidence: `backend/load-test/results/m15-prewarm-experiment-*.{json,md}`.
+
+Verification: full backend suite 329 passed / 4 skipped / 0 failed (34 test files); focused collaboration suite 47/47 PASS; backend typecheck PASS; frontend build/typecheck PASS; `git diff --check` clean.
+
+## Architecture decisions (do not rediscover)
+
+- **Sandbox capacity now has both a global safety cap and a per-user
+  fairness quota — Milestone 2 closed the gap this section used to
+  describe.** `maxSandboxes` (default 20, global, host-wide) remains the
+  hard ceiling; `maxSandboxesPerUser` (default 5) is enforced underneath it
+  via `sandboxGate` in `execution/sandbox.ts`. Execution _concurrency_
+  (`maxConcurrentRuns`, default 3) remains separately per-user-gated across
+  REST run, WS execute, install, search, and the AI-verify path, as before.
+  `maxTerminalsPerUser` (default 5) similarly gates terminal PTY fan-out via
+  `terminalGate` in `ws/terminal.ts`. Sandbox lifecycle operations
+  (create-or-reuse, teardown) are serialized per-project via
+  `SandboxManager.withProjectLock` specifically to keep this quota
+  accounting race-free — see Milestone 2 above for why that's load-bearing,
+  not incidental.
+- **The collab/WS layer is single-process, in-memory by design.** Zero
+  distributed-infra dependencies exist in `package.json` (no Redis, no
+  queue, no pub/sub) — this is intentional per the project's
+  zero-external-dependency stance, not a scaling oversight. Any future
+  multi-instance deployment plan must budget for this as real rework, not
+  assume it's incremental.
+
+## Known non-blocking issues
+
+- Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
+  file IDE.tsx stats poller — deliberate id-keying, left as-is);
+  unused `err` param lint warning in `proxy-ws.test.ts`;
+  `proxyTargets.ts` pathRewrite non-canonical-port spelling wart;
+  containerized-mode preview-port publication asymmetry in `getProxyTarget`.
+- M1 follow-ups queued elsewhere: demo-account GC absence, logout not tearing
+  down live WS connections, snapshot quotas (tracked for Phase-1 backlog).
+- `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
+  due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
+  Not modified as part of any milestone.
+
 ## Current active work
 
-Milestones 1–14 are committed. Manual QA execution for M1
+Milestones 1–15 are committed. Manual QA execution for M1
 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged
 from before.
 
 ## Next recommended milestone
 
-The M8–M13 optimization train is fully validated and proven by Milestone 14
-evidence. The next recommended step is:
-
-1. **Submit Unified M8–M14 Pull Request**:
-   Open a pull request for the completed optimization and scale-validation
-   milestones. Future optional work may explore bounded prewarming subject to
-   a new contract.
+The M8–M14 performance-hardening train is committed, published, and validated.
+Milestone 15 conclusively evaluated and rejected sandbox prewarming. The remaining
+optimization area for cold-start bursts is Docker cold-start burst scheduling and
+amortization under a fresh contract.

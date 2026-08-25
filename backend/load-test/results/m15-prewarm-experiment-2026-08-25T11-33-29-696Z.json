@@ -1,0 +1,76 @@
+{
+  "timestamp": "2026-08-25T11:33:29.695Z",
+  "variants": {
+    "P0": {
+      "poolSize": 0,
+      "burstP50": 4903.9752,
+      "burstP95": 10006.762700000001,
+      "burstP99": 10087.5388,
+      "totalWallMs": 11380.410600000001,
+      "prewarmedHitCount": 0,
+      "coldCreationCount": 50,
+      "peakGlobalLoad": 51,
+      "warmExecP50": 145.38320000000022,
+      "warmExecP95": 165.81770000000142,
+      "isolationViolations": 0,
+      "leftoverContainers": 0
+    },
+    "P1": {
+      "poolSize": 1,
+      "burstP50": 5151.4187,
+      "burstP95": 10624.7329,
+      "burstP99": 10870.3443,
+      "totalWallMs": 12792.3784,
+      "prewarmedHitCount": 1,
+      "coldCreationCount": 49,
+      "peakGlobalLoad": 51,
+      "warmExecP50": 154.50310000000172,
+      "warmExecP95": 168.71709999999803,
+      "isolationViolations": 0,
+      "leftoverContainers": 0
+    },
+    "P2": {
+      "poolSize": 2,
+      "burstP50": 5487.724099999999,
+      "burstP95": 9587.5873,
+      "burstP99": 9700.012999999999,
+      "totalWallMs": 11913.629799999995,
+      "prewarmedHitCount": 2,
+      "coldCreationCount": 48,
+      "peakGlobalLoad": 51,
+      "warmExecP50": 150.98470000000088,
+      "warmExecP95": 153.66330000000016,
+      "isolationViolations": 0,
+      "leftoverContainers": 0
+    },
+    "P4": {
+      "poolSize": 4,
+      "burstP50": 5527.933700000001,
+      "burstP95": 10041.972500000003,
+      "burstP99": 10892.940100000007,
+      "totalWallMs": 11908.479900000006,
+      "prewarmedHitCount": 4,
+      "coldCreationCount": 46,
+      "peakGlobalLoad": 51,
+      "warmExecP50": 161.9100999999937,
+      "warmExecP95": 176.93510000000242,
+      "isolationViolations": 0,
+      "leftoverContainers": 0
+    }
+  },
+  "bestVariant": "P2",
+  "repeatedValidation": {
+    "poolSize": 2,
+    "burstP50": 5262.922100000011,
+    "burstP95": 10845.906600000002,
+    "burstP99": 11220.090599999996,
+    "totalWallMs": 13055.704200000007,
+    "prewarmedHitCount": 2,
+    "coldCreationCount": 48,
+    "peakGlobalLoad": 51,
+    "warmExecP50": 156.7560000000085,
+    "warmExecP95": 170.96689999999944,
+    "isolationViolations": 0,
+    "leftoverContainers": 0
+  }
+}
