@@ -14,6 +14,8 @@ import {
   IconSparkles,
   IconDownload,
   IconUpload,
+  IconFileUpload,
+  IconFolderUpload,
   IconSettings,
 } from '../common/Icons';
 import { getLanguageIcon } from '../common/iconUtils';
@@ -82,6 +84,89 @@ export default function Sidebar({
 
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const replaceFileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const directFileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const folderInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const [uploadTargetDir, setUploadTargetDir] = useState<string>('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [conflictModal, setConflictModal] = useState<{
+    isOpen: boolean;
+    files: File[];
+    targetDir: string;
+    conflicts: string[];
+  }>({ isOpen: false, files: [], targetDir: '', conflicts: [] });
+
+  const triggerFileUpload = (targetDir = '') => {
+    setUploadTargetDir(targetDir);
+    if (directFileInputRef.current) {
+      directFileInputRef.current.value = '';
+      directFileInputRef.current.click();
+    }
+  };
+
+  const triggerFolderUpload = (targetDir = '') => {
+    setUploadTargetDir(targetDir);
+    if (folderInputRef.current) {
+      folderInputRef.current.value = '';
+      folderInputRef.current.click();
+    }
+  };
+
+  const handleUploadFiles = async (
+    fileList: FileList | File[] | null,
+    targetDir = uploadTargetDir,
+    overwrite = false,
+  ) => {
+    if (!project || !fileList || fileList.length === 0) return;
+    const filesArray = Array.from(fileList);
+    setIsUploading(true);
+
+    try {
+      const formData = new FormData();
+      if (targetDir) formData.append('targetDir', targetDir);
+      if (overwrite) formData.append('overwrite', 'true');
+
+      for (const file of filesArray) {
+        const relPath = (file as any).webkitRelativePath || file.name;
+        formData.append('files', file, relPath);
+      }
+
+      const res = await fetch(
+        `/api/projects/${project.id}/upload?targetDir=${encodeURIComponent(targetDir)}${overwrite ? '&overwrite=true' : ''}`,
+        {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        },
+      );
+
+      if (res.status === 409) {
+        const errJson = await res.json().catch(() => ({}));
+        const conflicts = errJson.error?.details?.conflicts || [errJson.error?.message || 'File conflict'];
+        setConflictModal({
+          isOpen: true,
+          files: filesArray,
+          targetDir,
+          conflicts,
+        });
+        return;
+      }
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `Upload failed with status ${res.status}`);
+      }
+
+      refreshTree();
+      setConflictModal({ isOpen: false, files: [], targetDir: '', conflicts: [] });
+    } catch (err: any) {
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setIsUploading(false);
+      if (directFileInputRef.current) directFileInputRef.current.value = '';
+      if (folderInputRef.current) folderInputRef.current.value = '';
+    }
+  };
 
   const handleExportProject = async () => {
     if (!project) return;
@@ -338,6 +423,39 @@ export default function Sidebar({
                   accept=".zip,application/zip"
                   onChange={handleImportWorkspace}
                 />
+                <input
+                  type="file"
+                  ref={directFileInputRef}
+                  style={{ display: 'none' }}
+                  multiple
+                  onChange={(e) => handleUploadFiles(e.target.files)}
+                />
+                <input
+                  type="file"
+                  ref={folderInputRef}
+                  style={{ display: 'none' }}
+                  multiple
+                  {...({ webkitdirectory: '', directory: '' } as any)}
+                  onChange={(e) => handleUploadFiles(e.target.files)}
+                />
+                <button
+                  className="glass-btn glass-btn-icon"
+                  onClick={() => triggerFileUpload()}
+                  title="Upload Files"
+                  aria-label="Upload Files"
+                  disabled={isUploading}
+                >
+                  <IconFileUpload size={12} />
+                </button>
+                <button
+                  className="glass-btn glass-btn-icon"
+                  onClick={() => triggerFolderUpload()}
+                  title="Upload Folder"
+                  aria-label="Upload Folder"
+                  disabled={isUploading}
+                >
+                  <IconFolderUpload size={12} />
+                </button>
                 <button
                   className="glass-btn glass-btn-icon"
                   onClick={handleExportProject}
@@ -381,6 +499,14 @@ export default function Sidebar({
               </div>
             </div>
 
+            {/* Upload Progress Indicator */}
+            {isUploading && (
+              <div style={{ padding: '4px 8px 6px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1.5px', display: 'inline-block' }} />
+                <span>Uploading files...</span>
+              </div>
+            )}
+
             {/* Quick Filter Bar */}
             <div style={{ padding: '0 8px 6px' }}>
               <input
@@ -406,6 +532,12 @@ export default function Sidebar({
                       node,
                       initialValue: action === 'rename' && node ? node.name : '',
                     });
+                  } else if (action === 'upload_file') {
+                    const parentPath = node?.type === 'dir' ? node.path : node ? node.path.split('/').slice(0, -1).join('/') : '';
+                    triggerFileUpload(parentPath);
+                  } else if (action === 'upload_folder') {
+                    const parentPath = node?.type === 'dir' ? node.path : node ? node.path.split('/').slice(0, -1).join('/') : '';
+                    triggerFolderUpload(parentPath);
                   }
                 }}
               />
@@ -459,6 +591,16 @@ export default function Sidebar({
         isDestructive={true}
         onConfirm={() => handleFileActionConfirm()}
         onCancel={() => setModalState({ type: null })}
+      />
+
+      <ConfirmModal
+        isOpen={conflictModal.isOpen}
+        title="Overwrite Existing Files?"
+        message={`The following file(s) already exist in the workspace: ${conflictModal.conflicts.slice(0, 4).join(', ')}${conflictModal.conflicts.length > 4 ? ` and ${conflictModal.conflicts.length - 4} more` : ''}. Do you want to replace them?`}
+        confirmLabel="Overwrite"
+        isDestructive={true}
+        onConfirm={() => handleUploadFiles(conflictModal.files, conflictModal.targetDir, true)}
+        onCancel={() => setConflictModal({ isOpen: false, files: [], targetDir: '', conflicts: [] })}
       />
     </aside>
   );
@@ -540,6 +682,15 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
           <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('new_folder', contextMenu.node); }}>
             <IconFolder size={13} />
             <span>New Folder</span>
+          </div>
+          <div className="context-menu-divider" />
+          <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('upload_file', contextMenu.node); }}>
+            <IconFileUpload size={13} />
+            <span>Upload Files Here...</span>
+          </div>
+          <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('upload_folder', contextMenu.node); }}>
+            <IconFolderUpload size={13} />
+            <span>Upload Folder Here...</span>
           </div>
           {contextMenu.type === 'node' && (
             <>

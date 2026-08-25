@@ -30,7 +30,8 @@ Last updated: 2026-08-25.
   - Milestone 20 (project snapshot quotas & retention management) at `1938e79`.
   - Milestone 21 (project workspace export & import) at `a4e933a`.
   - Milestone 22 (user preferences & editor settings persistence) at `e138799`.
-  - Milestone 23 (automated production deployment smoke & readiness verification harness) in this commit.
+  - Milestone 23 (automated production deployment smoke & readiness verification harness) at `8669219`.
+  - Milestone 24 (direct workspace file & folder upload) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1771,7 +1772,7 @@ Verification:
 
 ### Milestone 23 — Automated Production Deployment Smoke & Readiness Verification Harness
 
-Implemented and verified in this working tree. Provides a standalone, zero-runtime-dependency automated smoke testing harness that deterministically validates all vertical layers of a running Veyra deployment in seconds:
+Implemented and verified in commit `8669219`. Provides a standalone, zero-runtime-dependency automated smoke testing harness that deterministically validates all vertical layers of a running Veyra deployment in seconds:
 
 1. **Automated Smoke Test Runner (`scripts/smoke-test.js`)**:
    - Standalone CLI executable with strict target URL validation (`--url=<url>`, default `http://localhost:3000`), rejecting embedded user credentials, non-HTTP protocols, and malformed targets.
@@ -1807,6 +1808,42 @@ Verification:
 - Full backend regression suite: **354 passed / 2 failed / 31 skipped (41 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
 - Frontend build & typecheck: PASS (Vite built in 39.11s).
+- `git diff --check`: PASS.
+
+### Milestone 24 — Direct Workspace File & Folder Upload
+
+Implemented and verified in this working tree. Allows authenticated project owners to upload individual files or entire directory trees directly into any workspace target directory with zero external runtime dependencies. Uploads stage and validate files in an isolated temporary directory before modifying the workspace; failures clean staging and leave the workspace untouched:
+
+1. **Backend Upload Architecture (`backend/src/files/upload.ts` & `backend/src/projects/routes.ts`)**:
+   - `POST /api/projects/:id/upload`: supports both direct `multipart/form-data` uploads (streaming/buffered) and batch JSON payloads up to configured aggregate limits.
+   - **Zero-Dependency Multipart/Form-Data Parser**: custom lightweight, RFC 7578-compliant multipart parser (`parseMultipartFormData`) parsing binary files and form fields without external npm packages.
+   - **Security & Path Validation**: strictly enforces project ownership via `requireOwnedProject`. Every relative path is resolved and validated inside the workspace using `safeResolve` and `assertInsideWorkspace`, strictly rejecting absolute paths (`/`, `C:\`), traversal (`../`), null bytes (`\0`), and directory escapes.
+   - **Configurable Resource Limits**:
+     - `maxSingleUploadFileBytes`: default 10MB (`MAX_SINGLE_UPLOAD_FILE_BYTES`).
+     - `maxAggregateUploadBytes`: default 25MB (`MAX_AGGREGATE_UPLOAD_BYTES`).
+     - `maxUploadFileCount`: default 500 (`MAX_UPLOAD_FILE_COUNT`).
+   - **Staging & Validation Safety**: uploads stage and validate files in an isolated temporary directory (`tmp_upload_<uuid>`) before modifying the workspace; failures clean staging and leave the workspace untouched. All paths, sizes, and conflict checks are evaluated before touching the workspace.
+   - **Explicit Overwrite Contract**: by default (`overwrite=false`), existing destination files trigger a `409 conflict` response with a list of conflicting file paths. Supplying `overwrite=true` allows replacing existing files.
+   - **Active Session & Collaboration Compatibility**: does not terminate active Docker sandboxes or disconnect active WebSocket sessions. Automatically invalidates the tree cache, touches project modification timestamp, records `PROJECT_FILES_UPLOADED` audit events, and notifies open Yjs collaboration rooms via `collaborationManager.notifyExternalFileMutation` for live editor synchronization.
+
+2. **Frontend Sidebar & File Tree UI Integration (`frontend/src/components/Sidebar/Sidebar.tsx`)**:
+   - Added **Upload Files** button (`<IconFileUpload />`) to the project file toolbar.
+   - Added **Upload Folder** button (`<IconFolderUpload />`) utilizing browser `webkitdirectory` capabilities to upload complete directory trees with preserved folder hierarchy.
+   - Added **Upload Files Here...** and **Upload Folder Here...** context menu actions when right-clicking folders or blank areas in the file tree.
+   - Integrated progress spinner indicator during active uploads.
+   - Added overwrite confirmation dialog (`ConfirmModal`) when a 409 conflict occurs, allowing single-click confirmation to replace files.
+   - Automatically refreshes the file tree upon upload completion.
+
+Files:
+- Production: `backend/src/config.ts`, `backend/src/audit.ts`, `backend/src/files/upload.ts`, `backend/src/projects/routes.ts`, `frontend/src/components/common/Icons.tsx`, `frontend/src/components/Sidebar/Sidebar.tsx`.
+- Tests: `backend/test/upload.test.ts` (20 tests covering single file uploads, non-owner authorization rejection, nested target destinations, path traversal rejection, absolute path rejection, null byte rejection, aggregate size limits, single file size limits, file count limits, multi-level folder structure preservation, overwrite conflict and override policies, atomic staging failure safety, staging cleanup, concurrency, binary file fidelity, empty file support, project deletion cleanup, multipart parser fidelity, JSON upload endpoints, and multipart HTTP endpoints).
+
+Verification:
+- Focused suite `test/upload.test.ts`: **20 passed / 0 failed** (2.13s).
+- Related suites (`archive-import-export.test.ts`, `files.test.ts`, `snapshot-quotas.test.ts`, `preferences.test.ts`, `smoke-harness.test.ts`, `smoke-live.test.ts`): **55 passed / 0 failed**.
+- Full backend regression suite: **374 passed / 2 failed / 31 skipped (42 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite built in 32.10s).
 - `git diff --check`: PASS.
 
 ## Architecture decisions (do not rediscover)
@@ -1854,6 +1891,11 @@ Verification:
 - **Automated deployment smoke verification validates full vertical stack.**
   `npm run deploy:smoke` exercises HTTP, auth, SQLite, preferences, file I/O,
   Docker execution, preview proxying, PKZIP export, and WebSockets end-to-end.
+- **Direct Workspace File & Folder Upload stages in isolated temporary directory.**
+  Uploads stage and validate files in an isolated temporary directory before modifying
+  the workspace; failures clean staging and leave the workspace untouched. Supports
+  zero-dependency multipart and JSON payloads with strict path traversal protection,
+  409 conflict gating, live Yjs room updates, and no session disruption.
 
 ## Known non-blocking issues
 
@@ -1865,20 +1907,20 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18/M19/M20/M21/M22/M23, reproduce identically on clean HEAD `477dfc7`, are not caused by M23, were not modified during M23, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18/M19/M20/M21/M22/M23/M24, reproduce identically on clean HEAD `477dfc7`, are not caused by M24, were not modified during M24, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–22 are committed. Milestone 23 (automated production deployment smoke & readiness verification harness)
+Milestones 1–23 are committed. Milestone 24 (direct workspace file & folder upload)
 is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
 remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 23**:
-   Stage M23 scripts, tests, package.json, deploy docs, and STATUS.md; commit and push to master.
+1. **Commit and Publish Milestone 24**:
+   Stage M24 production changes, tests, and STATUS.md; commit and push to master.
 2. **Phase-1 Backlog — Production Recovery & Zero-Downtime Backup Automation**:
    Automated online database backup (`VACUUM INTO`) and workspace archive tooling.

@@ -63,6 +63,9 @@ export interface AppConfig {
   maxArchiveUncompressedBytes: number;
   maxArchiveEntries: number;
   maxArchiveSingleFileBytes: number;
+  maxSingleUploadFileBytes: number;
+  maxAggregateUploadBytes: number;
+  maxUploadFileCount: number;
   /** M6: collaboration broadcast coalescing + backpressure. Kept
    *  env-configurable, like every other tunable in this file, specifically
    *  so the load harness can vary them without touching production code —
@@ -268,5 +271,14 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     maxArchiveSingleFileBytes:
       overrides.maxArchiveSingleFileBytes ??
       Number(process.env.MAX_ARCHIVE_SINGLE_FILE_BYTES ?? 10 * 1024 * 1024),
+    maxSingleUploadFileBytes:
+      overrides.maxSingleUploadFileBytes ??
+      Number(process.env.MAX_SINGLE_UPLOAD_FILE_BYTES ?? 10 * 1024 * 1024),
+    maxAggregateUploadBytes:
+      overrides.maxAggregateUploadBytes ??
+      Number(process.env.MAX_AGGREGATE_UPLOAD_BYTES ?? 25 * 1024 * 1024),
+    maxUploadFileCount:
+      overrides.maxUploadFileCount ??
+      Number(process.env.MAX_UPLOAD_FILE_COUNT ?? 500),
   };
 }

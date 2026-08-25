@@ -45,7 +45,12 @@ import { searchProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { telemetryHistorian } from "../execution/historian.js";
 import { collaborationManager } from "../collab/manager.js";
-import { raw } from "express";
+import {
+  uploadProjectFiles,
+  parseMultipartFormData,
+  type UploadFileItem,
+} from "../files/upload.js";
+import { raw, json } from "express";
 
 export function projectRoutes(cfg: AppConfig, db: Db): Router {
   const router = Router();
@@ -533,6 +538,104 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       );
       touchProject(db, project.id);
       res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  const uploadRawParser = raw({
+    type: [
+      "multipart/form-data",
+      "application/octet-stream",
+    ],
+    limit: cfg.maxAggregateUploadBytes ?? 25 * 1024 * 1024,
+  });
+
+  const uploadJsonParser = json({
+    limit: cfg.maxAggregateUploadBytes ?? 25 * 1024 * 1024,
+  });
+
+  const uploadParser = (req: Request, res: any, next: any) => {
+    const contentType = req.headers["content-type"] || "";
+    if (
+      contentType.includes("multipart/form-data") ||
+      contentType.includes("application/octet-stream")
+    ) {
+      return uploadRawParser(req, res, next);
+    }
+    return uploadJsonParser(req, res, next);
+  };
+
+  // Direct Workspace File & Folder Upload
+  router.post("/:id/upload", uploadParser, async (req, res, next) => {
+    try {
+      const contentType = req.headers["content-type"] || "";
+      let files: UploadFileItem[] = [];
+      let targetDir = (req.query.targetDir as string) || "";
+      let overwrite =
+        req.query.overwrite === "true" || req.query.overwrite === "1";
+
+      if (contentType.includes("multipart/form-data")) {
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+          throw new ApiError(
+            400,
+            "No multipart upload body received",
+            "empty_upload",
+          );
+        }
+        const parsed = parseMultipartFormData(req.body, contentType);
+        files = parsed.files;
+        if (!targetDir && parsed.fields.targetDir) {
+          targetDir = parsed.fields.targetDir;
+        }
+        if (
+          !overwrite &&
+          (parsed.fields.overwrite === "true" ||
+            parsed.fields.overwrite === "1")
+        ) {
+          overwrite = true;
+        }
+      } else if (
+        req.body &&
+        (Array.isArray(req.body.files) || typeof req.body === "object")
+      ) {
+        const body = req.body;
+        if (!targetDir && typeof body.targetDir === "string") {
+          targetDir = body.targetDir;
+        }
+        if (!overwrite && body.overwrite === true) {
+          overwrite = true;
+        }
+        const rawFiles = Array.isArray(body.files) ? body.files : [];
+        files = rawFiles.map((f: any) => ({
+          path: String(f.path || ""),
+          buffer: Buffer.isBuffer(f.content)
+            ? f.content
+            : f.encoding === "base64"
+              ? Buffer.from(String(f.content || ""), "base64")
+              : Buffer.from(String(f.content ?? ""), "utf8"),
+        }));
+      } else {
+        throw new ApiError(
+          400,
+          "Upload requires multipart/form-data or JSON payload",
+          "invalid_payload",
+        );
+      }
+
+      const result = await uploadProjectFiles(
+        cfg,
+        db,
+        userOf(req).id,
+        req.params.id,
+        {
+          targetDir,
+          overwrite,
+          files,
+        },
+      );
+
+      res.status(200).json(result);
     } catch (err) {
       next(err);
     }
