@@ -26,7 +26,8 @@ Last updated: 2026-08-25.
   - Milestone 16 (cold sandbox provisioning & concurrency optimization) at `5a3cc25`.
   - Milestone 17 (cumulative scale validation post-M16 — measurement only) at `477dfc7`.
   - Milestone 18 (cold-wait decomposition & scheduling decision — measurement only; decision: ACCEPT current behavior, no scheduler justified) at `1a6bf07`.
-  - Milestone 19 (session lifecycle & WebSocket security hardening — logout WS teardown & demo account GC) in this commit.
+  - Milestone 19 (session lifecycle & WebSocket security hardening — logout WS teardown & demo account GC) at `ae8a740`.
+  - Milestone 20 (project snapshot quotas & retention management) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1627,7 +1628,7 @@ Evidence Artifacts:
 
 ### Milestone 19 — Session Lifecycle & WebSocket Security Hardening
 
-Implemented and verified in this working tree. Closes the outstanding Phase-1 backlog items for session termination and demo-account lifecycle:
+Implemented and verified in commit `ae8a740`. Closes the outstanding Phase-1 backlog items for session termination and demo-account lifecycle:
 
 1. **Logout WebSocket Teardown**:
    - `POST /api/auth/logout` now immediately severs all active WebSocket connections (bash terminal PTYs, Yjs collaboration rooms, preview proxy tunnels, and telemetry streams) registered to the user ID via `closeAllConnectionsForUser(req.user.id)`. Sockets receive close frame 4401 "Session revoked" backed by deferred forceful termination.
@@ -1655,6 +1656,37 @@ Verification:
 - Full backend regression suite: **338 passed / 2 failed / 4 skipped (36 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
 - Frontend build & typecheck: PASS (Vite built in 32.73s).
+- `git diff --check`: PASS.
+
+### Milestone 20 — Project Snapshot Quotas & Retention Management
+
+Implemented and verified in this working tree. Bounds project snapshot storage to prevent unbounded disk growth while preserving seamless snapshot UX and automatic fallback for AI patches and manual revisions:
+
+1. **Configurable Snapshot Quota Dimensions**:
+   - `maxSnapshotsPerProject`: Hard ceiling on the count of snapshots retained per project (default: 10, env `MAX_SNAPSHOTS_PER_PROJECT`).
+   - `maxSnapshotBytesPerProject`: Hard ceiling on total compressed snapshot archive storage per project (default: 20MB / `20 * 1024 * 1024`, env `MAX_SNAPSHOT_BYTES_PER_PROJECT`).
+   - `maxSnapshotSizeBytes`: Ceiling on any individual snapshot archive size (default: 5MB / `5 * 1024 * 1024`, env `MAX_SNAPSHOT_SIZE_BYTES`).
+
+2. **Deterministic Oldest-First Eviction**:
+   - When a new snapshot is created, if retaining it would exceed `maxSnapshotsPerProject` or `maxSnapshotBytesPerProject`, existing snapshots for the project are evicted strictly oldest-first (`created_at ASC`).
+   - Eviction removes the compressed archive file from disk (`dataDir/snapshots/:projectId/:snapshotId.gz`) and deletes the SQLite DB row atomically.
+   - If a single snapshot exceeds `maxSnapshotSizeBytes` or `maxSnapshotBytesPerProject`, it is cleanly rejected with HTTP 413 (`snapshot_too_large` or `snapshot_quota_exceeded`).
+   - Retention eviction occurs before final archive persistence; a failed final write may therefore sacrifice older snapshots. This is an intentional tradeoff of the current retention implementation and is bounded by the per-project quotas.
+
+3. **Concurrency Serialization & Rollback Protection**:
+   - `withProjectSnapshotLock(projectId, fn)` in `backend/src/projects/snapshots.ts` serializes snapshot creation, eviction, deletion, and restoration per-project to eliminate TOCTOU races between quota evaluation, file I/O, and database updates.
+   - If an archive write or database insertion fails midway, any partial archive on disk is immediately cleaned up, preventing orphan files or lingering quota leakage.
+   - Restoring a snapshot continues to function reliably after older snapshots are evicted.
+
+Files:
+- Production: `backend/src/config.ts`, `backend/src/projects/snapshots.ts`.
+- Tests: `backend/test/snapshot-quotas.test.ts` (11 tests covering quota compliance, count eviction, byte eviction, large snapshot rejection, survival of latest snapshot, restore integrity, concurrency protection, missing file resilience, project deletion cascade, ownership access control, and default configuration resolution).
+
+Verification:
+- Focused suite `test/snapshot-quotas.test.ts`: **11 passed / 0 failed** (1.13s).
+- Full backend regression suite: **349 passed / 2 failed / 4 skipped (37 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite built in 32.45s).
 - `git diff --check`: PASS.
 
 ## Architecture decisions (do not rediscover)
@@ -1688,6 +1720,10 @@ Verification:
   sessions (`evaluator_*`) have a 2-hour TTL and are automatically purged
   along with their workspace files on disk, Docker sandboxes, snapshots,
   and DB rows on startup and periodic maintenance.
+- **Snapshot storage is bounded per-project with oldest-first eviction.**
+  Projects retain up to 10 snapshots and 20MB of compressed archives by
+  default. Concurrent snapshot creation is serialized per-project via
+  `withProjectSnapshotLock`.
 
 ## Known non-blocking issues
 
@@ -1696,24 +1732,23 @@ Verification:
   unused `err` param lint warning in `proxy-ws.test.ts`;
   `proxyTargets.ts` pathRewrite non-canonical-port spelling wart;
   containerized-mode preview-port publication asymmetry in `getProxyTarget`.
-- Pre-existing test suite baseline expectations (338 passed / 2 failed / 4 skipped across 36 test files):
+- Pre-existing test suite baseline expectations (349 passed / 2 failed / 4 skipped across 37 test files):
   - `backend/test/lifecycle.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18/M19, reproduce identically on clean HEAD `477dfc7`, are not caused by M19, were not modified during M19, and remain tracked non-blocking test expectation updates outside this milestone's scope.
-- Snapshot quotas (tracked for Phase-1 backlog).
+  - Both failures are pre-existing relative to M18/M19/M20, reproduce identically on clean HEAD `477dfc7`, are not caused by M20, were not modified during M20, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–18 are committed. Milestone 19 (session lifecycle & WebSocket security hardening)
+Milestones 1–19 are committed. Milestone 20 (project snapshot quotas & retention management)
 is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
 remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 19**:
-   Stage M19 production changes, test suite, and STATUS.md; commit and push to master.
-2. **Phase-1 Backlog — Project Snapshot Storage Quotas & Retention**:
-   Implement configurable snapshot limits per user/project to bound disk storage growth.
+1. **Commit and Publish Milestone 20**:
+   Stage M20 production changes, test suite, and STATUS.md; commit and push to master.
+2. **Phase-1 Backlog — Project Archive Import/Export or User Settings & Preferences**:
+   Allow users to download project workspaces as `.tar.gz` / `.zip` and import existing archives into new projects.

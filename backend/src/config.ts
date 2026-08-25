@@ -56,6 +56,9 @@ export interface AppConfig {
   telemetryRetentionHours: number;
   telemetryFlushIntervalMs: number;
   telemetrySampleIntervalMs: number;
+  maxSnapshotsPerProject: number;
+  maxSnapshotBytesPerProject: number;
+  maxSnapshotSizeBytes: number;
   /** M6: collaboration broadcast coalescing + backpressure. Kept
    *  env-configurable, like every other tunable in this file, specifically
    *  so the load harness can vary them without touching production code —
@@ -240,5 +243,14 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     telemetrySampleIntervalMs:
       overrides.telemetrySampleIntervalMs ??
       Number(process.env.TELEMETRY_SAMPLE_INTERVAL_MS ?? 2000),
+    maxSnapshotsPerProject:
+      overrides.maxSnapshotsPerProject ??
+      Number(process.env.MAX_SNAPSHOTS_PER_PROJECT ?? 10),
+    maxSnapshotBytesPerProject:
+      overrides.maxSnapshotBytesPerProject ??
+      Number(process.env.MAX_SNAPSHOT_BYTES_PER_PROJECT ?? 20 * 1024 * 1024),
+    maxSnapshotSizeBytes:
+      overrides.maxSnapshotSizeBytes ??
+      Number(process.env.MAX_SNAPSHOT_SIZE_BYTES ?? 5 * 1024 * 1024),
   };
 }

@@ -35,6 +35,51 @@ function snapshotDir(cfg: AppConfig, projectId: string): string {
   return join(cfg.dataDir, "snapshots", projectId);
 }
 
+/**
+ * In-memory serialization locks per project to prevent TOCTOU race conditions
+ * between quota calculation, eviction, archive writing, and DB modification.
+ */
+const projectSnapshotLocks = new Map<string, Promise<any>>();
+
+export async function withProjectSnapshotLock<T>(
+  projectId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const current = projectSnapshotLocks.get(projectId) ?? Promise.resolve();
+  let release: () => void = () => {};
+  const next = new Promise<void>((res) => {
+    release = res;
+  });
+  projectSnapshotLocks.set(
+    projectId,
+    current.then(
+      () => next,
+      () => next,
+    ),
+  );
+
+  try {
+    await current;
+    return await fn();
+  } finally {
+    release();
+    if (projectSnapshotLocks.get(projectId) === next) {
+      projectSnapshotLocks.delete(projectId);
+    }
+  }
+}
+
+/**
+ * Creates a project snapshot with automatic quota enforcement and oldest-first eviction.
+ *
+ * Enforces:
+ *   1. Single snapshot size limit (`maxSnapshotSizeBytes`, default 5MB)
+ *   2. Project snapshot count limit (`maxSnapshotsPerProject`, default 10)
+ *   3. Project total storage limit (`maxSnapshotBytesPerProject`, default 20MB)
+ *
+ * If the new snapshot would cause the project to exceed count or total storage limits,
+ * existing snapshots are evicted oldest-first to make room.
+ */
 export async function createSnapshot(
   cfg: AppConfig,
   db: Db,
@@ -42,52 +87,130 @@ export async function createSnapshot(
   projectId: string,
   name: string,
 ): Promise<SnapshotRecord> {
-  const project = requireOwnedProject(db, userId, projectId);
-  const cwd = await workspacePath(cfg, project.id);
-  const filePaths = await listFiles(cwd);
+  return withProjectSnapshotLock(projectId, async () => {
+    const project = requireOwnedProject(db, userId, projectId);
+    const cwd = await workspacePath(cfg, project.id);
+    const filePaths = await listFiles(cwd);
 
-  const files: { path: string; content: string }[] = [];
-  for (const fp of filePaths) {
-    const { content } = await readProjectFile(cwd, fp);
-    files.push({ path: fp, content });
-  }
+    const files: { path: string; content: string }[] = [];
+    for (const fp of filePaths) {
+      const { content } = await readProjectFile(cwd, fp);
+      files.push({ path: fp, content });
+    }
 
-  const payload: SnapshotPayload = {
-    version: 1,
-    projectId: project.id,
-    createdAt: new Date().toISOString(),
-    files,
-  };
+    const payload: SnapshotPayload = {
+      version: 1,
+      projectId: project.id,
+      createdAt: new Date().toISOString(),
+      files,
+    };
 
-  const jsonStr = JSON.stringify(payload);
-  const compressed = gzipSync(Buffer.from(jsonStr, "utf8"));
+    const jsonStr = JSON.stringify(payload);
+    const compressed = gzipSync(Buffer.from(jsonStr, "utf8"));
+    const newSizeBytes = compressed.byteLength;
 
-  const snapshotId = randomUUID();
-  const dir = snapshotDir(cfg, project.id);
-  await fs.mkdir(dir, { recursive: true });
-  const archivePath = join(dir, `${snapshotId}.gz`);
-  await fs.writeFile(archivePath, compressed);
+    const maxSnapshotSize = cfg.maxSnapshotSizeBytes ?? 5 * 1024 * 1024;
+    if (newSizeBytes > maxSnapshotSize) {
+      throw new ApiError(
+        413,
+        `Snapshot size (${newSizeBytes} bytes) exceeds limit of ${maxSnapshotSize} bytes`,
+        "snapshot_too_large",
+      );
+    }
 
-  const snapshotName =
-    typeof name === "string" && name.trim()
-      ? name.trim().slice(0, 64)
-      : `Snapshot ${new Date().toLocaleTimeString()}`;
+    const maxCount = cfg.maxSnapshotsPerProject ?? 10;
+    const maxTotalBytes = cfg.maxSnapshotBytesPerProject ?? 20 * 1024 * 1024;
 
-  db.prepare(
-    `
-    INSERT INTO snapshots (id, project_id, user_id, name, size_bytes)
-    VALUES (?, ?, ?, ?, ?)
-  `,
-  ).run(snapshotId, project.id, userId, snapshotName, compressed.byteLength);
+    if (newSizeBytes > maxTotalBytes) {
+      throw new ApiError(
+        413,
+        `Snapshot size (${newSizeBytes} bytes) exceeds project storage quota of ${maxTotalBytes} bytes`,
+        "snapshot_quota_exceeded",
+      );
+    }
 
-  return {
-    id: snapshotId,
-    project_id: project.id,
-    user_id: userId,
-    name: snapshotName,
-    size_bytes: compressed.byteLength,
-    created_at: new Date().toISOString(),
-  };
+    // Query existing snapshots for this project ordered by created_at ASC (oldest first)
+    const existingSnapshots = db
+      .prepare(
+        "SELECT id, size_bytes FROM snapshots WHERE project_id = ? ORDER BY created_at ASC",
+      )
+      .all(project.id) as unknown as Array<{ id: string; size_bytes: number }>;
+
+    let currentCount = existingSnapshots.length;
+    let currentTotalBytes = existingSnapshots.reduce(
+      (sum, s) => sum + (s.size_bytes || 0),
+      0,
+    );
+
+    const toEvict: string[] = [];
+
+    for (const s of existingSnapshots) {
+      // If adding 1 new snapshot exceeds maxCount OR adding newSizeBytes exceeds maxTotalBytes,
+      // evict this oldest snapshot.
+      if (
+        currentCount + 1 > maxCount ||
+        currentTotalBytes + newSizeBytes > maxTotalBytes
+      ) {
+        toEvict.push(s.id);
+        currentCount--;
+        currentTotalBytes -= s.size_bytes || 0;
+      } else {
+        break;
+      }
+    }
+
+    // Execute eviction of identified oldest snapshots
+    const dir = snapshotDir(cfg, project.id);
+    for (const evictId of toEvict) {
+      const evictArchive = safeResolve(dir, `${evictId}.gz`);
+      try {
+        await fs.rm(evictArchive, { force: true });
+      } catch {}
+      db.prepare("DELETE FROM snapshots WHERE id = ?").run(evictId);
+    }
+
+    // Write new snapshot archive
+    await fs.mkdir(dir, { recursive: true });
+    const snapshotId = randomUUID();
+    const archivePath = join(dir, `${snapshotId}.gz`);
+
+    try {
+      await fs.writeFile(archivePath, compressed);
+    } catch (err: any) {
+      throw new ApiError(
+        500,
+        `Failed to write snapshot archive: ${err.message}`,
+        "snapshot_write_failed",
+      );
+    }
+
+    const snapshotName =
+      typeof name === "string" && name.trim()
+        ? name.trim().slice(0, 64)
+        : `Snapshot ${new Date().toLocaleTimeString()}`;
+
+    try {
+      db.prepare(
+        `INSERT INTO snapshots (id, project_id, user_id, name, size_bytes)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(snapshotId, project.id, userId, snapshotName, newSizeBytes);
+    } catch (err: any) {
+      // Rollback archive on disk if DB insertion fails
+      try {
+        await fs.rm(archivePath, { force: true });
+      } catch {}
+      throw err;
+    }
+
+    return {
+      id: snapshotId,
+      project_id: project.id,
+      user_id: userId,
+      name: snapshotName,
+      size_bytes: newSizeBytes,
+      created_at: new Date().toISOString(),
+    };
+  });
 }
 
 export function listSnapshots(
@@ -109,61 +232,61 @@ export async function restoreSnapshot(
   projectId: string,
   snapshotId: string,
 ): Promise<void> {
-  const project = requireOwnedProject(db, userId, projectId);
-  const row = db
-    .prepare(
-      "SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
-    )
-    .get(snapshotId, project.id, userId) as SnapshotRecord | undefined;
+  return withProjectSnapshotLock(projectId, async () => {
+    const project = requireOwnedProject(db, userId, projectId);
+    const row = db
+      .prepare(
+        "SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
+      )
+      .get(snapshotId, project.id, userId) as SnapshotRecord | undefined;
 
-  if (!row) throw new ApiError(404, "snapshot not found", "not_found");
+    if (!row) throw new ApiError(404, "snapshot not found", "not_found");
 
-  const archivePath = join(snapshotDir(cfg, project.id), `${snapshotId}.gz`);
-  let compressed: Buffer;
-  try {
-    compressed = await fs.readFile(archivePath);
-  } catch {
-    throw new ApiError(
-      404,
-      "snapshot archive file missing on disk",
-      "not_found",
-    );
-  }
-
-  const decompressed = gunzipSync(compressed);
-  const payload: SnapshotPayload = JSON.parse(decompressed.toString("utf8"));
-
-  const cwd = await workspacePath(cfg, project.id);
-
-  // Restore snapshot files FIRST, delete leftovers second. If a write
-  // fails partway through (disk full, permission error, etc.), any file
-  // not yet reached is still whatever it was before this call — either an
-  // old file waiting to be superseded, or untouched. The previous
-  // delete-everything-then-write ordering meant a write failure after the
-  // delete pass had already run left the workspace with content gone and
-  // no way to recover it; this ordering's worst case is a stray old file
-  // left behind, not lost content.
-  const snapshotPaths = new Set(payload.files.map((f) => f.path));
-  for (const f of payload.files) {
-    await writeProjectFile(cwd, f.path, f.content);
-    await collaborationManager.notifyExternalFileMutation(
-      project.id,
-      f.path,
-      f.content,
-    );
-  }
-
-  // Remove any current file that doesn't belong in the restored snapshot.
-  const currentFiles = await listFiles(cwd);
-  for (const f of currentFiles) {
-    if (snapshotPaths.has(f)) continue;
+    const archivePath = join(snapshotDir(cfg, project.id), `${snapshotId}.gz`);
+    let compressed: Buffer;
     try {
-      await deleteProjectPath(cwd, f);
-      // Keep any active collaboration room's Y.Text in sync, otherwise its
-      // next debounced flush would silently rewrite this file back to disk.
-      await collaborationManager.notifyExternalFileMutation(project.id, f, "");
-    } catch {}
-  }
+      compressed = await fs.readFile(archivePath);
+    } catch {
+      throw new ApiError(
+        404,
+        "snapshot archive file missing on disk",
+        "not_found",
+      );
+    }
+
+    const decompressed = gunzipSync(compressed);
+    const payload: SnapshotPayload = JSON.parse(decompressed.toString("utf8"));
+
+    const cwd = await workspacePath(cfg, project.id);
+
+    // Restore snapshot files FIRST, delete leftovers second. If a write
+    // fails partway through (disk full, permission error, etc.), any file
+    // not yet reached is still whatever it was before this call — either an
+    // old file waiting to be superseded, or untouched.
+    const snapshotPaths = new Set(payload.files.map((f) => f.path));
+    for (const f of payload.files) {
+      await writeProjectFile(cwd, f.path, f.content);
+      await collaborationManager.notifyExternalFileMutation(
+        project.id,
+        f.path,
+        f.content,
+      );
+    }
+
+    // Remove any current file that doesn't belong in the restored snapshot.
+    const currentFiles = await listFiles(cwd);
+    for (const f of currentFiles) {
+      if (snapshotPaths.has(f)) continue;
+      try {
+        await deleteProjectPath(cwd, f);
+        await collaborationManager.notifyExternalFileMutation(
+          project.id,
+          f,
+          "",
+        );
+      } catch {}
+    }
+  });
 }
 
 export async function deleteSnapshot(
@@ -173,29 +296,25 @@ export async function deleteSnapshot(
   projectId: string,
   snapshotId: string,
 ): Promise<void> {
-  const project = requireOwnedProject(db, userId, projectId);
-  // Gate on the DB row BEFORE touching the filesystem, exactly as
-  // restoreSnapshot() does. snapshotId comes straight off the URL path and is
-  // fully attacker-controlled; ids are server-generated randomUUID() values,
-  // so requiring a real row means only a UUID (no separators, no `..`) can
-  // ever reach the join() below.
-  const row = db
-    .prepare(
-      "SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
-    )
-    .get(snapshotId, project.id, userId) as SnapshotRecord | undefined;
+  return withProjectSnapshotLock(projectId, async () => {
+    const project = requireOwnedProject(db, userId, projectId);
+    const row = db
+      .prepare(
+        "SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
+      )
+      .get(snapshotId, project.id, userId) as SnapshotRecord | undefined;
 
-  if (!row) throw new ApiError(404, "snapshot not found", "not_found");
+    if (!row) throw new ApiError(404, "snapshot not found", "not_found");
 
-  // Belt-and-braces: lexical containment check on top of the DB gate.
-  const archivePath = safeResolve(
-    snapshotDir(cfg, project.id),
-    `${snapshotId}.gz`,
-  );
-  try {
-    await fs.rm(archivePath, { force: true });
-  } catch {}
-  db.prepare(
-    "DELETE FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
-  ).run(snapshotId, project.id, userId);
+    const archivePath = safeResolve(
+      snapshotDir(cfg, project.id),
+      `${snapshotId}.gz`,
+    );
+    try {
+      await fs.rm(archivePath, { force: true });
+    } catch {}
+    db.prepare(
+      "DELETE FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
+    ).run(snapshotId, project.id, userId);
+  });
 }
