@@ -142,6 +142,10 @@ export interface ObservabilitySnapshot {
   activeWsConnections: number;
   activeCollabRooms: number;
   activeSandboxes: number;
+  /** M6: physical WS broadcast sends across every active collab room —
+   *  the metric that demonstrates coalescing actually reduces message
+   *  volume, not just theoretically. */
+  totalCollabBroadcastSends: number;
   memory: { rssBytes: number; heapUsedBytes: number; heapTotalBytes: number };
 }
 
@@ -149,6 +153,7 @@ export interface ObservabilityDeps {
   activeConnectionCount: () => number;
   getActiveRoomCount: () => number;
   getActiveSandboxCount: () => number;
+  getTotalCollabBroadcastSends: () => number;
 }
 
 export function getObservabilitySnapshot(
@@ -175,6 +180,7 @@ export function getObservabilitySnapshot(
     activeWsConnections: deps.activeConnectionCount(),
     activeCollabRooms: deps.getActiveRoomCount(),
     activeSandboxes: deps.getActiveSandboxCount(),
+    totalCollabBroadcastSends: deps.getTotalCollabBroadcastSends(),
     memory: {
       rssBytes: mem.rss,
       heapUsedBytes: mem.heapUsed,

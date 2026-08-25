@@ -137,6 +137,8 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
             activeConnectionCount,
             getActiveRoomCount: () => collaborationManager.getActiveRoomCount(),
             getActiveSandboxCount: () => sandboxManager.getActiveSandboxCount(),
+            getTotalCollabBroadcastSends: () =>
+              collaborationManager.getTotalBroadcastSendCount(),
           }),
         );
       } catch (err) {

@@ -54,6 +54,15 @@ export interface AppConfig {
   telemetryRetentionHours: number;
   telemetryFlushIntervalMs: number;
   telemetrySampleIntervalMs: number;
+  /** M6: collaboration broadcast coalescing + backpressure. Kept
+   *  env-configurable, like every other tunable in this file, specifically
+   *  so the load harness can vary them without touching production code —
+   *  see collab/manager.ts's DEFAULT_* constants for the actual defaults
+   *  and the rationale for each. */
+  collabYjsCoalesceMs: number;
+  collabAwarenessCoalesceMs: number;
+  collabHighWatermarkBytes: number;
+  collabLowWatermarkBytes: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -182,6 +191,21 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     maxTerminalsPerUser:
       overrides.maxTerminalsPerUser ??
       Number(process.env.MAX_TERMINALS_PER_USER ?? 5),
+    // Defaults mirror collab/manager.ts's DEFAULT_* constants — duplicated
+    // here as literals rather than imported, to keep this foundational
+    // config module decoupled from collab internals.
+    collabYjsCoalesceMs:
+      overrides.collabYjsCoalesceMs ??
+      Number(process.env.COLLAB_YJS_COALESCE_MS ?? 25),
+    collabAwarenessCoalesceMs:
+      overrides.collabAwarenessCoalesceMs ??
+      Number(process.env.COLLAB_AWARENESS_COALESCE_MS ?? 50),
+    collabHighWatermarkBytes:
+      overrides.collabHighWatermarkBytes ??
+      Number(process.env.COLLAB_HIGH_WATERMARK_BYTES ?? 1_000_000),
+    collabLowWatermarkBytes:
+      overrides.collabLowWatermarkBytes ??
+      Number(process.env.COLLAB_LOW_WATERMARK_BYTES ?? 200_000),
     shutdownGraceMs:
       overrides.shutdownGraceMs ??
       Number(process.env.SHUTDOWN_GRACE_MS ?? 10_000),

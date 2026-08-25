@@ -16,6 +16,27 @@ const MESSAGE_AWARENESS = 1;
 const _MESSAGE_AUTH = 2;
 const MESSAGE_CUSTOM = 3;
 
+// M6: broadcast coalescing + backpressure defaults. Conservative on
+// purpose, not tuned to a specific measured ceiling — M5c found no
+// DB-side reason to be aggressive here, and this milestone's own
+// before/after load evidence (see backend/load-test/results/) is what
+// actually justifies these numbers, not intuition. Both coalescing
+// windows and both watermarks are per-room constructor overrides
+// specifically so tests and load measurement can vary them without
+// touching these module-level defaults.
+export const DEFAULT_YJS_COALESCE_MS = 25;
+export const DEFAULT_AWARENESS_COALESCE_MS = 50;
+export const DEFAULT_HIGH_WATERMARK_BYTES = 1_000_000;
+export const DEFAULT_LOW_WATERMARK_BYTES = 200_000;
+const SLOW_CLIENT_RECHECK_MS = 500;
+
+export interface CollaborationRoomOptions {
+  yjsCoalesceMs?: number;
+  awarenessCoalesceMs?: number;
+  highWatermarkBytes?: number;
+  lowWatermarkBytes?: number;
+}
+
 /** Rejects if the wrapped promise has not settled within `ms`. */
 function withTimeout<T>(
   promise: Promise<T>,
@@ -68,39 +89,86 @@ export class CollaborationRoom {
   private idleDisposeTimer: NodeJS.Timeout | null = null;
   private readonly onDisposeCallback: (projectId: string) => void;
 
+  // M6: coalescing + backpressure. See DEFAULT_* constants above for the
+  // rationale; these are the per-room, possibly-overridden values actually
+  // in effect.
+  private readonly yjsCoalesceMs: number;
+  private readonly awarenessCoalesceMs: number;
+  private readonly highWatermarkBytes: number;
+  private readonly lowWatermarkBytes: number;
+
+  /** Yjs updates awaiting the next coalesce flush, in arrival order. Never
+   *  grows unboundedly: it is fully drained on every flush, at most
+   *  `yjsCoalesceMs` apart, regardless of client speed — this buffer holds
+   *  pending *outbound* work, not per-client backlog (see slowClients). */
+  private pendingYjsUpdates: Uint8Array[] = [];
+  private pendingYjsOrigins: Set<unknown> = new Set();
+  private yjsCoalesceTimer: NodeJS.Timeout | null = null;
+
+  /** Awareness clientIDs that changed since the last flush. Re-encoded from
+   *  LIVE awareness state at flush time (not a snapshot taken when queued),
+   *  so "latest state wins" is automatic — the same trailing-edge-coalesce
+   *  shape as the frontend's utils/throttleLatest.ts. */
+  private pendingAwarenessClientIds: Set<number> = new Set();
+  private pendingAwarenessOrigins: Set<unknown> = new Set();
+  private awarenessCoalesceTimer: NodeJS.Timeout | null = null;
+
+  /** Clients currently backpressured on Yjs updates: broadcasts are skipped
+   *  entirely (never queued per-client — see the field doc above) until
+   *  `bufferedAmount` drops back to the low watermark, at which point
+   *  `sendCatchUp` sends one full-document update using the existing sync
+   *  protocol's `messageYjsUpdate` framing. This is what makes skipping
+   *  safe: nothing is ever permanently lost, only deferred. */
+  private readonly slowClients: Set<WebSocket> = new Set();
+  private slowClientRecheckTimer: NodeJS.Timeout | null = null;
+
+  /** Set at the start of dispose(). awareness.destroy() below internally
+   *  calls setLocalState(null), which fires this room's own
+   *  awareness "update" listener — without this guard that would re-arm
+   *  awarenessCoalesceTimer via queueAwarenessUpdate() *after* dispose()'s
+   *  timer-clearing block already ran, leaking one timer per disposal. */
+  private disposed = false;
+
+  /** Observability-only: count of physical ws.send() calls this room has
+   *  actually issued for broadcasts (Yjs + awareness + catch-up combined),
+   *  not counting the per-connection handshake sends in addClient() or the
+   *  direct sync-protocol reply in handleMessage(). This is the metric
+   *  M6's load evidence uses to demonstrate coalescing actually reduces
+   *  physical message volume — added because no existing metric answers
+   *  that question. */
+  private broadcastSendCount = 0;
+
   constructor(
     projectId: string,
     cfg: AppConfig,
     db: Db,
     onDispose: (projectId: string) => void,
+    options: CollaborationRoomOptions = {},
   ) {
     this.projectId = projectId;
     this.cfg = cfg;
     this.db = db;
     this.onDisposeCallback = onDispose;
+    this.yjsCoalesceMs = options.yjsCoalesceMs ?? DEFAULT_YJS_COALESCE_MS;
+    this.awarenessCoalesceMs =
+      options.awarenessCoalesceMs ?? DEFAULT_AWARENESS_COALESCE_MS;
+    this.highWatermarkBytes =
+      options.highWatermarkBytes ?? DEFAULT_HIGH_WATERMARK_BYTES;
+    this.lowWatermarkBytes =
+      options.lowWatermarkBytes ?? DEFAULT_LOW_WATERMARK_BYTES;
 
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
 
-    // Track document updates for debounced disk persistence
+    // Track document updates for debounced disk persistence, and queue the
+    // outbound broadcast for coalescing rather than sending it immediately.
+    // Persistence scheduling stays synchronous and unaffected by coalescing
+    // — it only arms/resets a timer, no I/O happens here.
     this.doc.on("update", (update: Uint8Array, origin: any) => {
-      // Broadcast update to all other connected clients
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, MESSAGE_SYNC);
-      syncProtocol.writeUpdate(encoder, update);
-      const message = encoding.toUint8Array(encoder);
-
-      for (const [client, _state] of this.clients.entries()) {
-        if (client !== origin && client.readyState === 1 /* OPEN */) {
-          try {
-            client.send(message);
-          } catch {}
-        }
-      }
-
       if (origin !== "external_mutation") {
         this.scheduleDebouncedPersistence();
       }
+      this.queueYjsUpdate(update, origin);
     });
 
     // Per-file dirty tracking for genuine remote edits.
@@ -152,31 +220,238 @@ export class CollaborationRoom {
       }
     });
 
-    // Track awareness changes and broadcast to room
+    // Track awareness changes and queue the broadcast for coalescing —
+    // ephemeral, so it is fine (by design) for a burst to collapse into one
+    // send of the latest state rather than one send per change.
     this.awareness.on(
       "update",
       ({ added, updated, removed }: any, origin: any) => {
         const changedClients = added.concat(updated, removed);
+        this.queueAwarenessUpdate(changedClients, origin);
+      },
+    );
+  }
+
+  // --- M6: Yjs update coalescing ------------------------------------------
+
+  private queueYjsUpdate(update: Uint8Array, origin: unknown): void {
+    if (this.disposed) return;
+    this.pendingYjsUpdates.push(update);
+    this.pendingYjsOrigins.add(origin);
+    if (!this.yjsCoalesceTimer) {
+      this.yjsCoalesceTimer = setTimeout(() => {
+        this.yjsCoalesceTimer = null;
+        this.flushYjsUpdates();
+      }, this.yjsCoalesceMs);
+    }
+  }
+
+  private flushYjsUpdates(): void {
+    if (this.pendingYjsUpdates.length === 0) return;
+
+    // Multiple raw Yjs updates accumulated within the window are merged
+    // into exactly one valid update via Y.mergeUpdates — this combines the
+    // underlying CRDT operations losslessly (it is not a "keep the latest"
+    // reduction; every operation from every merged update survives), it
+    // just reduces how many physical WS frames are needed to deliver them.
+    const merged =
+      this.pendingYjsUpdates.length === 1
+        ? this.pendingYjsUpdates[0]
+        : Y.mergeUpdates(this.pendingYjsUpdates);
+    // A single shared origin across the whole window (the common case: one
+    // person typing) is excluded from the broadcast, exactly matching the
+    // original per-update "don't echo my own edit back to me" behavior. If
+    // the window mixed edits from multiple origins, no single client
+    // already has 100% of the merged update, so it goes to everyone —
+    // still correct either way since Y.applyUpdate is idempotent for any
+    // operations a recipient already has.
+    const soleOrigin =
+      this.pendingYjsOrigins.size === 1
+        ? this.pendingYjsOrigins.values().next().value
+        : undefined;
+    this.pendingYjsUpdates = [];
+    this.pendingYjsOrigins = new Set();
+
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    syncProtocol.writeUpdate(encoder, merged);
+    const message = encoding.toUint8Array(encoder);
+
+    for (const [client] of this.clients.entries()) {
+      if (client === soleOrigin) continue;
+      if (client.readyState !== 1 /* OPEN */) continue;
+      this.sendYjsBroadcast(client, message);
+    }
+  }
+
+  // --- M6: awareness coalescing --------------------------------------------
+
+  private queueAwarenessUpdate(clientIds: number[], origin: unknown): void {
+    if (this.disposed) return;
+    for (const id of clientIds) this.pendingAwarenessClientIds.add(id);
+    this.pendingAwarenessOrigins.add(origin);
+    if (!this.awarenessCoalesceTimer) {
+      this.awarenessCoalesceTimer = setTimeout(() => {
+        this.awarenessCoalesceTimer = null;
+        this.flushAwareness();
+      }, this.awarenessCoalesceMs);
+    }
+  }
+
+  private flushAwareness(): void {
+    if (this.pendingAwarenessClientIds.size === 0) return;
+    const changedIds = Array.from(this.pendingAwarenessClientIds);
+    const soleOrigin =
+      this.pendingAwarenessOrigins.size === 1
+        ? this.pendingAwarenessOrigins.values().next().value
+        : undefined;
+    this.pendingAwarenessClientIds = new Set();
+    this.pendingAwarenessOrigins = new Set();
+
+    // Re-encoded from the LIVE awareness table right now, not from a
+    // snapshot taken when each individual change was queued — so the very
+    // latest state for each changed clientID always wins, even if that
+    // client changed state multiple times within the window.
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+    encoding.writeVarUint8Array(
+      encoder,
+      awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedIds),
+    );
+    const message = encoding.toUint8Array(encoder);
+
+    for (const [client] of this.clients.entries()) {
+      if (client === soleOrigin) continue;
+      if (client.readyState !== 1) continue;
+      this.sendAwarenessBroadcast(client, message);
+    }
+  }
+
+  // --- M6: backpressure -----------------------------------------------------
+
+  /**
+   * Yjs updates: a client already marked slow is skipped unconditionally
+   * (recovery is handled separately by the recheck timer, not by retrying
+   * here) until it drops back to the low watermark, at which point it gets
+   * a full-document catch-up instead of the merged delta it missed. This is
+   * the one path that must never silently lose data, so unlike awareness it
+   * needs the persistent slowClients tracking + guaranteed recheck below.
+   */
+  private sendYjsBroadcast(client: WebSocket, message: Uint8Array): void {
+    if (this.slowClients.has(client)) return;
+    if (client.bufferedAmount > this.highWatermarkBytes) {
+      this.markSlow(client);
+      return;
+    }
+    try {
+      client.send(message);
+      this.broadcastSendCount++;
+    } catch {}
+  }
+
+  /**
+   * Awareness: stops feeding a backpressured client FIRST — at half the
+   * Yjs high watermark, not the full one — since presence is ephemeral and
+   * safe to simply skip. No persistent tracking is needed: the state is
+   * re-encoded from live truth on every flush (see flushAwareness), so the
+   * very next successful send (whenever the buffer drains, or via
+   * sendCatchUp if the client also crosses into full Yjs backpressure)
+   * always carries the current truth regardless of what was skipped.
+   */
+  private sendAwarenessBroadcast(client: WebSocket, message: Uint8Array): void {
+    if (this.slowClients.has(client)) return;
+    if (client.bufferedAmount > this.highWatermarkBytes / 2) return;
+    try {
+      client.send(message);
+      this.broadcastSendCount++;
+    } catch {}
+  }
+
+  private markSlow(client: WebSocket): void {
+    if (this.slowClients.has(client)) return;
+    this.slowClients.add(client);
+    if (!this.slowClientRecheckTimer) {
+      this.slowClientRecheckTimer = setInterval(() => {
+        this.recheckSlowClients();
+      }, SLOW_CLIENT_RECHECK_MS);
+      this.slowClientRecheckTimer.unref?.();
+    }
+  }
+
+  /**
+   * Polls backpressured clients' bufferedAmount independently of ordinary
+   * broadcast activity — necessary because a slow client is skipped
+   * unconditionally by sendYjsBroadcast, so nothing else would ever notice
+   * it recovering in a quiet room. Self-cancels once no client is slow.
+   */
+  private recheckSlowClients(): void {
+    if (this.slowClients.size === 0) {
+      if (this.slowClientRecheckTimer) {
+        clearInterval(this.slowClientRecheckTimer);
+        this.slowClientRecheckTimer = null;
+      }
+      return;
+    }
+    for (const client of Array.from(this.slowClients)) {
+      if (client.readyState !== 1) {
+        // Gone. removeClient() handles this connection's room membership
+        // separately; there is nothing left here to recover.
+        this.slowClients.delete(client);
+        continue;
+      }
+      if (client.bufferedAmount <= this.lowWatermarkBytes) {
+        this.slowClients.delete(client);
+        this.sendCatchUp(client);
+      }
+    }
+    if (this.slowClients.size === 0 && this.slowClientRecheckTimer) {
+      clearInterval(this.slowClientRecheckTimer);
+      this.slowClientRecheckTimer = null;
+    }
+  }
+
+  /**
+   * Recovery path for a client that was skipped one or more Yjs broadcasts
+   * while backpressured. Deliberately uses only the existing sync protocol
+   * rather than inventing a new message: a full-document update is just a
+   * regular messageYjsUpdate whose payload happens to be the whole document
+   * (Y.encodeStateAsUpdate with no state vector) instead of an incremental
+   * delta. Y.applyUpdate is idempotent for anything the client already has,
+   * so this is always safe, and it needs no per-client tracking of what was
+   * actually missed — the alternative (a precise delta) would require the
+   * client to first resend its own state vector, an extra round trip this
+   * avoids entirely.
+   */
+  private sendCatchUp(client: WebSocket): void {
+    try {
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, MESSAGE_SYNC);
+      syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(this.doc));
+      client.send(encoding.toUint8Array(encoder));
+      this.broadcastSendCount++;
+    } catch {}
+    try {
+      const states = this.awareness.getStates();
+      if (states.size > 0) {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
         encoding.writeVarUint8Array(
           encoder,
           awarenessProtocol.encodeAwarenessUpdate(
             this.awareness,
-            changedClients,
+            Array.from(states.keys()),
           ),
         );
-        const message = encoding.toUint8Array(encoder);
+        client.send(encoding.toUint8Array(encoder));
+        this.broadcastSendCount++;
+      }
+    } catch {}
+  }
 
-        for (const [client] of this.clients.entries()) {
-          if (client !== origin && client.readyState === 1) {
-            try {
-              client.send(message);
-            } catch {}
-          }
-        }
-      },
-    );
+  /** Observability-only gauge: physical broadcast sends issued by this room
+   *  so far (see the field's doc comment above for exactly what counts). */
+  public getBroadcastSendCount(): number {
+    return this.broadcastSendCount;
   }
 
   /**
@@ -380,6 +655,11 @@ export class CollaborationRoom {
   public removeClient(ws: WebSocket): void {
     const clientState = this.clients.get(ws);
     this.clients.delete(ws);
+
+    // A disconnected socket has nothing left to recover into — drop it from
+    // backpressure tracking immediately rather than waiting for the next
+    // recheck pass to notice readyState !== 1.
+    this.slowClients.delete(ws);
 
     // Remove exactly the awareness states this connection actually published.
     // If it never sent an awareness update, there is nothing to remove.
@@ -636,9 +916,21 @@ export class CollaborationRoom {
    * Closes room, flushes files, and frees all memory.
    */
   public dispose(): void {
+    this.disposed = true;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.maxFlushTimer) clearTimeout(this.maxFlushTimer);
     if (this.idleDisposeTimer) clearTimeout(this.idleDisposeTimer);
+    if (this.yjsCoalesceTimer) clearTimeout(this.yjsCoalesceTimer);
+    if (this.awarenessCoalesceTimer) clearTimeout(this.awarenessCoalesceTimer);
+    if (this.slowClientRecheckTimer) clearInterval(this.slowClientRecheckTimer);
+    this.yjsCoalesceTimer = null;
+    this.awarenessCoalesceTimer = null;
+    this.slowClientRecheckTimer = null;
+    this.pendingYjsUpdates = [];
+    this.pendingYjsOrigins = new Set();
+    this.pendingAwarenessClientIds = new Set();
+    this.pendingAwarenessOrigins = new Set();
+    this.slowClients.clear();
 
     for (const [ws] of this.clients.entries()) {
       try {
@@ -678,8 +970,17 @@ export class CollaborationManager {
   public getOrCreateRoom(projectId: string): CollaborationRoom {
     let room = this.rooms.get(projectId);
     if (!room) {
-      room = new CollaborationRoom(projectId, this.cfg, this.db, (pid) =>
-        this.rooms.delete(pid),
+      room = new CollaborationRoom(
+        projectId,
+        this.cfg,
+        this.db,
+        (pid) => this.rooms.delete(pid),
+        {
+          yjsCoalesceMs: this.cfg.collabYjsCoalesceMs,
+          awarenessCoalesceMs: this.cfg.collabAwarenessCoalesceMs,
+          highWatermarkBytes: this.cfg.collabHighWatermarkBytes,
+          lowWatermarkBytes: this.cfg.collabLowWatermarkBytes,
+        },
       );
       this.rooms.set(projectId, room);
     }
@@ -721,6 +1022,18 @@ export class CollaborationManager {
 
   public getActiveRoomCount(): number {
     return this.rooms.size;
+  }
+
+  /** Observability-only: total physical broadcast sends across every
+   *  currently-active room, summed fresh each call (rooms are disposed and
+   *  removed from `this.rooms` independently, so this never double-counts
+   *  or leaks a disposed room's count). */
+  public getTotalBroadcastSendCount(): number {
+    let total = 0;
+    for (const room of this.rooms.values()) {
+      total += room.getBroadcastSendCount();
+    }
+    return total;
   }
 
   /**

@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-24.
+Last updated: 2026-08-25.
 
 ## Current state
 
@@ -16,10 +16,12 @@ Last updated: 2026-08-24.
   the cross-project `maxSandboxes` TOCTOU race Milestone 5a's burst test
   discovered) at `2083f47`, with its live-Docker burst re-validation
   (peak 20/20, independently confirmed) at `6db6bc9`.
-- **This working tree:** Milestone 5c (SQLite write-contention
-  characterization — measurement only, no DB architecture change; decision:
-  DB-threading not justified) — implemented and verified; not yet
-  committed. See below.
+- Milestone 5c (SQLite write-contention characterization — measurement
+  only, no DB architecture change; decision: DB-threading not justified)
+  committed at `1bf264a`.
+- **This working tree:** Milestone 6 (collaboration broadcast coalescing +
+  WS backpressure) — implemented and verified; not yet committed. See
+  below.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -650,6 +652,140 @@ The RSS/event-loop-lag time-correlation is flagged as a separate,
 legitimate follow-up (likely a memory-profiling task, not a DB-architecture
 one) — not investigated further here, out of this milestone's scope.
 
+### Milestone 6 — Collaboration broadcast coalescing + WS backpressure
+
+Not yet committed (this working tree). Addresses item 1 from Milestone 5c's
+"Next recommended milestone" list: the collab/WS layer broadcast every Yjs
+update and every awareness change synchronously, per-event, to every
+connected client, with no protection against a slow WebSocket consumer
+building unbounded server-side buffering. Constraints: no Redis/pub-sub/
+horizontal scaling, no SQLite changes, no sandbox changes, no Yjs
+wire-protocol changes, before/after measurement required (not intuition).
+
+**Design** — `backend/src/collab/manager.ts`:
+
+- **Coalescing** (room-local, trailing-edge): Yjs updates arriving within a
+  `DEFAULT_YJS_COALESCE_MS` (25ms, `COLLAB_YJS_COALESCE_MS`) window are
+  merged losslessly via `Y.mergeUpdates` — every operation from every
+  merged update survives, this is not a "keep the latest" reduction — into
+  one physical send. A single shared origin across the window is excluded
+  from its own broadcast (preserves "don't echo my own edit"); a mixed-
+  origin window goes to everyone, which is always safe since
+  `Y.applyUpdate` is idempotent. Awareness updates within
+  `DEFAULT_AWARENESS_COALESCE_MS` (50ms, `COLLAB_AWARENESS_COALESCE_MS`) are
+  re-encoded from **live** awareness state at flush time (not a snapshot
+  taken at arrival), so "latest wins" is automatic even if a client changed
+  state multiple times within the window. The handshake (`addClient`'s
+  Step1 sync + baseline awareness snapshot, and `handleMessage`'s direct
+  sync-protocol replies) is never routed through either coalescer — it is
+  sent synchronously and immediately, always.
+- **Backpressure** (two-tier, `ws.bufferedAmount`-driven, O(1) per client):
+  awareness sends are skipped once a client crosses
+  `DEFAULT_HIGH_WATERMARK_BYTES / 2` (500,000B) — safe because state is
+  always ephemeral and always re-derived live on the next successful send,
+  so nothing needs tracking. Yjs sends are skipped once a client crosses
+  the full `DEFAULT_HIGH_WATERMARK_BYTES` (1,000,000B,
+  `COLLAB_HIGH_WATERMARK_BYTES`); the client is marked slow in a room-level
+  `Set` and every subsequent broadcast is skipped unconditionally for it —
+  no per-client queue is ever built, so a client stuck slow indefinitely
+  costs the room nothing beyond one `Set` entry. A `setInterval` (500ms,
+  self-cancelling when no client is slow) polls backpressured clients
+  independently of ordinary traffic; once a client's `bufferedAmount` drops
+  to `DEFAULT_LOW_WATERMARK_BYTES` (200,000B,
+  `COLLAB_LOW_WATERMARK_BYTES`), it is recovered via `sendCatchUp()` — one
+  full-document `Y.encodeStateAsUpdate()` sent through the existing sync
+  protocol's `writeUpdate` framing (no new wire protocol) plus one full
+  awareness snapshot. `Y.applyUpdate` idempotence makes this safe
+  regardless of exactly what was skipped in between.
+- **Production bug found and fixed during this milestone**: `dispose()`
+  calls `awareness.destroy()`, whose internal implementation calls
+  `setLocalState(null)` — this fires the room's own still-registered
+  `awareness.on("update")` listener, which called `queueAwarenessUpdate()`,
+  re-arming `awarenessCoalesceTimer` via `setTimeout` _after_ `dispose()`'s
+  timer-clearing block had already run. Result: one leaked timer per room
+  disposal. Fixed with a `disposed` boolean guard, set at the very start of
+  `dispose()` and checked at the top of `queueYjsUpdate`/
+  `queueAwarenessUpdate`. Confirmed via a fake-timer test
+  (`vi.getTimerCount() === 0` after dispose) that failed before the fix and
+  passes after.
+
+**Harness bug found and fixed (pre-existing, not introduced this
+milestone)**: `/ws/collab`'s upgrade path enforces
+`requireProjectAccess(db, userId, projectId, "viewer")`. Every
+`busy_room`/`collab_pair`/`rapid_typing` virtual user in the load harness
+was a freshly self-registered user with no collaborator grant on the
+shared room's project, so every one of them was silently 403'd and its
+socket destroyed before ever reaching `room.addClient()`. This means
+**every prior collaboration-room-concentration load measurement in M5a and
+M5c's history (`busy_room` traffic specifically) was, in practice, only
+ever exercising the dedicated 2-socket edit-to-peer probe, not genuine
+N-user room concentration** — a measurement-validity gap that predates
+this milestone and was only surfaced by M6's harness work. **This does not
+retroactively invalidate M5a/M5c's actual conclusions**: M5a's finding was
+about general-mix behavior at scale (of which `busy_room` was a minor
+weighted component, not the focus), and M5c's DB-threading conclusion did
+not depend on `busy_room` at all. No historical evidence file has been
+altered or re-labeled; this note is the correction, kept in documentation
+only, per instruction. Fixed in the harness (`backend/load-test/run.ts`,
+new `--collab-only` flag) by reusing the seed/room-owner's auth token
+across every VU under that mode — mirroring the pre-existing
+`--write-burst`/`presetToken` pattern — so every VU is still a genuinely
+distinct WebSocket connection in the room (which is what actually drives
+fan-out/coalescing/backpressure), only the authenticated `userId` is
+shared. Verified fix via a sanity check: active WS connections in the room
+jumped from a flat 2 to 12 at 10 requested users, and broadcast sends
+jumped from ~124 to 6,095 for the same run.
+
+**Before/after evidence** (`backend/load-test/results/level-m6-{baseline,
+postfix}-{10,50,100}-*.{json,md}`; one concentrated room, `--collab-only
+--relax-auth-rate-limit`, per-IP auth rate limiting relaxed per the
+established M5a/M5c harness practice; baseline measured against actual
+pre-M6 code at `1bf264a` via an isolated `git worktree`, not cited from
+old runs):
+
+| Metric             | 10 before→after        | 50 before→after          | 100 before→after             |
+| ------------------ | ---------------------- | ------------------------ | ---------------------------- |
+| Broadcast sends    | 23,004 → 12,951 (-44%) | 713,431 → 120,365 (-83%) | 2,607,722 → 212,609 (-91.8%) |
+| Edit-to-peer p99   | 1.4ms → 33.1ms         | 20.5ms → 37.3ms          | 704.9ms → 353.8ms            |
+| Event-loop lag p99 | 32.5ms → 32.7ms        | 36.4ms → 36.2ms          | 381.4ms → 155.7ms            |
+| RSS                | 134.0MB → 117.9MB      | 480.2MB → 451.4MB        | 1523.3MB → 1518.2MB          |
+
+**Honest, scale-dependent result, not oversold**: at low concentration
+(10-50 users) the fixed coalescing window costs ~30ms of added edit-to-peer
+latency for a real 44-83% broadcast reduction, with no measurable
+event-loop benefit yet — the system wasn't under enough contention for
+coalescing to pay for itself in latency terms. At the scale this milestone
+was actually commissioned for (100 concentrated users), it delivers a
+91.8% broadcast reduction, roughly halves event-loop p99, and reduced
+contention outweighs the fixed coalescing window enough that edit-to-peer
+latency actually _improves_ at every percentile, not just holds flat. One
+100-user baseline run segfaulted non-reproducibly before a clean retry;
+treated as an anecdotal robustness note, not a proven finding, and not
+counted as an official data point.
+
+Files: `backend/src/collab/manager.ts` (production), `backend/src/config.ts`
+
+- `backend/src/observability.ts` + `backend/src/admin/routes.ts` +
+  `backend/load-test/server.ts` (additive gauge wiring for
+  `totalCollabBroadcastSends`, no behavior change), `backend/load-test/run.ts`
+  (`--collab-only` flag + `presetToken` fix), `backend/test/
+m6-collab-coalesce-backpressure.test.ts` (new, 8 tests), `backend/test/
+m4-collab.test.ts` (one test updated to advance fake timers past the
+  coalesce window — the only M1-M5c test whose synchronous-broadcast
+  assumption coalescing changed), `backend/test/observability.test.ts`
+  (extended for the new gauge).
+
+Verification: backend 308 passed / 4 skipped / 0 failed (Docker available);
+frontend 13 passed / 0 failed; backend + frontend typecheck PASS; `git diff
+--check` clean; collaboration-focused suite (new M6 tests +
+m4-collab.test.ts + shutdown-flush.test.ts + observability.test.ts) 47/47.
+
+**Decision: implement — evidence-justified at the concentration level this
+milestone targets.** No further tuning of the coalescing windows or
+watermarks was done beyond the conservative defaults; the low-concentration
+latency tradeoff is disclosed, not hidden, and is a reasonable line item
+for a future milestone if it proves to matter in practice.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -695,35 +831,36 @@ install`) runs in seconds against container-internal storage on a
 
 ## Current active work
 
-Milestone 5a (`6f433f2`) and Milestone 5b (`2083f47` plus its live-Docker
-verification commit) are committed and fully closed out end-to-end,
-including the real-Docker burst re-validation (peak 20/20, see Milestone
-5b's section above). Milestone 5c (SQLite write-contention
-characterization) is implemented and verified in this working tree, **not
-yet committed** — see its section above. Decision: DB-threading is **not
-justified** by measured evidence; no DB architecture change was made.
-Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains
-outstanding and un-gated, unchanged from before.
+Milestone 5a (`6f433f2`), Milestone 5b (`2083f47` plus its live-Docker
+verification commit), and Milestone 5c (SQLite write-contention
+characterization) are committed and fully closed out — Milestone 5c's
+decision is DB-threading **not justified** by measured evidence; no DB
+architecture change was made. Milestone 6 (collaboration broadcast
+coalescing + WS backpressure) is implemented and verified in this working
+tree, **not yet committed** — see its section above. Manual QA execution
+for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and
+un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-The SQLite/DB-threading question is now resolved (Milestone 5c: **not
-justified**, do not revisit without new contention evidence at a different
-scale/shape). Remaining evidence-gated work, in dependency order:
+The SQLite/DB-threading question is resolved (Milestone 5c: **not
+justified**) and collaboration broadcast coalescing/backpressure is now
+implemented (Milestone 6). Remaining evidence-gated work, in dependency
+order:
 
-1. Server-side collab broadcast/awareness coalescing + WS backpressure
-   (`ws.bufferedAmount` check) — still unimplemented, still a real gap per
-   the architecture report's static analysis; Milestone 5a's `busy_room`/
-   `many_rooms_thin` traffic at 50 users didn't reveal degradation yet, but
-   wasn't concentrated enough (only ~5-9 active rooms) to stress this
-   specifically — a room-concentrated load test is the right next
-   measurement before implementing this.
-2. **New finding worth its own investigation**: Milestone 5c observed
+1. **New finding worth its own investigation**: Milestone 5c observed
    process RSS growing steadily under sustained 100-user load (89MB→399MB
    over 5 minutes), closely time-correlated with the event-loop lag growth
    also observed there — plausibly GC pressure, not yet root-caused. A
    memory-profiling pass (heap snapshots over time, not a load test) is the
-   right next step, separate from and lower-priority than item 1.
+   right next step.
+2. Milestone 6 disclosed a real low-concentration latency tradeoff
+   (coalescing costs ~30ms of added edit-to-peer latency at 10-50 users for
+   a 44-83% broadcast reduction, before it starts paying for itself in
+   latency terms at higher concentration). If this proves to matter in
+   practice, a follow-up could explore adaptive/smaller coalescing windows
+   at low concurrency — not started, needs its own contract and measurement
+   first, not intuition.
 3. Only after 1-2: attempt load levels 100/500/1000+, per the original
    report's staging. Not started; do not implement any of the above without
    a new contract.

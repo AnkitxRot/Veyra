@@ -82,6 +82,8 @@ export async function bootstrapLoadTestServer(
         activeConnectionCount,
         getActiveRoomCount: () => collaborationManager.getActiveRoomCount(),
         getActiveSandboxCount: () => sandboxManager.getActiveSandboxCount(),
+        getTotalCollabBroadcastSends: () =>
+          collaborationManager.getTotalBroadcastSendCount(),
       }),
     close: async () => {
       stopEventLoopMonitor();

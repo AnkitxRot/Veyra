@@ -94,7 +94,12 @@ function buildWeightedPattern(
 const WEIGHTED_PATTERN = buildWeightedPattern(BEHAVIOR_WEIGHTS);
 const CONTENTION_PATTERN = buildWeightedPattern(CONTENTION_WEIGHTS);
 
-function pickBehavior(vuIndex: number, contention: boolean): BehaviorName {
+function pickBehavior(
+  vuIndex: number,
+  contention: boolean,
+  collabOnly: boolean,
+): BehaviorName {
+  if (collabOnly) return "rapid_typing";
   const pattern = contention ? CONTENTION_PATTERN : WEIGHTED_PATTERN;
   return pattern[vuIndex % pattern.length];
 }
@@ -126,6 +131,13 @@ interface Args {
    *  default burst assignment — isolates write serialization from ordinary
    *  cross-project write spread. No effect without --burst. */
   writeBurst: boolean;
+  /** M6: force every VU onto rapid_typing (200ms-cadence edits, all
+   *  concentrated on sharedProjectIds[0] — see runCollabRoom) instead of the
+   *  general weighted mix. Isolates collaboration broadcast fan-out from
+   *  ordinary REST/execution traffic for the M6 before/after comparison,
+   *  which asks for "one concentrated room, rapid editing" specifically —
+   *  no existing weighted mix puts 100% of VUs in a single room. */
+  collabOnly: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -143,6 +155,7 @@ function parseArgs(argv: string[]): Args {
     relaxAuthRateLimit: argv.includes("--relax-auth-rate-limit"),
     contention: argv.includes("--contention"),
     writeBurst: argv.includes("--write-burst"),
+    collabOnly: argv.includes("--collab-only"),
   };
 }
 
@@ -286,7 +299,7 @@ async function main(): Promise<void> {
   } else {
     const rampMsPerUser = (args.rampSec * 1000) / Math.max(1, args.users);
     for (let i = 0; i < args.users; i++) {
-      const behavior = pickBehavior(i, args.contention);
+      const behavior = pickBehavior(i, args.contention, args.collabOnly);
       const ctx: VirtualUserContext = {
         baseUrl: server.baseUrl,
         wsBase: server.wsBase,
@@ -295,7 +308,19 @@ async function main(): Promise<void> {
         vuIndex: i,
         sharedProjectIds,
       };
-      vus.push(runVirtualUser(behavior, ctx).catch(() => {}));
+      vus.push(
+        runVirtualUser(
+          behavior,
+          ctx,
+          // --collab-only: every VU reuses the seed owner's identity so
+          // its /ws/collab upgrade passes requireProjectAccess() on the
+          // shared room without per-VU collaborator grants — each VU is
+          // still a distinct WebSocket connection in the room's
+          // clients Map, which is what actually drives per-connection
+          // fan-out/coalescing/backpressure; only the userId is shared.
+          args.collabOnly ? seedToken : undefined,
+        ).catch(() => {}),
+      );
       await new Promise((r) => setTimeout(r, rampMsPerUser));
     }
     console.log(`[load-test] ramp-up (warm-up) complete, holding steady state`);
@@ -406,6 +431,9 @@ export function renderMarkdown(report: any): string {
   );
   lines.push(`- Active WS connections: ${fs.activeWsConnections}`);
   lines.push(`- Active collab rooms: ${fs.activeCollabRooms}`);
+  lines.push(
+    `- Total collab broadcast sends (physical ws.send() calls, cumulative): ${fs.totalCollabBroadcastSends}`,
+  );
   lines.push(`- Active sandboxes: ${fs.activeSandboxes}`);
   lines.push(`- Process RSS: ${(fs.memory.rssBytes / 1e6).toFixed(1)} MB`);
   lines.push("");
@@ -424,12 +452,12 @@ export function renderMarkdown(report: any): string {
   );
   lines.push("");
   lines.push(
-    "| t(s) | evloop p99ms | db p99ms | ws conns | rooms | sandboxes | rss MB |",
+    "| t(s) | evloop p99ms | db p99ms | ws conns | rooms | broadcast sends | sandboxes | rss MB |",
   );
-  lines.push("|---|---|---|---|---|---|---|");
+  lines.push("|---|---|---|---|---|---|---|---|");
   for (const { atSec, snapshot } of report.observabilitySnapshots as any[]) {
     lines.push(
-      `| ${atSec} | ${snapshot.eventLoopLagMs?.p99Ms.toFixed(1) ?? "-"} | ${snapshot.dbCalls.overall.p99Ms.toFixed(3)} | ${snapshot.activeWsConnections} | ${snapshot.activeCollabRooms} | ${snapshot.activeSandboxes} | ${(snapshot.memory.rssBytes / 1e6).toFixed(1)} |`,
+      `| ${atSec} | ${snapshot.eventLoopLagMs?.p99Ms.toFixed(1) ?? "-"} | ${snapshot.dbCalls.overall.p99Ms.toFixed(3)} | ${snapshot.activeWsConnections} | ${snapshot.activeCollabRooms} | ${snapshot.totalCollabBroadcastSends} | ${snapshot.activeSandboxes} | ${(snapshot.memory.rssBytes / 1e6).toFixed(1)} |`,
     );
   }
   lines.push("");

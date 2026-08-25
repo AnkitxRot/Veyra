@@ -9,6 +9,7 @@ import { resolveConfig } from "../src/config.js";
 import {
   collaborationManager,
   CollaborationRoom,
+  DEFAULT_YJS_COALESCE_MS,
 } from "../src/collab/manager.js";
 import {
   createProject,
@@ -1308,56 +1309,73 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     }
 
     // All three replicas (room + 3 clients) start converged (empty file).
+    // The initial Sync Step 1/2 handshake is immediate/uncoalesced (M6:
+    // "never delay the initial synchronization handshake"), so this holds
+    // with no timer advance.
     for (const doc of clientDocs) {
       expect(doc.getText(filePath).toString()).toBe(
         room.doc.getText(filePath).toString(),
       );
     }
 
-    // Each client edits independently, based on the state it had *before*
-    // seeing either peer's edit — genuine concurrent/divergent edits, not a
-    // serialized turn-taking simulation.
-    const edits = [
-      "# Alice's contribution\n",
-      "# Bob's contribution\n",
-      "# Carol's contribution\n",
-    ];
-    for (let i = 0; i < names.length; i++) {
-      const clientText = clientDocs[i].getText(filePath);
+    // M6: broadcasts to OTHER clients are now coalesced within a short
+    // window (see collab/manager.ts's DEFAULT_YJS_COALESCE_MS) instead of
+    // sent synchronously — advance fake timers past that window before
+    // asserting peer delivery, rather than relying on real elapsed time.
+    vi.useFakeTimers();
+    try {
+      // Each client edits independently, based on the state it had *before*
+      // seeing either peer's edit — genuine concurrent/divergent edits, not a
+      // serialized turn-taking simulation.
+      const edits = [
+        "# Alice's contribution\n",
+        "# Bob's contribution\n",
+        "# Carol's contribution\n",
+      ];
+      for (let i = 0; i < names.length; i++) {
+        const clientText = clientDocs[i].getText(filePath);
+        room.handleMessage(
+          wsList[i],
+          buildSyncUpdateFrame(clientDocs[i], () =>
+            clientText.insert(0, edits[i]),
+          ),
+        );
+      }
+      await vi.advanceTimersByTimeAsync(DEFAULT_YJS_COALESCE_MS);
+
+      const roomContent = room.doc.getText(filePath).toString();
+      for (const edit of edits) {
+        expect(roomContent).toContain(edit.trim());
+      }
+
+      // Every client replica — not just the room — converged to the exact
+      // same final text: proves broadcasts actually reached every peer, not
+      // just that the room's own doc integrated all three updates.
+      for (let i = 0; i < names.length; i++) {
+        expect(clientDocs[i].getText(filePath).toString()).toBe(roomContent);
+      }
+
+      // Bob disconnects; Alice and Carol remain and must stay correct and
+      // still receive each other's subsequent edits.
+      room.removeClient(wsList[1]);
+      const aliceText = clientDocs[0].getText(filePath);
       room.handleMessage(
-        wsList[i],
-        buildSyncUpdateFrame(clientDocs[i], () =>
-          clientText.insert(0, edits[i]),
+        wsList[0],
+        buildSyncUpdateFrame(clientDocs[0], () =>
+          aliceText.insert(aliceText.length, "# Alice again\n"),
         ),
       );
-    }
+      await vi.advanceTimersByTimeAsync(DEFAULT_YJS_COALESCE_MS);
 
-    const roomContent = room.doc.getText(filePath).toString();
-    for (const edit of edits) {
-      expect(roomContent).toContain(edit.trim());
+      expect(clientDocs[2].getText(filePath).toString()).toBe(
+        room.doc.getText(filePath).toString(),
+      );
+      expect(clientDocs[2].getText(filePath).toString()).toContain(
+        "Alice again",
+      );
+    } finally {
+      vi.useRealTimers();
     }
-
-    // Every client replica — not just the room — converged to the exact
-    // same final text: proves broadcasts actually reached every peer, not
-    // just that the room's own doc integrated all three updates.
-    for (let i = 0; i < names.length; i++) {
-      expect(clientDocs[i].getText(filePath).toString()).toBe(roomContent);
-    }
-
-    // Bob disconnects; Alice and Carol remain and must stay correct and
-    // still receive each other's subsequent edits.
-    room.removeClient(wsList[1]);
-    const aliceText = clientDocs[0].getText(filePath);
-    room.handleMessage(
-      wsList[0],
-      buildSyncUpdateFrame(clientDocs[0], () =>
-        aliceText.insert(aliceText.length, "# Alice again\n"),
-      ),
-    );
-    expect(clientDocs[2].getText(filePath).toString()).toBe(
-      room.doc.getText(filePath).toString(),
-    );
-    expect(clientDocs[2].getText(filePath).toString()).toContain("Alice again");
 
     for (const doc of clientDocs) doc.destroy();
     room.dispose();

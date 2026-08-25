@@ -60,6 +60,7 @@ describe("observability (M5a)", () => {
       activeConnectionCount: () => 0,
       getActiveRoomCount: () => 0,
       getActiveSandboxCount: () => 0,
+      getTotalCollabBroadcastSends: () => 0,
     });
 
     expect(snapshot.dbCalls.overall.count).toBeGreaterThanOrEqual(3);
@@ -74,10 +75,12 @@ describe("observability (M5a)", () => {
       activeConnectionCount: () => 7,
       getActiveRoomCount: () => 3,
       getActiveSandboxCount: () => 2,
+      getTotalCollabBroadcastSends: () => 42,
     });
     expect(snapshot.activeWsConnections).toBe(7);
     expect(snapshot.activeCollabRooms).toBe(3);
     expect(snapshot.activeSandboxes).toBe(2);
+    expect(snapshot.totalCollabBroadcastSends).toBe(42);
     expect(snapshot.memory.rssBytes).toBeGreaterThan(0);
   });
 
@@ -86,6 +89,7 @@ describe("observability (M5a)", () => {
       activeConnectionCount: () => 0,
       getActiveRoomCount: () => 0,
       getActiveSandboxCount: () => 0,
+      getTotalCollabBroadcastSends: () => 0,
     });
     expect(before.eventLoopLagMs).toBeNull();
 
@@ -94,6 +98,7 @@ describe("observability (M5a)", () => {
       activeConnectionCount: () => 0,
       getActiveRoomCount: () => 0,
       getActiveSandboxCount: () => 0,
+      getTotalCollabBroadcastSends: () => 0,
     });
     expect(after.eventLoopLagMs).not.toBeNull();
   });
@@ -105,6 +110,7 @@ describe("observability (M5a)", () => {
       activeConnectionCount: () => 0,
       getActiveRoomCount: () => 0,
       getActiveSandboxCount: () => 0,
+      getTotalCollabBroadcastSends: () => 0,
     });
     const beforeCount = before.dbCalls.overall.count;
 
@@ -119,6 +125,7 @@ describe("observability (M5a)", () => {
       activeConnectionCount: () => 0,
       getActiveRoomCount: () => 0,
       getActiveSandboxCount: () => 0,
+      getTotalCollabBroadcastSends: () => 0,
     });
     expect(after.dbCalls.overall.count).toBeGreaterThan(beforeCount);
   });
