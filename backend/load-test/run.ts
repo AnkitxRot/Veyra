@@ -138,6 +138,14 @@ interface Args {
    *  which asks for "one concentrated room, rapid editing" specifically —
    *  no existing weighted mix puts 100% of VUs in a single room. */
   collabOnly: boolean;
+  /** M8: overrides `AppConfig.collabYjsCoalesceMs` for this run only, via
+   *  `bootstrapLoadTestServer`'s existing `ConfigOverrides` plumbing — the
+   *  production default (`DEFAULT_YJS_COALESCE_MS` / `COLLAB_YJS_COALESCE_MS`)
+   *  is untouched. Lets the harness sweep the coalescing window to build a
+   *  latency-vs-broadcast-amplification curve without touching
+   *  backend/src/**. undefined means "use whatever the process env/default
+   *  resolves to", matching every pre-M8 invocation's behavior exactly. */
+  yjsCoalesceMs: number | undefined;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -156,6 +164,9 @@ function parseArgs(argv: string[]): Args {
     contention: argv.includes("--contention"),
     writeBurst: argv.includes("--write-burst"),
     collabOnly: argv.includes("--collab-only"),
+    yjsCoalesceMs: argv.includes("--yjs-coalesce-ms")
+      ? Number(get("--yjs-coalesce-ms", "25"))
+      : undefined,
   };
 }
 
@@ -166,11 +177,14 @@ async function main(): Promise<void> {
       `ramp=${args.rampSec}s steady=${args.steadySec}s rampdown=${args.rampdownSec}s`,
   );
 
-  const server = await bootstrapLoadTestServer(
-    args.relaxAuthRateLimit
+  const server = await bootstrapLoadTestServer({
+    ...(args.relaxAuthRateLimit
       ? { authRateLimit: { max: 100_000, windowMs: 60_000 } }
-      : {},
-  );
+      : {}),
+    ...(args.yjsCoalesceMs !== undefined
+      ? { collabYjsCoalesceMs: args.yjsCoalesceMs }
+      : {}),
+  });
   console.log(`[load-test] server up at ${server.baseUrl}`);
 
   const metrics = new MetricsCollector();
@@ -370,7 +384,7 @@ export function renderMarkdown(report: any): string {
   lines.push("");
   lines.push(`- Started: ${report.startedAt}`);
   lines.push(
-    `- Args: users=${report.args.users} ramp=${report.args.rampSec}s steady=${report.args.steadySec}s rampdown=${report.args.rampdownSec}s burst=${report.args.burst}`,
+    `- Args: users=${report.args.users} ramp=${report.args.rampSec}s steady=${report.args.steadySec}s rampdown=${report.args.rampdownSec}s burst=${report.args.burst} yjsCoalesceMs=${report.args.yjsCoalesceMs ?? "(default)"}`,
   );
   lines.push(`- Total duration: ${(report.durationMs / 1000).toFixed(1)}s`);
   lines.push(`- Rampdown wall time: ${(report.rampdownMs / 1000).toFixed(1)}s`);

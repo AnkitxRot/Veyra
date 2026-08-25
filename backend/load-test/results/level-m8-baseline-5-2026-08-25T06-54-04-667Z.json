@@ -1,0 +1,1453 @@
+{
+  "level": "m8-baseline-5",
+  "args": {
+    "level": "m8-baseline-5",
+    "users": 5,
+    "rampSec": 15,
+    "steadySec": 45,
+    "rampdownSec": 10,
+    "burst": false,
+    "relaxAuthRateLimit": true,
+    "contention": false,
+    "writeBurst": false,
+    "collabOnly": true
+  },
+  "startedAt": "2026-08-25T06:54:04.667Z",
+  "durationMs": 60057,
+  "rampdownMs": 1,
+  "metrics": {
+    "byEndpointClass": {},
+    "saveLatency": {
+      "count": 0,
+      "minMs": 0,
+      "maxMs": 0,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0
+    },
+    "collabEditToPeerLatency": {
+      "count": 118,
+      "minMs": 15.382299999997485,
+      "maxMs": 33.56060000000002,
+      "meanMs": 28.983430508474395,
+      "p50Ms": 30.927199999998265,
+      "p95Ms": 32.22439999999915,
+      "p99Ms": 32.60750000000007
+    }
+  },
+  "observabilitySnapshots": [
+    {
+      "atSec": 5,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:09.677Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.67401752380952,
+          "p50Ms": 30.752767,
+          "p95Ms": 31.916031,
+          "p99Ms": 32.555007
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 21,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.020686761904761906,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 5,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.0288384,
+              "p50Ms": 0.029711,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 6,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009769,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 4,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 90,
+        "memory": {
+          "rssBytes": 98496512,
+          "heapUsedBytes": 29512384,
+          "heapTotalBytes": 54378496,
+          "externalBytes": 8137711,
+          "arrayBuffersBytes": 3702471
+        },
+        "cpuUsageMicros": {
+          "userMicros": 531000,
+          "systemMicros": 359000
+        },
+        "gc": {}
+      }
+    },
+    {
+      "atSec": 10,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:14.678Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.775382884848486,
+          "p50Ms": 30.851071,
+          "p95Ms": 31.932415,
+          "p99Ms": 32.555007
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 25,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.01999328,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 7,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.027257142857142858,
+              "p50Ms": 0.025311,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 8,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009677,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 6,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 351,
+        "memory": {
+          "rssBytes": 103567360,
+          "heapUsedBytes": 25326496,
+          "heapTotalBytes": 57262080,
+          "externalBytes": 8019010,
+          "arrayBuffersBytes": 3583922
+        },
+        "cpuUsageMicros": {
+          "userMicros": 546000,
+          "systemMicros": 359000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 15,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:19.693Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.803501788617886,
+          "p50Ms": 30.851071,
+          "p95Ms": 31.965183,
+          "p99Ms": 32.571391
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 780,
+        "memory": {
+          "rssBytes": 104869888,
+          "heapUsedBytes": 24884808,
+          "heapTotalBytes": 57262080,
+          "externalBytes": 7996675,
+          "arrayBuffersBytes": 3561587
+        },
+        "cpuUsageMicros": {
+          "userMicros": 609000,
+          "systemMicros": 359000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 20,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:24.703Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.763769756097563,
+          "p50Ms": 30.801919,
+          "p95Ms": 31.899647,
+          "p99Ms": 32.276479
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 1262,
+        "memory": {
+          "rssBytes": 84717568,
+          "heapUsedBytes": 21894784,
+          "heapTotalBytes": 25280512,
+          "externalBytes": 7955402,
+          "arrayBuffersBytes": 3520314
+        },
+        "cpuUsageMicros": {
+          "userMicros": 781000,
+          "systemMicros": 406000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 25,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:29.709Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.73421611707317,
+          "p50Ms": 30.785535,
+          "p95Ms": 31.834111,
+          "p99Ms": 32.309247
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 1759,
+        "memory": {
+          "rssBytes": 86376448,
+          "heapUsedBytes": 23255880,
+          "heapTotalBytes": 27377664,
+          "externalBytes": 7967901,
+          "arrayBuffersBytes": 3532813
+        },
+        "cpuUsageMicros": {
+          "userMicros": 859000,
+          "systemMicros": 421000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 30,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:34.709Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.70724948118006,
+          "p50Ms": 30.719999,
+          "p95Ms": 31.817727,
+          "p99Ms": 32.276479
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 2257,
+        "memory": {
+          "rssBytes": 86695936,
+          "heapUsedBytes": 23811240,
+          "heapTotalBytes": 28164096,
+          "externalBytes": 7967058,
+          "arrayBuffersBytes": 3531970
+        },
+        "cpuUsageMicros": {
+          "userMicros": 1000000,
+          "systemMicros": 468000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 35,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:39.717Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.684360871839583,
+          "p50Ms": 30.703615,
+          "p95Ms": 31.752191,
+          "p99Ms": 32.276479
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 2735,
+        "memory": {
+          "rssBytes": 87891968,
+          "heapUsedBytes": 23755224,
+          "heapTotalBytes": 28688384,
+          "externalBytes": 7961881,
+          "arrayBuffersBytes": 3526793
+        },
+        "cpuUsageMicros": {
+          "userMicros": 1078000,
+          "systemMicros": 500000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 40,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:44.724Z",
+        "eventLoopLagMs": {
+          "minMs": 21.610496,
+          "maxMs": 51.019775,
+          "meanMs": 30.677159151792527,
+          "p50Ms": 30.687231,
+          "p95Ms": 31.752191,
+          "p99Ms": 32.276479
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 3233,
+        "memory": {
+          "rssBytes": 90583040,
+          "heapUsedBytes": 25764136,
+          "heapTotalBytes": 33669120,
+          "externalBytes": 7982216,
+          "arrayBuffersBytes": 3547128
+        },
+        "cpuUsageMicros": {
+          "userMicros": 1218000,
+          "systemMicros": 515000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 45,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:49.734Z",
+        "eventLoopLagMs": {
+          "minMs": 19.90656,
+          "maxMs": 51.019775,
+          "meanMs": 30.66230610440678,
+          "p50Ms": 30.687231,
+          "p95Ms": 31.735807,
+          "p99Ms": 32.276479
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 3712,
+        "memory": {
+          "rssBytes": 91561984,
+          "heapUsedBytes": 26031712,
+          "heapTotalBytes": 33931264,
+          "externalBytes": 8045437,
+          "arrayBuffersBytes": 3610349
+        },
+        "cpuUsageMicros": {
+          "userMicros": 1312000,
+          "systemMicros": 562000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 50,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:54.737Z",
+        "eventLoopLagMs": {
+          "minMs": 19.90656,
+          "maxMs": 51.019775,
+          "meanMs": 30.6561094017094,
+          "p50Ms": 30.670847,
+          "p95Ms": 31.735807,
+          "p99Ms": 32.276479
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 4223,
+        "memory": {
+          "rssBytes": 92381184,
+          "heapUsedBytes": 26559424,
+          "heapTotalBytes": 33931264,
+          "externalBytes": 8046959,
+          "arrayBuffersBytes": 3611871
+        },
+        "cpuUsageMicros": {
+          "userMicros": 1375000,
+          "systemMicros": 562000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    },
+    {
+      "atSec": 55,
+      "snapshot": {
+        "timestamp": "2026-08-25T06:54:59.751Z",
+        "eventLoopLagMs": {
+          "minMs": 19.90656,
+          "maxMs": 51.019775,
+          "meanMs": 30.648558668146503,
+          "p50Ms": 30.654463,
+          "p95Ms": 31.719423,
+          "p99Ms": 32.243711
+        },
+        "dbCalls": {
+          "overall": {
+            "count": 27,
+            "minMs": 0.0066,
+            "maxMs": 0.055007,
+            "meanMs": 0.019597703703703704,
+            "p50Ms": 0.018815,
+            "p95Ms": 0.042207,
+            "p99Ms": 0.055007
+          },
+          "byOperation": {
+            "SELECT users": {
+              "count": 3,
+              "minMs": 0.0104,
+              "maxMs": 0.022303,
+              "meanMs": 0.015,
+              "p50Ms": 0.012303,
+              "p95Ms": 0.022303,
+              "p99Ms": 0.022303
+            },
+            "INSERT users": {
+              "count": 2,
+              "minMs": 0.020688,
+              "maxMs": 0.055007,
+              "meanMs": 0.037844,
+              "p50Ms": 0.020703,
+              "p95Ms": 0.055007,
+              "p99Ms": 0.055007
+            },
+            "INSERT sessions": {
+              "count": 2,
+              "minMs": 0.018288,
+              "maxMs": 0.032831,
+              "meanMs": 0.025556,
+              "p50Ms": 0.018303,
+              "p95Ms": 0.032831,
+              "p99Ms": 0.032831
+            },
+            "INSERT audit_logs": {
+              "count": 2,
+              "minMs": 0.0192,
+              "maxMs": 0.021807,
+              "meanMs": 0.020504,
+              "p50Ms": 0.019215,
+              "p95Ms": 0.021807,
+              "p99Ms": 0.021807
+            },
+            "SELECT sessions": {
+              "count": 8,
+              "minMs": 0.018496,
+              "maxMs": 0.042207,
+              "meanMs": 0.026613,
+              "p50Ms": 0.023903,
+              "p95Ms": 0.042207,
+              "p99Ms": 0.042207
+            },
+            "SELECT projects": {
+              "count": 9,
+              "minMs": 0.0066,
+              "maxMs": 0.011807,
+              "meanMs": 0.009402,
+              "p50Ms": 0.009407,
+              "p95Ms": 0.011807,
+              "p99Ms": 0.011807
+            },
+            "INSERT projects": {
+              "count": 1,
+              "minMs": 0.0188,
+              "maxMs": 0.018815,
+              "meanMs": 0.018808,
+              "p50Ms": 0.018815,
+              "p95Ms": 0.018815,
+              "p99Ms": 0.018815
+            }
+          }
+        },
+        "activeWsConnections": 7,
+        "activeCollabRooms": 1,
+        "activeSandboxes": 0,
+        "totalCollabBroadcastSends": 4665,
+        "memory": {
+          "rssBytes": 92573696,
+          "heapUsedBytes": 26421128,
+          "heapTotalBytes": 34455552,
+          "externalBytes": 8042828,
+          "arrayBuffersBytes": 3607740
+        },
+        "cpuUsageMicros": {
+          "userMicros": 1484000,
+          "systemMicros": 593000
+        },
+        "gc": {
+          "minor": {
+            "count": 61,
+            "totalDurationMs": 19.27960003167391
+          },
+          "incremental": {
+            "count": 3,
+            "totalDurationMs": 0.8686000034213066
+          },
+          "major": {
+            "count": 3,
+            "totalDurationMs": 7.436200000345707
+          }
+        }
+      }
+    }
+  ],
+  "finalObservabilitySnapshot": {
+    "timestamp": "2026-08-25T06:55:04.724Z",
+    "eventLoopLagMs": {
+      "minMs": 19.90656,
+      "maxMs": 51.019775,
+      "meanMs": 30.64401544602851,
+      "p50Ms": 30.638079,
+      "p95Ms": 31.703039,
+      "p99Ms": 32.210943
+    },
+    "dbCalls": {
+      "overall": {
+        "count": 27,
+        "minMs": 0.0066,
+        "maxMs": 0.055007,
+        "meanMs": 0.019597703703703704,
+        "p50Ms": 0.018815,
+        "p95Ms": 0.042207,
+        "p99Ms": 0.055007
+      },
+      "byOperation": {
+        "SELECT users": {
+          "count": 3,
+          "minMs": 0.0104,
+          "maxMs": 0.022303,
+          "meanMs": 0.015,
+          "p50Ms": 0.012303,
+          "p95Ms": 0.022303,
+          "p99Ms": 0.022303
+        },
+        "INSERT users": {
+          "count": 2,
+          "minMs": 0.020688,
+          "maxMs": 0.055007,
+          "meanMs": 0.037844,
+          "p50Ms": 0.020703,
+          "p95Ms": 0.055007,
+          "p99Ms": 0.055007
+        },
+        "INSERT sessions": {
+          "count": 2,
+          "minMs": 0.018288,
+          "maxMs": 0.032831,
+          "meanMs": 0.025556,
+          "p50Ms": 0.018303,
+          "p95Ms": 0.032831,
+          "p99Ms": 0.032831
+        },
+        "INSERT audit_logs": {
+          "count": 2,
+          "minMs": 0.0192,
+          "maxMs": 0.021807,
+          "meanMs": 0.020504,
+          "p50Ms": 0.019215,
+          "p95Ms": 0.021807,
+          "p99Ms": 0.021807
+        },
+        "SELECT sessions": {
+          "count": 8,
+          "minMs": 0.018496,
+          "maxMs": 0.042207,
+          "meanMs": 0.026613,
+          "p50Ms": 0.023903,
+          "p95Ms": 0.042207,
+          "p99Ms": 0.042207
+        },
+        "SELECT projects": {
+          "count": 9,
+          "minMs": 0.0066,
+          "maxMs": 0.011807,
+          "meanMs": 0.009402,
+          "p50Ms": 0.009407,
+          "p95Ms": 0.011807,
+          "p99Ms": 0.011807
+        },
+        "INSERT projects": {
+          "count": 1,
+          "minMs": 0.0188,
+          "maxMs": 0.018815,
+          "meanMs": 0.018808,
+          "p50Ms": 0.018815,
+          "p95Ms": 0.018815,
+          "p99Ms": 0.018815
+        }
+      }
+    },
+    "activeWsConnections": 7,
+    "activeCollabRooms": 1,
+    "activeSandboxes": 0,
+    "totalCollabBroadcastSends": 5088,
+    "memory": {
+      "rssBytes": 93069312,
+      "heapUsedBytes": 25894280,
+      "heapTotalBytes": 35241984,
+      "externalBytes": 8027069,
+      "arrayBuffersBytes": 3591981
+    },
+    "cpuUsageMicros": {
+      "userMicros": 1578000,
+      "systemMicros": 593000
+    },
+    "gc": {
+      "minor": {
+        "count": 61,
+        "totalDurationMs": 19.27960003167391
+      },
+      "incremental": {
+        "count": 3,
+        "totalDurationMs": 0.8686000034213066
+      },
+      "major": {
+        "count": 3,
+        "totalDurationMs": 7.436200000345707
+      }
+    }
+  }
+}

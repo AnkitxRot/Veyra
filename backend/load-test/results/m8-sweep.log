@@ -1,0 +1,298 @@
+[m8-sweep] 06:50:29 starting level=m8-baseline-1 args: --users 1
+[load-test] level=m8-baseline-1 users=1 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:53967
+(node:19340) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:19340) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-1-2026-08-25T06-50-30-615Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-1-2026-08-25T06-50-30-615Z.md
+[m8-sweep] 06:51:40 finished level=m8-baseline-1 exit=0
+[m8-sweep] 06:51:40 starting level=m8-baseline-2 args: --users 2
+[load-test] level=m8-baseline-2 users=2 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:54029
+(node:34768) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:34768) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-2-2026-08-25T06-51-41-997Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-2-2026-08-25T06-51-41-997Z.md
+[m8-sweep] 06:52:52 finished level=m8-baseline-2 exit=0
+[m8-sweep] 06:52:52 starting level=m8-baseline-3 args: --users 3
+[load-test] level=m8-baseline-3 users=3 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:54059
+(node:32876) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:32876) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-3-2026-08-25T06-52-53-354Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-3-2026-08-25T06-52-53-354Z.md
+[m8-sweep] 06:54:03 finished level=m8-baseline-3 exit=0
+[m8-sweep] 06:54:03 starting level=m8-baseline-5 args: --users 5
+[load-test] level=m8-baseline-5 users=5 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:52652
+(node:28524) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:28524) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-5-2026-08-25T06-54-04-667Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-5-2026-08-25T06-54-04-667Z.md
+[m8-sweep] 06:55:14 finished level=m8-baseline-5 exit=0
+[m8-sweep] 06:55:14 starting level=m8-baseline-10 args: --users 10
+[load-test] level=m8-baseline-10 users=10 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:52712
+(node:6692) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:6692) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-10-2026-08-25T06-55-16-088Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-10-2026-08-25T06-55-16-088Z.md
+[m8-sweep] 06:56:26 finished level=m8-baseline-10 exit=0
+[m8-sweep] 06:56:26 starting level=m8-baseline-25 args: --users 25
+[load-test] level=m8-baseline-25 users=25 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:52735
+(node:17692) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:17692) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-25-2026-08-25T06-56-27-519Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-25-2026-08-25T06-56-27-519Z.md
+[m8-sweep] 06:57:37 finished level=m8-baseline-25 exit=0
+[m8-sweep] 06:57:37 starting level=m8-baseline-50 args: --users 50
+[load-test] level=m8-baseline-50 users=50 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:63113
+(node:15452) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:15452) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-50-2026-08-25T06-57-39-099Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-baseline-50-2026-08-25T06-57-39-099Z.md
+[m8-sweep] 06:58:49 finished level=m8-baseline-50 exit=0
+[m8-sweep] 06:58:49 starting level=m8-sweep-0ms-2 args: --users 2 --yjs-coalesce-ms 0
+[load-test] level=m8-sweep-0ms-2 users=2 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:63171
+(node:14592) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:14592) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-2-2026-08-25T06-58-50-819Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-2-2026-08-25T06-58-50-819Z.md
+[m8-sweep] 07:00:00 finished level=m8-sweep-0ms-2 exit=0
+[m8-sweep] 07:00:00 starting level=m8-sweep-0ms-5 args: --users 5 --yjs-coalesce-ms 0
+[load-test] level=m8-sweep-0ms-5 users=5 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:61158
+(node:19088) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:19088) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-5-2026-08-25T07-00-02-157Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-5-2026-08-25T07-00-02-157Z.md
+[m8-sweep] 07:01:12 finished level=m8-sweep-0ms-5 exit=0
+[m8-sweep] 07:01:12 starting level=m8-sweep-0ms-10 args: --users 10 --yjs-coalesce-ms 0
+[load-test] level=m8-sweep-0ms-10 users=10 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:61208
+(node:19100) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:19100) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-10-2026-08-25T07-01-13-504Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-10-2026-08-25T07-01-13-504Z.md
+[m8-sweep] 07:02:23 finished level=m8-sweep-0ms-10 exit=0
+[m8-sweep] 07:02:23 starting level=m8-sweep-0ms-25 args: --users 25 --yjs-coalesce-ms 0
+[load-test] level=m8-sweep-0ms-25 users=25 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:64567
+(node:22912) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:22912) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-25-2026-08-25T07-02-24-897Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-25-2026-08-25T07-02-24-897Z.md
+[m8-sweep] 07:03:35 finished level=m8-sweep-0ms-25 exit=0
+[m8-sweep] 07:03:35 starting level=m8-sweep-0ms-50 args: --users 50 --yjs-coalesce-ms 0
+[load-test] level=m8-sweep-0ms-50 users=50 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:64666
+(node:32092) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:32092) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-50-2026-08-25T07-03-36-382Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-0ms-50-2026-08-25T07-03-36-382Z.md
+[m8-sweep] 07:04:46 finished level=m8-sweep-0ms-50 exit=0
+[m8-sweep] 07:04:46 starting level=m8-sweep-5ms-2 args: --users 2 --yjs-coalesce-ms 5
+[load-test] level=m8-sweep-5ms-2 users=2 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:64743
+(node:6312) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:6312) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-2-2026-08-25T07-04-48-003Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-2-2026-08-25T07-04-48-003Z.md
+[m8-sweep] 07:05:58 finished level=m8-sweep-5ms-2 exit=0
+[m8-sweep] 07:05:58 starting level=m8-sweep-5ms-5 args: --users 5 --yjs-coalesce-ms 5
+[load-test] level=m8-sweep-5ms-5 users=5 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:64803
+(node:32048) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:32048) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-5-2026-08-25T07-05-59-380Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-5-2026-08-25T07-05-59-380Z.md
+[m8-sweep] 07:07:09 finished level=m8-sweep-5ms-5 exit=0
+[m8-sweep] 07:07:09 starting level=m8-sweep-5ms-10 args: --users 10 --yjs-coalesce-ms 5
+[load-test] level=m8-sweep-5ms-10 users=10 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:64862
+(node:27880) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:27880) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-10-2026-08-25T07-07-10-731Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-10-2026-08-25T07-07-10-731Z.md
+[m8-sweep] 07:08:20 finished level=m8-sweep-5ms-10 exit=0
+[m8-sweep] 07:08:20 starting level=m8-sweep-5ms-25 args: --users 25 --yjs-coalesce-ms 5
+[load-test] level=m8-sweep-5ms-25 users=25 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:64886
+(node:4732) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:4732) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-25-2026-08-25T07-08-22-169Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-25-2026-08-25T07-08-22-169Z.md
+[m8-sweep] 07:09:32 finished level=m8-sweep-5ms-25 exit=0
+[m8-sweep] 07:09:32 starting level=m8-sweep-5ms-50 args: --users 50 --yjs-coalesce-ms 5
+[load-test] level=m8-sweep-5ms-50 users=50 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:64980
+(node:2376) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:2376) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-50-2026-08-25T07-09-33-780Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-5ms-50-2026-08-25T07-09-33-780Z.md
+[m8-sweep] 07:10:44 finished level=m8-sweep-5ms-50 exit=0
+[m8-sweep] 07:10:44 starting level=m8-sweep-10ms-2 args: --users 2 --yjs-coalesce-ms 10
+[load-test] level=m8-sweep-10ms-2 users=2 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:65044
+(node:4664) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:4664) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-2-2026-08-25T07-10-45-436Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-2-2026-08-25T07-10-45-436Z.md
+[m8-sweep] 07:11:55 finished level=m8-sweep-10ms-2 exit=0
+[m8-sweep] 07:11:55 starting level=m8-sweep-10ms-5 args: --users 5 --yjs-coalesce-ms 10
+[load-test] level=m8-sweep-10ms-5 users=5 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:65085
+(node:1840) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:1840) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-5-2026-08-25T07-11-56-765Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-5-2026-08-25T07-11-56-765Z.md
+[m8-sweep] 07:13:06 finished level=m8-sweep-10ms-5 exit=0
+[m8-sweep] 07:13:06 starting level=m8-sweep-10ms-10 args: --users 10 --yjs-coalesce-ms 10
+[load-test] level=m8-sweep-10ms-10 users=10 burst=false ramp=15s steady=45s rampdown=10s
+(node:24700) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[load-test] server up at http://127.0.0.1:65155
+(node:24700) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-10-2026-08-25T07-13-08-146Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-10-2026-08-25T07-13-08-146Z.md
+[m8-sweep] 07:14:18 finished level=m8-sweep-10ms-10 exit=0
+[m8-sweep] 07:14:18 starting level=m8-sweep-10ms-25 args: --users 25 --yjs-coalesce-ms 10
+[load-test] level=m8-sweep-10ms-25 users=25 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:60555
+(node:6528) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:6528) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-25-2026-08-25T07-14-19-521Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-25-2026-08-25T07-14-19-521Z.md
+[m8-sweep] 07:15:29 finished level=m8-sweep-10ms-25 exit=0
+[m8-sweep] 07:15:29 starting level=m8-sweep-10ms-50 args: --users 50 --yjs-coalesce-ms 10
+[load-test] level=m8-sweep-10ms-50 users=50 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:60640
+(node:33160) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:33160) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-50-2026-08-25T07-15-31-039Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-10ms-50-2026-08-25T07-15-31-039Z.md
+[m8-sweep] 07:16:41 finished level=m8-sweep-10ms-50 exit=0
+[m8-sweep] 07:16:41 starting level=m8-sweep-50ms-2 args: --users 2 --yjs-coalesce-ms 50
+[load-test] level=m8-sweep-50ms-2 users=2 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:60709
+(node:7388) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:7388) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-2-2026-08-25T07-16-42-704Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-2-2026-08-25T07-16-42-704Z.md
+[m8-sweep] 07:17:52 finished level=m8-sweep-50ms-2 exit=0
+[m8-sweep] 07:17:52 starting level=m8-sweep-50ms-5 args: --users 5 --yjs-coalesce-ms 50
+[load-test] level=m8-sweep-50ms-5 users=5 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:60775
+(node:24660) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:24660) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-5-2026-08-25T07-17-54-035Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-5-2026-08-25T07-17-54-035Z.md
+[m8-sweep] 07:19:04 finished level=m8-sweep-50ms-5 exit=0
+[m8-sweep] 07:19:04 starting level=m8-sweep-50ms-10 args: --users 10 --yjs-coalesce-ms 50
+[load-test] level=m8-sweep-50ms-10 users=10 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:60818
+(node:33456) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:33456) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-10-2026-08-25T07-19-05-383Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-10-2026-08-25T07-19-05-383Z.md
+[m8-sweep] 07:20:15 finished level=m8-sweep-50ms-10 exit=0
+[m8-sweep] 07:20:15 starting level=m8-sweep-50ms-25 args: --users 25 --yjs-coalesce-ms 50
+[load-test] level=m8-sweep-50ms-25 users=25 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:60849
+(node:15136) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:15136) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-25-2026-08-25T07-20-16-693Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-25-2026-08-25T07-20-16-693Z.md
+[m8-sweep] 07:21:27 finished level=m8-sweep-50ms-25 exit=0
+[m8-sweep] 07:21:27 starting level=m8-sweep-50ms-50 args: --users 50 --yjs-coalesce-ms 50
+[load-test] level=m8-sweep-50ms-50 users=50 burst=false ramp=15s steady=45s rampdown=10s
+[load-test] server up at http://127.0.0.1:58842
+(node:16104) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:16104) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+[load-test] ramp-up (warm-up) complete, holding steady state
+[load-test] ramping down
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-50-2026-08-25T07-21-28-230Z.json
+[load-test] wrote D:\cloudide\backend\load-test\results\level-m8-sweep-50ms-50-2026-08-25T07-21-28-230Z.md
+[m8-sweep] 07:22:38 finished level=m8-sweep-50ms-50 exit=0
+[m8-sweep] ALL DONE
