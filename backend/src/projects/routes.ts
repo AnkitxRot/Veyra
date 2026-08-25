@@ -41,7 +41,7 @@ import {
   importProjectZip,
   importNewProjectZip,
 } from "./archive.js";
-import { searchProjectContent } from "./search.js";
+import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { telemetryHistorian } from "../execution/historian.js";
 import { collaborationManager } from "../collab/manager.js";
@@ -544,10 +544,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   });
 
   const uploadRawParser = raw({
-    type: [
-      "multipart/form-data",
-      "application/octet-stream",
-    ],
+    type: ["multipart/form-data", "application/octet-stream"],
     limit: cfg.maxAggregateUploadBytes ?? 25 * 1024 * 1024,
   });
 
@@ -789,6 +786,166 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           excludePattern,
         });
         res.json(result);
+      } finally {
+        searchGate.release(userId);
+      }
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Workspace-wide Search & Replace — same matching engine/worker-thread
+  // protection as search above, plus the actual write step. `dryRun`
+  // defaults to true (preview-only) so a client must explicitly opt into
+  // `dryRun: false` to touch any file — an accidental/malformed request
+  // never mutates the workspace by default.
+  router.post("/:id/search/replace", async (req, res, next) => {
+    try {
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id,
+        "editor",
+      );
+
+      const body = req.body ?? {};
+      const {
+        query,
+        replacement,
+        isCaseSensitive,
+        isWholeWord,
+        isRegex,
+        includePattern,
+        excludePattern,
+        files,
+        dryRun = true,
+      } = body;
+
+      if (typeof query !== "string" || query.trim().length === 0) {
+        throw new ApiError(400, "query is required", "invalid_query");
+      }
+      if (typeof replacement !== "string") {
+        throw new ApiError(
+          400,
+          "replacement is required (use an empty string to delete matches)",
+          "invalid_replacement",
+        );
+      }
+      if (
+        files !== undefined &&
+        (!Array.isArray(files) || files.some((f) => typeof f !== "string"))
+      ) {
+        throw new ApiError(
+          400,
+          "files must be an array of strings",
+          "invalid_files",
+        );
+      }
+
+      const userId = userOf(req).id;
+      if (!searchGate.acquire(userId, cfg.maxConcurrentRuns)) {
+        throw new ApiError(
+          429,
+          "too many concurrent searches",
+          "too_many_searches",
+        );
+      }
+      try {
+        const cwd = await workspacePath(cfg, project.id);
+        const result = await replaceProjectContent(cwd, {
+          query,
+          replacement,
+          isCaseSensitive,
+          isWholeWord,
+          isRegex,
+          includePattern,
+          excludePattern,
+        });
+
+        const scoped = files
+          ? result.groups.filter((g) =>
+              (files as string[]).includes(g.filePath),
+            )
+          : result.groups;
+
+        if (dryRun !== false) {
+          // Preview only — never touches disk. newContent is internal
+          // (used only by the apply path below), not sent to the client.
+          res.json({
+            groups: scoped.map(({ filePath, matches }) => ({
+              filePath,
+              matches,
+            })),
+            totalMatches: scoped.reduce((n, g) => n + g.matches.length, 0),
+            filesSearched: result.filesSearched,
+            durationMs: result.durationMs,
+            truncated: result.truncated,
+            applied: false,
+          });
+          return;
+        }
+
+        const results: Array<{
+          filePath: string;
+          status: "replaced" | "skipped" | "error";
+          matchCount: number;
+          reason?: string;
+        }> = [];
+        let filesChanged = 0;
+        let matchesReplaced = 0;
+
+        // Best-effort per-file: this is a workspace-wide batch, not a single
+        // transaction, so one file's write failure (disk full, permission
+        // error, etc.) must not silently abort files already written earlier
+        // in the loop, and must not discard the summary of what *did*
+        // succeed — it is reported as a distinct 'error' entry and the loop
+        // continues.
+        for (const group of scoped) {
+          if (group.newContent === null) {
+            results.push({
+              filePath: group.filePath,
+              status: "skipped",
+              matchCount: group.matches.length,
+              reason:
+                "not all occurrences in this file were scanned (result was truncated) or the file was too large to replace safely",
+            });
+            continue;
+          }
+          try {
+            await writeProjectFile(cwd, group.filePath, group.newContent);
+            await collaborationManager.notifyExternalFileMutation(
+              project.id,
+              group.filePath,
+              group.newContent,
+            );
+            filesChanged++;
+            matchesReplaced += group.matches.length;
+            results.push({
+              filePath: group.filePath,
+              status: "replaced",
+              matchCount: group.matches.length,
+            });
+          } catch (err: any) {
+            results.push({
+              filePath: group.filePath,
+              status: "error",
+              matchCount: group.matches.length,
+              reason: err?.message || "write failed",
+            });
+          }
+        }
+
+        if (filesChanged > 0) {
+          touchProject(db, project.id);
+        }
+
+        res.json({
+          applied: true,
+          filesChanged,
+          matchesReplaced,
+          truncated: result.truncated,
+          results,
+        });
       } finally {
         searchGate.release(userId);
       }

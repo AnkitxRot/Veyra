@@ -32,7 +32,8 @@ Last updated: 2026-08-25.
   - Milestone 22 (user preferences & editor settings persistence) at `e138799`.
   - Milestone 23 (automated production deployment smoke & readiness verification harness) at `8669219`.
   - Milestone 24 (direct workspace file & folder upload) at `8c63827`.
-  - Milestone 25 (production database backup & disaster recovery automation) in this commit.
+  - Milestone 25 (production database backup & disaster recovery automation) at `941b545`.
+  - Milestone 26 (workspace-wide search & replace) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1999,6 +2000,45 @@ Verification:
   integrity verification and oldest-first count/byte retention. Database restoration
   is strictly offline-only.
 
+### Milestone 26 — Workspace-wide Search & Replace
+
+Implemented and verified in this working tree. Extends the existing M2 worker-thread-isolated search engine (`backend/src/projects/search.ts`) with an actual replace capability, reusing the same catastrophic-backtracking protection rather than a second, independently-risky implementation:
+
+1. **Search Engine Extension (`backend/src/projects/search.ts`)**:
+   - `replaceProjectContent()` shares the exact matching/traversal logic and killable-worker-thread hard timeout with `searchProjectContent()` via a common `runContentWorker()` helper (mode: `"search" | "replace"`), so replace inherits the same ReDoS defense proven in M2 — verified directly with the same `((a+))+$` adversarial pattern used by M2's own test.
+   - Computes, per matched file, a per-line preview (`replacedLineContent`, line-scoped so multi-line replacement values can't cause line-number drift) and the full post-replacement file content (`newContent`) — but only for files where every occurrence was actually found: a file whose scan was cut short by the `maxResults`/time budget, or one exceeding `MAX_REPLACE_FILE_CHARS` (5MB), still shows its matches for review but reports `newContent: null`, so the caller cannot silently write a file it didn't fully scan.
+   - **Literal vs. regex replacement semantics**: in literal (non-regex) mode, `$` in the replacement text is escaped (`$` → `$$`) before use, since `String.prototype.replace` treats `$1`/`$&` specially regardless of how the _search_ pattern was built — without this, a literal search replaced with e.g. `"$1 total"` would silently drop `$1` to empty string instead of inserting it literally. In regex mode, capture-group backreferences (`$1`, `$2`, ...) are honored as the user intends. Both directions verified by test.
+   - `replaceProjectContent()` never writes to disk itself — it is a pure computation the caller (the route below) decides whether/how to apply, so the identical scan serves both a dry-run preview and the real apply without duplicating matching logic.
+
+2. **Admin/Project REST Endpoint (`backend/src/projects/routes.ts`)**:
+   - `POST /:id/search/replace` — requires `editor` role (not just the `viewer` role `search` requires, since this mutates the workspace); non-collaborators get 404 (IDOR-safe, matches every other project route), read-only collaborators get 403.
+   - `dryRun` defaults to `true` — a client must explicitly pass `dryRun: false` to touch any file, so a malformed/accidental request never mutates the workspace.
+   - Optional `files: string[]` scopes the apply to a caller-selected subset; this only _filters_ the server's own safely-traversed relative-path results (never used to open an arbitrary path), so it introduces no new traversal surface.
+   - Each written file goes through the existing `writeProjectFile()` (workspace-root-validated) and `collaborationManager.notifyExternalFileMutation()`, exactly like the existing single-file save/upload routes, so a live Yjs collaboration session editing a replaced file gets synced instead of silently desynced.
+   - **Per-file failure isolation**: this is a workspace-wide batch, not a single transaction — one file's write failure (verified with an actual read-only file on Windows, not a mock) is caught, reported as a distinct `error` entry, and does not abort files already written earlier in the same request or files still to come; the request still returns `200` with a per-file status breakdown (`replaced` / `skipped` / `error`) rather than a generic `500`.
+
+3. **Frontend (`frontend/src/components/Search/WorkspaceSearchModal.tsx`)**:
+   - Extends the existing M2 search modal (reused Modal/Icon/button patterns, no new component) with a "Replace" toggle revealing a replacement input, a live before→after preview per matched line (strikethrough old / highlighted new), and a "Replace All" button gated behind the existing `ConfirmModal` (destructive-action confirmation, same component already used by Sidebar's delete/overwrite flows).
+   - After applying, shows a summary (files changed, matches replaced, and any skipped/errored files) and re-runs the preview so the list reflects what — if anything — remains.
+   - Verified via clean `tsc --noEmit` + `vite build`; **live browser interaction was not verified** — Chrome automation was unavailable in this session (no extension connected), so this UI change has NOT been exercised end-to-end in a real browser, only typechecked/built and reasoned through against the now-fully-tested backend contract it consumes.
+
+Security considerations: mutating route correctly requires `editor` (write) role vs. `search`'s `viewer` (read) role; IDOR-safe 404 for non-collaborators; no new path-traversal surface (see `files` filtering above); reuses the existing, already-hardened `writeProjectFile` path-safety and Yjs external-mutation-notification machinery rather than reimplementing either; regex-based replacement is bounded by the same worker-thread hard-timeout kill switch as search, verified against the same adversarial ReDoS pattern M2 uses.
+
+Files:
+
+- Production: `backend/src/projects/search.ts`, `backend/src/projects/routes.ts`, `frontend/src/components/Search/WorkspaceSearchModal.tsx`.
+- Tests: `backend/test/search-replace.test.ts` (14 tests: literal replacement, `$`-escaping correctness in both literal and regex modes, case sensitivity/whole-word/include-exclude parity with search, truncation-eligibility gating (`newContent: null`), empty-string deletion, empty-query no-op, ReDoS protection in replace mode, auth/role/ownership matrix (401/403/404/200), query/replacement validation, dry-run-by-default (never writes), explicit apply (writes + returns summary), `files`-scoped apply, and per-file write-failure isolation using a real read-only file).
+
+Verification:
+
+- Focused suite `test/search-replace.test.ts`: **14 passed / 0 failed** (~10.7s, dominated by one intentional 9s ReDoS-timeout test).
+- Related suites (`m2-intelligence.test.ts`, `api.test.ts`, `files.test.ts`): **82 passed / 0 failed, 9 skipped** (~23s).
+- Full backend regression suite: **414 passed / 2 failed / 31 skipped (44 test files)**; the 2 failures are the same confirmed pre-existing baseline failures (`m16-optimization.test.ts`, `pipeline.test.ts`), unmodified, no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite build; one transient `npm`/Node segfault on first attempt reproduced as environmental — a clean retry built successfully with no code change).
+- `git diff --check`: PASS.
+- Frontend diff is larger than the functional change alone: editing this file triggered the project's own PostToolUse Prettier hook to normalize the whole file from single- to double-quoted strings (Prettier's default with no project override configured) — an incidental, tool-driven, zero-semantic-change reformat of pre-existing code, not a manual unrelated edit.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2009,20 +2049,27 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18/M19/M20/M21/M22/M23/M24/M25, reproduce identically on clean HEAD `477dfc7`, are not caused by M25, were not modified during M25, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M26, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M26, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–24 are committed. Milestone 25 (production database backup & disaster recovery automation)
+Milestones 1–25 are committed (M25 at `941b545`). Milestone 26 (workspace-wide search & replace)
 is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
-remains outstanding and un-gated, unchanged from before.
+remains outstanding and un-gated, unchanged from before. M26's frontend UI was verified by clean
+typecheck/build only — live browser interaction was not exercised this session (no Chrome
+automation available); worth a manual pass before/soon after this ships.
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 25**:
-   Stage M25 production changes, tests, scripts, deploy docs, and STATUS.md; commit and push to master.
-2. **Milestone 26 — Project Duplication & Workspace Forking (`POST /api/projects/:id/fork`)**:
-   Allow single-click project cloning, workspace replication, and isolated sandbox provisioning.
+1. **Commit and Publish Milestone 26**:
+   Stage M26 production changes, tests, and STATUS.md; commit and push to master.
+2. **Milestone 27 candidates** (next session should re-audit rather than blindly pick):
+   - Manual/browser QA pass on the M26 search & replace UI (see caveat above).
+   - Project Duplication & Workspace Forking (`POST /api/projects/:id/fork`) — single-click
+     project cloning, workspace replication, and isolated sandbox provisioning.
+   - Two Low-severity M25 security follow-ups deferred at the time: backup files/directory
+     don't get explicit `0o600`/`0o700` permissions (relies on process umask), and downloading
+     a backup via `GET /api/admin/backups/:filename` doesn't emit an audit event.

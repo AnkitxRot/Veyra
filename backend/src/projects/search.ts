@@ -32,7 +32,44 @@ export interface SearchResponse {
   truncated: boolean;
 }
 
+export interface ReplaceOptions extends SearchOptions {
+  /** Replacement text. In regex mode, `$1`/`$&`/etc. are honored as capture-group
+   *  backreferences (standard `String.replace` semantics). In literal mode, `$`
+   *  is treated as a literal character (escaped internally before substitution). */
+  replacement: string;
+}
+
+export interface ReplaceMatch extends SearchMatch {
+  /** Preview of this single line after replacement, computed line-scoped (not
+   *  derived from the whole-file replacement) so it stays simple and accurate
+   *  even if a replacement value itself contains newlines. */
+  replacedLineContent: string;
+}
+
+export interface ReplaceFileGroup {
+  filePath: string;
+  matches: ReplaceMatch[];
+  /**
+   * Full post-replacement file content, or `null` if this file is not
+   * eligible to actually be written: either its match-scan was cut short by
+   * the maxResults/time budget before reaching the end of the file (so not
+   * every occurrence was found — applying would silently miss matches we
+   * never reported), or the file exceeds `MAX_REPLACE_FILE_CHARS`. Matches
+   * are still reported for review either way; only the write step is gated.
+   */
+  newContent: string | null;
+}
+
+export interface ReplaceResponse {
+  groups: ReplaceFileGroup[];
+  totalMatches: number;
+  filesSearched: number;
+  durationMs: number;
+  truncated: boolean;
+}
+
 const DEFAULT_MAX_RESULTS = 500;
+const MAX_REPLACE_FILE_CHARS = 5_000_000;
 
 // Matches the worker's own internal budget below plus a small margin: the
 // worker should normally finish (or self-truncate) within its own budget,
@@ -62,6 +99,7 @@ const { parentPort, workerData } = require('node:worker_threads');
 
 const MAX_LINE_LENGTH_FOR_MATCH = 4000;
 const MAX_SEARCH_DURATION_MS = 8000;
+const MAX_REPLACE_FILE_CHARS = 5000000;
 
 const IGNORE_DIRS = new Set([
   '.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.venv', '__pycache__', '.cache',
@@ -80,7 +118,7 @@ function isBinaryString(str) {
   return false;
 }
 
-function run(workspaceDir, options, regex) {
+function run(workspaceDir, options, regex, mode) {
   const startTime = performance.now();
   const {
     query,
@@ -90,7 +128,21 @@ function run(workspaceDir, options, regex) {
     includePattern,
     excludePattern,
     maxResults = 500,
+    replacement,
   } = options;
+
+  // In regex mode, $1/$&/etc. in the replacement are honored as capture-group
+  // backreferences (standard String.replace semantics) since the user wrote
+  // an actual regex. In literal mode the user typed a plain search string and
+  // does not expect $-substitution, so a literal '$' must be escaped to '$$'
+  // before use, or e.g. replacing with "$1" would silently vanish (no capture
+  // group exists) instead of inserting the literal text "$1".
+  const safeReplacement =
+    mode === 'replace'
+      ? isRegex
+        ? String(replacement || '')
+        : String(replacement || '').split('$').join('$$')
+      : null;
 
   let includeRegex = null;
   if (includePattern && includePattern.trim()) {
@@ -109,6 +161,7 @@ function run(workspaceDir, options, regex) {
   }
 
   const groupsMap = new Map();
+  const newContentMap = new Map();
   let totalMatches = 0;
   let filesSearched = 0;
   let truncated = false;
@@ -171,10 +224,12 @@ function run(workspaceDir, options, regex) {
         }
 
         const lines = content.split('\\n');
+        let fileCutShort = false;
 
         for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
           if (totalMatches >= maxResults || budgetExceeded()) {
             truncated = true;
+            fileCutShort = true;
             break;
           }
 
@@ -186,14 +241,22 @@ function run(workspaceDir, options, regex) {
           while ((match = regex.exec(lineContent)) !== null) {
             const column = match.index + 1;
             const matchLength = match[0].length || 1;
+            const cleanLineContent = lineContent.replace(/\\r$/, '');
 
             const matchItem = {
               filePath: relPath,
               lineNumber: lineIdx + 1,
               column,
-              lineContent: lineContent.replace(/\\r$/, ''),
+              lineContent: cleanLineContent,
               matchLength,
             };
+
+            if (mode === 'replace') {
+              matchItem.replacedLineContent = cleanLineContent.replace(
+                new RegExp(regex.source, regex.flags),
+                safeReplacement,
+              );
+            }
 
             const existing = groupsMap.get(relPath) || [];
             existing.push(matchItem);
@@ -203,6 +266,7 @@ function run(workspaceDir, options, regex) {
 
             if (totalMatches >= maxResults) {
               truncated = true;
+              fileCutShort = true;
               break;
             }
 
@@ -211,21 +275,38 @@ function run(workspaceDir, options, regex) {
             }
           }
         }
+
+        if (mode === 'replace' && groupsMap.has(relPath)) {
+          // Only offer this file for actual writing if we found every one of
+          // its occurrences (not cut short by the maxResults/time budget) and
+          // it is small enough to substitute in one bounded pass — otherwise
+          // matches are still shown for review, but newContent stays null so
+          // the caller knows not to write it.
+          const eligible = !fileCutShort && content.length <= MAX_REPLACE_FILE_CHARS;
+          newContentMap.set(
+            relPath,
+            eligible ? content.replace(new RegExp(regex.source, regex.flags), safeReplacement) : null,
+          );
+        }
       }
     }
   }
 
   traverseDir(workspaceDir);
 
-  const groups = Array.from(groupsMap.entries()).map(([filePath, matches]) => ({ filePath, matches }));
+  const groups = Array.from(groupsMap.entries()).map(([filePath, matches]) => ({
+    filePath,
+    matches,
+    ...(mode === 'replace' ? { newContent: newContentMap.has(filePath) ? newContentMap.get(filePath) : null } : {}),
+  }));
   const durationMs = Math.round((performance.now() - startTime) * 100) / 100;
 
   return { groups, totalMatches, filesSearched, durationMs, truncated };
 }
 
-const { workspaceDir, options, patternSource, patternFlags } = workerData;
+const { workspaceDir, options, patternSource, patternFlags, mode } = workerData;
 const regex = new RegExp(patternSource, patternFlags);
-const result = run(workspaceDir, options, regex);
+const result = run(workspaceDir, options, regex, mode);
 parentPort.postMessage(result);
 `;
 
@@ -245,10 +326,27 @@ parentPort.postMessage(result);
  * outside if it doesn't finish in time — the only mechanism that is
  * correct regardless of *why* a given pattern is slow.
  */
-export async function searchProjectContent(
+/**
+ * Shared plumbing for both search and replace: validates the pattern on the
+ * main thread (cheap, can't hang), then runs the actual traversal/matching
+ * (and, in replace mode, per-file substitution) in a worker thread with the
+ * same hard-timeout kill switch, so replace inherits the exact same
+ * catastrophic-backtracking protection as search rather than a second,
+ * independently-risky implementation.
+ */
+async function runContentWorker<
+  T extends {
+    groups: unknown[];
+    totalMatches: number;
+    filesSearched: number;
+    durationMs: number;
+    truncated: boolean;
+  },
+>(
   workspaceDir: string,
-  options: SearchOptions,
-): Promise<SearchResponse> {
+  options: SearchOptions & { replacement?: string },
+  mode: "search" | "replace",
+): Promise<T> {
   const startTime = performance.now();
   const {
     query,
@@ -257,14 +355,16 @@ export async function searchProjectContent(
     isCaseSensitive = false,
   } = options;
 
+  const emptyResult = {
+    groups: [],
+    totalMatches: 0,
+    filesSearched: 0,
+    durationMs: 0,
+    truncated: false,
+  } as unknown as T;
+
   if (!query || query.trim().length === 0) {
-    return {
-      groups: [],
-      totalMatches: 0,
-      filesSearched: 0,
-      durationMs: 0,
-      truncated: false,
-    };
+    return emptyResult;
   }
 
   // Validate regex syntax on the main thread: *constructing* a RegExp does
@@ -289,7 +389,7 @@ export async function searchProjectContent(
     );
   }
 
-  return new Promise<SearchResponse>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const worker = new Worker(WORKER_SOURCE, {
       eval: true,
       workerData: {
@@ -300,6 +400,7 @@ export async function searchProjectContent(
         },
         patternSource,
         patternFlags,
+        mode,
       },
     });
 
@@ -309,15 +410,13 @@ export async function searchProjectContent(
       settled = true;
       worker.terminate().catch(() => {});
       resolve({
-        groups: [],
-        totalMatches: 0,
-        filesSearched: 0,
+        ...emptyResult,
         durationMs: Math.round((performance.now() - startTime) * 100) / 100,
         truncated: true,
       });
     }, WORKER_HARD_TIMEOUT_MS);
 
-    worker.once("message", (msg: SearchResponse) => {
+    worker.once("message", (msg: T) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -333,4 +432,28 @@ export async function searchProjectContent(
       reject(err);
     });
   });
+}
+
+export async function searchProjectContent(
+  workspaceDir: string,
+  options: SearchOptions,
+): Promise<SearchResponse> {
+  return runContentWorker<SearchResponse>(workspaceDir, options, "search");
+}
+
+/**
+ * Finds every occurrence of `options.query` across the workspace (identical
+ * matching semantics to {@link searchProjectContent}) and computes what each
+ * matched file would look like after substituting `options.replacement`.
+ * Does NOT write anything to disk — this only computes results; the caller
+ * decides whether/how to apply `newContent` per file (see
+ * `POST /:id/search/replace` in projects/routes.ts), so the same scan can
+ * serve both a dry-run preview and an actual apply without duplicating the
+ * matching logic or reimplementing backtracking protection.
+ */
+export async function replaceProjectContent(
+  workspaceDir: string,
+  options: ReplaceOptions,
+): Promise<ReplaceResponse> {
+  return runContentWorker<ReplaceResponse>(workspaceDir, options, "replace");
 }
