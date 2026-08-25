@@ -102,7 +102,25 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
-export async function tree(root: string): Promise<TreeNode[]> {
+interface TreeCacheEntry {
+  tree: TreeNode[];
+  timestamp: number;
+}
+const treeCache = new Map<string, TreeCacheEntry>();
+const inFlightTrees = new Map<string, Promise<TreeNode[]>>();
+const TREE_CACHE_TTL_MS = 500;
+
+export function invalidateTreeCache(root?: string): void {
+  if (root) {
+    treeCache.delete(root);
+    inFlightTrees.delete(root);
+  } else {
+    treeCache.clear();
+    inFlightTrees.clear();
+  }
+}
+
+async function doTree(root: string): Promise<TreeNode[]> {
   let entries;
   try {
     entries = await fs.readdir(root, { withFileTypes: true });
@@ -121,7 +139,7 @@ export async function tree(root: string): Promise<TreeNode[]> {
     const abs = join(root, relPath);
     if (e.isDirectory()) {
       if (SKIP_DIRS.has(e.name)) return null;
-      const children = await tree(abs);
+      const children = await doTree(abs);
       return { name: e.name, path: relPath, type: 'dir', children };
     } else if (e.isFile()) {
       try {
@@ -136,6 +154,32 @@ export async function tree(root: string): Promise<TreeNode[]> {
   });
 
   return mapped.filter((n): n is TreeNode => n !== null);
+}
+
+export async function tree(root: string): Promise<TreeNode[]> {
+  const cached = treeCache.get(root);
+  const now = Date.now();
+  if (cached && now - cached.timestamp < TREE_CACHE_TTL_MS) {
+    return cached.tree;
+  }
+
+  const inFlight = inFlightTrees.get(root);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const result = await doTree(root);
+      treeCache.set(root, { tree: result, timestamp: Date.now() });
+      return result;
+    } finally {
+      inFlightTrees.delete(root);
+    }
+  })();
+
+  inFlightTrees.set(root, fetchPromise);
+  return fetchPromise;
 }
 
 export async function readProjectFile(root: string, relPath: string): Promise<{ content: string; size: number }> {
@@ -164,6 +208,7 @@ export async function writeProjectFile(root: string, relPath: string, content: s
   }
   await fs.mkdir(dirname(abs), { recursive: true });
   await fs.writeFile(abs, content, 'utf8');
+  invalidateTreeCache(root);
 }
 
 export async function moveProjectPath(root: string, from: string, to: string): Promise<{ path: string }> {
@@ -184,6 +229,7 @@ export async function moveProjectPath(root: string, from: string, to: string): P
   }
   await fs.mkdir(dirname(dstAbs), { recursive: true });
   await fs.rename(srcAbs, dstAbs);
+  invalidateTreeCache(root);
   return { path: to };
 }
 
@@ -198,6 +244,7 @@ export async function deleteProjectPath(root: string, relPath: string): Promise<
     throw new ApiError(404, 'path not found', 'not_found');
   }
   await fs.rm(abs, { recursive: true, force: true });
+  invalidateTreeCache(root);
 }
 
 export { SKIP_DIRS };

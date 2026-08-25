@@ -342,10 +342,6 @@ export class SandboxManager {
 
     const containerId = `ide-sandbox-${projectId}`;
 
-    try {
-      await execFileAsync("docker", ["rm", "-f", containerId]);
-    } catch {}
-
     if (!this.provisionedNetworks.has(projectId)) {
       try {
         await execFileAsync("docker", [
@@ -408,17 +404,31 @@ export class SandboxManager {
       "infinity",
     ];
 
-    await execFileAsync("docker", dockerArgs);
+    try {
+      await execFileAsync("docker", dockerArgs);
+    } catch (err: any) {
+      const msg = String(err?.message || err?.stderr || "");
+      if (msg.includes("Conflict") || msg.includes("already in use")) {
+        try {
+          await execFileAsync("docker", ["rm", "-f", containerId]);
+        } catch {}
+        await execFileAsync("docker", dockerArgs);
+      } else {
+        throw err;
+      }
+    }
 
     const portMapping: Record<number, number> = {};
     if (!config.containerized) {
-      const { stdout } = await execFileAsync("docker", ["port", containerId]);
-      for (const line of stdout.split("\n")) {
-        const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
-        if (match) {
-          portMapping[parseInt(match[1], 10)] = parseInt(match[2], 10);
+      try {
+        const { stdout } = await execFileAsync("docker", ["port", containerId]);
+        for (const line of stdout.split("\n")) {
+          const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
+          if (match) {
+            portMapping[parseInt(match[1], 10)] = parseInt(match[2], 10);
+          }
         }
-      }
+      } catch {}
     }
 
     return { containerId, portMapping };
@@ -547,6 +557,10 @@ export class SandboxManager {
     if (containerized) {
       await this.connectAppToProjectNetwork(projectId);
       return `http://${info.containerId}:${internalPort}`;
+    }
+    if (info.ports[internalPort] === undefined) {
+      const ports = await this.readPortMapping(info.containerId);
+      info.ports = ports;
     }
     if (info.ports[internalPort] === undefined) return null;
     return `http://127.0.0.1:${info.ports[internalPort]}`;
