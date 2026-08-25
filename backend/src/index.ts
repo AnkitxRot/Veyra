@@ -5,6 +5,7 @@ import { setupWebSocketServer, getHeartbeatController } from "./ws/index.js";
 import { sandboxManager } from "./execution/sandbox.js";
 import { telemetryHistorian } from "./execution/historian.js";
 import { deleteExpiredSessions } from "./auth/middleware.js";
+import { cleanupExpiredDemoAccounts } from "./auth/demoGc.js";
 import { hashPassword } from "./auth/passwords.js";
 import { ensureAdminUser } from "./db.js";
 import { collaborationManager } from "./collab/manager.js";
@@ -176,10 +177,16 @@ async function start(): Promise<void> {
 
   await bootstrapAdmin(config, db);
 
-  // Startup hardening: drop expired sessions, then reconcile Docker state
-  // (removes orphaned containers, rebuilds preview port mappings). Reconcile is
-  // awaited so sandbox-dependent operations never observe stale state.
+  // Startup hardening: drop expired sessions, purge expired demo accounts,
+  // then reconcile Docker state (removes orphaned containers, rebuilds preview
+  // port mappings). Reconcile is awaited so sandbox-dependent operations never
+  // observe stale state.
   deleteExpiredSessions(db);
+  try {
+    await cleanupExpiredDemoAccounts(config, db);
+  } catch (err) {
+    console.error("[auth] startup demo GC failed:", err);
+  }
   try {
     await sandboxManager.reconcile(config, db);
   } catch (err) {
@@ -190,6 +197,9 @@ async function start(): Promise<void> {
   const sessionGcTimer = setInterval(() => {
     try {
       deleteExpiredSessions(db);
+      void cleanupExpiredDemoAccounts(config, db).catch((err) => {
+        console.error("[auth] periodic demo GC failed:", err);
+      });
     } catch (err) {
       console.error("[auth] session GC failed:", err);
     }

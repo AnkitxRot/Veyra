@@ -252,6 +252,14 @@ export async function deleteProject(
     // Best-effort: historian may not be initialized in this context
   }
   await fs.rm(projectDir(cfg, project.id), { recursive: true, force: true });
+  try {
+    await fs.rm(join(cfg.dataDir, "snapshots", project.id), {
+      recursive: true,
+      force: true,
+    });
+  } catch {
+    // Best-effort: snapshot directory may not exist
+  }
   db.prepare("DELETE FROM projects WHERE id = ?").run(id);
 }
 

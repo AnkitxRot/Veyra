@@ -43,6 +43,8 @@ export interface AppConfig {
   sandboxIdleTimeoutMs: number;
   sandboxReaperIntervalMs: number;
   sessionGcIntervalMs: number;
+  demoAccountTtlMs: number;
+  demoGcIntervalMs: number;
   trustProxy: boolean;
   cookieSecure: boolean;
   maxSandboxes: number;
@@ -162,6 +164,12 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     sessionGcIntervalMs:
       overrides.sessionGcIntervalMs ??
       Number(process.env.SESSION_GC_INTERVAL_MS ?? 3_600_000),
+    demoAccountTtlMs:
+      overrides.demoAccountTtlMs ??
+      Number(process.env.DEMO_ACCOUNT_TTL_MS ?? 2 * 3600 * 1000),
+    demoGcIntervalMs:
+      overrides.demoGcIntervalMs ??
+      Number(process.env.DEMO_GC_INTERVAL_MS ?? 600_000),
     trustProxy:
       overrides.trustProxy ??
       (process.env.TRUST_PROXY !== undefined

@@ -25,7 +25,8 @@ Last updated: 2026-08-25.
   - Milestone 15 (bounded cold-sandbox prewarming experiment — measurement only; decision: REJECTED, prewarming not needed/justified) at `5535113`.
   - Milestone 16 (cold sandbox provisioning & concurrency optimization) at `5a3cc25`.
   - Milestone 17 (cumulative scale validation post-M16 — measurement only) at `477dfc7`.
-  - Milestone 18 (cold-wait decomposition & scheduling decision — measurement only; decision: ACCEPT current behavior, no scheduler justified) in this commit.
+  - Milestone 18 (cold-wait decomposition & scheduling decision — measurement only; decision: ACCEPT current behavior, no scheduler justified) at `1a6bf07`.
+  - Milestone 19 (session lifecycle & WebSocket security hardening — logout WS teardown & demo account GC) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1624,6 +1625,38 @@ Evidence Artifacts:
 - `backend/load-test/investigate-m18-cold-wait.ts`
 - `backend/load-test/results/m18-cold-wait-investigation-*.{json,md}`
 
+### Milestone 19 — Session Lifecycle & WebSocket Security Hardening
+
+Implemented and verified in this working tree. Closes the outstanding Phase-1 backlog items for session termination and demo-account lifecycle:
+
+1. **Logout WebSocket Teardown**:
+   - `POST /api/auth/logout` now immediately severs all active WebSocket connections (bash terminal PTYs, Yjs collaboration rooms, preview proxy tunnels, and telemetry streams) registered to the user ID via `closeAllConnectionsForUser(req.user.id)`. Sockets receive close frame 4401 "Session revoked" backed by deferred forceful termination.
+   - Preserves existing cookie clearance, token invalidation in DB, and in-memory session cache purge.
+
+2. **Automated Demo Account Garbage Collection**:
+   - Implemented `cleanupExpiredDemoAccounts(cfg, db, now)` in `backend/src/auth/demoGc.ts`.
+   - Single-flight in-flight promise deduplication prevents overlapping GC passes.
+   - Selects expired disposable guest accounts matching `evaluator_%` whose TTL has elapsed (default 2 hours via `cfg.demoAccountTtlMs`) and who hold no active unexpired sessions.
+   - For each expired demo user: disposes collaborative rooms, stops Docker sandboxes, removes workspace and snapshot directories from disk, destroys any residual sockets, cascades deletion across all DB tables (`projects`, `runs`, `snapshots`, `sessions`, `users`), and emits a `DEMO_ACCOUNTS_GC` audit log entry.
+   - Registered `cleanupExpiredDemoAccounts` on server startup and wired it into the periodic maintenance interval (`sessionGcTimer`).
+
+3. **Public Registration Reservation**:
+   - `POST /api/auth/register` explicitly forbids registering usernames starting with `evaluator_`, reserving the prefix exclusively for server-generated guest sessions.
+
+4. **Snapshot Storage Cleanup on Project Deletion**:
+   - `deleteProject` in `backend/src/projects/service.ts` now cleans up snapshot archive directories on disk (`join(cfg.dataDir, "snapshots", project.id)`).
+
+Files:
+- Production: `backend/src/auth/routes.ts`, `backend/src/auth/demoGc.ts`, `backend/src/audit.ts`, `backend/src/config.ts`, `backend/src/index.ts`, `backend/src/projects/service.ts`.
+- Tests: `backend/test/auth-lifecycle.test.ts` (9 tests covering logout WS teardown, demo account GC, unexpired demo retention, normal user preservation, single-flight concurrency, and missing resource recovery).
+
+Verification:
+- Focused suite `test/auth-lifecycle.test.ts`: **9 passed / 0 failed** (963ms).
+- Full backend regression suite: **338 passed / 2 failed / 4 skipped (36 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite built in 32.73s).
+- `git diff --check`: PASS.
+
 ## Architecture decisions (do not rediscover)
 
 - **Sandbox capacity now has both a global safety cap and a per-user
@@ -1651,6 +1684,10 @@ Evidence Artifacts:
   is 100% sub-second. Adding a scheduler, queue, or admission controller
   would not increase Docker throughput and would convert fast, clear failures
   into slow, opaque waits. See M18 evidence above.
+- **Demo accounts are strictly ephemeral and garbage-collected.** Evaluator
+  sessions (`evaluator_*`) have a 2-hour TTL and are automatically purged
+  along with their workspace files on disk, Docker sandboxes, snapshots,
+  and DB rows on startup and periodic maintenance.
 
 ## Known non-blocking issues
 
@@ -1659,26 +1696,24 @@ Evidence Artifacts:
   unused `err` param lint warning in `proxy-ws.test.ts`;
   `proxyTargets.ts` pathRewrite non-canonical-port spelling wart;
   containerized-mode preview-port publication asymmetry in `getProxyTarget`.
-- Pre-existing test suite baseline expectations (329 passed / 2 failed / 4 skipped across 35 test files):
+- Pre-existing test suite baseline expectations (338 passed / 2 failed / 4 skipped across 36 test files):
   - `backend/test/lifecycle.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18, reproduce identically on clean HEAD `477dfc7`, are not caused by M18, were not modified during M18, and remain tracked non-blocking test expectation updates outside this milestone's scope.
-- M1 follow-ups queued elsewhere: demo-account GC absence, logout not tearing
-  down live WS connections, snapshot quotas (tracked for Phase-1 backlog).
+  - Both failures are pre-existing relative to M18/M19, reproduce identically on clean HEAD `477dfc7`, are not caused by M19, were not modified during M19, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+- Snapshot quotas (tracked for Phase-1 backlog).
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–17 are committed. Milestone 18 (cold-wait decomposition & scheduling decision)
-documentation and evidence are complete in this working tree. The single-process
-performance-hardening investigation arc (M8–M18) is complete and concluded. Manual QA
-execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
-unchanged from before.
+Milestones 1–18 are committed. Milestone 19 (session lifecycle & WebSocket security hardening)
+is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
+remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-The M8–M18 performance investigation and optimization arc is concluded.
-Remaining engineering should shift to product features, deployment, or
-user-facing improvements rather than further single-process performance work.
+1. **Commit and Publish Milestone 19**:
+   Stage M19 production changes, test suite, and STATUS.md; commit and push to master.
+2. **Phase-1 Backlog — Project Snapshot Storage Quotas & Retention**:
+   Implement configurable snapshot limits per user/project to bound disk storage growth.

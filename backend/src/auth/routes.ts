@@ -11,6 +11,7 @@ import { RateLimiter } from "./ratelimit.js";
 import { createProject, projectDir } from "../projects/service.js";
 import { writeProjectFile } from "../files/service.js";
 import { recordAuditLog } from "../audit.js";
+import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -210,7 +211,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
           "invalid_username",
         );
       }
-      if (username === cfg.adminUsername) {
+      if (username === cfg.adminUsername || username.startsWith("evaluator_")) {
         throw new ApiError(409, "username already taken", "username_taken");
       }
       if (
@@ -449,6 +450,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
         details: { username: req.user.username },
         ipAddress: req.ip,
       });
+      closeAllConnectionsForUser(req.user.id);
     }
 
     res.clearCookie("session_token", { path: "/" });
