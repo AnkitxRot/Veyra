@@ -1,10 +1,16 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
-import { rmSync } from "node:fs";
+import { rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
+import {
+  createDatabaseBackup,
+  listDatabaseBackups,
+  deleteDatabaseBackup,
+  BACKUP_FILENAME_RE,
+} from "../backup/service.js";
 import {
   getSystemCapabilitiesAsync,
   isDockerRunning,
@@ -951,6 +957,98 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
             maxSandboxes: cfg.maxSandboxes,
           },
         });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // 10. Database Backups
+  router.get(
+    "/backups",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const backups = await listDatabaseBackups(cfg);
+        res.json({
+          backups: backups.map((b) => ({
+            filename: b.filename,
+            sizeBytes: b.sizeBytes,
+            createdAt: b.createdAt,
+            integrity: b.integrity,
+          })),
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.post(
+    "/backups",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const actorUserId = (req as any).user?.id;
+        const backup = await createDatabaseBackup(db, cfg, {
+          actorUserId,
+          ipAddress: req.ip,
+        });
+        res.status(201).json({
+          ok: true,
+          backup: {
+            filename: backup.filename,
+            sizeBytes: backup.sizeBytes,
+            createdAt: backup.createdAt,
+            integrity: backup.integrity,
+          },
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.get(
+    "/backups/:filename",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const filename = req.params.filename;
+        if (
+          !BACKUP_FILENAME_RE.test(filename) ||
+          filename.includes("..") ||
+          filename.includes("/") ||
+          filename.includes("\\") ||
+          filename.includes("\0")
+        ) {
+          throw new ApiError(400, "Invalid backup filename", "invalid_filename");
+        }
+
+        const filePath = join(cfg.backupDir, filename);
+        if (!existsSync(filePath)) {
+          throw new ApiError(404, "Backup not found", "not_found");
+        }
+
+        res.download(filePath, filename);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete(
+    "/backups/:filename",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const actorUserId = (req as any).user?.id;
+        const filename = req.params.filename;
+        await deleteDatabaseBackup(db, cfg, filename, {
+          actorUserId,
+          ipAddress: req.ip,
+        });
+        res.json({ ok: true, deleted: filename });
       } catch (err) {
         next(err);
       }

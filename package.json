@@ -15,7 +15,8 @@
     "runner:build": "node scripts/build-runner.js",
     "deploy:setup": "bash scripts/setup-vps.sh",
     "deploy:up": "bash scripts/prod-up.sh",
-    "deploy:smoke": "node scripts/smoke-test.js"
+    "deploy:smoke": "node scripts/smoke-test.js",
+    "db:backup": "node scripts/backup-db.js"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

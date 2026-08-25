@@ -77,26 +77,26 @@ docker compose up -d
 will refuse to start without it. Everything else is optional and has a safe default
 (see `.env.example`):
 
-| Variable                  | Default              | Purpose |
-|---------------------------|----------------------|---------|
-| `ADMIN_USERNAME`          | `admin`               | Username of the bootstrapped administrator account. |
-| `ADMIN_PASSWORD`          | *(required)*          | Password for the bootstrapped administrator account. Set once in `.env`; the account is created on first startup and this value is not used to change its password afterward — see `.env.example`. |
-| `HTTP_PORT`               | `3000`               | Host port published for the app. |
-| `DOCKER_GID`              | `999`                | Host docker group gid for non-root socket access. |
-| `MAX_SANDBOXES`           | `20`                 | Hard cap on concurrent sandbox containers. |
-| `PROJECT_QUOTA`           | `20`                 | Max projects per user. |
-| `MAX_CONCURRENT_RUNS`     | `3`                  | Max concurrent executions per user. |
-| `SANDBOX_IDLE_TIMEOUT_MS` | `1800000`            | Idle time before a sandbox is reaped. |
+| Variable                  | Default      | Purpose                                                                                                                                                                                            |
+| ------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN_USERNAME`          | `admin`      | Username of the bootstrapped administrator account.                                                                                                                                                |
+| `ADMIN_PASSWORD`          | _(required)_ | Password for the bootstrapped administrator account. Set once in `.env`; the account is created on first startup and this value is not used to change its password afterward — see `.env.example`. |
+| `HTTP_PORT`               | `3000`       | Host port published for the app.                                                                                                                                                                   |
+| `DOCKER_GID`              | `999`        | Host docker group gid for non-root socket access.                                                                                                                                                  |
+| `MAX_SANDBOXES`           | `20`         | Hard cap on concurrent sandbox containers.                                                                                                                                                         |
+| `PROJECT_QUOTA`           | `20`         | Max projects per user.                                                                                                                                                                             |
+| `MAX_CONCURRENT_RUNS`     | `3`          | Max concurrent executions per user.                                                                                                                                                                |
+| `SANDBOX_IDLE_TIMEOUT_MS` | `1800000`    | Idle time before a sandbox is reaped.                                                                                                                                                              |
 
 Set in production (not in `.env`): `NODE_ENV=production` (already set in the image),
 and any secrets your reverse proxy needs.
 
 ## Persistent volume paths
 
-| Path                      | Contents | Survives redeploy? |
-|---------------------------|----------|--------------------|
-| `/var/lib/cloud-ide/cloudide.db` (+ `-wal`, `-shm`) | SQLite (users, sessions, projects) | Yes (volume) |
-| `/var/lib/cloud-ide/workspaces/<projectId>/` | Project files | Yes (volume) |
+| Path                                                | Contents                           | Survives redeploy? |
+| --------------------------------------------------- | ---------------------------------- | ------------------ |
+| `/var/lib/cloud-ide/cloudide.db` (+ `-wal`, `-shm`) | SQLite (users, sessions, projects) | Yes (volume)       |
+| `/var/lib/cloud-ide/workspaces/<projectId>/`        | Project files                      | Yes (volume)       |
 
 Everything durable lives under `/var/lib/cloud-ide`. Sandbox **containers** and
 **networks** are ephemeral and are recreated/reconciled automatically on startup; they
@@ -168,6 +168,7 @@ node scripts/smoke-test.js --url=https://ide.example.com
 ```
 
 The smoke test exercises 11 automated scenarios in sequence:
+
 1. **Liveness**: verifies `GET /api/health` HTTP 200 and live status.
 2. **Readiness**: verifies `GET /api/health/ready` database, Docker daemon, and runner image checks.
 3. **Authentication**: provisions a disposable smoke user with strong credentials and tests session cookie issuance.
@@ -181,6 +182,7 @@ The smoke test exercises 11 automated scenarios in sequence:
 11. **Cleanup & Teardown**: deletes the temporary project and logs out the session in a guaranteed `finally` block.
 
 **Exit codes:**
+
 - `0`: All required deployment checks passed (instance is production ready).
 - `1`: One or more checks failed with detailed diagnostic error messages.
 
@@ -216,6 +218,116 @@ docker ps -f label=cloudeeeide.managed=true   # live sandboxes
 
 Idle sandboxes are reaped automatically; orphaned containers/networks are cleaned at
 startup by reconciliation.
+
+## Database Backups & Disaster Recovery
+
+CloudeeeIDE uses an online point-in-time snapshot mechanism powered by SQLite `VACUUM INTO`. This is "online" at the SQLite/WAL engine level — no other database connection or process is locked out while a backup runs. It is **not** non-blocking at the application level: the backup implementation uses Node's synchronous `DatabaseSync` API, so `VACUUM INTO` and the subsequent integrity check block the Node process's event loop for their duration, meaning no other HTTP, WebSocket, or terminal traffic in that process is serviced while a backup executes. Measured cost at the tested database size (~260KB) is small (~8ms), but backup latency scales with database size — schedule production backups off-peak (e.g. via the cron job below) and monitor duration as the database grows.
+
+Backup creation, retention pruning, and deletion are serialized through a cross-process filesystem lock in the backup directory, shared by both the admin API (server-triggered backups) and this CLI (cron-triggered backups), so the two can never race against each other even though they run as separate OS processes.
+
+### 1. Manual Backup Command
+
+Run the standalone CLI backup utility from the host or within the container:
+
+```bash
+npm run db:backup
+# Or directly with node:
+node scripts/backup-db.js --backup-dir=/var/lib/cloud-ide/backups --max-backups=10
+```
+
+Sample output:
+
+```
+============================================================
+  Veyra SQLite Production Database Backup
+============================================================
+  Target Database:  /var/lib/cloud-ide/cloudeeeide.db
+  Backup Directory: /var/lib/cloud-ide/backups
+
+  ✓ Online backup completed and verified:
+    File:       cloudeeeide_backup_2026-08-26T01-30-00-000Z_a1b2c3d4.db
+    Size:       266,240 bytes (260.0 KB)
+    Duration:   8ms
+    Integrity:  ok
+    Retention:  10 backups retained (0 pruned)
+============================================================
+```
+
+### 2. Automated Scheduled Backups (Cron)
+
+To take automated hourly or daily backups with automatic oldest-first pruning, add a cron job on the host system:
+
+```bash
+# Run backup daily at 02:00 UTC
+0 2 * * * cd /opt/cloudeeeide && /usr/bin/npm run db:backup >> /var/log/cloudeeeide-backup.log 2>&1
+```
+
+### 3. Backup Configuration Tunables
+
+| Variable               | Default                      | Purpose                                                               |
+| ---------------------- | ---------------------------- | --------------------------------------------------------------------- |
+| `BACKUP_DIR`           | `/var/lib/cloud-ide/backups` | Target directory for timestamped `.db` backup files.                  |
+| `MAX_DATABASE_BACKUPS` | `10`                         | Maximum number of backup files to retain before oldest-first pruning. |
+| `MAX_BACKUP_BYTES`     | `104857600` (100MB)          | Maximum total storage allocated for backup retention.                 |
+
+### 4. Admin API Management
+
+Authenticated administrators can manage backups programmatically:
+
+- `GET /api/admin/backups`: Lists all backups with size, timestamp, and integrity status.
+- `POST /api/admin/backups`: Triggers an online backup and integrity check.
+- `GET /api/admin/backups/:filename`: Downloads a verified backup file.
+- `DELETE /api/admin/backups/:filename`: Safely deletes a specific backup and records an audit log.
+
+### 5. Offline Disaster Recovery Runbook
+
+> [!WARNING]
+> Database restoration replaces the active SQLite database and must **only** be performed while the application service is stopped. Never overwrite the database file while the application process is running.
+
+#### Step-by-Step Restoration Procedure
+
+1. **Stop the application service**:
+
+   ```bash
+   docker compose -f deploy/docker-compose.prod.yml stop app
+   ```
+
+2. **Make a safety copy of the current state**:
+
+   ```bash
+   cp /var/lib/cloud-ide/cloudeeeide.db /var/lib/cloud-ide/cloudeeeide.db.corrupt-backup
+   # Remove active WAL journals so SQLite starts with clean single-file state
+   rm -f /var/lib/cloud-ide/cloudeeeide.db-wal /var/lib/cloud-ide/cloudeeeide.db-shm
+   ```
+
+3. **Select a verified backup file**:
+
+   ```bash
+   ls -la /var/lib/cloud-ide/backups/
+   ```
+
+4. **Restore the database**:
+
+   ```bash
+   cp /var/lib/cloud-ide/backups/cloudeeeide_backup_<TIMESTAMP>_<NONCE>.db /var/lib/cloud-ide/cloudeeeide.db
+   ```
+
+5. **Verify database integrity before starting**:
+
+   ```bash
+   node -e "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync('/var/lib/cloud-ide/cloudeeeide.db'); console.log('Integrity:', db.prepare('PRAGMA integrity_check').get()); db.close();"
+   ```
+
+6. **Start the application service**:
+
+   ```bash
+   docker compose -f deploy/docker-compose.prod.yml start app
+   ```
+
+7. **Verify deployment readiness**:
+   ```bash
+   npm run deploy:smoke
+   ```
 
 ## Troubleshooting
 

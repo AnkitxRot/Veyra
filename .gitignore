@@ -121,6 +121,9 @@
 **/tmp/
 **/temp/
 
+# Heap/memory profiling snapshots (large binaries, not evidence artifacts)
+*.heapsnapshot
+
 # Dart
 **/.dart_tool/
 **/*.dart_tool

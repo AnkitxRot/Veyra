@@ -26,6 +26,8 @@ export type AuditEventType =
   | 'USER_PASSWORD_RESET_BY_ADMIN'
   | 'USER_DELETED_BY_ADMIN'
   | 'USER_PREFERENCES_UPDATED'
+  | 'DATABASE_BACKUP_CREATED'
+  | 'DATABASE_BACKUP_DELETED'
   | 'ADMIN_ACTION';
 
 export interface AuditRecord {

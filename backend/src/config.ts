@@ -66,6 +66,10 @@ export interface AppConfig {
   maxSingleUploadFileBytes: number;
   maxAggregateUploadBytes: number;
   maxUploadFileCount: number;
+  backupDir: string;
+  maxDatabaseBackups: number;
+  maxBackupBytes: number;
+  backupLockStaleMs: number;
   /** M6: collaboration broadcast coalescing + backpressure. Kept
    *  env-configurable, like every other tunable in this file, specifically
    *  so the load harness can vary them without touching production code —
@@ -280,5 +284,23 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     maxUploadFileCount:
       overrides.maxUploadFileCount ??
       Number(process.env.MAX_UPLOAD_FILE_COUNT ?? 500),
+    backupDir:
+      overrides.backupDir ?? process.env.BACKUP_DIR ?? join(dataDir, "backups"),
+    maxDatabaseBackups:
+      overrides.maxDatabaseBackups ??
+      Number(process.env.MAX_DATABASE_BACKUPS ?? 10),
+    maxBackupBytes:
+      overrides.maxBackupBytes ??
+      Number(process.env.MAX_BACKUP_BYTES ?? 100 * 1024 * 1024),
+    // A non-numeric BACKUP_LOCK_STALE_MS would silently disable stale-lock
+    // recovery (Date.now() - mtime > NaN is always false, so an abandoned
+    // lock would block backups permanently) — fall back to the default
+    // rather than propagate NaN.
+    backupLockStaleMs:
+      overrides.backupLockStaleMs ??
+      (() => {
+        const raw = Number(process.env.BACKUP_LOCK_STALE_MS);
+        return Number.isFinite(raw) && raw >= 0 ? raw : 30_000;
+      })(),
   };
 }

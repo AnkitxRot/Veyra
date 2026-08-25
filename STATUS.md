@@ -31,7 +31,8 @@ Last updated: 2026-08-25.
   - Milestone 21 (project workspace export & import) at `a4e933a`.
   - Milestone 22 (user preferences & editor settings persistence) at `e138799`.
   - Milestone 23 (automated production deployment smoke & readiness verification harness) at `8669219`.
-  - Milestone 24 (direct workspace file & folder upload) in this commit.
+  - Milestone 24 (direct workspace file & folder upload) at `8c63827`.
+  - Milestone 25 (production database backup & disaster recovery automation) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1056,7 +1057,7 @@ Committed at `5d46642`. Answers "Next recommended milestone" item 1 from Milesto
 is unchanged). No adaptive logic implemented.
 
 **Method**: `backend/load-test/run.ts` gained one harness-only CLI flag,
-`--yjs-coalesce-ms <n>`, threaded through the *pre-existing*
+`--yjs-coalesce-ms <n>`, threaded through the _pre-existing_
 `bootstrapLoadTestServer` `ConfigOverrides` plumbing (the same mechanism
 M5a uses for `authRateLimit`) into `CollaborationManager`'s existing
 constructor option. There is no second production configuration path; with
@@ -1071,15 +1072,15 @@ exit=0 × 27, zero retries).
 **Baseline at the current default (25ms)** — edit-to-peer p50/p95/p99 ms |
 physical broadcast sends | event-loop p99 | RSS final:
 
-| users | e2p p50/p95/p99 | sends | evloop p99 | RSS |
-| ----- | --------------- | ----- | ---------- | --- |
-| 1     | 31.1/32.1/32.7  | 688   | 32.4       | 84MB |
-| 2     | 30.9/32.9/33.2  | 1,479 | 32.4       | 86MB |
-| 3     | 31.0/32.6/32.7  | 2,490 | 32.3       | 91MB |
-| 5     | 30.9/32.2/32.6  | 5,088 | 32.2       | 93MB |
-| 10    | 30.8/32.5/32.9  | 12,950| 32.3       | 120MB |
-| 25    | 30.6/33.1/35.0  | 40,814| 32.9       | 237MB |
-| 50    | 30.2/33.9/37.9  | 87,780| 35.6       | 368MB |
+| users | e2p p50/p95/p99 | sends  | evloop p99 | RSS   |
+| ----- | --------------- | ------ | ---------- | ----- |
+| 1     | 31.1/32.1/32.7  | 688    | 32.4       | 84MB  |
+| 2     | 30.9/32.9/33.2  | 1,479  | 32.4       | 86MB  |
+| 3     | 31.0/32.6/32.7  | 2,490  | 32.3       | 91MB  |
+| 5     | 30.9/32.2/32.6  | 5,088  | 32.2       | 93MB  |
+| 10    | 30.8/32.5/32.9  | 12,950 | 32.3       | 120MB |
+| 25    | 30.6/33.1/35.0  | 40,814 | 32.9       | 237MB |
+| 50    | 30.2/33.9/37.9  | 87,780 | 35.6       | 368MB |
 
 (1-user row is a different semantic case — no peer fan-out; reported as a
 floor reference only.)
@@ -1087,15 +1088,15 @@ floor reference only.)
 **Window sweep** — physical sends (% change vs 0ms) and edit-to-peer
 p50/p99 ms, per room size:
 
-| users | 0ms | 5ms | 10ms | 25ms | 50ms |
-| ----- | --- | --- | ---- | ---- | ---- |
-| 2  | 1,558 · 15.6/17.3 | 1,590 (+2%) · 15.5/17.5 | 1,580 (+1%) · 15.7/17.1 | 1,479 (−5%) · 30.9/33.2 | 1,303 (−16%) · 61.2/63.5 |
-| 5  | 6,061 · 15.6/16.8 | 5,950 (−2%) · 15.6/17.4 | 5,955 (−2%) · 15.6/17.1 | 5,088 (−16%) · 30.9/32.6 | 3,739 (−38%) · 47.3/63.5 |
-| 10 | 17,800 · 15.5/17.1 | 17,943 (+1%) · 15.7/17.4 | 18,195 (+2%) · 15.7/17.3 | 12,950 (−27%) · 30.8/32.9 | 8,147 (−54%) · 47.5/64.5 |
-| 25 | 72,037 · 15.6/17.1 | 69,973 (−3%) · 15.9/17.7 | 68,773 (−5%) · 16.0/18.5 | 40,814 (−43%) · 30.6/35.0 | 21,897 (−70%) · 46.3/65.7 |
-| 50 | 207,060 · 14.8/22.3 | 165,809 (−20%) · 15.9/18.7 | 161,982 (−22%) · 16.6/32.0 | 87,780 (−58%) · 30.2/37.9 | 44,591 (−78%) · 45.9/64.8 |
+| users | 0ms                 | 5ms                        | 10ms                       | 25ms                      | 50ms                      |
+| ----- | ------------------- | -------------------------- | -------------------------- | ------------------------- | ------------------------- |
+| 2     | 1,558 · 15.6/17.3   | 1,590 (+2%) · 15.5/17.5    | 1,580 (+1%) · 15.7/17.1    | 1,479 (−5%) · 30.9/33.2   | 1,303 (−16%) · 61.2/63.5  |
+| 5     | 6,061 · 15.6/16.8   | 5,950 (−2%) · 15.6/17.4    | 5,955 (−2%) · 15.6/17.1    | 5,088 (−16%) · 30.9/32.6  | 3,739 (−38%) · 47.3/63.5  |
+| 10    | 17,800 · 15.5/17.1  | 17,943 (+1%) · 15.7/17.4   | 18,195 (+2%) · 15.7/17.3   | 12,950 (−27%) · 30.8/32.9 | 8,147 (−54%) · 47.5/64.5  |
+| 25    | 72,037 · 15.6/17.1  | 69,973 (−3%) · 15.9/17.7   | 68,773 (−5%) · 16.0/18.5   | 40,814 (−43%) · 30.6/35.0 | 21,897 (−70%) · 46.3/65.7 |
+| 50    | 207,060 · 14.8/22.3 | 165,809 (−20%) · 15.9/18.7 | 161,982 (−22%) · 16.6/32.0 | 87,780 (−58%) · 30.2/37.9 | 44,591 (−78%) · 45.9/64.8 |
 
-**Event-loop lag**: statistically flat (p99 ≈ 32.2–35.6ms) across *every*
+**Event-loop lag**: statistically flat (p99 ≈ 32.2–35.6ms) across _every_
 window × room-size cell — the Windows ~30ms `monitorEventLoopDelay`
 resolution floor (documented since M5a) dominates completely at these
 loads; no measurable window effect either way. **RSS**: determined by room
@@ -1108,7 +1109,7 @@ cadence, updates rarely collide inside such short windows); 25ms provides
 5–16%; latency cost of 5/10ms over 0ms is unmeasurable, of 25ms ≈ +15ms.
 (2) At 10 users, yes — 25ms is materially better than 5/10ms (−27% vs ~0%)
 for a bounded +15ms. (3) At 25–50 users, 25ms delivers −43%/−58% for the
-same +15ms — clearly worthwhile there. (4) 50ms *does* buy meaningful extra
+same +15ms — clearly worthwhile there. (4) 50ms _does_ buy meaningful extra
 reduction (relative further −37% to −49% beyond 25ms) but doubles the
 latency cost (total ≈ +31–48ms over the 0ms floor) — rejected on latency
 cost for an interactive editor, not for lack of effect. (5) **No crossover**:
@@ -1170,12 +1171,14 @@ Committed at `0e8a06c`. Measures system-wide performance and degradation charact
 **Workload**: General weighted behavior mix (idle, active editor, collab pair, busy room, many thin rooms, execution heavy, preview heavy, reconnecting, rapid typing) run through `backend/load-test/run.ts`.
 
 **Runs & Results**:
+
 - **Level 100 Steady** (`--users 100 --ramp 45 --steady 90 --rampdown 15 --relax-auth-rate-limit`, 135.9s total): 2,241 total requests (16.5 req/s), 5,569 DB calls (41.0 ops/s). Zero errors across all endpoints (0 timeout, 0 conn_fail, 0 crash). Auth p50/p99: 45.4/67.9ms; File save p50/p99: 17.4/24.3ms (1,287 saves); Run p50/p99: 187.8/720.9ms (109 Docker runs); Collab edit-to-peer p50/p99: 30.9/37.0ms. DB p99: 0.078ms. Event-loop lag p99: 33.2ms. Active WS: 17, Active rooms: 16, Active sandboxes: 5. RSS: 192.5 MB.
 - **Level 100 Burst** (`--users 100 --burst --steady 30 --rampdown 15 --relax-auth-rate-limit`, 30s total): Zero ramp (50 execution VUs + 50 active editors simultaneously). 983 requests (32.7 req/s), 2,545 DB calls (84.8 ops/s). Zero errors. Auth p50/p99: 501.3/938.2ms and Project create p50/p99: 435.2/805.3ms (simultaneous scrypt password hashing + SQLite writes contending). Run p95/p99: 13.3s/14.5s under simultaneous container spin-up. Event-loop lag p99 spiked to 384.8ms at t=10s, then decayed smoothly to 123.3ms at t=25s. Active sandboxes peaked at exactly **20 / 20** (`maxSandboxes`), confirming atomic admission invariant holds under maximum concurrency. DB p99: 0.090ms. RSS: 125.2 MB.
 - **Level 500** (`--users 500 --ramp 60 --steady 90 --rampdown 20 --relax-auth-rate-limit`, 151.9s total): 11,836 requests (77.9 req/s), 28,821 DB calls (189.7 ops/s). Zero errors (0 timeout, 0 conn_fail, 0 crash). Auth p50/p99: 45.5/75.1ms; File save p50/p99: 8.6/76.2ms (6,797 saves); Stats p50/p99: 49.4/130.9ms; Run p50/p99: 198.3/865.2ms (615 runs); Collab edit-to-peer p50/p99: 30.9/43.0ms. DB p99: 0.074ms (flat!). Event-loop lag p99: 34.4ms (flat!). Active WS: 78, Active rooms: 77, Active sandboxes: 20 (held at cap). RSS: stabilized cleanly at 306.0 MB.
 - **Level 1000** (`--users 1000 --ramp 90 --steady 90 --rampdown 30 --relax-auth-rate-limit`, 183.9s total): 26,646 requests (144.9 req/s), 63,580 DB calls (345.7 ops/s). Zero errors across all endpoints (0 timeout, 0 conn_fail, 0 crash). Auth p50/p99: 43.2/105.1ms; File save p50/p99: 9.4/125.0ms (15,367 saves); Stats p50/p99: 51.3/340.6ms; Run p50/p99: 170.8/1060.5ms (1,382 runs); Collab edit-to-peer p50/p99: 30.8/69.4ms. DB p99: 0.074ms (flat across 63k calls!). Event-loop lag p99: 38.7ms (mean 25.2ms, flat!). Active WS: 155, Active rooms: 154, Active sandboxes: 20 (held at cap). RSS: stabilized cleanly at 324.6 MB.
 
 **Bottleneck & Degradation Analysis**:
+
 1. **DatabaseSync & SQLite**: Not a bottleneck. DB p99 latency remained ≤0.09ms across all levels up to 63,580 calls at 1,000 VUs. Single-process synchronous SQLite with WAL mode continues to operate with exceptional headroom.
 2. **Event Loop & Node.js Runtime**: Stable under sustained load (event-loop p99 ~34–38ms at 500–1000 VUs). Transient spikes occur only under zero-ramp burst registrations due to synchronous scrypt CPU cost (384ms spike at 100-user burst).
 3. **Memory & Lifecycle**: RSS settled stably at ~306MB (500 VUs) and ~324MB (1000 VUs) with no runaway memory growth, confirming M7b harness hygiene and server lifecycle cleanup.
@@ -1196,6 +1199,7 @@ Committed at `a4bd070`. Investigates the two primary performance hotspots identi
 #### 1. Execution Decomposition & Cold-vs-Warm Analysis
 
 **Direct Phase Breakdown (Isolated Single Cold Start — ~938.3ms total creation + exec)**:
+
 - Phase 1: Docker daemon check (`docker info`): 177.8ms (18.9%)
 - Phase 2: Image inspect (`docker image inspect`): 63.8ms (6.8%)
 - Phase 3: Pre-cleanup (`docker rm -f`): 39.7ms (4.2%)
@@ -1207,15 +1211,18 @@ Committed at `a4bd070`. Investigates the two primary performance hotspots identi
 - Phase 9: Teardown (`docker rm` + `network rm`): 932.7ms
 
 **Cold vs Warm Speedup**:
+
 - Cold sandbox creation + execution: ~938.3ms
 - Warm reused sandbox execution: **116.0ms p50 / 132.0ms p95** (~8.1x speedup)
 
 **Cold Start Concurrency Scaling**:
+
 - 1 container: 1.91s total
 - 5 concurrent containers: 5.56s wall time, p50 5,101ms, p95 5,552ms
 - 20 concurrent containers: 21.78s wall time, p50 19,479ms, p95 21,175ms
 
 **Focused 50-Request Execution Burst**:
+
 - 50 simultaneous cold execution requests against 50 distinct projects.
 - `maxSandboxes=20` strictly enforced: peak active sandboxes reached exactly 20.
 - All 50 requests completed: p50 9,189.7ms, p95 11,830.8ms, p99 12,112.9ms.
@@ -1226,16 +1233,19 @@ Committed at `a4bd070`. Investigates the two primary performance hotspots identi
 #### 2. Filesystem & Tree/Stats Decomposition
 
 **Project Size Scaling (`tree()` vs `listFiles()`)**:
+
 - Tiny (5 files, depth 1): `tree()` 9.24ms vs `listFiles()` 0.25ms (5 `stat` calls)
 - Medium (50 files, depth 3): `tree()` 9.16ms vs `listFiles()` 0.58ms (50 `stat` calls)
 - Large (300 files, depth 5): `tree()` 20.70ms vs `listFiles()` 0.98ms (300 `stat` calls — `listFiles()` is **21.2x faster**)
 
 **Concurrent Request Scaling (Medium 50-file Project)**:
+
 - 10 concurrent callers: 15.0ms wall time, p50 14.6ms, p95 14.7ms
 - 50 concurrent callers: 54.4ms wall time, p50 54.1ms, p95 54.2ms
 - 100 concurrent callers: 109.9ms wall time, p50 109.5ms, p95 109.6ms
 
 **Root Cause**:
+
 - `tree()` executes sequential `await fs.stat()` inside recursive directory traversal for every file. Under concurrent callers, thousands of sequential `stat` requests queue on Node's 4-worker libuv threadpool (`UV_THREADPOOL_SIZE=4`), driving tail latency to ~110ms on medium projects (and ~340ms at 1,000 VUs with live disk I/O).
 - `/api/projects/:id/stats` invokes `docker stats --no-stream` per request, executing a separate child process per call (~50ms execution).
 
@@ -1250,11 +1260,13 @@ Verification: full backend suite 317 passed / 4 skipped / 0 failed; backend type
 Committed at `aa180ea`. Implements the first evidence-backed performance optimizations identified in Milestone 10: (1) eliminates Docker check stampedes and redundant network provisioning in the sandbox execution path, (2) optimizes directory tree listing via bounded sibling concurrency, and (3) replaces repeated per-request `docker stats` CLI executions with in-memory caching and fast-path inactive returns.
 
 **Production Changes**:
+
 - `backend/src/tools.ts`: In-flight promise coalescing/single-flight deduplication and 15s cache TTL for `isDockerRunningAsync` and `isRunnerImageAvailableAsync`, completely eliminating concurrent Docker CLI stampedes.
 - `backend/src/execution/sandbox.ts`: `provisionedNetworks` tracking to skip redundant network create cycles; `getContainerStats` fast-path returning immediately (sub-0.1ms) for inactive projects without spawning `docker stats` CLI child processes, plus a 1000ms single-flight in-memory cache for active containers with lifecycle invalidation in `performStop` and `cleanupAllSandboxes`.
 - `backend/src/files/service.ts`: `mapConcurrent` bounded sibling concurrency (`limit = 8`) in `tree()` preserving deterministic sorted index ordering, exact output types, symlink/path-safety checks, and error handling.
 
 **Benchmark Results (Before vs After)**:
+
 - **50-VU Cold Execution Burst**:
   - p50 latency: **9,189.7ms → 451.9ms (-95.1% reduction)**
   - p95 latency: **11,830.8ms → 4,898.2ms (-58.6% reduction)**
@@ -1270,11 +1282,13 @@ Committed at `aa180ea`. Implements the first evidence-backed performance optimiz
   - p50 / p95: **125.9ms / 140.3ms** (unchanged and consistent with sub-150ms expectations)
 
 **Preserved Invariants & Security**:
+
 - Level 4 sandbox hardening flags (`--read-only` root, tmpfs `/tmp`, `/run`, `/home/ide/.cache`, drop `ALL` capabilities, `no-new-privileges`, CPU/memory/PIDs limits) remain 100% untouched.
 - Global `maxSandboxes=20` hard ceiling and per-user fairness quota (`sandboxGate`) remain strictly enforced and race-safe under `withProjectLock`.
 - No distributed dependencies, queues, or warm pools introduced.
 
 Files:
+
 - Production: `backend/src/execution/sandbox.ts`, `backend/src/files/service.ts`, `backend/src/tools.ts`.
 - Tests & Evidence: `backend/test/m11-optimization.test.ts`, `backend/load-test/verify-m11-optimizations.ts`, `backend/load-test/results/m11-{exec,fs}-optimization-*.{json,md}`.
 
@@ -1285,13 +1299,16 @@ Verification: full backend suite 323 passed / 4 skipped / 0 failed (32 test file
 Committed at `b990c46`. Implements the next high-leverage optimizations for container provisioning and filesystem tree operations: (1) removes upfront synchronous `docker rm -f` calls during fresh container creation, replacing it with an automatic conflict-catch retry pattern, (2) adds lazy port-mapping resolution on `getProxyTarget`, and (3) implements in-flight deduplication and short-TTL (500ms) caching for `tree(root)` with immediate mutation invalidation on all file write/move/delete/snapshot operations.
 
 **Fast M11 Revalidation**:
+
 - Revalidation before M12 confirmed stable M11 performance (50-VU burst p50: 542.2ms vs baseline 9,189.7ms, 94.1% improvement; p95: 5.60s vs baseline 11.83s, 52.7% improvement).
 
 **Production Changes**:
+
 - `backend/src/execution/sandbox.ts`: In `provisionContainer`, eliminated the upfront `docker rm -f` child process invocation on the normal creation path. If a container name collision occurs, `provisionContainer` catches the conflict, issues `docker rm -f`, and retries `docker run` once. In `getProxyTarget`, added lazy `readPortMapping` resolution if container ports were not yet populated.
 - `backend/src/files/service.ts`: Implemented `treeCache` (500ms TTL) and `inFlightTrees` coalescing for `tree(root)`. Mutation functions (`writeProjectFile`, `moveProjectPath`, `deleteProjectPath`) call `invalidateTreeCache(root)` immediately, guaranteeing 100% fresh reads upon modification with zero stale cache windows.
 
 **Benchmark Results & Attribution**:
+
 - **Execution Scaling (M11 Baseline vs M12 Incremental)**:
   - M11 had previously reduced the 50-VU cold execution burst from M10's 9,189.7ms p50 down to 542.2ms p50 (and p95 to 5,601.3ms).
   - M12 incrementally improved the 50-VU burst:
@@ -1308,17 +1325,19 @@ Committed at `b990c46`. Implements the next high-leverage optimizations for cont
     - 10 callers p95: **12.0ms (M11) → 0.03ms (M12)**
     - 50 callers p95: **54.2ms (M10) → 0.02ms (M12)**
     - 100 callers p95: **109.6ms (M10) → 0.07ms (M12)**
-    - *Cache Attribution*: The sub-0.1ms (0.07ms) latency under 100 concurrent tree callers represents in-flight promise coalescing and short-TTL (500ms) cache hits serving simultaneous callers from a single traversal, rather than raw disk traversal speed.
+    - _Cache Attribution_: The sub-0.1ms (0.07ms) latency under 100 concurrent tree callers represents in-flight promise coalescing and short-TTL (500ms) cache hits serving simultaneous callers from a single traversal, rather than raw disk traversal speed.
 - **Telemetry `/stats` Latency**:
   - Inactive project `/stats` execution: **~50ms (M10) → 0.01ms (M12)** (~5,000x speedup via in-memory fast-path).
 
 **Preserved Invariants & Security**:
+
 - Level 4 sandbox hardening flags (`--read-only` root, tmpfs mounts, drop `ALL` capabilities, `no-new-privileges`, CPU/memory/PIDs limits) remain 100% untouched.
 - Global `maxSandboxes=20` hard ceiling and per-user fairness quota (`sandboxGate`) remain strictly enforced and race-safe under `withProjectLock`.
 - Deterministic sorted index ordering, path traversal protections, and exact filesystem structure fully preserved.
 - No distributed dependencies, queues, or warm pools introduced.
 
 Files:
+
 - Production: `backend/src/execution/sandbox.ts`, `backend/src/files/service.ts`.
 - Tests & Evidence: `backend/test/m12-optimization.test.ts`, `backend/load-test/verify-m12-optimizations.ts`, `backend/load-test/results/m12-{exec,fs}-optimization-*.{json,md}`.
 
@@ -1329,9 +1348,11 @@ Verification: full backend suite 327 passed / 4 skipped / 0 failed (33 test file
 Committed in this milestone. Implements a short liveness freshness window (2,000ms) in `SandboxManager.doEnsureProjectSandbox` for existing tracked project containers. When a container has been actively used or created within the past 2 seconds, the manager reuses the verified container reference directly without spawning a redundant synchronous `docker inspect` child process. If the container has been idle beyond 2,000ms, the full `docker inspect` check is executed as before.
 
 **Production Changes**:
+
 - `backend/src/execution/sandbox.ts`: In `doEnsureProjectSandbox`, added `now - existing.lastUsed < 2000` fast-path return.
 
 **Benchmark Results (M10 vs M12 vs M13)**:
+
 - **50-VU Execution Burst**:
   - p50 latency: **448.4ms (M12) → 165.6ms (M13) (-63.1% reduction vs M12, -98.2% vs M10 baseline 9,189.7ms)**
   - p95 latency: **4,564.0ms (M12) → 4,277.0ms (M13) (-6.3% reduction vs M12, -63.8% vs M10)**
@@ -1343,12 +1364,14 @@ Committed in this milestone. Implements a short liveness freshness window (2,000
   - Creation + exec: **~841.1ms**
 
 **Preserved Invariants & Security**:
+
 - Level 4 sandbox hardening flags (`--read-only` root, tmpfs mounts, drop `ALL` capabilities, `no-new-privileges`, CPU/memory/PIDs limits) remain 100% untouched.
 - Global `maxSandboxes=20` hard ceiling and per-user fairness quota (`sandboxGate`) remain strictly enforced and race-safe under `withProjectLock`.
 - In-memory freshness window applies only to the verified container belonging to the exact matching project and owner.
 - No distributed dependencies, queues, or warm pools introduced.
 
 Files:
+
 - Production: `backend/src/execution/sandbox.ts`.
 - Tests & Evidence: `backend/test/m13-optimization.test.ts`, `backend/load-test/verify-m13-optimizations.ts`, `backend/load-test/results/m13-exec-optimization-*.{json,md}`.
 
@@ -1360,36 +1383,37 @@ Committed in this milestone. Re-runs the exact four-level scale matrix (100 stea
 
 **Direct M9 Baseline vs Post-M13 Comparison**:
 
-| Workload Level | Metric | M9 Baseline | Post-M13 (M14) | Delta / Improvement |
-|---|---|---|---|---|
-| **100 VU Steady** | Throughput (req/s) | 16.5 | 16.5 | +0.0% |
-| | File save p50 / p95 / p99 | 17.4 / 20.5 / 24.3 ms | 17.7 / 20.1 / 22.8 ms | -1.5% / -2.0% / -6.2% |
-| | Collab edit-to-peer p50 / p95 / p99 | 30.9 / 33.1 / 37.0 ms | 31.2 / 33.5 / 36.8 ms | +1.0% / +1.2% / -0.5% |
-| | Event-loop p99 / DB p99 | 33.2 ms / 0.078 ms | 32.9 ms / 0.080 ms | -0.9% / +2.5% |
-| | Active sandboxes / RSS | 5 / 192.5 MB | 4 / 157.5 MB | -18.2% RSS |
-| **100 VU Burst** | Throughput (req/s) | 32.7 | 36.2 | +10.7% |
-| | Run p50 / p95 / p99 | 148.9ms / 13.3s / 14.5s | 21.1ms / 2.88s / 4.65s | **-85.8% / -78.3% / -68.0%** |
-| | Event-loop p99 (peak) | 384.8 ms | 39.1 ms | **-89.8%** |
-| | Active sandboxes (peak) | 20 / 20 | 20 / 20 | Invariant maintained |
-| **500 VU** | Throughput (req/s) | 77.9 | 78.1 | +0.3% |
-| | Stats p50 / p95 / p99 | 49.4 / 83.4 / 130.9 ms | 1.8 / 14.9 / 16.9 ms | **-96.4% / -82.1% / -87.1%** |
-| | Tree p50 / p95 / p99 | - | 4.0 / 19.6 / 24.5 ms | Healthy bounded latency |
-| | Run p50 / p95 / p99 | 198.3 / 699.5 / 865.2 ms | 203.2 / 440.3 / 738.5 ms | +2.5% / **-37.1%** / **-14.6%** |
-| | Collab edit-to-peer p50 / p95 / p99 | 30.9 / 39.5 / 43.0 ms | 31.1 / 37.3 / 44.7 ms | Stable within ±3% |
-| | Event-loop p99 / DB p99 | 34.4 ms / 0.074 ms | 33.8 ms / 0.081 ms | Stable |
-| | Process RSS | 306.0 MB | 299.3 MB | -2.2% |
-| **1000 VU** | Throughput (req/s) | 144.9 | 145.9 | +0.7% |
-| | DB ops / sec | 346.0 | 347.3 | +0.4% |
-| | Stats p50 / p95 / p99 | 51.3 / 123.7 / 340.6 ms | 1.7 / 14.5 / 17.0 ms | **-96.7% / -88.3% / -95.0%** |
-| | Tree p50 / p95 / p99 | - | 3.9 / 20.6 / 29.0 ms | Sub-30ms p99 at 1,000 VUs |
-| | Run p50 / p95 / p99 | 170.8 / 646.3 / 1060.5 ms | 22.7 / 265.3 / 686.5 ms | **-86.7% / -58.9% / -35.3%** |
-| | Save round-trip p99 | 125.0 ms | 54.9 ms | **-56.1%** |
-| | Collab edit-to-peer p99 | 69.4 ms | 46.2 ms | **-33.4%** |
-| | Event-loop p99 / DB p99 | 38.7 ms / 0.074 ms | 34.1 ms / 0.078 ms | -11.9% / +5.4% |
-| | Active WS / Rooms / Sandboxes | 155 / 154 / 20 | 155 / 154 / 20 | Exact parity / 0 errors |
-| | Process RSS | 324.6 MB | 329.4 MB | +1.5% |
+| Workload Level    | Metric                              | M9 Baseline               | Post-M13 (M14)           | Delta / Improvement             |
+| ----------------- | ----------------------------------- | ------------------------- | ------------------------ | ------------------------------- |
+| **100 VU Steady** | Throughput (req/s)                  | 16.5                      | 16.5                     | +0.0%                           |
+|                   | File save p50 / p95 / p99           | 17.4 / 20.5 / 24.3 ms     | 17.7 / 20.1 / 22.8 ms    | -1.5% / -2.0% / -6.2%           |
+|                   | Collab edit-to-peer p50 / p95 / p99 | 30.9 / 33.1 / 37.0 ms     | 31.2 / 33.5 / 36.8 ms    | +1.0% / +1.2% / -0.5%           |
+|                   | Event-loop p99 / DB p99             | 33.2 ms / 0.078 ms        | 32.9 ms / 0.080 ms       | -0.9% / +2.5%                   |
+|                   | Active sandboxes / RSS              | 5 / 192.5 MB              | 4 / 157.5 MB             | -18.2% RSS                      |
+| **100 VU Burst**  | Throughput (req/s)                  | 32.7                      | 36.2                     | +10.7%                          |
+|                   | Run p50 / p95 / p99                 | 148.9ms / 13.3s / 14.5s   | 21.1ms / 2.88s / 4.65s   | **-85.8% / -78.3% / -68.0%**    |
+|                   | Event-loop p99 (peak)               | 384.8 ms                  | 39.1 ms                  | **-89.8%**                      |
+|                   | Active sandboxes (peak)             | 20 / 20                   | 20 / 20                  | Invariant maintained            |
+| **500 VU**        | Throughput (req/s)                  | 77.9                      | 78.1                     | +0.3%                           |
+|                   | Stats p50 / p95 / p99               | 49.4 / 83.4 / 130.9 ms    | 1.8 / 14.9 / 16.9 ms     | **-96.4% / -82.1% / -87.1%**    |
+|                   | Tree p50 / p95 / p99                | -                         | 4.0 / 19.6 / 24.5 ms     | Healthy bounded latency         |
+|                   | Run p50 / p95 / p99                 | 198.3 / 699.5 / 865.2 ms  | 203.2 / 440.3 / 738.5 ms | +2.5% / **-37.1%** / **-14.6%** |
+|                   | Collab edit-to-peer p50 / p95 / p99 | 30.9 / 39.5 / 43.0 ms     | 31.1 / 37.3 / 44.7 ms    | Stable within ±3%               |
+|                   | Event-loop p99 / DB p99             | 34.4 ms / 0.074 ms        | 33.8 ms / 0.081 ms       | Stable                          |
+|                   | Process RSS                         | 306.0 MB                  | 299.3 MB                 | -2.2%                           |
+| **1000 VU**       | Throughput (req/s)                  | 144.9                     | 145.9                    | +0.7%                           |
+|                   | DB ops / sec                        | 346.0                     | 347.3                    | +0.4%                           |
+|                   | Stats p50 / p95 / p99               | 51.3 / 123.7 / 340.6 ms   | 1.7 / 14.5 / 17.0 ms     | **-96.7% / -88.3% / -95.0%**    |
+|                   | Tree p50 / p95 / p99                | -                         | 3.9 / 20.6 / 29.0 ms     | Sub-30ms p99 at 1,000 VUs       |
+|                   | Run p50 / p95 / p99                 | 170.8 / 646.3 / 1060.5 ms | 22.7 / 265.3 / 686.5 ms  | **-86.7% / -58.9% / -35.3%**    |
+|                   | Save round-trip p99                 | 125.0 ms                  | 54.9 ms                  | **-56.1%**                      |
+|                   | Collab edit-to-peer p99             | 69.4 ms                   | 46.2 ms                  | **-33.4%**                      |
+|                   | Event-loop p99 / DB p99             | 38.7 ms / 0.074 ms        | 34.1 ms / 0.078 ms       | -11.9% / +5.4%                  |
+|                   | Active WS / Rooms / Sandboxes       | 155 / 154 / 20            | 155 / 154 / 20           | Exact parity / 0 errors         |
+|                   | Process RSS                         | 324.6 MB                  | 329.4 MB                 | +1.5%                           |
 
 **Key Findings & Attribution**:
+
 1. **Docker Execution Hotspot Resolved Under Bursts**:
    The 100-user burst run tail latency dropped from **13.3s / 14.5s (p95/p99)** down to **2.88s / 4.65s (-78.3% / -68.0%)**, and event-loop lag during the burst was eliminated (**39.1ms peak vs 384.8ms in M9**).
 2. **Filesystem & Stats Hotspot Eliminated**:
@@ -1400,6 +1424,7 @@ Committed in this milestone. Re-runs the exact four-level scale matrix (100 stea
    The system remained stable under the tested 1,000-VU stress workload, with peak active WebSockets around 155 under the weighted workload. This is stress validation under weighted usage patterns, not an arbitrary unconstrained concurrent user guarantee. Zero application errors and zero connection drops across all runs.
 
 Files:
+
 - Evidence: `backend/load-test/results/level-scale-{100-steady,100-burst,500,1000}-*.{json,md}`.
 
 Verification: full backend suite 329 passed / 4 skipped / 0 failed (34 test files); focused collaboration suite 47/47 PASS; backend typecheck PASS; frontend build/typecheck PASS; `git diff --check` clean.
@@ -1445,15 +1470,16 @@ Committed in this milestone. Evaluated whether a bounded pool of prewarmed, unas
 
 **50-VU Cold Execution Burst Results**:
 
-| Variant | Prewarm Pool Size | Prewarmed Hits | Cold Creations | Burst p50 (ms) | Burst p95 (ms) | Burst p99 (ms) | Wall Clock (s) | Peak Load (/20) | Isolation Violations | Leftovers |
-|---|---|---|---|---|---|---|---|---|---|---|
-| **P0 (Baseline)** | 0 | 0 | 50 | 4,904.0 ms | 10,006.8 ms | 10,087.5 ms | 11.38 s | 20/20 | 0 | 0 |
-| **P1** | 1 | 1 | 49 | 5,151.4 ms | 10,624.7 ms | 10,870.3 ms | 12.79 s | 20/20 | 0 | 0 |
-| **P2 (Run 1)** | 2 | 2 | 48 | 5,487.7 ms | 9,587.6 ms | 9,700.0 ms | 11.91 s | 20/20 | 0 | 0 |
-| **P4** | 4 | 4 | 46 | 5,527.9 ms | 10,042.0 ms | 10,892.9 ms | 11.91 s | 20/20 | 0 | 0 |
-| **P2 (Repeat)** | 2 | 2 | 48 | 5,262.9 ms | 10,845.9 ms | 11,220.1 ms | 13.06 s | 20/20 | 0 | 0 |
+| Variant           | Prewarm Pool Size | Prewarmed Hits | Cold Creations | Burst p50 (ms) | Burst p95 (ms) | Burst p99 (ms) | Wall Clock (s) | Peak Load (/20) | Isolation Violations | Leftovers |
+| ----------------- | ----------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | --------------- | -------------------- | --------- |
+| **P0 (Baseline)** | 0                 | 0              | 50             | 4,904.0 ms     | 10,006.8 ms    | 10,087.5 ms    | 11.38 s        | 20/20           | 0                    | 0         |
+| **P1**            | 1                 | 1              | 49             | 5,151.4 ms     | 10,624.7 ms    | 10,870.3 ms    | 12.79 s        | 20/20           | 0                    | 0         |
+| **P2 (Run 1)**    | 2                 | 2              | 48             | 5,487.7 ms     | 9,587.6 ms     | 9,700.0 ms     | 11.91 s        | 20/20           | 0                    | 0         |
+| **P4**            | 4                 | 4              | 46             | 5,527.9 ms     | 10,042.0 ms    | 10,892.9 ms    | 11.91 s        | 20/20           | 0                    | 0         |
+| **P2 (Repeat)**   | 2                 | 2              | 48             | 5,262.9 ms     | 10,845.9 ms    | 11,220.1 ms    | 13.06 s        | 20/20           | 0                    | 0         |
 
 **Empirical Findings & Decision**:
+
 1. **Target ≥15% Improvement Not Met**:
    P2 achieved a marginal -4.2% p95 reduction in its first run (9,587.6ms vs 10,006.8ms), but the improvement was non-reproducible; the repeated run showed p95 at 10,845.9ms (+8.4% vs baseline).
 2. **Background Lock Contention**:
@@ -1464,6 +1490,7 @@ Committed in this milestone. Evaluated whether a bounded pool of prewarmed, unas
    Full container prewarming is rejected. No production prewarm implementation was introduced. The hardened M13/M14 baseline remains the production state.
 
 Files:
+
 - Harness: `backend/load-test/verify-prewarm-experiment.ts`.
 - Evidence: `backend/load-test/results/m15-prewarm-experiment-*.{json,md}`.
 
@@ -1475,14 +1502,15 @@ Committed in this milestone. Investigated and optimized the cold container creat
 
 **Concurrency Scale Matrix (Cold Start + Exec)**:
 
-| Concurrency | Pre-M16 Baseline | Post-M16 Optimized | Improvement |
-|---|---|---|---|
-| **C=1** | p50: 639.7 ms / p95: 639.7 ms | p50: 541.2 ms / p95: 541.2 ms | -15.4% |
-| **C=5** | p50: 1,080.4 ms / p95: 1,320.7 ms | p50: 799.3 ms / p95: 1,003.8 ms | -24.0% p95 |
-| **C=10** | p50: 1,720.8 ms / p95: 2,266.8 ms | p50: 641.9 ms / p95: 1,022.2 ms | -54.9% p95 |
-| **C=20** | p50: 3,583.3 ms / p95: 5,173.7 ms | p50: 276.6 ms / p95: 1,247.2 ms | **-75.9% p95, -74.2% wall time** |
+| Concurrency | Pre-M16 Baseline                  | Post-M16 Optimized              | Improvement                      |
+| ----------- | --------------------------------- | ------------------------------- | -------------------------------- |
+| **C=1**     | p50: 639.7 ms / p95: 639.7 ms     | p50: 541.2 ms / p95: 541.2 ms   | -15.4%                           |
+| **C=5**     | p50: 1,080.4 ms / p95: 1,320.7 ms | p50: 799.3 ms / p95: 1,003.8 ms | -24.0% p95                       |
+| **C=10**    | p50: 1,720.8 ms / p95: 2,266.8 ms | p50: 641.9 ms / p95: 1,022.2 ms | -54.9% p95                       |
+| **C=20**    | p50: 3,583.3 ms / p95: 5,173.7 ms | p50: 276.6 ms / p95: 1,247.2 ms | **-75.9% p95, -74.2% wall time** |
 
 **50-VU Execution Burst**:
+
 - Burst p95: **4,277.0ms (M13) → 3,675.9ms (M16) (-14.1% vs M13, -68.9% vs M10 baseline 11,830ms)**
 - Burst p99: **4,562.0ms (M13) → 3,945.6ms (M16) (-13.5% vs M13, -67.4% vs M10 baseline 12,110ms)**
 - Burst wall clock: **4.56s (M13) → 3.95s (M16) (-13.4%)**
@@ -1492,6 +1520,7 @@ Committed in this milestone. Investigated and optimized the cold container creat
 The whole-burst 50-VU target of ≥15% improvement was narrowly missed (-14.1% p95, -13.5% p99). However, the isolated cold-provisioning benchmark directly measured the targeted Docker daemon contention bottleneck and demonstrated a massive 75.9% p95 reduction at C=20 concurrency (5,173.7ms to 1,247.2ms) with wall time dropping from 20.54s to 5.31s (-74.2%). The optimization is therefore accepted as a verified systems improvement.
 
 **Key Findings & Attribution**:
+
 1. **Parallel Pre-Flight & Network Setup**:
    Running daemon availability, image checks, and network initialization concurrently (`Promise.all`) eliminates sequential roundtrips before `docker run`.
 2. **Lazy Port Mapping**:
@@ -1500,6 +1529,7 @@ The whole-burst 50-VU target of ≥15% improvement was narrowly missed (-14.1% p
    `maxSandboxes=20` invariant, per-user quotas, Level-4 container isolation, and proxy preview routing remain 100% intact.
 
 Files:
+
 - Production: `backend/src/execution/sandbox.ts`, `backend/src/execution/pipeline.ts`.
 - Tests: `backend/test/m16-optimization.test.ts`.
 - Evidence: `backend/load-test/investigate-m16-concurrency.ts`, `backend/load-test/verify-m16-optimizations.ts`, `backend/load-test/results/m16-*.{json,md}`.
@@ -1570,6 +1600,7 @@ Committed in this milestone. Re-validated the exact 100 / 100-burst / 500 / 1000
    - Errors: 0
 
 **Attribution & Engineering Findings**:
+
 1. **Whole-System Burst & Cold Execution Relief**:
    M16's lazy port mapping and concurrent network/image preflight checks removed critical-path serialization from Docker container creation. This directly translated to double-digit latency drops across all scale levels: 100-steady run p99 down -62.7%, 100-burst run p95 down -23.7%, 500-VU run p95 down -14.5%, and 1000-VU run p95 down -14.8%.
 2. **Filesystem & Database Stability**:
@@ -1578,6 +1609,7 @@ Committed in this milestone. Re-validated the exact 100 / 100-burst / 500 / 1000
    The single-process architecture cleanly sustained 158.7 req/s and 26.7k operations at 1000 VUs with zero crashes, timeouts, or isolation leaks. The remaining burst cold-provisioning tail is governed by host OS process spawning and the Docker daemon's internal lock; further architectural prewarming was empirically rejected in M15. No further execution optimizations are required.
 
 Evidence Artifacts:
+
 - `backend/load-test/results/level-scale-100-steady-*.{json,md}`
 - `backend/load-test/results/level-scale-100-burst-*.{json,md}`
 - `backend/load-test/results/level-scale-500-*.{json,md}`
@@ -1590,12 +1622,12 @@ Committed in this milestone. Decomposed the remaining cold Docker sandbox provis
 **Phase 1 — Cold Wait Decomposition (maxSandboxes=20)**:
 
 | Concurrency | Success | Rejected | Total p50 (ms) | Total p95 (ms) | Total p99 (ms) | Wall (ms) |
-|---|---|---|---|---|---|---|
-| C=1 | 1/1 | 0 | 4,860 | 4,860 | 4,860 | 4,861 |
-| C=5 | 5/5 | 0 | 831 | 1,014 | 1,014 | 1,016 |
-| C=10 | 10/10 | 0 | 1,335 | 1,749 | 1,749 | 1,750 |
-| C=20 | 20/20 | 0 | 2,814 | 3,921 | 3,921 | 3,925 |
-| C=40 | 40/40 | 0 | 1,764 | 4,023 | 4,157 | 4,159 |
+| ----------- | ------- | -------- | -------------- | -------------- | -------------- | --------- |
+| C=1         | 1/1     | 0        | 4,860          | 4,860          | 4,860          | 4,861     |
+| C=5         | 5/5     | 0        | 831            | 1,014          | 1,014          | 1,016     |
+| C=10        | 10/10   | 0        | 1,335          | 1,749          | 1,749          | 1,750     |
+| C=20        | 20/20   | 0        | 2,814          | 3,921          | 3,921          | 3,925     |
+| C=40        | 40/40   | 0        | 1,764          | 4,023          | 4,157          | 4,159     |
 
 **Key finding**: There is no admission queuing delay. All requests at C≤20 are admitted immediately; at C=40, idle sandbox reaping makes room for the excess 20 without rejection. The entire cold latency is Docker daemon provisioning + execution time. Docker daemon throughput peaks around C=5 (~4.9 req/s, avg 827ms) and degrades linearly under higher concurrency due to daemon-internal lock contention.
 
@@ -1627,6 +1659,7 @@ Any scheduling layer adds: queue memory, cancellation/disconnect handling, starv
 - The system's existing idle-reaping mechanism naturally handles over-admission without explicit rejection at tested concurrency levels.
 
 Evidence Artifacts:
+
 - `backend/load-test/investigate-m18-cold-wait.ts`
 - `backend/load-test/results/m18-cold-wait-investigation-*.{json,md}`
 
@@ -1652,10 +1685,12 @@ Implemented and verified in commit `ae8a740`. Closes the outstanding Phase-1 bac
    - `deleteProject` in `backend/src/projects/service.ts` now cleans up snapshot archive directories on disk (`join(cfg.dataDir, "snapshots", project.id)`).
 
 Files:
+
 - Production: `backend/src/auth/routes.ts`, `backend/src/auth/demoGc.ts`, `backend/src/audit.ts`, `backend/src/config.ts`, `backend/src/index.ts`, `backend/src/projects/service.ts`.
 - Tests: `backend/test/auth-lifecycle.test.ts` (9 tests covering logout WS teardown, demo account GC, unexpired demo retention, normal user preservation, single-flight concurrency, and missing resource recovery).
 
 Verification:
+
 - Focused suite `test/auth-lifecycle.test.ts`: **9 passed / 0 failed** (963ms).
 - Full backend regression suite: **338 passed / 2 failed / 4 skipped (36 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
@@ -1683,10 +1718,12 @@ Implemented and verified in commit `1938e79`. Bounds project snapshot storage to
    - Restoring a snapshot continues to function reliably after older snapshots are evicted.
 
 Files:
+
 - Production: `backend/src/config.ts`, `backend/src/projects/snapshots.ts`.
 - Tests: `backend/test/snapshot-quotas.test.ts` (11 tests covering quota compliance, count eviction, byte eviction, large snapshot rejection, survival of latest snapshot, restore integrity, concurrency protection, missing file resilience, project deletion cascade, ownership access control, and default configuration resolution).
 
 Verification:
+
 - Focused suite `test/snapshot-quotas.test.ts`: **11 passed / 0 failed** (1.13s).
 - Full backend regression suite: **349 passed / 2 failed / 4 skipped (37 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
@@ -1723,10 +1760,12 @@ Implemented and verified in commit `a4e933a`. Allows project owners to export th
    - Files header in Sidebar provides "Export Workspace (.zip)" download button and "Import / Replace Workspace (.zip)" button with overwrite confirmation.
 
 Files:
+
 - Production: `backend/src/projects/zip.ts`, `backend/src/projects/archive.ts`, `backend/src/projects/routes.ts`, `backend/src/config.ts`, `backend/src/audit.ts`, `frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/common/Icons.tsx`.
 - Tests: `backend/test/archive-import-export.test.ts` (13 tests covering export, authorization, exclusions, nested hierarchies, import as new project, import overwrite, path traversal rejection, absolute path rejection, symlink rejection, resource bounds, atomicity rollback, session disposal, round-trip fidelity, replacement confirmation, and quota enforcement).
 
 Verification:
+
 - Focused suite `test/archive-import-export.test.ts`: **13 passed / 0 failed** (1.27s).
 - Full backend regression suite: **362 passed / 2 failed / 4 skipped (38 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
@@ -1760,10 +1799,12 @@ Implemented and verified in commit `e138799`. Persists user-specific editor pref
    - Accessible via the Editor Settings gear icon button in the Sidebar user section.
 
 Files:
+
 - Production: `backend/src/db.ts`, `backend/src/auth/preferences.ts`, `backend/src/auth/routes.ts`, `backend/src/audit.ts`, `frontend/src/types.ts`, `frontend/src/components/common/Icons.tsx`, `frontend/src/components/Settings/SettingsModal.tsx`, `frontend/src/components/Editor/Editor.tsx`, `frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/IDE/IDE.tsx`.
 - Tests: `backend/test/preferences.test.ts` (13 tests covering defaults, persistence, partial updates, unknown key rejection, numeric bounds rejection, enum validation, auth gating, user isolation / IDOR protection, cascade deletion, audit logging, idempotency, and fallback for existing users without rows), `backend/test/migrations.test.ts`.
 
 Verification:
+
 - Focused suite `test/preferences.test.ts`: **13 passed / 0 failed** (1.41s).
 - Full backend regression suite: **348 passed / 2 failed / 31 skipped (39 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
@@ -1799,10 +1840,12 @@ Implemented and verified in commit `8669219`. Provides a standalone, zero-runtim
    - Added `"type": "module"` and `"deploy:smoke": "node scripts/smoke-test.js"` in root `package.json`.
 
 Files:
+
 - Production/Scripts: `scripts/smoke-test.js`, `package.json`, `deploy/README.md`.
 - Tests: `backend/test/smoke-harness.test.ts` (5 tests covering help output, invalid URL rejection, protocol validation, embedded credential protection, and unreachable host diagnostics), `backend/test/smoke-live.test.ts` (1 test running the live smoke runner against an active server instance).
 
 Verification:
+
 - Focused suite `test/smoke-harness.test.ts`: **5 passed / 0 failed** (283ms).
 - Live server smoke test `test/smoke-live.test.ts`: **1 passed / 0 failed** (1.09s).
 - Full backend regression suite: **354 passed / 2 failed / 31 skipped (41 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
@@ -1812,7 +1855,7 @@ Verification:
 
 ### Milestone 24 — Direct Workspace File & Folder Upload
 
-Implemented and verified in this working tree. Allows authenticated project owners to upload individual files or entire directory trees directly into any workspace target directory with zero external runtime dependencies. Uploads stage and validate files in an isolated temporary directory before modifying the workspace; failures clean staging and leave the workspace untouched:
+Implemented and verified in commit `8c63827`. Allows authenticated project owners to upload individual files or entire directory trees directly into any workspace target directory with zero external runtime dependencies. Uploads stage and validate files in an isolated temporary directory before modifying the workspace; failures clean staging and leave the workspace untouched:
 
 1. **Backend Upload Architecture (`backend/src/files/upload.ts` & `backend/src/projects/routes.ts`)**:
    - `POST /api/projects/:id/upload`: supports both direct `multipart/form-data` uploads (streaming/buffered) and batch JSON payloads up to configured aggregate limits.
@@ -1835,16 +1878,68 @@ Implemented and verified in this working tree. Allows authenticated project owne
    - Automatically refreshes the file tree upon upload completion.
 
 Files:
+
 - Production: `backend/src/config.ts`, `backend/src/audit.ts`, `backend/src/files/upload.ts`, `backend/src/projects/routes.ts`, `frontend/src/components/common/Icons.tsx`, `frontend/src/components/Sidebar/Sidebar.tsx`.
 - Tests: `backend/test/upload.test.ts` (20 tests covering single file uploads, non-owner authorization rejection, nested target destinations, path traversal rejection, absolute path rejection, null byte rejection, aggregate size limits, single file size limits, file count limits, multi-level folder structure preservation, overwrite conflict and override policies, atomic staging failure safety, staging cleanup, concurrency, binary file fidelity, empty file support, project deletion cleanup, multipart parser fidelity, JSON upload endpoints, and multipart HTTP endpoints).
 
 Verification:
+
 - Focused suite `test/upload.test.ts`: **20 passed / 0 failed** (2.13s).
 - Related suites (`archive-import-export.test.ts`, `files.test.ts`, `snapshot-quotas.test.ts`, `preferences.test.ts`, `smoke-harness.test.ts`, `smoke-live.test.ts`): **55 passed / 0 failed**.
 - Full backend regression suite: **374 passed / 2 failed / 31 skipped (42 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
 - Frontend build & typecheck: PASS (Vite built in 32.10s).
 - `git diff --check`: PASS.
+
+### Milestone 25 — Production Database Backup & Disaster Recovery Automation
+
+Implemented and verified in this working tree. Provides a production-grade online SQLite backup service, automated integrity verification, retention management, admin REST API, standalone operator CLI, and offline disaster recovery runbook:
+
+1. **Online Point-in-Time SQLite Backup Architecture (`backend/src/backup/service.ts`, `backend/src/backup/shared.js`)**:
+   - Uses SQLite's native `VACUUM INTO '<target>'` to generate a clean, consistent, standalone snapshot file. This is "online" at the SQLite/WAL engine level — no other DB connection or process is locked out while it runs. It is **not** non-blocking at the Node process level: this implementation uses Node's synchronous `DatabaseSync` API, so the VACUUM INTO call and the subsequent `PRAGMA integrity_check` block the Node event loop for their duration — no other HTTP, WebSocket, or terminal traffic in that process is serviced while a backup executes. Measured cost at the tested DB size (~260KB) is small (~8ms), but duration scales with database size; schedule production backups off-peak and monitor duration for large databases.
+   - **Concurrency Serialization**: create/prune/delete all serialize through a single cross-process filesystem lock (`.backup.lock` in `backupDir`, acquired via atomic `fs.openSync(path, 'wx')`). Both the server (admin-triggered backups, via an async-waiting acquire so lock contention never blocks the Node event loop for other requests) and the standalone CLI (cron-triggered backups, synchronous — harmless in a short-lived dedicated process) acquire the same lock, so a cron backup and an admin-triggered backup against the same `backupDir` can never race on VACUUM INTO or retention pruning, even though they run in separate OS processes. Stale-lock reclaim requires BOTH age past `backupLockStaleMs` (default 30s, NaN-safe) AND the recorded holder PID being verifiably dead (`process.kill(pid, 0)`) — age alone is insufficient, since a single large production database can legitimately make one VACUUM INTO exceed a short staleness window and the holder cannot heartbeat mid-call.
+   - **Automated Integrity Verification**: every backup is immediately verified with `PRAGMA integrity_check` before being returned or marked valid at creation time. Any corrupt or partial backup file is immediately pruned, leaving the live database untouched. Listing backups (`GET /api/admin/backups`) reports `unverified` by default rather than assuming a listed file is still intact — integrity is only reported `ok` for a backup just created, or when a fresh re-check is explicitly requested.
+   - **Configurable Retention Policy**:
+     - `backupDir`: default `<dataDir>/backups` (`BACKUP_DIR`).
+     - `maxDatabaseBackups`: default 10 (`MAX_DATABASE_BACKUPS`).
+     - `maxBackupBytes`: default 100MB (`MAX_BACKUP_BYTES`).
+     - Oldest-first pruning enforced across both backup count and total disk usage.
+   - **Audit Events**: records `DATABASE_BACKUP_CREATED` and `DATABASE_BACKUP_DELETED` events in the audit log with filename, byte size, and actor information.
+
+2. **Admin REST Endpoints (`backend/src/admin/routes.ts`)**:
+   - `GET /api/admin/backups`: lists all backups with filename, size, creation timestamp, and integrity status.
+   - `POST /api/admin/backups`: triggers an online backup, verifies integrity, prunes expired backups, and returns metadata.
+   - `GET /api/admin/backups/:filename`: securely downloads a verified backup file, enforcing strict filename regex (`/^[a-zA-Z0-9_-]+\.db$/`) and rejecting path traversal (`../`, absolute paths, null bytes).
+   - `DELETE /api/admin/backups/:filename`: deletes a backup file and emits an audit event.
+
+3. **Standalone Operator CLI & Disaster Recovery Runbook**:
+   - CLI utility: `scripts/backup-db.js` registered as `npm run db:backup`.
+   - Supports `--data-dir`, `--db-path`, `--backup-dir`, `--max-backups`, and `--max-bytes` flags with exit code 0 on success. Suitable for host cron execution.
+   - Complete step-by-step **Offline Disaster Recovery Runbook** in `deploy/README.md` documenting safe stack shutdown, safety copy creation, verified backup restoration, integrity validation, stack startup, and smoke verification.
+
+Files:
+
+- Production: `backend/src/config.ts`, `backend/src/audit.ts`, `backend/src/backup/service.ts`, `backend/src/backup/shared.js`, `backend/tsconfig.json` (`allowJs` for the shared JS module), `backend/src/admin/routes.ts`, `scripts/backup-db.js`, `package.json`, `deploy/README.md`, `.gitignore` (`*.heapsnapshot`, unrelated repo hygiene fix bundled with this milestone's corrections).
+- Tests: `backend/test/backup.test.ts` (26 tests: the original 18 covering backup creation, PRAGMA integrity_check, live read/write coexistence, offline restorability, partial failure cleanup, count/byte retention, idempotent pruning, concurrent-create collision safety, traversal rejection, CLI success/failure semantics, and admin-only list/create/download/delete endpoints — plus 8 added during correction covering honest list-time integrity metadata (`unverified` by default, `ok`/`failed` only on explicit re-verify), create/delete lock serialization, lock-file presence/release, liveness-gated stale-lock reclaim (both the reclaim-a-dead-holder and refuse-to-reclaim-a-live-holder cases), a genuine cross-process concurrency test using two real spawned `node scripts/backup-db.js` child processes, retention-under-concurrency, and a static guard that the CLI still imports the shared module rather than reimplementing it).
+
+Operational & Performance Measurement:
+
+- DB Size Before: **266,240 bytes (260.0 KB)**
+- Backup Size: **266,240 bytes (260.0 KB)**
+- Backup Duration: **8.16 ms**
+- Integrity Check: **ok**
+- Live Reads & Writes: **PASS (100% success before, during, and after backup execution)**
+- Scale check (manual, not part of the automated suite): a synthetic ~16.4MB DB (16,429,056 bytes) backed up in **498ms** via `scripts/backup-db.js` — confirms backup duration scales with database size (~8ms at 260KB → ~500ms at 16.4MB) and is not free at production scale; this is the basis for the "schedule backups off-peak, monitor duration" guidance above.
+
+Verification:
+
+- Focused suite `test/backup.test.ts`: **26 passed / 0 failed** (2.27s).
+- Related suites (`admin.test.ts`, `auth-lifecycle.test.ts`, `upload.test.ts`, `archive-import-export.test.ts`, `snapshot-quotas.test.ts`, `smoke-live.test.ts`, `smoke-harness.test.ts`): **81 passed / 0 failed** (12.70s).
+- Full backend regression suite: **400 passed / 2 failed / 31 skipped (43 test files)**; the 2 failures are confirmed pre-existing baseline failures on clean master (`lifecycle.test.ts` / `m16-optimization.test.ts` and `pipeline.test.ts`), no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend build & typecheck: PASS (Vite built in 27.57s).
+- `git diff --check`: PASS.
+- Independent read-only security review of the filesystem lock, admin routes, CLI, and `allowJs` change: confirmed admin-only gating, path-traversal rejection, and rate limiting intact; found and fixed two Medium findings (synchronous lock-wait could block the Node event loop up to 5s under lock contention — server-side acquire is now async; stale-lock reclaim was age-only with no liveness check, risking reclaim of a still-legitimately-running large-DB backup — reclaim now also requires the recorded holder PID to be verifiably dead). Two Low findings deferred as follow-up, not fixed here: backup files/directory don't get explicit `0o600`/`0o700` permissions (relies on process umask), and downloading a backup via `GET /api/admin/backups/:filename` doesn't emit an audit event (create/delete do).
 
 ## Architecture decisions (do not rediscover)
 
@@ -1896,6 +1991,13 @@ Verification:
   the workspace; failures clean staging and leave the workspace untouched. Supports
   zero-dependency multipart and JSON payloads with strict path traversal protection,
   409 conflict gating, live Yjs room updates, and no session disruption.
+- **Production Database Backups use SQLite VACUUM INTO.** Online point-in-time
+  snapshot at the SQLite/WAL engine level, but the synchronous `DatabaseSync` API
+  blocks the Node event loop for the backup's duration (imperceptible at tested DB
+  sizes, scales with DB size in production). Create/prune/delete serialize through
+  a cross-process filesystem lock shared by the server and the CLI, with automated
+  integrity verification and oldest-first count/byte retention. Database restoration
+  is strictly offline-only.
 
 ## Known non-blocking issues
 
@@ -1907,20 +2009,20 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18/M19/M20/M21/M22/M23/M24, reproduce identically on clean HEAD `477dfc7`, are not caused by M24, were not modified during M24, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18/M19/M20/M21/M22/M23/M24/M25, reproduce identically on clean HEAD `477dfc7`, are not caused by M25, were not modified during M25, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–23 are committed. Milestone 24 (direct workspace file & folder upload)
+Milestones 1–24 are committed. Milestone 25 (production database backup & disaster recovery automation)
 is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
 remains outstanding and un-gated, unchanged from before.
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 24**:
-   Stage M24 production changes, tests, and STATUS.md; commit and push to master.
-2. **Phase-1 Backlog — Production Recovery & Zero-Downtime Backup Automation**:
-   Automated online database backup (`VACUUM INTO`) and workspace archive tooling.
+1. **Commit and Publish Milestone 25**:
+   Stage M25 production changes, tests, scripts, deploy docs, and STATUS.md; commit and push to master.
+2. **Milestone 26 — Project Duplication & Workspace Forking (`POST /api/projects/:id/fork`)**:
+   Allow single-click project cloning, workspace replication, and isolated sandbox provisioning.
