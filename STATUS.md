@@ -36,7 +36,8 @@ Last updated: 2026-08-25.
   - Milestone 26 (workspace-wide search & replace) at `ed8deb7`.
   - Milestone 27 (database backup security hardening — file/directory permissions, download audit logging) at `96a20bd`.
   - Milestone 28 (project duplication & workspace forking) at `0c56f0c`.
-  - Milestone 29 (harden project fork authorization — owner-only, closing an export bypass) in this commit.
+  - Milestone 29 (harden project fork authorization — owner-only, closing an export bypass) at `0f08432`.
+  - Milestone 30 (automated database restore & disaster-recovery verification) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2136,6 +2137,31 @@ Verification:
 - Frontend: not touched, not rebuilt — the frontend's fork UI already surfaces any error (including this route's now-404-for-non-owners response) via the same generic `alert(...)` path Export/Import already use; the Fork button was never conditioned on ownership in the first place (neither is Export's), so no frontend change was needed or made.
 - `git diff --check`: PASS.
 
+### Milestone 30 — Automated Database Restore & Disaster-Recovery Verification
+
+Completes the missing restore half of the M25/M27 backup pipeline. M25/M27 built a complete, tested, locked, integrity-verified _backup_ pipeline (create/list/download/delete, retention, cross-process locking, 0o600/0o700 permissions, download audit logging) but restore was never automated: `deploy/README.md` documented restore as an entirely manual, untested shell procedure (stop app, `cp` a backup over the live DB by hand, ad hoc integrity check, restart). This milestone adds a safe, tested, CLI-only restore tool without touching backup, export, import, upload, snapshot, or fork behavior at all.
+
+1. **Restore primitive (`backend/src/backup/shared.js`)**: new `restoreDatabaseFromBackup({dbPath, backupDir, filename, integrityCheckFn?})`, built entirely from the module's own already-audited primitives (`BACKUP_FILENAME_RE`, `verifyDatabaseBackupIntegrity`, `listBackupFilesSync`) — no new validation, integrity, or locking logic invented. Sequence: (a) validate `filename` against the same allowlist regex + traversal checks the download/delete routes already use; (b) verify the **backup's own** integrity via `PRAGMA integrity_check` before touching the live DB at all — a failed check aborts with the live DB provably untouched and no safety copy made (nothing was mutated); (c) if a live DB file exists, copy it — plus `-wal`/`-shm` sidecars if present — into a timestamped safety copy under `<dbDir>/restore-safety/`, never deleted automatically; (d) copy the backup into a same-directory temp file, then `renameSync` it over the live path — the only operation that ever touches the final live path, so a failure during the copy-to-temp step can never leave the live DB partially written (not claimed as universal POSIX-style atomicity — Windows' `MoveFileExW`-backed rename is the closest available primitive there, not documented as atomic across every filesystem, but still never a byte-by-byte write into the final path); (e) remove the now-stale live `-wal`/`-shm` (they describe the pre-restore generation and must not be replayed against the freshly-restored file) while leaving the safety copy's own sidecars untouched; (f) re-verify integrity of the now-live restored file. A post-restore verification failure does **not** trigger an automatic rollback — it reports failure prominently (`RestoreVerificationError`, carrying `safetyCopyPath` and `postRestoreIntegrity`) and leaves the safety copy in place for manual recovery, rather than guessing at a fix or silently claiming success.
+2. **CLI (`scripts/restore-db.js`, new)**: mirrors `scripts/backup-db.js`'s structure/conventions exactly. `--backup-file=<name>` or `--latest` (exactly one required); imports `restoreDatabaseFromBackup`/`withBackupLockSync`/`listBackupFilesSync` from `shared.js` — no duplicated validation/locking/integrity code (verified by a static-source test). The whole operation runs inside the same cross-process backup lock `db:backup` already uses, so a restore can never race a concurrently-running scheduled backup. `npm run db:restore` added to `package.json` alongside the existing `db:backup` entry.
+3. **Offline-only by design, not by accident**: restore is deliberately never exposed over HTTP/admin API — the process serving that request would itself hold the live DB file open, which is exactly the condition that makes in-place replacement unsafe. The CLI prints an explicit "OFFLINE OPERATION" / "application must be stopped" banner and makes no attempt at unreliable "is the app running?" process detection, since this codebase has no existing primitive for that and fabricating one would be worse than being honest about the limitation.
+4. **Documentation (`deploy/README.md`)**: the Offline Disaster Recovery Runbook now leads with the automated `npm run db:restore -- --latest` procedure (documenting exactly what it does, that post-backup writes are permanently and expectedly lost, and what to do if post-restore verification fails), with the original hand-typed procedure kept below as an explicit manual fallback, not deleted. The Admin API Management section now explicitly notes restore is deliberately absent from it and why.
+
+Security considerations: filename validation is allowlist-based (`^[a-zA-Z0-9_-]+\.db$` plus explicit traversal/absolute-path/null-byte rejection), identical to the already-reviewed download/delete routes — verified directly against `../foo.db`, an absolute POSIX path, a Windows-style absolute path, and a null byte, all rejected with the live DB provably byte-identical before and after. The backup source file is only ever read (`copyFileSync` from it), never mutated. Integrity is never trusted from filename/metadata — every decision point re-runs the real `PRAGMA integrity_check`. `dbPath`/`backupDir` are operator-supplied CLI/env arguments (consistent with `backup-db.js`'s own existing trust model for an offline CLI tool, not attacker-reachable input), not exposed to any authenticated-but-untrusted actor since there is no HTTP surface at all for this feature. CLI output prints filenames/sizes/paths/durations/integrity status only — never row-level content, tokens, or password hashes.
+
+Files:
+
+- Production: `backend/src/backup/shared.js`, `scripts/restore-db.js` (new), `package.json` (`db:restore` script), `deploy/README.md`.
+- Tests: `backend/test/restore.test.ts` (new, 12 tests): valid restore overwrites mutated live state with the backup's original content; corrupt-backup rejection with a provably byte-identical live DB before/after; traversal/absolute/Windows-style/null-byte filename rejection; safety copy contains the pre-restore state, not the restored state; stale live WAL/SHM removed while safety-copy sidecars are preserved; `--latest` selects the newest backup by the same ordering `listBackupFilesSync` already uses; genuine cross-process concurrency via two real spawned `node scripts/{restore,backup}-db.js` processes sharing one `backupDir`; repeated restore of the same backup is deterministic and leaks no locks/files; a forced (test-injected) post-restore-verification failure is reported without auto-rollback and preserves the safety copy; CLI argument semantics (missing/both args, invalid backup, exit codes); a static-source guard proving the CLI imports shared restore logic instead of reimplementing validation/locking/integrity; the restored live DB is immediately usable for a real post-restore write query, not just integrity-check-passable.
+
+Verification:
+
+- Focused suite `test/restore.test.ts`: **12 passed / 0 failed** (0.84s) — every test genuinely exercises real files and, for cross-process concurrency and CLI semantics, real spawned/executed child processes, not faked.
+- Related suite (`restore.test.ts`, `backup.test.ts`, `admin.test.ts`, `migrations.test.ts`): **63 passed / 0 failed, 2 skipped** (4 test files, 6.21s) — zero regression to existing backup functionality.
+- Full backend regression suite: **443 passed / 2 failed / 35 skipped (46 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts` (Docker unavailable) — unmodified, no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: not touched, not rebuilt — confirmed via `git status`/`git diff` that zero frontend files are in this milestone's diff before skipping any frontend verification step.
+- `git diff --check`: PASS.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2146,19 +2172,19 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M29, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M29, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M30, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M30, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–29 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
-`0c56f0c`, M29 in this commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
-remains outstanding and un-gated, unchanged from before. M26 and M28 both touched frontend UI and
-were verified by clean typecheck/build/vitest only — live browser interaction was not exercised
-for either (no Chrome automation available); worth a combined manual pass. M27 and M29 were
-backend-only (M29's route doc-comment fix does not change any frontend-visible behavior).
+Milestones 1–30 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
+`0c56f0c`, M29 at `0f08432`, M30 in this commit). Manual QA execution for M1
+(`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged from before. M26
+and M28 both touched frontend UI and were verified by clean typecheck/build/vitest only — live
+browser interaction was not exercised for either (no Chrome automation available); worth a
+combined manual pass. M27, M29, and M30 were all backend/CLI-only (no frontend files touched).
 
 ## Next recommended milestone
 
@@ -2166,5 +2192,11 @@ backend-only (M29's route doc-comment fix does not change any frontend-visible b
    above) — no code changes expected, just closing the live-interaction verification gap both
    milestones share. Fork's UI behavior itself is unchanged by M29 (still a button + name prompt);
    only the server-side outcome for non-owners changed (404 instead of 201).
-2. Other candidates, lower priority than the above: none currently identified from repo state;
-   next session should re-audit rather than pick blind.
+2. **Workspace file backup/restore coverage** — M25/M27/M30 now fully automate backup+restore for
+   the SQLite database, but `workspaces/<projectId>/` (actual project source files) still has zero
+   automated coverage; the manual `tar czf` step in the "Backup / restore" section remains the only
+   option for project files. A real disaster today recovers accounts/sessions but loses all project
+   code. Deliberately deferred out of M30's scope (kept that milestone to a single data domain);
+   worth its own milestone next given the DB half is now fully closed.
+3. **Audit log retention/pruning** — `audit_logs` (`backend/src/audit.ts`) has no retention policy
+   or pruning tool; it grows unboundedly on a long-running instance. Lower urgency than (2).

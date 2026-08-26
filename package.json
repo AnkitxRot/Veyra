@@ -16,7 +16,8 @@
     "deploy:setup": "bash scripts/setup-vps.sh",
     "deploy:up": "bash scripts/prod-up.sh",
     "deploy:smoke": "node scripts/smoke-test.js",
-    "db:backup": "node scripts/backup-db.js"
+    "db:backup": "node scripts/backup-db.js",
+    "db:restore": "node scripts/restore-db.js"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

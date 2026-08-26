@@ -114,7 +114,9 @@ tar czf /backup/workspaces-$(date +%F).tgz -C /var/lib/cloud-ide workspaces
 docker compose start
 ```
 
-Restore by copying the DB and workspaces back into `/var/lib/cloud-ide` and starting.
+Restore the database with `npm run db:restore -- --latest` (see the Offline Disaster
+Recovery Runbook below) after stopping the app; restore workspaces by extracting the
+`.tgz` back into `/var/lib/cloud-ide`.
 
 ## Database migrations
 
@@ -279,12 +281,79 @@ Authenticated administrators can manage backups programmatically:
 - `GET /api/admin/backups/:filename`: Downloads a verified backup file.
 - `DELETE /api/admin/backups/:filename`: Safely deletes a specific backup and records an audit log.
 
+Restore is deliberately **not** exposed here or anywhere over HTTP: replacing the live
+database file is only safe while nothing has it open, and the very process serving an admin
+HTTP request would itself hold that file open. Restore is a CLI-only, offline operation — see
+below.
+
 ### 5. Offline Disaster Recovery Runbook
 
 > [!WARNING]
-> Database restoration replaces the active SQLite database and must **only** be performed while the application service is stopped. Never overwrite the database file while the application process is running.
+> Database restoration replaces the active SQLite database and must **only** be performed while the application service is stopped. Never overwrite the database file while the application process is running — neither the automated tool below nor any manual command can safely detect a still-running application, so stopping it first is the operator's responsibility.
 
-#### Step-by-Step Restoration Procedure
+#### Step-by-Step Restoration Procedure (automated, preferred)
+
+1. **Stop the application service**:
+
+   ```bash
+   docker compose -f deploy/docker-compose.prod.yml stop app
+   ```
+
+2. **Choose a backup** (skip if using `--latest`):
+
+   ```bash
+   ls -la /var/lib/cloud-ide/backups/
+   ```
+
+3. **Run the restore command**:
+
+   ```bash
+   npm run db:restore -- --latest
+   # or restore a specific backup:
+   npm run db:restore -- --backup-file=cloudeeeide_backup_<TIMESTAMP>_<NONCE>.db
+   ```
+
+   `scripts/restore-db.js` (`backend/src/backup/shared.js`'s `restoreDatabaseFromBackup`)
+   performs the full safe sequence automatically: verifies the chosen backup's integrity via
+   `PRAGMA integrity_check` **before** touching the live database (a failed check aborts with
+   the live database untouched); makes a timestamped safety copy of the current live database
+   — plus its `-wal`/`-shm` sidecars if present — under `<data-dir>/restore-safety/` **before**
+   any destructive action (this safety copy is never deleted automatically); replaces the live
+   database via a same-directory copy-to-temp-file followed by a single `rename` over the live
+   path (the only operation that ever touches the final live path, so a failure mid-copy can
+   never leave it partially written); removes the now-stale live `-wal`/`-shm` sidecars
+   (which describe the pre-restore generation and must not be replayed against the restored
+   file); and re-verifies integrity of the now-live restored file before reporting success.
+   The whole operation runs under the same cross-process backup lock `db:backup` uses, so it
+   can never race a concurrently-running scheduled backup.
+
+   **This is expected, not an error**: any live database writes made after the restored
+   backup's own creation timestamp are permanently lost — that is the nature of restoring to
+   a prior point in time.
+
+   **If post-restore verification fails**: the command exits non-zero and reports the failure
+   prominently. It does **not** attempt an automatic rollback — the pre-restore safety copy
+   created in this same run remains at the path the command printed (under
+   `<data-dir>/restore-safety/`), and manual recovery from that safety copy, or from a
+   different backup, is required.
+
+4. **Verify the command's own output** confirms `Post-Restore Integrity: ok`.
+
+5. **Start the application service**:
+
+   ```bash
+   docker compose -f deploy/docker-compose.prod.yml start app
+   ```
+
+6. **Verify deployment readiness**:
+   ```bash
+   npm run deploy:smoke
+   ```
+
+#### Manual Fallback Procedure
+
+If `scripts/restore-db.js` is unavailable for any reason, the equivalent steps can be
+performed by hand:
 
 1. **Stop the application service**:
 

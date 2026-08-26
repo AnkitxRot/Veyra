@@ -29,8 +29,10 @@ import {
   readFileSync,
   unlinkSync,
   chmodSync,
+  copyFileSync,
+  renameSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
 
 const require = createRequire(import.meta.url);
@@ -459,4 +461,204 @@ export async function withBackupLockAsync(backupDir, opts, fn) {
   } finally {
     releaseBackupLock(lock);
   }
+}
+
+/**
+ * Same filename-allowlist validation `service.ts`'s `assertValidBackupFilename`
+ * and the admin download route already apply — re-checked here rather than
+ * imported, since neither of those is exported from a shared module, and
+ * `BACKUP_FILENAME_RE` (the actual reusable primitive) already anchors this
+ * to the same allowlist regex they both use.
+ * @param {string} filename
+ */
+function assertValidRestoreFilename(filename) {
+  if (
+    typeof filename !== "string" ||
+    !BACKUP_FILENAME_RE.test(filename) ||
+    filename.includes("..") ||
+    filename.includes("/") ||
+    filename.includes("\\") ||
+    filename.includes("\0")
+  ) {
+    throw new Error(`Invalid backup filename: ${JSON.stringify(filename)}`);
+  }
+}
+
+export class RestoreIntegrityError extends Error {
+  /** @param {string} message */
+  constructor(message) {
+    super(message);
+    this.name = "RestoreIntegrityError";
+  }
+}
+
+export class RestoreVerificationError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ safetyCopyPath: string | null, postRestoreIntegrity: string }} details
+   */
+  constructor(message, details) {
+    super(message);
+    this.name = "RestoreVerificationError";
+    this.safetyCopyPath = details.safetyCopyPath;
+    this.postRestoreIntegrity = details.postRestoreIntegrity;
+  }
+}
+
+/**
+ * @typedef {Object} RestoreResult
+ * @property {string} restoredFrom
+ * @property {number} backupSizeBytes
+ * @property {string | null} safetyCopyPath
+ * @property {string} postRestoreIntegrity
+ * @property {number} durationMs
+ */
+
+/**
+ * Restores the live SQLite database file at `dbPath` from a verified backup
+ * file in `backupDir`.
+ *
+ * OFFLINE OPERATION ONLY: this function replaces the live database file on
+ * disk and cannot reliably detect whether some other process (the running
+ * application) still has it open — it does not try to guess. The caller
+ * (the CLI) is responsible for documenting that the application must be
+ * stopped first; see deploy/README.md's Offline Disaster Recovery Runbook.
+ *
+ * Sequence (never mutates the backup source, never leaves a partially
+ * written live database file):
+ *   1. Validate `filename` against the same allowlist backup routes use.
+ *   2. Verify the BACKUP's own integrity via `PRAGMA integrity_check`
+ *      *before* touching the live database at all. A failed check aborts
+ *      here with the live database provably untouched.
+ *   3. If a live database file already exists, copy it (plus any `-wal`/
+ *      `-shm` sidecars) into a timestamped safety copy under
+ *      `<dbDir>/restore-safety/` *before* any destructive action. Safety
+ *      copies are never deleted automatically.
+ *   4. Copy the backup into a temp file in the same directory as `dbPath`,
+ *      then `renameSync` it over `dbPath` — a single filesystem rename is
+ *      the platform's safest available replacement primitive (POSIX
+ *      `rename(2)` is atomic; Windows' underlying `MoveFileExW` with
+ *      `MOVEFILE_REPLACE_EXISTING` is the closest equivalent, though it is
+ *      not documented by Microsoft as atomic across every filesystem/
+ *      journaling scenario — this is *not* claimed as universal atomicity,
+ *      only as never writing byte-by-byte into the final live path, so a
+ *      failure during the copy-to-temp step can never leave `dbPath`
+ *      partially written).
+ *   5. Remove the now-stale `-wal`/`-shm` sidecars at the *live* path (they
+ *      describe the pre-restore database generation and must not be
+ *      replayed against the freshly-restored file). The safety copy's own
+ *      sidecars are left untouched.
+ *   6. Re-verify integrity of the now-live restored file. A failure here
+ *      does NOT trigger an automatic rollback — it reports failure
+ *      prominently and leaves the safety copy in place for manual
+ *      recovery, rather than silently reporting success or guessing at an
+ *      automated fix for a state this function cannot fully diagnose.
+ *
+ * @param {Object} opts
+ * @param {string} opts.dbPath - Live database file path.
+ * @param {string} opts.backupDir - Directory containing backup files.
+ * @param {string} opts.filename - Backup filename to restore from.
+ * @param {(filePath: string) => string} [opts.integrityCheckFn] - Defaults
+ *   to {@link verifyDatabaseBackupIntegrity}. Overridable only so tests can
+ *   deterministically exercise the post-restore-verification-failure branch
+ *   without needing genuine disk corruption; production callers (the CLI)
+ *   never override this.
+ * @returns {RestoreResult}
+ */
+export function restoreDatabaseFromBackup(opts) {
+  const {
+    dbPath,
+    backupDir,
+    filename,
+    integrityCheckFn = verifyDatabaseBackupIntegrity,
+  } = opts;
+
+  assertValidRestoreFilename(filename);
+
+  const backupPath = join(backupDir, filename);
+  if (!existsSync(backupPath)) {
+    throw new Error(`Backup file not found: ${filename}`);
+  }
+
+  // Verify the BACKUP's own integrity before touching the live DB at all —
+  // a failed check means no mutation has happened, so no safety copy is
+  // needed and none is made.
+  const backupIntegrity = integrityCheckFn(backupPath);
+  if (backupIntegrity !== "ok") {
+    throw new RestoreIntegrityError(
+      `Backup integrity verification failed (${backupIntegrity}) -- the live database was not touched.`,
+    );
+  }
+
+  const backupStat = statSync(backupPath);
+  const startTime = Date.now();
+  const dbDir = dirname(dbPath);
+
+  // Safety copy of whatever currently lives at dbPath, before any
+  // destructive action. No live DB yet (e.g. first-ever restore onto a
+  // fresh deployment) is a legitimate case — nothing to copy then.
+  let safetyCopyPath = null;
+  if (existsSync(dbPath)) {
+    const safetyDir = join(dbDir, "restore-safety");
+    mkdirSync(safetyDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const nonce = randomBytes(3).toString("hex");
+    safetyCopyPath = join(
+      safetyDir,
+      `${basename(dbPath)}.pre-restore-${stamp}-${nonce}`,
+    );
+    copyFileSync(dbPath, safetyCopyPath);
+    for (const suffix of ["-wal", "-shm"]) {
+      if (existsSync(dbPath + suffix)) {
+        copyFileSync(dbPath + suffix, safetyCopyPath + suffix);
+      }
+    }
+  }
+
+  // Copy the backup into a same-directory temp file, then rename it over
+  // dbPath — the rename is the only operation that ever touches the final
+  // live path, so a failure during the copy can never leave dbPath
+  // partially written.
+  const tempPath = join(
+    dbDir,
+    `.restoring-${process.pid}-${randomBytes(3).toString("hex")}`,
+  );
+  try {
+    copyFileSync(backupPath, tempPath);
+    renameSync(tempPath, dbPath);
+  } catch (/** @type {any} */ err) {
+    try {
+      rmSync(tempPath, { force: true });
+    } catch {}
+    throw new Error(`Failed to replace live database file: ${err.message}`);
+  }
+
+  // The old -wal/-shm at the live path describe the pre-restore generation
+  // and must not be replayed against the freshly-restored file. The safety
+  // copy's own sidecars (already captured above) are left untouched.
+  for (const suffix of ["-wal", "-shm"]) {
+    try {
+      rmSync(dbPath + suffix, { force: true });
+    } catch {}
+  }
+
+  const postRestoreIntegrity = integrityCheckFn(dbPath);
+  const durationMs = Date.now() - startTime;
+
+  if (postRestoreIntegrity !== "ok") {
+    // No automatic rollback: report failure and leave the safety copy in
+    // place rather than silently claim success or guess at a fix.
+    throw new RestoreVerificationError(
+      `Post-restore integrity check failed (${postRestoreIntegrity}). The live database at ${dbPath} may be damaged.`,
+      { safetyCopyPath, postRestoreIntegrity },
+    );
+  }
+
+  return {
+    restoredFrom: filename,
+    backupSizeBytes: backupStat.size,
+    safetyCopyPath,
+    postRestoreIntegrity,
+    durationMs,
+  };
 }
