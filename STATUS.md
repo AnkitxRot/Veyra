@@ -40,7 +40,8 @@ Last updated: 2026-08-25.
   - Milestone 30 (automated database restore & disaster-recovery verification) at `bc8261e`.
   - Milestone 31 (automated per-project workspace & snapshot-body backup) at `a1077e1`.
   - Milestone 32 (per-project workspace & snapshot restore) at `9f5c130`.
-  - Milestone 33 (audit trail coverage & deletion integrity) in this commit.
+  - Milestone 33 (audit trail coverage & deletion integrity) at `31f00e6`.
+  - Milestone 34 (backup & restore operational health observability) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2253,6 +2254,32 @@ Verification:
 - Frontend: not touched, not rebuilt — confirmed via `git status` that zero frontend files are in this milestone's diff. No new admin route or UI surface, per the governing contract.
 - `git diff --check`: PASS.
 
+### Milestone 34 — Backup & Restore Operational Health Observability
+
+A dedicated post-M33 discovery pass re-evaluated the repository rather than assuming any specific milestone was next, and found a real, concrete operational blind spot rather than manufacturing one: `GET /api/admin/health` already aggregates database liveness, Docker liveness, and sandbox counts, but said nothing about backup posture, despite M25/M27/M30/M31/M32 investing five milestones in exactly that capability. The public `GET /api/health`/`GET /api/health/ready` and the documented `deploy:smoke` script were checked too and are equally silent on it. Concretely: an operator who sets up the documented `db:backup` cron job has no way to discover it silently stopped running until the moment a real disaster makes that too late to matter.
+
+1. **`backend/src/backup/health.ts` (new)**: `getDatabaseBackupHealth(cfg, now?)` and `getWorkspaceBackupHealth(cfg, db, now?)`, both computed fresh on every call — no scheduler, no cache, consistent with M31's own explicit no-scheduler precedent. Database health re-verifies backups newest-first via the same `verifyDatabaseBackupIntegrity` (`PRAGMA integrity_check`) the backup pipeline itself already uses, stopping at the first one that actually passes — bounded by `maxDatabaseBackups` (default 10), so this is at most a handful of single-file integrity checks per call, never an unbounded scan, and a corrupt newest backup is correctly skipped in favor of an older valid one rather than falsely reported healthy. Workspace health reuses `listWorkspaceBackups` once per project (bounded by total project count; each call is already cheap for an uncovered project via that function's own `existsSync` short-circuit) and tracks two **deliberately separate dimensions**: coverage (does every project have at least one backup?) and freshness (how stale is the least-recently-backed-up covered project's newest backup?) — documented explicitly as distinct, not conflated.
+2. **A deliberate, documented asymmetry between the two checks**: database backups are re-verified via a real integrity check on every call; workspace backups are not re-extracted to verify — a workspace backup is already fully extraction-verified once, at creation time (`createWorkspaceBackup`'s own `verifyArchiveExtractable`), before it's ever durably written, and there's no in-place-mutation path that could silently corrupt it afterward the way a bit-rotted SQLite file might. Re-extracting every project's newest ZIP on every health check would not stay "cheap and bounded" as project count grows, unlike one bounded check system-wide for the database. This tradeoff is stated explicitly in the module's own doc comment, not silently assumed.
+3. **Status classification**, identical thresholds for both checks (`backupHealthWarningAgeMs` default 26h, `backupHealthCriticalAgeMs` default 48h, config-overridable, sized for a once-daily cron with slack for a merely-late run before treating it as a real failure): `ok` (age ≤ warning), `stale` (warning < age ≤ critical), `critical` (age > critical), `never` (no valid backup exists at all). Workspace status additionally treats _any_ uncovered project as `critical` regardless of the covered projects' freshness — a project with zero backups is a worse state than a project with a merely-old one.
+4. **Wired into the existing `GET /api/admin/health` response** as a new `backups: {database, workspaces}` field — the existing `database`/`docker`/`sandboxManager` fields are completely unchanged (verified directly, not assumed). Deliberately **not** wired into the public `GET /api/health`/`GET /api/health/ready`: those are process-liveness/readiness signals for container orchestration, explicitly documented as independent even of Docker for that reason — conflating backup staleness with process liveness would make an unrelated cron failure trigger pointless container restarts that fix nothing. Verified directly that both public routes are byte-for-byte unchanged.
+5. **A real, empirically-discovered testing pitfall, documented rather than silently worked around**: the established `backup.test.ts` technique of using `utimesSync` to simulate an old backup timestamp does not work for this feature — verified directly with a throwaway script that `utimesSync` only rewrites a file's `mtime`, never its `birthtime`, and both `listDatabaseBackups`/`listWorkspaceBackups` derive the reported `createdAt` from `birthtime` whenever it's valid (which is always, on this platform). Both health functions instead accept an explicit `now` override (already a natural, minimal addition for testability), and the tests compute exact boundary offsets from each backup's own actually-_listed_ `createdAt` — which was also found, in the process, to differ by a few milliseconds from the _creation call's own returned_ `createdAt` (`new Date().toISOString()`, captured moments after the file's real `birthtime`) — a real, minor, pre-existing inconsistency between the two code paths in the M25/M31 backup services, noted here rather than silently patched around (out of scope for this milestone; only the test's source of truth was corrected to match what the health functions actually read).
+
+Security considerations: `/api/admin/health` remains behind the exact same `requireAdmin` gate as before, no new route added; the `backups` field carries only aggregate counts/timestamps/status strings — verified directly (a serialized-response substring check) that no backup filename, filesystem path, or project content ever appears in it; the two public health routes were directly diffed against their pre-M34 shape and are unchanged.
+
+Files:
+
+- Production: `backend/src/backup/health.ts` (new), `backend/src/admin/routes.ts` (`/health` route extended only), `backend/src/config.ts` (two new threshold fields), `deploy/README.md`.
+- Tests: `backend/test/backup-health.test.ts` (new, 19 tests): database health at `never`/exact-warning-boundary/just-past-warning/exact-critical-boundary/just-past-critical, and the corrupt-newest-backup-skipped case; workspace health across zero projects, one uncovered project, all-covered-and-fresh, mixed coverage, stale/critical oldest-covered-project at exact boundaries, and correct identification of _which_ project is the freshness bottleneck among several; full admin `/health` integration (new field present, existing fields' exact shape unchanged, no leaked paths/filenames, admin-only auth unaffected); both public health routes proven byte-for-byte unchanged; `getBackupHealthSummary`'s aggregation. `backend/test/admin.test.ts`'s existing `/health` test extended with a `backups` field assertion.
+
+Verification:
+
+- Focused suite `test/backup-health.test.ts`: **19 passed / 0 failed** (~1.6s).
+- Related suite (`backup-health.test.ts`, `backup.test.ts`, `workspace-backup.test.ts`, `workspace-restore.test.ts`, `admin.test.ts`, `audit.test.ts`, `migrations.test.ts`): **116 passed / 0 failed, 3 skipped** (7 test files, 19.19s) — zero regression.
+- Full backend regression suite: **508 passed / 2 failed / 36 skipped (50 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts` (Docker unavailable) — unmodified, no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: not touched, not rebuilt — confirmed via `git status` that zero frontend files are in this milestone's diff. No new admin route or UI surface.
+- `git diff --check`: PASS.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2263,22 +2290,22 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M33, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M33, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M34, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M34, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–33 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
-`0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 in this
-commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and
-un-gated, unchanged from before. M26 and M28 both touched frontend UI and were verified by clean
-typecheck/build/vitest only — live browser interaction was not exercised for either (no Chrome
-automation available); worth a combined manual pass. M27, M29, M30, M31, M32, and M33 were all
-backend-only (no frontend files touched). The M25–M32 database + workspace + snapshot backup/restore
-arc is fully closed; M33 closed the audit-trail coverage/integrity gap that a dedicated discovery
-pass found instead of the originally-assumed retention/pruning need.
+Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
+`0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
+M34 in this commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains
+outstanding and un-gated, unchanged from before. M26 and M28 both touched frontend UI and were
+verified by clean typecheck/build/vitest only — live browser interaction was not exercised for
+either (no Chrome automation available); worth a combined manual pass. M27 and M29–M34 were all
+backend-only (no frontend files touched). The M25–M32 backup/restore arc is fully closed; M33 closed
+the audit-trail coverage/integrity gap; M34 closed the resulting observability blind spot (the arc
+existed but was invisible in the one diagnostic endpoint an operator would actually check).
 
 ## Next recommended milestone
 
@@ -2286,8 +2313,9 @@ pass found instead of the originally-assumed retention/pruning need.
    above) — no code changes expected, just closing the live-interaction verification gap both
    milestones share. Fork's UI behavior itself is unchanged by M29 (still a button + name prompt);
    only the server-side outcome for non-owners changed (404 instead of 201).
-2. Audit-log retention/pruning remains explicitly deferred, now on firmer footing than before M33
-   (the trail is complete and no longer self-destructs on project deletion) — still not clearly
-   justified by any actual growth evidence; re-evaluate only if real production volume data emerges.
+2. Audit-log retention/pruning remains explicitly deferred — the trail is complete and no longer
+   self-destructs on project deletion (M33), and its health is now at least indirectly observable
+   via the database's own backup-health signal (M34); still not clearly justified by any actual
+   growth evidence, re-evaluate only if real production volume data emerges.
 3. Other candidates: none currently identified beyond the above from repo state; next session should
    re-audit rather than pick blind, per this session's own established practice.

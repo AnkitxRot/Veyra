@@ -206,6 +206,10 @@ describe("Admin API Endpoints & Control Plane Capabilities", () => {
     expect(res.status).toBe(200);
     expect(res.data.database.live).toBe(true);
     expect(res.data.sandboxManager).toBeDefined();
+    // Milestone 34: backup/restore posture, admin-only, computed on demand.
+    expect(res.data.backups).toBeDefined();
+    expect(res.data.backups.database).toBeDefined();
+    expect(res.data.backups.workspaces).toBeDefined();
   });
 });
 

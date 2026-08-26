@@ -18,6 +18,7 @@ import {
   assertValidProjectId,
 } from "../backup/workspaceBackup.js";
 import { restoreWorkspaceBackup } from "../backup/workspaceRestore.js";
+import { getBackupHealthSummary } from "../backup/health.js";
 import { getProject } from "../projects/service.js";
 import {
   getSystemCapabilitiesAsync,
@@ -956,6 +957,13 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
           dbLive = true;
         } catch {}
 
+        // Milestone 34: backup/restore posture, computed on demand (no
+        // scheduler, no cache) — aggregate metadata only, never filenames,
+        // paths, or project content. Deliberately admin-only, via this
+        // already-gated route; the public /api/health and
+        // /api/health/ready liveness/readiness routes are untouched.
+        const backups = await getBackupHealthSummary(cfg, db);
+
         res.json({
           ok: dbLive && dockerLive,
           database: { live: dbLive, walMode: true },
@@ -964,6 +972,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
             activeCount: (await sandboxManager.getAllActiveSandboxes()).length,
             maxSandboxes: cfg.maxSandboxes,
           },
+          backups,
         });
       } catch (err) {
         next(err);

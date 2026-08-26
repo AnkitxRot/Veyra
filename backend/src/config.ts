@@ -72,6 +72,8 @@ export interface AppConfig {
   backupLockStaleMs: number;
   maxWorkspaceBackupsPerProject: number;
   maxWorkspaceBackupBytesPerProject: number;
+  backupHealthWarningAgeMs: number;
+  backupHealthCriticalAgeMs: number;
   /** M6: collaboration broadcast coalescing + backpressure. Kept
    *  env-configurable, like every other tunable in this file, specifically
    *  so the load harness can vary them without touching production code —
@@ -312,5 +314,16 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       Number(
         process.env.MAX_WORKSPACE_BACKUP_BYTES_PER_PROJECT ?? 250 * 1024 * 1024,
       ),
+    // Defaults assume a once-daily backup cadence (the cron example in
+    // deploy/README.md) with slack for the job simply running a bit late,
+    // not a signal of a real problem: 26h tolerates one slow/delayed run
+    // before warning; 48h (a full missed day) means the daily job has
+    // failed outright, not just run late.
+    backupHealthWarningAgeMs:
+      overrides.backupHealthWarningAgeMs ??
+      Number(process.env.BACKUP_HEALTH_WARNING_AGE_MS ?? 26 * 60 * 60 * 1000),
+    backupHealthCriticalAgeMs:
+      overrides.backupHealthCriticalAgeMs ??
+      Number(process.env.BACKUP_HEALTH_CRITICAL_AGE_MS ?? 48 * 60 * 60 * 1000),
   };
 }

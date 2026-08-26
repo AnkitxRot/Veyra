@@ -491,6 +491,72 @@ archive format/security/retention/admin-API layer in the same milestone. An oper
 regular workspace backups today should trigger them via the admin API on their own schedule (e.g.
 an external cron job calling the endpoint) until a future milestone adds one natively.
 
+## Backup Health Observability (Milestone 34)
+
+`GET /api/admin/health` (admin-only) now includes a `backups` field reporting real backup posture,
+computed fresh on every call — no background poller, no cache. This closes a real blind spot: an
+operator running the `db:backup` cron job above has no other way to discover it silently stopped
+working until the moment a real disaster makes that too late to matter.
+
+```json
+"backups": {
+  "database": {
+    "status": "ok",
+    "backupCount": 3,
+    "latestBackupCreatedAt": "2026-08-26T02:00:00.000Z",
+    "latestBackupAgeMs": 41400000,
+    "warningAgeMs": 93600000,
+    "criticalAgeMs": 172800000
+  },
+  "workspaces": {
+    "status": "ok",
+    "totalProjects": 12,
+    "coveredProjects": 12,
+    "uncoveredProjects": 0,
+    "coveragePercent": 100,
+    "oldestLatestBackupAgeMs": 3600000,
+    "oldestLatestBackupProjectId": "…",
+    "warningAgeMs": 93600000,
+    "criticalAgeMs": 172800000
+  }
+}
+```
+
+**Database backup status** is based on the newest backup that actually passes
+`PRAGMA integrity_check` — a corrupt newest file is skipped in favor of an older valid one, never
+reported as if it were healthy. `backupCount` is an honest total file count, independent of which
+(if any) are valid.
+
+**Workspace backup status** tracks two deliberately separate dimensions: _coverage_ (does every
+project have at least one backup at all?) and _freshness_ (how old is the least-recently-backed-up
+covered project's newest backup?). Status rules, checked in order:
+
+| Status     | Condition                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| `never`    | no project has ever been backed up (and at least one project exists)                                          |
+| `critical` | any project has zero backups, OR the oldest covered project's newest backup exceeds the critical age          |
+| `stale`    | every project has at least one backup, but the oldest covered project's newest backup exceeds the warning age |
+| `ok`       | otherwise (including the vacuous case of zero projects total)                                                 |
+
+Both dimensions share the same two age thresholds:
+
+| Variable                        | Default           | Purpose                                                                   |
+| ------------------------------- | ----------------- | ------------------------------------------------------------------------- |
+| `BACKUP_HEALTH_WARNING_AGE_MS`  | `93600000` (26h)  | Tolerates a once-daily cron running a bit late before warning.            |
+| `BACKUP_HEALTH_CRITICAL_AGE_MS` | `172800000` (48h) | A full missed day — the daily job has failed outright, not just run late. |
+
+**Only aggregate metadata is ever reported** — no backup filenames, filesystem paths, or project
+content appear in this response, matching the same admin-only gate every other backup route already
+uses.
+
+**Deliberately NOT wired into `GET /api/health` or `GET /api/health/ready`.** Those are
+process-liveness/readiness signals consumed by container orchestration for restart decisions, and
+are documented above as deliberately independent even of Docker for that reason. A stale backup is
+an operational fact about disaster-recovery posture, not evidence the running process itself is
+broken — conflating the two would make an unrelated cron failure trigger pointless container
+restarts that do nothing to fix the actual problem. Check `backups` under `/api/admin/health`
+specifically for this signal.
+
 ## Troubleshooting
 
 - **Readiness 503 (docker false):** the socket is not mounted or not accessible. Check
