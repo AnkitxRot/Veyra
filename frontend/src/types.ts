@@ -1,18 +1,18 @@
 export interface User {
   id: number;
   username: string;
-  role?: 'user' | 'admin';
+  role?: "user" | "admin";
   isDemo?: boolean;
 }
 
 export interface UserPreferences {
   fontSize: number;
   tabSize: number;
-  wordWrap: 'off' | 'on' | 'wordWrapColumn' | 'bounded';
+  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
   minimap: boolean;
-  lineNumbers: 'on' | 'off' | 'relative' | 'interval';
-  cursorBlinking: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
-  renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
+  lineNumbers: "on" | "off" | "relative" | "interval";
+  cursorBlinking: "blink" | "smooth" | "phase" | "expand" | "solid";
+  renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
   updatedAt?: string;
 }
 
@@ -27,7 +27,7 @@ export interface Project {
 export interface TreeNode {
   name: string;
   path: string;
-  type: 'file' | 'dir';
+  type: "file" | "dir";
   children?: TreeNode[];
 }
 
@@ -40,7 +40,13 @@ export interface RunResult {
   oom: boolean;
   durationMs: number;
   language: string;
-  type: 'success' | 'compile_error' | 'missing_toolchain' | 'no_language' | 'no_main_file' | 'not_runnable';
+  type:
+    | "success"
+    | "compile_error"
+    | "missing_toolchain"
+    | "no_language"
+    | "no_main_file"
+    | "not_runnable";
   mainFile?: string;
 }
 
@@ -96,6 +102,30 @@ export interface ProjectTemplate {
 }
 
 // Admin Control Plane Types
+
+export type BackupHealthStatus = "ok" | "stale" | "critical" | "never";
+
+export interface AdminBackupHealth {
+  database: {
+    status: BackupHealthStatus;
+    backupCount: number;
+    latestBackupCreatedAt: string | null;
+    latestBackupAgeMs: number | null;
+    warningAgeMs: number;
+    criticalAgeMs: number;
+  };
+  workspaces: {
+    status: BackupHealthStatus;
+    totalProjects: number;
+    coveredProjects: number;
+    uncoveredProjects: number;
+    coveragePercent: number;
+    oldestLatestBackupAgeMs: number | null;
+    warningAgeMs: number;
+    criticalAgeMs: number;
+  };
+}
+
 export interface AdminOverviewData {
   system: {
     status: string;
@@ -136,7 +166,7 @@ export interface AdminSandboxData {
   ports: Record<number, number>;
   lastUsed: number;
   idleSeconds: number;
-  status: 'running' | 'idle';
+  status: "running" | "idle";
   cpuPercent: number;
   memoryUsageBytes: number;
   pids: number;
@@ -160,7 +190,7 @@ export interface AdminExecutionMetrics {
 export interface AdminUserData {
   id: number;
   username: string;
-  role: 'user' | 'admin';
+  role: "user" | "admin";
   created_at: string;
   project_count: number;
   execution_count: number;

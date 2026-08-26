@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-25.
+Last updated: 2026-08-26.
 
 ## Current state
 
@@ -41,7 +41,10 @@ Last updated: 2026-08-25.
   - Milestone 31 (automated per-project workspace & snapshot-body backup) at `a1077e1`.
   - Milestone 32 (per-project workspace & snapshot restore) at `9f5c130`.
   - Milestone 33 (audit trail coverage & deletion integrity) at `31f00e6`.
-  - Milestone 34 (backup & restore operational health observability) in this commit.
+  - Milestone 34 (backup & restore operational health observability) at `61c9cb2`.
+  - Post-M34 browser QA pass (M26 nav-open fix, M28 cross-project editor-state corruption fix, M29
+    authz re-verification, M34 backup-health admin UI + unrelated Overview-tab crash fix) in this
+    commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2295,27 +2298,110 @@ Verification:
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
+## Post-M34 browser QA pass (M26 / M28 / M29 / M34 UI verification)
+
+Closed the manual/browser QA gap flagged in the previous "Next recommended milestone" note above,
+using real Chrome automation (previously unavailable in-session). Scope was explicitly QA + bounded
+bugfixes only — no new milestone number, per explicit instruction not to invent M35 during this pass.
+
+**M26 — Workspace search & replace UI: PASS, after fixing one real bug.**
+Manual QA (multi-file search, result navigation, replace preview, Replace All, binary-file skip,
+dirty-state preservation, empty/error states, Escape-to-close) found that clicking a search result
+for a file that was **not already an open editor tab** silently failed to open it: the breadcrumb
+and sidebar selection updated, but no tab opened and the reveal/highlight was misapplied to whatever
+file happened to already be active. Root cause: `WorkspaceSearchModal`'s `onSelectResult` handler
+(`IDE.tsx`) dispatched the `ide-reveal-location` event directly; the listener (`Editor.tsx`) calls
+`setActiveFile(path)`, which only switches among files already in `openFiles` — it does not fetch
+and open a new one. Fixed by awaiting the existing `handleOpenFile(filePath)` (fetches + opens +
+activates, no-op if already open) before dispatching the reveal event. Re-verified in-browser:
+closed-tab results now open correctly with the exact match selected; dirty files opened in other
+tabs are preserved untouched; Replace All correctly reported "5 matches across 3 files" and left the
+binary fixture and an unrelated file byte-for-byte unchanged.
+
+**M28 — Fork Project UI: PASS, after fixing a real, more serious bug found via the flow itself.**
+The fork dialog/name-prefill/submit flow itself was already correctly covered by the pre-existing
+`frontend/test/Sidebar.fork.test.tsx` (dialog open, success, error/alert, duplicate-submit guard) and
+matched that coverage in live use. However, manually exercising the realistic next step — fork, then
+switch back to the source project — surfaced real **cross-project data corruption**: switching
+projects in `IDE.tsx` never cleared `openFiles`/`activeFile`. Monaco's model registry is keyed by
+file path only (`monaco.Uri.file(path)`, no project scoping) and models are never disposed on
+project switch, so a same-named file left open across the switch (e.g. both projects have
+`nomatch.py`) reuses the OLD model instance. Binding the NEW project's fresh (initially empty)
+collaboration `Y.Text` to that stale, non-empty model triggers `CollaborationClient.bindMonacoModel`'s
+"seed Y.Text from existing model content if empty" heuristic, inserting the wrong project's leftover
+content; the real sync that follows merges rather than replaces it (Yjs is a CRDT), duplicating the
+line. Reproduced and confirmed via direct API reads: the source project's `nomatch.py` was actually
+persisted to disk with its content doubled (29 bytes → 58 bytes) after fork-then-switch-back, with no
+UI error at all. Fixed by resetting `openFiles`/`activeFile` at the top of the project-scoped
+collaboration-lifecycle effect (fires on every `project?.id` transition). Re-verified the exact
+repro end to end (including a fresh on-disk content check via the file API) — no corruption on
+either project after the fix. M29's authorization boundary (owner-only fork) was not touched by
+this fix and was separately re-verified below.
+
+**M29 — Fork authorization: PASS.** Re-verified end to end with real accounts: owner fork succeeds
+(201, new project created, independent, source unchanged); an editor collaborator, a viewer
+collaborator, and a full outsider all get denied (404 `project not found` — deliberately
+non-distinguishing, doesn't leak whether the project exists) both at the API and by actually
+clicking Fork in the browser as the editor collaborator (no project silently created — confirmed via
+the API afterward). The Fork button itself isn't role-hidden in the UI (relies on backend
+enforcement, shows a plain `alert()` on denial) — consistent with this codebase's existing
+alert()-based error convention elsewhere in `Sidebar.tsx`/`AdminDashboard.tsx`, not a fresh defect,
+so left as is per the "don't redesign fork" scope of this pass.
+
+**M34 — Backup health admin UI: IMPLEMENTED, after fixing an unrelated pre-existing crash that
+blocked all admin UI verification.** Before implementing, logging into the admin dashboard for the
+first time in this environment crashed the entire System Overview tab on mount:
+`overview?.infrastructure.maxSandboxes` (and ~15 other identical occurrences throughout the Overview
+tab) only optional-chains the first property access — `overview?.infrastructure` correctly
+short-circuits to `undefined` when `overview` is still `null` (its initial state, before the fetch
+resolves), but the following `.maxSandboxes` is NOT chained and throws immediately, crashing the
+whole component with no error boundary. This is pre-existing, unrelated to M34, and was apparently
+never caught because this session was the first real browser exercise of the admin dashboard's
+initial render. Fixed by adding the missing `?.` at every occurrence (`overview?.x?.y`), a purely
+null-safety-only change with no behavior difference once data loads. With that fixed, added the
+one bounded M34 deliverable: a "Backup & Disaster Recovery Health" panel on the Overview tab
+(matching the existing panel pattern next to "Node Process" / "Container Infrastructure"), consuming
+the already-existing `GET /api/admin/health` → `backups` field (no backend changes) — DB backup
+status/age/count and workspace coverage/freshness, with `ok`/`stale`/`critical`/`never` shown as
+color-coded badges, loading and error states, and no filenames/paths/secrets surfaced. Verified live
+in-browser as admin: `never` state (red) on a backup-less fresh QA environment; after triggering one
+DB backup and one workspace backup via the admin API, `ok` (green, DB) and `critical` (red, workspace
+— 1/3 projects covered) rendered correctly side by side. Verified a non-admin (`qacollab`) hitting
+`/admin` directly gets a clear "Access Forbidden (403)" screen, not the dashboard. All other existing
+admin tabs (Sandbox Operations, Execution Monitor, Tenants & Workspaces, Audit Journal) re-verified
+still render correctly after the fix.
+
+Net changes this pass: `frontend/src/components/IDE/IDE.tsx` (M26 nav fix + M28 cross-project reset
+fix), `frontend/src/components/Admin/AdminDashboard.tsx` (overview-crash fix + M34 backup-health
+panel), `frontend/src/types.ts` (new `AdminBackupHealth` type). No backend files changed. Frontend
+typecheck, `vitest run` (18/18 existing tests, unaffected), and `vite build` all pass clean.
+A dedicated automated regression test for the M28 cross-project corruption was assessed and judged
+impractical for this bounded pass: `IDE.tsx` has no existing test harness and a heavy runtime surface
+(WebSocket, dynamic `import()`, telemetry polling) that would need extensive mocking disproportionate
+to the fix; the existing `Sidebar.fork.test.tsx` continues to cover the fork-creation flow itself
+(unaffected), and this fix was verified via reproducible manual QA with direct on-disk content
+verification via the file API, documented in full above.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
-M34 in this commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains
-outstanding and un-gated, unchanged from before. M26 and M28 both touched frontend UI and were
-verified by clean typecheck/build/vitest only — live browser interaction was not exercised for
-either (no Chrome automation available); worth a combined manual pass. M27 and M29–M34 were all
-backend-only (no frontend files touched). The M25–M32 backup/restore arc is fully closed; M33 closed
-the audit-trail coverage/integrity gap; M34 closed the resulting observability blind spot (the arc
-existed but was invisible in the one diagnostic endpoint an operator would actually check).
+M34 at `61c9cb2`), plus the post-M34 browser QA pass above (commit noted at top of file once pushed).
+Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
+unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
+were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
+M25–M32 backup/restore arc is fully closed; M33 closed the audit-trail coverage/integrity gap; M34
+closed the resulting observability blind spot and, as of this pass, is now actually surfaced in the
+admin UI rather than only reachable via raw API.
 
 ## Next recommended milestone
 
-1. Manual/browser QA pass on the M26 search & replace UI and the M28 Fork Project UI (see caveat
-   above) — no code changes expected, just closing the live-interaction verification gap both
-   milestones share. Fork's UI behavior itself is unchanged by M29 (still a button + name prompt);
-   only the server-side outcome for non-owners changed (404 instead of 201).
-2. Audit-log retention/pruning remains explicitly deferred — the trail is complete and no longer
+1. Audit-log retention/pruning remains explicitly deferred — the trail is complete and no longer
    self-destructs on project deletion (M33), and its health is now at least indirectly observable
-   via the database's own backup-health signal (M34); still not clearly justified by any actual
-   growth evidence, re-evaluate only if real production volume data emerges.
+   via the database's own backup-health signal (M34, now UI-visible too); still not clearly justified
+   by any actual growth evidence, re-evaluate only if real production volume data emerges.
+2. The fork-denial `alert()` UX (M29) and other `alert()`-based error surfaces across
+   `Sidebar.tsx`/`AdminDashboard.tsx` are a consistent but dated pattern noted during this pass — a
+   candidate for a future UX-polish pass, not urgent, not a correctness or security issue.
 3. Other candidates: none currently identified beyond the above from repo state; next session should
    re-audit rather than pick blind, per this session's own established practice.

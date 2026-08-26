@@ -16,6 +16,7 @@ import {
   AdminAuditRecord,
   AdminUserDetails,
   RunRecord,
+  AdminBackupHealth,
 } from "../../types";
 import {
   IconShield,
@@ -32,6 +33,7 @@ import {
   IconLayers,
   IconEdit,
   IconCpu,
+  IconDatabase,
 } from "../common/Icons";
 import AdminResourceAnalytics from "./AdminResourceAnalytics";
 
@@ -69,6 +71,12 @@ export default function AdminDashboard({
   const [users, setUsers] = useState<AdminUserData[]>([]);
   const [projects, setProjects] = useState<AdminProjectData[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditRecord[]>([]);
+  const [backupHealth, setBackupHealth] = useState<AdminBackupHealth | null>(
+    null,
+  );
+  const [backupHealthError, setBackupHealthError] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -168,6 +176,18 @@ export default function AdminDashboard({
     } catch {}
   }, []);
 
+  const fetchBackupHealth = useCallback(async () => {
+    try {
+      const res = await api<{ backups: AdminBackupHealth }>(
+        "/api/admin/health",
+      );
+      setBackupHealth(res.backups);
+      setBackupHealthError(null);
+    } catch (err: any) {
+      setBackupHealthError(err.message || "Failed to load backup health");
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     setLoading(true);
     await Promise.all([
@@ -175,9 +195,16 @@ export default function AdminDashboard({
       fetchExecutions(),
       fetchTenants(),
       fetchAudit(),
+      fetchBackupHealth(),
     ]);
     setLoading(false);
-  }, [fetchOverviewFallback, fetchExecutions, fetchTenants, fetchAudit]);
+  }, [
+    fetchOverviewFallback,
+    fetchExecutions,
+    fetchTenants,
+    fetchAudit,
+    fetchBackupHealth,
+  ]);
 
   // 2. Real-Time WebSocket Connection (~1 Hz stream + platform events)
   useEffect(() => {
@@ -463,6 +490,21 @@ export default function AdminDashboard({
     return `${(mb / 1024).toFixed(2)} GB`;
   };
 
+  const formatAge = (ms: number | null) => {
+    if (ms === null) return "never";
+    const hours = ms / 3600000;
+    if (hours < 1) return `${Math.round(ms / 60000)}m ago`;
+    if (hours < 48) return `${hours.toFixed(1)}h ago`;
+    return `${(hours / 24).toFixed(1)}d ago`;
+  };
+
+  const backupStatusBadgeClass = (status: string) =>
+    status === "ok"
+      ? "glass-badge-success"
+      : status === "stale"
+        ? "glass-badge-warning"
+        : "glass-badge-error";
+
   return (
     <div className="admin-layout">
       {/* Liquid Glass Admin Header */}
@@ -635,11 +677,11 @@ export default function AdminDashboard({
                   <IconDocker size={14} color="#89b4fa" />
                 </div>
                 <div className="admin-card-value">
-                  {overview?.counters.activeSandboxes ?? sandboxes.length}
+                  {overview?.counters?.activeSandboxes ?? sandboxes.length}
                 </div>
                 <div className="admin-card-sub">
                   <span>
-                    Max Pool: {overview?.infrastructure.maxSandboxes ?? 20}{" "}
+                    Max Pool: {overview?.infrastructure?.maxSandboxes ?? 20}{" "}
                     containers
                   </span>
                 </div>
@@ -651,13 +693,13 @@ export default function AdminDashboard({
                   <IconActivity size={14} color="#a6e3a1" />
                 </div>
                 <div className="admin-card-value">
-                  {overview?.aggregateTelemetry.cpuPercent ?? 0}%
+                  {overview?.aggregateTelemetry?.cpuPercent ?? 0}%
                 </div>
                 <div className="admin-gauge-bar">
                   <div
                     className="admin-gauge-fill"
                     style={{
-                      width: `${Math.min(100, overview?.aggregateTelemetry.cpuPercent ?? 0)}%`,
+                      width: `${Math.min(100, overview?.aggregateTelemetry?.cpuPercent ?? 0)}%`,
                     }}
                   />
                 </div>
@@ -670,14 +712,14 @@ export default function AdminDashboard({
                 </div>
                 <div className="admin-card-value">
                   {formatBytes(
-                    overview?.aggregateTelemetry.memoryUsageBytes ?? 0,
+                    overview?.aggregateTelemetry?.memoryUsageBytes ?? 0,
                   )}
                 </div>
                 <div className="admin-card-sub">
                   <span>
                     Ceiling:{" "}
                     {formatBytes(
-                      overview?.aggregateTelemetry.memoryLimitBytes ??
+                      overview?.aggregateTelemetry?.memoryLimitBytes ??
                         536870912,
                     )}
                   </span>
@@ -690,7 +732,7 @@ export default function AdminDashboard({
                   <IconCode size={14} color="#f9e2af" />
                 </div>
                 <div className="admin-card-value">
-                  {overview?.counters.totalExecutions ?? 0}
+                  {overview?.counters?.totalExecutions ?? 0}
                 </div>
                 <div className="admin-card-sub">
                   <span>All language pipelines</span>
@@ -703,11 +745,11 @@ export default function AdminDashboard({
                   <IconUsers size={14} color="#74c7ec" />
                 </div>
                 <div className="admin-card-value">
-                  {overview?.counters.totalUsers ?? 0}
+                  {overview?.counters?.totalUsers ?? 0}
                 </div>
                 <div className="admin-card-sub">
                   <span>
-                    {overview?.counters.demoSessions ?? 0} disposable demo
+                    {overview?.counters?.demoSessions ?? 0} disposable demo
                     sessions
                   </span>
                 </div>
@@ -760,7 +802,7 @@ export default function AdminDashboard({
                       Process Uptime:
                     </span>
                     <span style={{ fontFamily: "var(--font-mono)" }}>
-                      {formatUptime(overview?.system.uptimeSeconds ?? 0)}
+                      {formatUptime(overview?.system?.uptimeSeconds ?? 0)}
                     </span>
                   </div>
                   <div
@@ -770,8 +812,8 @@ export default function AdminDashboard({
                       Node.js Runtime:
                     </span>
                     <span style={{ fontFamily: "var(--font-mono)" }}>
-                      {overview?.system.nodeVersion} (
-                      {overview?.system.platform} {overview?.system.arch})
+                      {overview?.system?.nodeVersion} (
+                      {overview?.system?.platform} {overview?.system?.arch})
                     </span>
                   </div>
                   <div
@@ -781,7 +823,7 @@ export default function AdminDashboard({
                       Backend Process Memory (RSS):
                     </span>
                     <span style={{ fontFamily: "var(--font-mono)" }}>
-                      {formatBytes(overview?.system.memoryRssBytes ?? 0)}
+                      {formatBytes(overview?.system?.memoryRssBytes ?? 0)}
                     </span>
                   </div>
                 </div>
@@ -817,9 +859,9 @@ export default function AdminDashboard({
                       Docker Daemon Engine:
                     </span>
                     <span
-                      className={`glass-badge ${overview?.infrastructure.docker ? "glass-badge-success" : "glass-badge-warning"}`}
+                      className={`glass-badge ${overview?.infrastructure?.docker ? "glass-badge-success" : "glass-badge-warning"}`}
                     >
-                      {overview?.infrastructure.docker
+                      {overview?.infrastructure?.docker
                         ? "AVAILABLE"
                         : "OFFLINE / NOT RUNNING"}
                     </span>
@@ -831,9 +873,9 @@ export default function AdminDashboard({
                       Runner Base Image:
                     </span>
                     <span
-                      className={`glass-badge ${overview?.infrastructure.runnerImage ? "glass-badge-success" : "glass-badge-warning"}`}
+                      className={`glass-badge ${overview?.infrastructure?.runnerImage ? "glass-badge-success" : "glass-badge-warning"}`}
                     >
-                      {overview?.infrastructure.runnerImage
+                      {overview?.infrastructure?.runnerImage
                         ? "cloudeeeide-runner:latest"
                         : "NOT FOUND"}
                     </span>
@@ -859,6 +901,125 @@ export default function AdminDashboard({
                     </span>
                   </div>
                 </div>
+              </div>
+
+              <div className="admin-table-wrap" style={{ padding: "20px" }}>
+                <h2
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "var(--fg-primary)",
+                    marginBottom: "14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <IconDatabase size={15} color="#89b4fa" />
+                  <span>Backup & Disaster Recovery Health</span>
+                </h2>
+                {backupHealthError ? (
+                  <div style={{ fontSize: "13px", color: "#f38ba8" }}>
+                    {backupHealthError}
+                  </div>
+                ) : !backupHealth ? (
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      color: "var(--fg-muted)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <IconRefresh size={13} className="spinning" />
+                    <span>Loading backup posture...</span>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "10px",
+                      fontSize: "13px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ color: "var(--fg-muted)" }}>
+                        Database Backups:
+                      </span>
+                      <span
+                        className={`glass-badge ${backupStatusBadgeClass(backupHealth.database.status)}`}
+                      >
+                        {backupHealth.database.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ color: "var(--fg-muted)" }}>
+                        Latest DB Backup:
+                      </span>
+                      <span style={{ fontFamily: "var(--font-mono)" }}>
+                        {formatAge(backupHealth.database.latestBackupAgeMs)} (
+                        {backupHealth.database.backupCount} retained)
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ color: "var(--fg-muted)" }}>
+                        Workspace Backup Coverage:
+                      </span>
+                      <span
+                        className={`glass-badge ${backupStatusBadgeClass(backupHealth.workspaces.status)}`}
+                      >
+                        {backupHealth.workspaces.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ color: "var(--fg-muted)" }}>
+                        Projects Covered:
+                      </span>
+                      <span style={{ fontFamily: "var(--font-mono)" }}>
+                        {backupHealth.workspaces.coveredProjects} /{" "}
+                        {backupHealth.workspaces.totalProjects} (
+                        {backupHealth.workspaces.coveragePercent}%)
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ color: "var(--fg-muted)" }}>
+                        Oldest Covered Backup:
+                      </span>
+                      <span style={{ fontFamily: "var(--font-mono)" }}>
+                        {formatAge(
+                          backupHealth.workspaces.oldestLatestBackupAgeMs,
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </>

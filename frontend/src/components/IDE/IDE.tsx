@@ -6,7 +6,13 @@ import React, {
   useRef,
   Suspense,
 } from "react";
-import { User, Project, TreeNode, ContainerStats, UserPreferences } from "../../types";
+import {
+  User,
+  Project,
+  TreeNode,
+  ContainerStats,
+  UserPreferences,
+} from "../../types";
 import {
   api,
   getCapabilities,
@@ -108,7 +114,8 @@ export default function IDE({
   });
 
   // M22: User Preferences & Editor Settings States
-  const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+  const [preferences, setPreferences] =
+    useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -124,10 +131,13 @@ export default function IDE({
   }, []);
 
   const handleUpdatePreferences = async (updated: Partial<UserPreferences>) => {
-    const res = await api<{ preferences: UserPreferences }>("/api/auth/preferences", {
-      method: "PUT",
-      body: JSON.stringify(updated),
-    });
+    const res = await api<{ preferences: UserPreferences }>(
+      "/api/auth/preferences",
+      {
+        method: "PUT",
+        body: JSON.stringify(updated),
+      },
+    );
     if (res && res.preferences) {
       setPreferences(res.preferences);
     }
@@ -212,6 +222,20 @@ export default function IDE({
 
   // M4 Collaboration Lifecycle: Connect to /ws/collab for active project
   useEffect(() => {
+    // Open tabs are per-project resources. Without this reset, switching
+    // projects (e.g. owner -> newly forked project -> back) leaves stale
+    // tabs open under the new project's identity. Monaco's model registry
+    // is keyed by file path only (no project scoping), so a same-named file
+    // left open across the switch reuses the OLD model instance; binding
+    // the new project's (initially empty) collab Y.Text to that stale,
+    // non-empty model then seeds the new doc with the wrong project's
+    // content, and the real sync that follows merges rather than replaces
+    // it — corrupting the new project's file with duplicated content. This
+    // was found via manual QA: forking a project, then switching back to
+    // the source, duplicated a source file's content on disk.
+    setOpenFiles([]);
+    setActiveFile(null);
+
     if (!project) {
       if (collabClientRef.current) {
         collabClientRef.current.dispose();
@@ -1566,7 +1590,12 @@ export default function IDE({
         isOpen={isWorkspaceSearchOpen}
         onClose={() => setIsWorkspaceSearchOpen(false)}
         project={project}
-        onSelectResult={(filePath, line, column, matchLength) => {
+        onSelectResult={async (filePath, line, column, matchLength) => {
+          // A result's target file may not already be an open tab — unlike
+          // setActiveFile (which only switches among already-open tabs),
+          // handleOpenFile fetches+opens it first (no-op if already open),
+          // so the reveal below always has a loaded model to act on.
+          await handleOpenFile(filePath);
           document.dispatchEvent(
             new CustomEvent("ide-reveal-location", {
               detail: { filePath, line, column, matchLength },
