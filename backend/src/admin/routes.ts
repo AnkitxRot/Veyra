@@ -12,6 +12,13 @@ import {
   BACKUP_FILENAME_RE,
 } from "../backup/service.js";
 import {
+  createWorkspaceBackup,
+  listWorkspaceBackups,
+  deleteWorkspaceBackup,
+  assertValidProjectId,
+} from "../backup/workspaceBackup.js";
+import { getProject } from "../projects/service.js";
+import {
   getSystemCapabilitiesAsync,
   isDockerRunning,
   isRunnerImageAvailable,
@@ -1061,6 +1068,118 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
         const actorUserId = (req as any).user?.id;
         const filename = req.params.filename;
         await deleteDatabaseBackup(db, cfg, filename, {
+          actorUserId,
+          ipAddress: req.ip,
+        });
+        res.json({ ok: true, deleted: filename });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // Milestone 31 — Per-project workspace & snapshot-body disaster-recovery
+  // backups. Deliberately admin-only, matching the database backup routes
+  // above exactly; never exposed to ordinary collaborators. Project-ID
+  // routes intentionally do NOT require the source project to still exist
+  // (see workspaceBackup.ts's own doc comment) — a backup must remain
+  // manageable after its source project is deleted, or it fails at the one
+  // moment it exists to help with.
+  router.post(
+    "/workspace-backups/:projectId",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const { projectId } = req.params;
+        assertValidProjectId(projectId);
+        const actorUserId = (req as any).user?.id;
+        const backup = await createWorkspaceBackup(cfg, db, projectId, {
+          actorUserId,
+          ipAddress: req.ip,
+        });
+        res.status(201).json({
+          ok: true,
+          backup: {
+            filename: backup.filename,
+            projectId: backup.projectId,
+            sizeBytes: backup.sizeBytes,
+            createdAt: backup.createdAt,
+            workspaceFileCount: backup.workspaceFileCount,
+            snapshotCount: backup.snapshotCount,
+            skippedWorkspaceFiles: backup.skippedWorkspaceFiles,
+          },
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.get(
+    "/workspace-backups/:projectId",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const { projectId } = req.params;
+        assertValidProjectId(projectId);
+        const backups = await listWorkspaceBackups(cfg, projectId);
+        res.json({
+          backups: backups.map((b) => ({
+            filename: b.filename,
+            projectId: b.projectId,
+            sizeBytes: b.sizeBytes,
+            createdAt: b.createdAt,
+          })),
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.get(
+    "/workspace-backups/:projectId/:filename",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const { projectId, filename } = req.params;
+        assertValidProjectId(projectId);
+        const backups = await listWorkspaceBackups(cfg, projectId);
+        const match = backups.find((b) => b.filename === filename);
+        if (!match) {
+          throw new ApiError(404, "Workspace backup not found", "not_found");
+        }
+
+        const actorUserId = (req as any).user?.id;
+        // audit_logs.project_id is ON DELETE CASCADE and a workspace
+        // backup deliberately outlives its source project's deletion (see
+        // workspaceBackup.ts) — a since-deleted project's id can't be used
+        // as the FK-linked project_id (the insert would silently fail),
+        // so fall back to null, keeping the real id in `details`.
+        const stillExists = getProject(db, projectId) !== null;
+        recordAuditLog(db, {
+          userId: actorUserId,
+          projectId: stillExists ? projectId : null,
+          eventType: "WORKSPACE_BACKUP_DOWNLOADED",
+          details: { filename, projectId },
+          ipAddress: req.ip,
+        });
+
+        res.download(match.filePath, filename);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete(
+    "/workspace-backups/:projectId/:filename",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const { projectId, filename } = req.params;
+        const actorUserId = (req as any).user?.id;
+        await deleteWorkspaceBackup(cfg, db, projectId, filename, {
           actorUserId,
           ipAddress: req.ip,
         });

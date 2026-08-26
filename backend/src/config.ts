@@ -70,6 +70,8 @@ export interface AppConfig {
   maxDatabaseBackups: number;
   maxBackupBytes: number;
   backupLockStaleMs: number;
+  maxWorkspaceBackupsPerProject: number;
+  maxWorkspaceBackupBytesPerProject: number;
   /** M6: collaboration broadcast coalescing + backpressure. Kept
    *  env-configurable, like every other tunable in this file, specifically
    *  so the load harness can vary them without touching production code —
@@ -302,5 +304,13 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
         const raw = Number(process.env.BACKUP_LOCK_STALE_MS);
         return Number.isFinite(raw) && raw >= 0 ? raw : 30_000;
       })(),
+    maxWorkspaceBackupsPerProject:
+      overrides.maxWorkspaceBackupsPerProject ??
+      Number(process.env.MAX_WORKSPACE_BACKUPS_PER_PROJECT ?? 5),
+    maxWorkspaceBackupBytesPerProject:
+      overrides.maxWorkspaceBackupBytesPerProject ??
+      Number(
+        process.env.MAX_WORKSPACE_BACKUP_BYTES_PER_PROJECT ?? 250 * 1024 * 1024,
+      ),
   };
 }

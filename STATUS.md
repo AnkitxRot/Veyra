@@ -37,7 +37,8 @@ Last updated: 2026-08-25.
   - Milestone 27 (database backup security hardening — file/directory permissions, download audit logging) at `96a20bd`.
   - Milestone 28 (project duplication & workspace forking) at `0c56f0c`.
   - Milestone 29 (harden project fork authorization — owner-only, closing an export bypass) at `0f08432`.
-  - Milestone 30 (automated database restore & disaster-recovery verification) in this commit.
+  - Milestone 30 (automated database restore & disaster-recovery verification) at `bc8261e`.
+  - Milestone 31 (automated per-project workspace & snapshot-body backup) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2162,6 +2163,40 @@ Verification:
 - Frontend: not touched, not rebuilt — confirmed via `git status`/`git diff` that zero frontend files are in this milestone's diff before skipping any frontend verification step.
 - `git diff --check`: PASS.
 
+### Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backup
+
+Backup only; restore is explicitly deferred to a future milestone. Closes the gap a dedicated post-M30 discovery pass identified and sharpened: the M25/M27/M30 database pipeline protects every DB-resident table, but `<dataDir>/workspaces/<projectId>/` (project source files) and — a materially important refinement over the earlier framing — `<dataDir>/snapshots/<projectId>/` (snapshot payload _bodies_; the `snapshots` table only ever stored their metadata, already fully protected by `db:restore`) had zero automated coverage. A disaster today recovers every account and every project's metadata/audit history while losing all actual project code and every snapshot body.
+
+1. **Design (`backend/src/backup/workspaceBackup.ts`, new)**: deliberately does NOT reuse `exportProjectZip` wholesale — that function only covers workspace files (not snapshot bodies) and is shaped for a client-facing named download, not a retained DR artifact. Instead reuses the underlying, already-audited primitives directly: `createZipArchive`/`extractZipArchive` from `zip.ts`, `listFiles()`'s existing exclusion model (`SKIP_DIRS`/`BUILD_PREFIX`, lstat-based symlink exclusion — unchanged, just reused), `withProjectSnapshotLock` from `snapshots.ts` (which now also `export`s its previously-private `snapshotDir()` helper — the one, minimal, behavior-preserving touch to that file), and `ensureBackupDir`/`secureBackupFilePermissions` from the DB backup's own `shared.js` (both already generic, zero DB-specific coupling — no DB-backup logic itself was touched).
+   - **Archive contents**: `workspace/<relative-path>` for every workspace file (binary-safe, raw `Buffer` reads — not the UTF-8/1MB-capped `readProjectFile` snapshots already use), `snapshots/<snapshotId>.gz` for every snapshot body currently on disk, and a `manifest.json` (project id/name, capture timestamp, file/snapshot counts) — a deterministic, documented internal layout, not a dump of absolute filesystem paths.
+   - **`.env`/dotfiles**: captured exactly like any other file, intentionally — this is a disaster-recovery artifact, not a redacted export. Documented and tested as a deliberate decision, not an oversight; the resulting secret-concentration risk is mitigated by admin-only access + 0o600/0o700 permissions, with encryption-at-rest explicitly named as a deferred tradeoff rather than silently skipped.
+   - **Consistency model**: per-project eventual consistency, not a globally atomic DB+filesystem transaction — stated explicitly in the module's own doc comment and in `deploy/README.md`. Enforced at project granularity via the existing `withProjectSnapshotLock`, exactly as `exportProjectZip` already relies on. Ordinary file-mutation routes (`/file`, `/move`, `/delete`, `/upload`) do not participate in that lock (verified by inspection, not assumed) — a file vanishing mid-walk (concurrent edit/delete) is skipped and counted, never a fatal error, and this window is documented rather than solved with an invented global write freeze.
+   - **Verification**: the freshly-built archive is extracted into a scratch directory via `extractZipArchive` _before_ anything is written durably, reusing its existing EOCD-parsing/CRC32 corruption detection — but with the user-facing archive size limits (`maxArchiveUploadBytes` etc.) deliberately overridden, since those exist to bound untrusted user uploads, not a server-generated, already-bounded-by-construction DR artifact. A count mismatch between built and extracted entries fails the backup outright rather than writing a possibly-corrupt archive.
+   - **Atomicity**: the verified buffer is written to a same-directory temp file, then renamed into place — never a partially-written backup file, mirroring the pattern M30's restore work already established.
+   - **Retention**: per-project only (never crosses project boundaries), oldest-first count/byte eviction, run _inside_ the same lock the backup itself just completed under — mirroring `createDatabaseBackup`'s own reasoning (only prune-eligible once fully written and verified; pruning inside a lock already held avoids self-deadlock).
+   - **Backups deliberately outlive project deletion**: `deleteProject` is not touched at all — a workspace backup exists specifically to survive loss of its source, so `listWorkspaceBackups`/`deleteWorkspaceBackup` never require the project row to still exist. Verified directly: create a backup, delete the source project, confirm the backup file is untouched and still listable/downloadable/deletable via the admin API.
+   - **A real bug found and fixed via this milestone's own testing, not left as a known issue**: `audit_logs.project_id` is a foreign key with `ON DELETE CASCADE`. Once a project is deleted, an audit call for that (now-nonexistent) `project_id` silently fails its FK constraint inside `recordAuditLog`'s own internal try/catch — meaning download/delete audit events for a since-deleted project's surviving backups were being silently dropped entirely. Fixed in both `workspaceBackup.ts`'s `deleteWorkspaceBackup` and the admin download route: check whether the project still exists immediately before the audit call, and fall back to a `null` FK-linked `project_id` (with the real id preserved in `details.projectId`) when it doesn't — verified by a real test that deliberately deletes the source project first and then asserts both audit rows exist with `project_id IS NULL` and the correct id recoverable from `details`.
+   - **Scheduling**: explicitly not implemented this milestone. Unlike the database backup CLI (which needs a separate process for `VACUUM INTO` connection semantics), this feature runs entirely server-side and needs no cross-process lock — but a bounded, safely-cancellable background scheduler is a distinct concern (queue design, shutdown lifecycle, per-project overlap-skipping) judged disproportionate to fold into the same pass as the archive format/security/retention/admin-API layer. Admin-triggered/on-demand only for now; documented in `deploy/README.md` with the external-cron workaround for operators who want it scheduled today.
+2. **Admin REST endpoints (`backend/src/admin/routes.ts`)**: `POST/GET /workspace-backups/:projectId`, `GET/DELETE /workspace-backups/:projectId/:filename` — same `requireAdmin` gate, rate limiting, and audit-logging conventions as the database backup routes verbatim. `assertValidProjectId` (a UUID-shaped allowlist, matching `createProject`'s own `randomUUID()` format) gates every route; the download route resolves the requested filename only by matching it against `listWorkspaceBackups`' own already-validated output rather than ever constructing a filesystem path from raw request input.
+3. **Config (`backend/src/config.ts`)**: `maxWorkspaceBackupsPerProject` (default 5, `MAX_WORKSPACE_BACKUPS_PER_PROJECT`), `maxWorkspaceBackupBytesPerProject` (default 250MB, `MAX_WORKSPACE_BACKUP_BYTES_PER_PROJECT`), following the exact `Number(process.env.X ?? default)` convention every other tunable in this file already uses.
+4. **Audit (`backend/src/audit.ts`)**: `WORKSPACE_BACKUP_CREATED`, `WORKSPACE_BACKUP_DOWNLOADED`, `WORKSPACE_BACKUP_DELETED` added to `AuditEventType`.
+
+Security considerations: admin-only, identical gate to every other admin route; strict allowlist validation for both project id and backup filename (never a blocklist); no path in this feature is ever constructed from unvalidated request input; 0o600 file / 0o700 directory permissions (POSIX, best-effort, matching the DB backup convention exactly); no cross-project access possible (every operation is scoped through a validated `projectId` used to compute a per-project directory, never a caller-supplied path); dotfiles/secrets inclusion is intentional and documented, with encryption-at-rest named as a consciously deferred decision rather than an oversight; the archive itself is never publicly served (this app has no static file serving of `dataDir` anywhere, confirmed, not assumed).
+
+Files:
+
+- Production: `backend/src/backup/workspaceBackup.ts` (new), `backend/src/admin/routes.ts`, `backend/src/config.ts`, `backend/src/audit.ts`, `backend/src/projects/snapshots.ts` (one-line `export` addition, no behavior change), `deploy/README.md`.
+- Tests: `backend/test/workspace-backup.test.ts` (new, 15 tests): nested/binary/empty-file capture with byte-for-byte round-trip verification; real snapshot-body capture; `.env` parity; exclusion of `.git`/`node_modules`/`.venv`/`.cloudide-build-*`/symlinks (POSIX-gated); admin-auth matrix (anonymous/non-admin/admin); nonexistent and malformed project-id rejection; traversal/absolute/Windows-style/null-byte filename rejection on both download and delete; per-project oldest-first count/byte retention with cross-project isolation; audit events for create/download/delete (including the since-deleted-project fix); real concurrent workspace-backup-vs-snapshot-restore serialization through the shared lock; backups surviving project deletion; a scope-decision test documenting no scheduler exists; a static-source guard proving the shared zip primitives are reused rather than duplicated; temp-file/scratch-directory/lock-leak cleanup; and one bounded performance measurement (a ~1MB/50-file workspace plus a snapshot backs up well under a generous 10s sanity bound — not a benchmark).
+
+Verification:
+
+- Focused suite `test/workspace-backup.test.ts`: **14 passed / 1 skipped** (the POSIX-only exclusion test, skipped on this Windows dev machine; 15 total).
+- Related suite (`workspace-backup.test.ts`, `archive-import-export.test.ts`, `snapshot-quotas.test.ts`, `admin.test.ts`, `backup.test.ts`, `restore.test.ts`, `fork.test.ts`): **115 passed / 0 failed, 5 skipped** (7 test files, 13.39s) — zero regression to export/import, snapshots, database backup/restore, or fork.
+- Full backend regression suite: **457 passed / 2 failed / 36 skipped (47 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts` (Docker unavailable) — unmodified, no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: not touched, not rebuilt — confirmed via `git status` that zero frontend files are in this milestone's diff before skipping any frontend verification step. No admin UI surface added for this feature (deliberately deferred, per the governing contract).
+- `git diff --check`: PASS.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2172,19 +2207,19 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M30, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M30, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M31, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M31, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–30 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
-`0c56f0c`, M29 at `0f08432`, M30 in this commit). Manual QA execution for M1
+Milestones 1–31 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
+`0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 in this commit). Manual QA execution for M1
 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged from before. M26
 and M28 both touched frontend UI and were verified by clean typecheck/build/vitest only — live
 browser interaction was not exercised for either (no Chrome automation available); worth a
-combined manual pass. M27, M29, and M30 were all backend/CLI-only (no frontend files touched).
+combined manual pass. M27, M29, M30, and M31 were all backend-only (no frontend files touched).
 
 ## Next recommended milestone
 
@@ -2192,11 +2227,11 @@ combined manual pass. M27, M29, and M30 were all backend/CLI-only (no frontend f
    above) — no code changes expected, just closing the live-interaction verification gap both
    milestones share. Fork's UI behavior itself is unchanged by M29 (still a button + name prompt);
    only the server-side outcome for non-owners changed (404 instead of 201).
-2. **Workspace file backup/restore coverage** — M25/M27/M30 now fully automate backup+restore for
-   the SQLite database, but `workspaces/<projectId>/` (actual project source files) still has zero
-   automated coverage; the manual `tar czf` step in the "Backup / restore" section remains the only
-   option for project files. A real disaster today recovers accounts/sessions but loses all project
-   code. Deliberately deferred out of M30's scope (kept that milestone to a single data domain);
-   worth its own milestone next given the DB half is now fully closed.
+2. **Workspace/snapshot restore** — the natural M32: M31 added backup for
+   `workspaces/<projectId>/` and `snapshots/<projectId>/` bodies but deliberately deferred restore
+   (mirroring the M25→M30 split, which worked well). A real disaster today can now recover project
+   code and snapshot bodies onto disk by hand (extract the ZIP), but there is no tested, automated,
+   admin-triggered restore path yet, and no defined behavior for what should happen to a project's
+   live sandbox/collaboration state when its workspace is replaced out from under it.
 3. **Audit log retention/pruning** — `audit_logs` (`backend/src/audit.ts`) has no retention policy
    or pruning tool; it grows unboundedly on a long-running instance. Lower urgency than (2).

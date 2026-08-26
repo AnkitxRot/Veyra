@@ -31,7 +31,7 @@ interface SnapshotPayload {
   files: { path: string; content: string }[];
 }
 
-function snapshotDir(cfg: AppConfig, projectId: string): string {
+export function snapshotDir(cfg: AppConfig, projectId: string): string {
   return join(cfg.dataDir, "snapshots", projectId);
 }
 

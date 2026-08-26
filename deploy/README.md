@@ -398,6 +398,99 @@ performed by hand:
    npm run deploy:smoke
    ```
 
+## Workspace & Snapshot Backups (Milestone 31)
+
+The database backup/restore above protects everything in `cloudeeeide.db` (accounts, project
+metadata, audit history, snapshot _records_, etc.), but not the two filesystem-resident pieces of
+durable project state: `<data-dir>/workspaces/<projectId>/` (actual project source files) and
+`<data-dir>/snapshots/<projectId>/` (the gzip _bodies_ of user-created snapshots — the `snapshots`
+table only stores their metadata). Milestone 31 adds an automated, admin-managed **backup** for
+these two, per project. **Restore is not yet automated for workspaces/snapshots** — that is
+deferred to a future milestone; recovering a project's files today still means extracting one of
+these archives by hand into `<data-dir>/workspaces/<projectId>/`.
+
+### What is included / excluded
+
+Each backup is a single ZIP per project containing:
+
+- `workspace/<relative-path>` — every file under that project's workspace, including hidden files
+  and `.env`-shaped files, **captured exactly as they exist** — this is a disaster-recovery
+  artifact, not a redacted export. See "Secrets" below.
+- `snapshots/<snapshotId>.gz` — every snapshot payload body currently on disk for that project.
+- `manifest.json` — a small self-describing summary (project id/name, capture timestamp, file and
+  snapshot counts).
+
+Excluded, matching the workspace's own existing exclusion model exactly (`SKIP_DIRS`/
+`BUILD_PREFIX` in `backend/src/files/service.ts`, the same set every file-tree/export/fork
+operation already excludes): `.git`, `node_modules`, `.venv`, `.cloudide-build-*` directories, and
+any symlinked file or directory (never followed, silently skipped). Never included: live sandbox/
+container state, Yjs collaboration room state, WebSocket presence, terminal state, runtime locks,
+or in-memory telemetry — none of this is durable project data.
+
+### Secrets
+
+Because `.env` and other dotfiles are included intentionally, a workspace backup can contain raw,
+unhashed secrets a user placed in their own project. This is a materially different risk profile
+than the database backup (which only ever contains hashed passwords). Mitigation for this
+milestone: admin-only API access (identical `requireAdmin` gate as database backups), 0o600 file /
+0o700 directory permissions on POSIX (best-effort, matching the database backup convention), and
+backups are never served statically or exposed to ordinary collaborators. **Encryption-at-rest is
+deliberately not implemented in this milestone** — the current single-VPS, locally-retained-backup
+deployment model doesn't clearly justify the added key-management complexity, but this is a
+conscious, documented tradeoff, not an oversight, and should be revisited if off-site replication
+or a stronger threat model is ever adopted.
+
+### Consistency model
+
+**This backup provides per-project eventual consistency. Database metadata and filesystem state
+are not captured as one globally atomic transaction.** A database backup taken at one moment and a
+workspace backup taken at another can describe slightly different project states (e.g. a project
+renamed or deleted in between) — true cross-domain atomicity would require either freezing the
+whole application's writes (disruptive, and inconsistent with this project's own "schedule
+off-peak" precedent already accepted for database backups) or a distributed-transaction-like
+mechanism this codebase has no other use for. Consistency is enforced at _project_ granularity
+only, via the same per-project lock (`withProjectSnapshotLock`) snapshot restore and export already
+use — a workspace backup can never race a concurrent snapshot restore of the _same_ project.
+Ordinary file edits (`POST /:id/file`, `/move`, `/delete`, `/upload`) do **not** participate in
+this lock, so a file edited concurrently with a backup may be captured in its pre- or post-edit
+state, or omitted if it was deleted mid-walk — an accepted eventual-consistency window, not a
+defect.
+
+### Retention
+
+Per project, not global — one project's large history never displaces another's retained backups.
+
+| Variable                                 | Default             | Purpose                                               |
+| ---------------------------------------- | ------------------- | ----------------------------------------------------- |
+| `MAX_WORKSPACE_BACKUPS_PER_PROJECT`      | `5`                 | Max backup files retained per project (oldest-first). |
+| `MAX_WORKSPACE_BACKUP_BYTES_PER_PROJECT` | `262144000` (250MB) | Max total backup storage per project.                 |
+
+### Admin API
+
+```
+POST   /api/admin/workspace-backups/:projectId              Creates a backup for the project.
+GET    /api/admin/workspace-backups/:projectId               Lists that project's backups.
+GET    /api/admin/workspace-backups/:projectId/:filename     Downloads a specific backup.
+DELETE /api/admin/workspace-backups/:projectId/:filename     Deletes a specific backup.
+```
+
+Admin-only, same as the database backup routes. `:projectId` list/download/delete deliberately do
+**not** require the source project to still exist — a backup's entire purpose is to survive
+deletion of its source, so it remains fully manageable (and its download/delete still gets audited)
+even after the project itself is gone.
+
+### Scheduling
+
+Not implemented in this milestone — creation is admin-triggered/on-demand only (`POST
+/api/admin/workspace-backups/:projectId`). Unlike the database backup CLI (which needs a separate
+OS process specifically for `VACUUM INTO`'s connection semantics), this feature runs entirely
+server-side and needs no cross-process coordination — but adding a bounded, safely-cancellable
+background scheduler is a distinct concern (queue design, shutdown lifecycle, per-project
+overlap-skipping) that deserves its own focused pass rather than being folded into establishing the
+archive format/security/retention/admin-API layer in the same milestone. An operator who wants
+regular workspace backups today should trigger them via the admin API on their own schedule (e.g.
+an external cron job calling the endpoint) until a future milestone adds one natively.
+
 ## Troubleshooting
 
 - **Readiness 503 (docker false):** the socket is not mounted or not accessible. Check
