@@ -8,7 +8,7 @@ import { recordAuditLog } from "../audit.js";
 import {
   createProject,
   projectDir,
-  requireProjectAccess,
+  requireOwnedProject,
   workspacePath,
   type ProjectRow,
 } from "./service.js";
@@ -58,16 +58,15 @@ export async function forkProject(
   sourceProjectId: string,
   opts: { name?: string } = {},
 ): Promise<ForkResult> {
-  // Read access is sufficient: forking only reads the source workspace, it
-  // never mutates it — the same bar every other read-only project route
-  // (tree/file/search) already uses. IDOR-safe: a non-collaborator gets 404,
-  // never learns whether the project exists.
-  const { project: sourceProject } = requireProjectAccess(
-    db,
-    userId,
-    sourceProjectId,
-    "viewer",
-  );
+  // Fork produces a full, independently-owned copy of the entire workspace
+  // — the same whole-workspace/bulk-copy shape as export, import, upload,
+  // and snapshots, all of which are owner-only (requireOwnedProject) rather
+  // than collaborator-accessible. A collaborator-level gate here would let
+  // a viewer/editor bypass export's owner-only boundary: fork the source at
+  // collaborator level, become owner of the fork, then export the
+  // now-owned fork. IDOR-safe: a non-owner (collaborator or stranger) gets
+  // an identical 404, never learning whether the project exists.
+  const sourceProject = requireOwnedProject(db, userId, sourceProjectId);
 
   // Serialize against a concurrent snapshot restore on the SOURCE project so
   // the fork never reads a half-restored workspace mid-write. This is the

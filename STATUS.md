@@ -35,7 +35,8 @@ Last updated: 2026-08-25.
   - Milestone 25 (production database backup & disaster recovery automation) at `941b545`.
   - Milestone 26 (workspace-wide search & replace) at `ed8deb7`.
   - Milestone 27 (database backup security hardening — file/directory permissions, download audit logging) at `96a20bd`.
-  - Milestone 28 (project duplication & workspace forking) in this commit.
+  - Milestone 28 (project duplication & workspace forking) at `0c56f0c`.
+  - Milestone 29 (harden project fork authorization — owner-only, closing an export bypass) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2103,6 +2104,38 @@ Verification:
 - `git diff --check`: PASS.
 - `Sidebar.tsx` and `Icons.tsx` diffs are larger than the functional change alone: both files had never been run through the project's Prettier hook before, so editing either triggered a whole-file single→double-quote reformat — confirmed zero semantic change by direct diff inspection, same incidental-reformat pattern already disclosed for M26/M27.
 
+### Milestone 29 — Harden Project Fork Authorization
+
+Closes an authorization-boundary bypass introduced by M28, identified during a dedicated post-M28 policy audit (no code changed in that audit pass).
+
+**The bypass**: M28 shipped `POST /:id/fork` gated at `requireProjectAccess(db, userId, sourceProjectId, "viewer")` — any collaborator, not just the owner. Every other whole-workspace/bulk operation in this codebase (`GET /:id/export`, `POST /:id/import`, `POST /:id/upload`, all four snapshot operations, `POST /:id/install`, the live-preview proxy) is gated at the strictly stronger `requireOwnedProject` (literal `owner_id` match only — no collaborator tier accepted). Because fork always creates a new project owned by the _acting_ user, a viewer or editor collaborator who could never call `GET /:id/export` on the source could instead call the viewer-gated `POST /:id/fork`, immediately own the resulting copy, and then call `GET /:forkId/export` — now ownership-satisfied — fully reconstructing export's gated output through two already-permitted calls. This was a genuine working bypass, not merely a policy inconsistency: keeping export unchanged, in isolation, did not close it.
+
+**Fix (`backend/src/projects/fork.ts`)**: the single access check changed from `requireProjectAccess(db, userId, sourceProjectId, "viewer")` to `requireOwnedProject(db, userId, sourceProjectId)` — no other line in `fork.ts` touched (copy semantics, staging/rollback, naming, quota, size limits, sandbox/collaboration non-copying, audit event shape, and the route's response shape are all unchanged). The route's stale doc-comment ("Viewer access to the source is enough") was also corrected.
+
+**Why export stays owner-only (unchanged, confirmed correct by this milestone, not merely left alone)**: export's owner-only gate is not an isolated design choice about export specifically — it is the codebase's consistent, pre-existing default for every whole-workspace/bulk/system-resource operation. Fork was the one operation that deviated from that default; this milestone brings it back in line rather than loosening export (or any other route) to match fork's now-corrected mistake.
+
+**Admin semantics side effect (verified, not assumed)**: `requireOwnedProject` has no platform-admin bypass — unlike `requireProjectAccess`, which explicitly grants an admin user `role: 'owner'` access to any project via its step-3 fallback. Before this fix, a platform admin could fork _any_ user's project via the viewer-gated route even without owning or collaborating on it; `requireOwnedProject` does not carry that fallback, so an admin who does not own the source is now rejected with the same 404 as any other non-owner — bringing fork's admin behavior into line with export's (which has always used `requireOwnedProject` and therefore never had an admin bypass either). This closes a second, smaller inconsistency as a side effect of the primary fix, not a separate change.
+
+**Dotfile/`.env` investigation (read-only, no finding)**: `tree`, file-read, fork, and export all route through the same underlying primitives — `listFiles()` (`backend/src/files/service.ts`) for enumeration and `fs.copyFile`/`readProjectFile` for content — with identical exclusions (`SKIP_DIRS = {node_modules, .venv, .git}`, `BUILD_PREFIX = '.cloudide-build-'`). No route, service function, or the codebase's other file-handling paths (upload, move, delete) special-case `.env` or any other dotfile; grepping the full backend and frontend source for `.env` handling outside of `process.env`/`import.meta.env` runtime-configuration usage returns nothing. A project owner's own `.env` file, if present in their workspace, is uniformly visible/copyable through tree, file-read, fork, and export alike — there is no confidentiality mismatch between these four surfaces to report.
+
+**What a fork actually copies (verified from `fork.ts`, not inferred)**: workspace files only (everything `listFiles()` enumerates under the source's workspace directory, symlinks excluded). Explicitly does **not** copy: snapshots/snapshot history (`backend/src/projects/snapshots.ts` is never imported by `fork.ts`), collaborators (`project_collaborators` rows are never read or written by fork — the fork starts with zero collaborators regardless of the source's), project metadata beyond `name`/`language` (no `created_at`/`updated_at` carry-over — `createProject` always stamps fresh values), and no runtime/container/session state (no `SandboxManager` or `collaborationManager` import in `fork.ts` at all — the fork is never eagerly sandboxed and starts with no Yjs room, both confirmed structurally by the absence of those imports, not just by test assertion).
+
+Security considerations: closes a demonstrated authorization bypass rather than a theoretical one; the fix is the minimal one-line access-check change plus a doc-comment correction, with every other line of `fork.ts` untouched, keeping the diff auditable against exactly the stated defect; no export, import, upload, snapshot, or any other route's authorization was touched, per this milestone's explicit constraint.
+
+Files:
+
+- Production: `backend/src/projects/fork.ts`, `backend/src/projects/routes.ts` (doc-comment only).
+- Tests: `backend/test/fork.test.ts` — tests 2/2b flipped from "collaborator can fork" (201) to "collaborator is rejected" (404); test 4 simplified to assert owner-forking-their-own-project ownership (the editor-ownership variant no longer applies once editors can't fork at all); new test 4b (platform admin without ownership is rejected — the no-admin-bypass side effect); new bypass-regression test asserting the fork step of the fork→export chain now fails outright, so there is nothing left to export. 19 tests total (17 active + 2 pre-existing POSIX-only skips on Windows).
+
+Verification:
+
+- Focused suite `test/fork.test.ts`: **17 passed / 2 skipped** (same two POSIX-only symlink/rollback tests as M28; 19 total).
+- Related suites (`api.test.ts`, `admin.test.ts`, `archive-import-export.test.ts`, `snapshot-quotas.test.ts`, `smoke-harness.test.ts`, `smoke-live.test.ts`, together with `fork.test.ts`): **111 passed / 0 failed, 11 skipped** (7 test files, 12.30s).
+- Full backend regression suite: **431 passed / 2 failed / 35 skipped (45 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts` (Docker unavailable) — unmodified, no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: not touched, not rebuilt — the frontend's fork UI already surfaces any error (including this route's now-404-for-non-owners response) via the same generic `alert(...)` path Export/Import already use; the Fork button was never conditioned on ownership in the first place (neither is Export's), so no frontend change was needed or made.
+- `git diff --check`: PASS.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2113,26 +2146,25 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M28, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M28, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M29, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M29, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–28 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 in this
-commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and
-un-gated, unchanged from before. M26 and M28 both touched frontend UI and were verified by clean
-typecheck/build/vitest only — live browser interaction was not exercised for either (no Chrome
-automation available); worth a combined manual pass. M27 was backend/CLI-only.
+Milestones 1–29 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
+`0c56f0c`, M29 in this commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
+remains outstanding and un-gated, unchanged from before. M26 and M28 both touched frontend UI and
+were verified by clean typecheck/build/vitest only — live browser interaction was not exercised
+for either (no Chrome automation available); worth a combined manual pass. M27 and M29 were
+backend-only (M29's route doc-comment fix does not change any frontend-visible behavior).
 
 ## Next recommended milestone
 
 1. Manual/browser QA pass on the M26 search & replace UI and the M28 Fork Project UI (see caveat
    above) — no code changes expected, just closing the live-interaction verification gap both
-   milestones share.
-2. Other candidates, lower priority than the above:
-   - Export currently allows only the project owner (`requireOwnedProject` in
-     `exportProjectZip`), while fork now allows any collaborator with at least viewer access —
-     worth revisiting whether export's narrower policy is still the intended product decision
-     now that two similar read-of-whole-workspace operations disagree.
+   milestones share. Fork's UI behavior itself is unchanged by M29 (still a button + name prompt);
+   only the server-side outcome for non-owners changed (404 instead of 201).
+2. Other candidates, lower priority than the above: none currently identified from repo state;
+   next session should re-audit rather than pick blind.

@@ -12,11 +12,13 @@ import { forkProject } from "../src/projects/fork.js";
 import { writeProjectFile, readProjectFile } from "../src/files/service.js";
 import { collaborationManager } from "../src/collab/manager.js";
 import { sandboxManager } from "../src/execution/sandbox.js";
+import { hashPassword } from "../src/auth/passwords.js";
+import { ensureAdminUser } from "../src/db.js";
 import { IS_WINDOWS } from "../src/config.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
 
-describe("Milestone 28 — Project Duplication & Workspace Forking", () => {
+describe("Milestone 28/29 — Project Duplication & Workspace Forking (owner-only)", () => {
   let cfg: AppConfig;
   let api: TestApi;
   let db: Db;
@@ -62,7 +64,7 @@ describe("Milestone 28 — Project Duplication & Workspace Forking", () => {
     expect(res.data.fileCount).toBe(2);
   });
 
-  it("2. an editor collaborator can fork (read-only access is sufficient — fork never mutates the source)", async () => {
+  it("2. an editor collaborator is rejected (404, IDOR-safe) — fork is owner-only, matching export/import/upload/snapshots", async () => {
     const { id: sourceId } = await makeSourceProject();
     const editorReg = await api.request("POST", "/api/auth/register", {
       body: { username: "fork_editor", password: "password123" },
@@ -72,10 +74,10 @@ describe("Milestone 28 — Project Duplication & Workspace Forking", () => {
     const res = await api.request("POST", `/api/projects/${sourceId}/fork`, {
       token: editorReg.data.token,
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(404);
   });
 
-  it("2b. a viewer collaborator can also fork", async () => {
+  it("2b. a viewer collaborator is also rejected (404, IDOR-safe)", async () => {
     const { id: sourceId } = await makeSourceProject();
     const viewerReg = await api.request("POST", "/api/auth/register", {
       body: { username: "fork_viewer", password: "password123" },
@@ -85,7 +87,7 @@ describe("Milestone 28 — Project Duplication & Workspace Forking", () => {
     const res = await api.request("POST", `/api/projects/${sourceId}/fork`, {
       token: viewerReg.data.token,
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(404);
   });
 
   it("3. a non-collaborator is rejected (404, IDOR-safe)", async () => {
@@ -99,16 +101,55 @@ describe("Milestone 28 — Project Duplication & Workspace Forking", () => {
     expect(res.status).toBe(404);
   });
 
-  it("4. the forked project is owned by the requesting actor, never the source owner", async () => {
+  it("4. the forked project is owned by the requesting actor, never the source owner (owner forking their own project)", async () => {
+    const { id: sourceId } = await makeSourceProject();
+    const result = await forkProject(cfg, db, ownerId, sourceId, {
+      name: "Owner's Own Fork",
+    });
+    expect(result.project.owner_id).toBe(ownerId);
+  });
+
+  it("4b. a platform admin who does not own the source is rejected — requireOwnedProject has no admin bypass, unlike requireProjectAccess", async () => {
+    const { id: sourceId } = await makeSourceProject();
+    const adminHash = await hashPassword("AdminPass@123");
+    ensureAdminUser(db, "fork_admin", adminHash);
+    const adminRes = await api.request("POST", "/api/auth/admin-login", {
+      body: { username: "fork_admin", password: "AdminPass@123" },
+    });
+    const adminToken = adminRes.data.token;
+
+    const res = await api.request("POST", `/api/projects/${sourceId}/fork`, {
+      token: adminToken,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("bypass regression: a collaborator cannot obtain the source workspace via fork-then-export, because fork itself is now owner-gated", async () => {
     const { id: sourceId } = await makeSourceProject();
     const editorReg = await api.request("POST", "/api/auth/register", {
-      body: { username: "fork_editor2", password: "password123" },
+      body: { username: "fork_bypass_editor", password: "password123" },
     });
+    const editorToken = editorReg.data.token;
     addProjectCollaborator(db, sourceId, editorReg.data.user.id, "editor");
 
-    const result = await forkProject(cfg, db, editorReg.data.user.id, sourceId);
-    expect(result.project.owner_id).toBe(editorReg.data.user.id);
-    expect(result.project.owner_id).not.toBe(ownerId);
+    // Step 1: the bypass previously started here — fork the source at
+    // collaborator level. This must now fail outright, so there is never a
+    // fork to export in step 2.
+    const forkRes = await api.request(
+      "POST",
+      `/api/projects/${sourceId}/fork`,
+      { token: editorToken },
+    );
+    expect(forkRes.status).toBe(404);
+
+    // Step 2, for completeness: export of the (non-existent, un-owned)
+    // source is still independently rejected too.
+    const exportRes = await api.request(
+      "GET",
+      `/api/projects/${sourceId}/export`,
+      { token: editorToken },
+    );
+    expect(exportRes.status).toBe(404);
   });
 
   it("5. & 6. & 7. forked workspace content matches source exactly, including binary content and nested directories", async () => {

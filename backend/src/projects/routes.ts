@@ -481,7 +481,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   });
 
   // Fork: create a new, independently-owned project from a copy of this
-  // project's workspace. Viewer access to the source is enough (read-only).
+  // project's workspace. Owner-only, same as export/import/upload/snapshots
+  // — collaborator access would let a viewer/editor bypass export's
+  // owner-only boundary via fork-then-export of the new project they own.
   router.post("/:id/fork", async (req, res, next) => {
     try {
       const { name } = req.body ?? {};
