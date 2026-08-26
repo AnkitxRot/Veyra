@@ -21,6 +21,7 @@ import {
 } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import { PromptModal, ConfirmModal } from "../common/Modal";
+import { TemplateModal } from "../common/TemplateModal";
 
 interface SidebarProps {
   user: User;
@@ -70,17 +71,30 @@ export default function Sidebar({
     initialValue?: string;
   }>({ type: null });
   const [isForking, setIsForking] = useState(false);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   const isDemoUser =
     user.username.startsWith("evaluator_") || (user as any).isDemo;
 
-  const handleCreateProject = async (name: string) => {
-    if (!name.trim()) return;
+  const handleCreateProject = async (opts: {
+    templateId: string | null;
+    name: string;
+  }) => {
+    if (!opts.name.trim() || isCreatingProject) return;
+    setIsCreatingProject(true);
     try {
-      const res = await api<{ project: Project }>("/api/projects", {
-        method: "POST",
-        body: JSON.stringify({ name: name.trim(), language: "auto" }),
-      });
+      const res = opts.templateId
+        ? await api<{ project: Project }>("/api/projects/from-template", {
+            method: "POST",
+            body: JSON.stringify({
+              templateId: opts.templateId,
+              name: opts.name.trim(),
+            }),
+          })
+        : await api<{ project: Project }>("/api/projects", {
+            method: "POST",
+            body: JSON.stringify({ name: opts.name.trim(), language: "auto" }),
+          });
       onCreateProject();
       if (res.project) {
         onSelectProject(res.project);
@@ -88,6 +102,7 @@ export default function Sidebar({
     } catch (err: any) {
       alert(`Error creating project: ${err.message}`);
     } finally {
+      setIsCreatingProject(false);
       setModalState({ type: null });
     }
   };
@@ -702,11 +717,9 @@ export default function Sidebar({
       </div>
 
       {/* Custom Liquid Glass Modals */}
-      <PromptModal
+      <TemplateModal
         isOpen={modalState.type === "new_project"}
-        title="Create Project"
-        placeholder="Project Name"
-        confirmLabel="Create"
+        isCreating={isCreatingProject}
         onConfirm={handleCreateProject}
         onCancel={() => setModalState({ type: null })}
       />

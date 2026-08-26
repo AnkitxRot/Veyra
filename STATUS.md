@@ -2435,12 +2435,106 @@ browser verification, but not a fresh live re-run of the switch sequence. The QA
 servers (isolated `DATA_DIR` under the OS temp folder) were restarted against the existing fixtures
 and are running for a follow-up browser pass whenever Chrome connects.
 
+## Milestone 35 — Starter Project Templates UI
+
+Objective: expose the already-complete backend starter-template catalog
+(`backend/src/projects/templates.ts`'s `STARTER_TEMPLATES`: `python-data`, `cpp-systems`,
+`node-web`, plus `GET /api/projects/templates/catalog` and `POST /api/projects/from-template` in
+`backend/src/projects/routes.ts:81-106`) in the Create-New-Project flow. Before this milestone the
+backend feature was fully built and tested but completely unreachable from the UI — `Sidebar.tsx`'s
+create flow only ever POSTed to `/api/projects` for a blank project; `frontend/src/types.ts:97`'s
+`ProjectTemplate` type was an orphaned import with zero consumers. No backend files were touched —
+route/template behavior was re-verified against the live QA server (`GET
+/api/projects/templates/catalog` response matches `templates.ts` exactly) before any frontend work
+started.
+
+Frontend changes: a new `frontend/src/components/common/TemplateModal.tsx` replaces the old
+`PromptModal` in the "Create New Project" flow in `Sidebar.tsx` with a card picker — Blank Project
+(selected by default, matching prior behavior exactly) plus the 3 templates, each showing name,
+description, and a language badge (`glass-badge glass-badge-accent`, reusing the existing badge
+convention from `AdminDashboard.tsx`). Selecting a template pre-fills the name field with the
+template's display name (editable); the catalog is fetched fresh every time the modal opens and the
+selection always resets to Blank Project on open, regardless of what was picked last time.
+`Sidebar.tsx`'s `handleCreateProject` now branches on whether a template was selected: blank posts
+to `/api/projects` with the exact same body as before (`{name, language: "auto"}`); template posts
+to `/api/projects/from-template` with `{templateId, name}`. Both paths reuse the pre-existing
+`onCreateProject()`/`onSelectProject()` callback pattern unchanged, and a new `isCreatingProject`
+guard (mirroring the existing `isForking` guard on the Fork dialog) prevents duplicate submission.
+Errors on creation itself still surface via the pre-existing `alert()` convention — no new
+notification system was introduced.
+
+Catalog-fetch failure handling (a case with no prior precedent in this file, since `PromptModal`
+never fetched anything): if `GET /templates/catalog` fails, the modal shows only Blank Project plus
+a small inline non-blocking notice ("Templates unavailable (...) — you can still create a blank
+project"), styled like `AdminDashboard.tsx`'s existing `backupHealthError` inline-notice pattern
+rather than a blocking `alert()`. Blank-project creation remains fully functional in this state,
+verified live in-browser with `window.fetch` patched to reject the catalog call.
+
+Two real defects were found and fixed during implementation, before release:
+
+1. **Modal positioning bug (pre-existing, not introduced by this milestone):** `<aside
+className="sidebar">` has `backdrop-filter: blur(20px) saturate(1.8)` — per the CSS spec, an
+   element with `backdrop-filter` establishes a containing block for `position: fixed` descendants,
+   the same as `transform`/`filter`/`will-change: transform`. Every modal rendered from inside the
+   Sidebar tree (the pre-existing `PromptModal`/`ConfirmModal` included) has therefore always been
+   confined to the sidebar's own ~250px-wide box instead of the full viewport, rather than centering
+   on screen as `.glass-modal-backdrop`'s `position: fixed; inset: 0` intends. This was invisible
+   enough with a single-field `PromptModal` to go unnoticed, but was immediately obvious once the
+   template picker needed real width for a card grid. Fixed **only for the new `TemplateModal`**
+   (in scope, allowed file) by rendering it through `ReactDOM.createPortal(..., document.body)` —
+   confirmed via `getComputedStyle`/`getBoundingClientRect` in-browser that the backdrop now spans
+   the full viewport. `PromptModal`/`ConfirmModal` and their existing call sites (Fork, New
+   File/Folder, Rename, Delete) were deliberately left untouched — same pre-existing bug, but fixing
+   it there was out of this milestone's allowed-files scope and unrelated to the templates feature;
+   flagged below as a known, real, pre-existing issue for a future targeted fix.
+2. **Stale templates on catalog re-fetch failure:** the catalog-loading effect reset the
+   loading/error flags on every modal open but not the `templates` array itself, so if a _previous_
+   open had successfully loaded the catalog and a _later_ open's re-fetch failed, the old template
+   cards remained visible and clickable while the notice claimed templates were unavailable — an
+   inconsistent, confusing state. Fixed by clearing `templates` to `[]` at the start of every fetch
+   attempt, not just on success.
+
+Browser QA (Chrome, against the existing isolated QA server/fixtures): created all 4 paths
+end-to-end — Blank Project (empty workspace, unchanged from prior behavior), Python Data Science
+(`main.py` + `README.md`), C++ Systems & Algorithms (`main.cpp` + `README.md`), Node.js Web Preview
+(`server.js` + `README.md`) — and verified every file's content byte-for-byte against the template
+source via `GET /api/projects/:id/file`. Verified modal reopen resets to Blank Project. Verified the
+catalog-failure fallback (blank creation still works, template cards hidden, non-blocking notice
+shown). Verified responsive layout by constraining the (portaled, full-viewport) modal's own
+container down to 290px and 340px widths — the CSS grid (`repeat(auto-fill, minmax(140px, 1fr))`)
+collapsed cleanly to 1 and 2 columns respectively with zero horizontal overflow
+(`scrollWidth === clientWidth` confirmed via script) and both Cancel/Create buttons remained fully
+visible and reachable at every width tested. (The browser extension's `resize_window` did not
+actually resize the real viewport in this environment — verified via `window.innerWidth` staying
+at 1568 after the call — so responsiveness was verified by constraining the modal's own container
+directly instead, which exercises the identical CSS grid reflow a real narrow viewport would
+trigger, since the grid only reacts to its own available width.)
+
+Tests: new `frontend/test/Sidebar.templates.test.tsx` (10 tests) covering catalog fetch on open,
+all 3 templates + Blank rendering with Blank selected by default, template selection updating
+selection state and pre-filling the name field, editable name field, exact POST body for both the
+blank and template paths, duplicate-submit guard, catalog-failure fallback not breaking blank
+creation, creation-failure `alert()` surfacing, and modal-reopen reset to Blank Project. Full suite:
+`vitest run` 6 files / 30 tests passed (20 previous + 10 new, zero regressions). `tsc --noEmit`
+clean. `vite build` clean (same pre-existing monaco chunk-size warning as every prior build,
+unrelated). `git diff --check` clean. No backend files changed — backend test suite was not re-run,
+consistent with the established convention for frontend-only changes. Known baseline backend
+failures (`backend/test/m16-optimization.test.ts`, `backend/test/pipeline.test.ts`) untouched.
+
+**Known, not fixed, out of scope:** the `backdrop-filter`-on-sidebar containing-block bug described
+above affects `PromptModal` and `ConfirmModal` at every existing call site (Fork, New File, New
+Folder, Rename, Delete confirmation) — none of them are actually centered on the viewport today,
+they've just never been wide enough for it to be visually obvious. A future pass could fix this
+properly by portaling `PromptModal`/`ConfirmModal` themselves the same way, but that touches shared
+call sites well beyond M35's allowed-files scope and deserves its own focused verification pass
+across every dialog it affects.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
-M34 at `61c9cb2`), plus the post-M34 browser QA pass and this lifecycle regression audit (commit
-noted at top of file once pushed).
+M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, and M35
+(Starter Project Templates UI, above; commit noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -2457,5 +2551,15 @@ admin UI rather than only reachable via raw API.
 2. The fork-denial `alert()` UX (M29) and other `alert()`-based error surfaces across
    `Sidebar.tsx`/`AdminDashboard.tsx` are a consistent but dated pattern noted during this pass — a
    candidate for a future UX-polish pass, not urgent, not a correctness or security issue.
-3. Other candidates: none currently identified beyond the above from repo state; next session should
-   re-audit rather than pick blind, per this session's own established practice.
+3. M35 (Starter Project Templates UI, above) is complete. From the discovery pass that selected it,
+   the strongest remaining candidate is the admin backup/restore action UI: `admin/routes.ts:984-1226`
+   has a fully built DB-backup and workspace-backup lifecycle (trigger/list/download/delete, plus
+   workspace **restore**) with zero frontend callers anywhere — the M34 health panel shows CRITICAL
+   with no button to act on it. Deliberately not started here: it includes a destructive restore
+   action that overwrites live project data and deserves its own scoping/confirm-UX pass, unlike
+   M35's purely-additive scope. Not picked automatically — next session should decide fresh rather
+   than rubber-stamp this note, per this session's own established practice.
+4. The `backdrop-filter`-on-`.sidebar` containing-block bug found during M35 (see above) affects
+   every `PromptModal`/`ConfirmModal` call site, not just the new `TemplateModal` (which was fixed
+   via a portal). Real, pre-existing, currently invisible enough not to be urgent, but worth a
+   dedicated small fix + verification pass across Fork/New File/New Folder/Rename/Delete dialogs.
