@@ -41,6 +41,7 @@ import {
   importProjectZip,
   importNewProjectZip,
 } from "./archive.js";
+import { forkProject } from "./fork.js";
 import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { telemetryHistorian } from "../execution/historian.js";
@@ -474,6 +475,24 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         { replace },
       );
       res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Fork: create a new, independently-owned project from a copy of this
+  // project's workspace. Viewer access to the source is enough (read-only).
+  router.post("/:id/fork", async (req, res, next) => {
+    try {
+      const { name } = req.body ?? {};
+      const result = await forkProject(cfg, db, userOf(req).id, req.params.id, {
+        name: typeof name === "string" ? name : undefined,
+      });
+      res.status(201).json({
+        project: result.project,
+        fileCount: result.fileCount,
+        totalBytes: result.totalBytes,
+      });
     } catch (err) {
       next(err);
     }

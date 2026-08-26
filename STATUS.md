@@ -34,7 +34,8 @@ Last updated: 2026-08-25.
   - Milestone 24 (direct workspace file & folder upload) at `8c63827`.
   - Milestone 25 (production database backup & disaster recovery automation) at `941b545`.
   - Milestone 26 (workspace-wide search & replace) at `ed8deb7`.
-  - Milestone 27 (database backup security hardening — file/directory permissions, download audit logging) in this commit.
+  - Milestone 27 (database backup security hardening — file/directory permissions, download audit logging) at `96a20bd`.
+  - Milestone 28 (project duplication & workspace forking) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2068,6 +2069,40 @@ Verification:
 - `git diff --check`: PASS.
 - `audit.ts` diff is 130/-59 lines for what is semantically a one-line union addition (`DATABASE_BACKUP_DOWNLOADED`): confirmed by direct diff inspection to be pure Prettier single→double-quote normalization (this file had never been run through the formatter before), zero logic change — same incidental-reformat pattern already disclosed for M26's `routes.ts` and `WorkspaceSearchModal.tsx`.
 
+### Milestone 28 — Project Duplication & Workspace Forking
+
+Implements `POST /api/projects/:id/fork`: creates a brand-new, independently-owned project whose workspace is a point-in-time copy of an existing project's workspace, without ZIP export/import as an intermediary.
+
+1. **Design (`backend/src/projects/fork.ts`)**: closely mirrors the existing `importNewProjectZip` (M21) staging convention rather than inventing a new one — read source → stage into an isolated temp directory → only then create the new project row → copy staged files into it → roll back the project row and directory if that final copy step fails.
+   - **Access**: `requireProjectAccess(db, userId, sourceProjectId, "viewer")` — read-only access to the source is sufficient, since forking only reads the source workspace and never mutates it (the same bar every other read-only project route already uses); a non-collaborator gets IDOR-safe 404. Both editor and viewer collaborators can fork, not just the owner — a deliberate, narrower-than-`exportProjectZip` policy decision (export is currently owner-only) made because forking is strictly less sensitive than exporting a portable ZIP artifact, and consistent with every other read route's access bar.
+   - **Ownership**: the forked project is always created via `createProject(cfg, db, userId, ...)` — `userId` is the actor calling fork, never the source's `owner_id`. Verified by test 4 (an editor collaborator's fork is owned by the editor, not by the source's owner).
+   - **Quota**: reuses `createProject`'s existing `cfg.projectQuota` check rather than a second quota model — a quota-exceeded fork returns the same `403 quota_exceeded` any other project creation would.
+   - **Size limits**: reuses the existing M24 upload limits (`cfg.maxUploadFileCount`, `cfg.maxAggregateUploadBytes`, `cfg.maxSingleUploadFileBytes`) rather than a new fork-specific quota, enforced against the source workspace _before_ any staging I/O begins.
+   - **Sandbox / collaboration**: `fork.ts` never imports `SandboxManager` or `collaborationManager` — the fork is never eagerly sandboxed (lazy provisioning, same as every other new project) and starts with no Yjs room. Known, documented limitation shared with `exportProjectZip`: content still buffered in a live collaboration session but not yet flushed to disk is not reflected in the fork (reads are from disk, not from the live Y.Doc).
+   - **Symlink/traversal safety**: file enumeration goes exclusively through the existing `listFiles()` (`files/service.ts`), which uses `Dirent.isFile()`/`isDirectory()` (lstat-based, does not follow symlinks) — a symlinked file or directory planted in the source workspace is silently skipped, never copied, never followed. Every path used in `join()` calls is a relative path produced by `listFiles`' own directory walk, never attacker-controlled input, so there is no path-traversal surface at all (no `safeResolve` needed, since no external path ever reaches the join).
+   - **Concurrency**: the source-read + staging-copy phase is wrapped in the existing in-process `withProjectSnapshotLock(sourceProjectId, ...)` (same lock `exportProjectZip`/`createSnapshot`/`restoreSnapshot` already use) so a fork never reads a workspace mid-snapshot-restore. Two concurrent forks of the same source are otherwise fully independent (each creates its own new project row via `randomUUID()`), verified by test 15.
+   - **Atomicity**: a read/copy failure during staging (before any project row exists) never creates a project row at all; a copy failure _after_ project creation (staging → destination) triggers an explicit rollback that deletes both the new project's workspace directory and its DB row before re-throwing — verified by tests 13/14 using a real chmod-blocked source file (POSIX only, `it.skipIf(win32)`).
+2. **REST endpoint (`backend/src/projects/routes.ts`)**: `POST /:id/fork` accepts an optional `{ name }`; returns `201` with `{ project, fileCount, totalBytes }`, matching the existing project-response convention (`res.status(201).json({ project })` used by `POST /`).
+3. **Audit (`backend/src/audit.ts`)**: new `PROJECT_FORKED` event type, recorded against the _new_ project's id with `{ sourceProjectId, sourceProjectName, forkedProjectName, fileCount, totalBytes }` — no secrets, same shape convention as `PROJECT_IMPORTED`/`PROJECT_EXPORTED`.
+4. **Frontend (`frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/common/Icons.tsx`)**: new "Fork Project" icon button placed next to the existing "Export Workspace" button in the Files section header (operates on the currently-selected project, same convention as Export/Import Workspace — no project-list redesign). Opens the existing `PromptModal` pre-filled with a suggested `"<name> (Fork)"` name; confirm label flips to "Forking…" while in flight (visible loading state); an `isForking` guard in `handleForkProject` makes a rapid double-confirm a no-op rather than firing two requests; failures use the same `alert(...)` convention as Export/Import/Create; on success calls the existing `onCreateProject()` (refreshes the sidebar project list) and `onSelectProject()` (switches to the new fork), reusing exactly the same post-creation flow `handleCreateProject` already uses.
+
+Security considerations: read-only access bar (viewer) is intentionally decoupled from write authority — forking never mutates the source, so it cannot be used to bypass any write-side authorization check; ownership is always the acting user, never inherited, closing any path to claiming another user's project via fork; no user-controlled input ever reaches a filesystem path (names are stored as opaque strings, never path segments); ambient quota/size limits are enforced before any disk I/O begins; failure paths always roll back to zero visible state rather than leaving an orphaned project.
+
+Files:
+
+- Production: `backend/src/projects/fork.ts` (new), `backend/src/projects/routes.ts`, `backend/src/audit.ts`, `frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/common/Icons.tsx` (new `IconCopy`).
+- Tests: `backend/test/fork.test.ts` (new, 17 tests: owner/editor/viewer-can-fork, non-collaborator 404, fork ownership never inherited, text/binary/nested-directory fidelity, no collaboration room created, no eager sandbox, project-quota enforcement, file-count/byte-limit enforcement, symlink/symlinked-directory exclusion (POSIX), staging-failure rollback leaves no orphan row (POSIX), concurrent-fork independence, `PROJECT_FORKED` audit content, independent post-fork edit/delete without affecting the source, source-untouched-after-fork, and generated-name fallback); `frontend/test/Sidebar.fork.test.tsx` (new, 5 tests: button visible, name-prompt pre-fill, success path posts to the endpoint and refreshes/selects, error path alerts without refreshing, rapid double-confirm fires exactly one request).
+
+Verification:
+
+- Focused suite `test/fork.test.ts`: **15 passed / 2 skipped** (the two POSIX-only symlink/rollback tests, skipped on this Windows dev machine; 17 total).
+- Related suites (`auth-lifecycle.test.ts`, `snapshot-quotas.test.ts`, `archive-import-export.test.ts`, `smoke-harness.test.ts`, `smoke-live.test.ts`, `upload.test.ts`, `runs-and-snapshots.test.ts`, `api.test.ts`, together with `fork.test.ts`): **123 passed / 0 failed, 11 skipped** (9 test files, 14.76s).
+- Full backend regression suite: **429 passed / 2 failed / 35 skipped (45 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts` (Docker unavailable) — unmodified, no new regressions. Skipped count is 2 higher than M27's snapshot (33→35) solely from the two new POSIX-only fork tests.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: `tsc --noEmit` PASS, `vite build` PASS (36.7s; pre-existing Monaco chunk-size warning, unrelated to this change), frontend `vitest run` **18 passed / 0 failed** (4 test files, including the new `Sidebar.fork.test.tsx`). Live browser interaction was not exercised (no Chrome automation available) — same caveat as M26's frontend UI.
+- `git diff --check`: PASS.
+- `Sidebar.tsx` and `Icons.tsx` diffs are larger than the functional change alone: both files had never been run through the project's Prettier hook before, so editing either triggered a whole-file single→double-quote reformat — confirmed zero semantic change by direct diff inspection, same incidental-reformat pattern already disclosed for M26/M27.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2078,24 +2113,26 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M27, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M27, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M28, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M28, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–27 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 in this commit). Manual QA
-execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged
-from before. M26's frontend UI was verified by clean typecheck/build only — live browser
-interaction was not exercised (no Chrome automation available); worth a manual pass. M27 was
-backend/CLI-only (no frontend files touched).
+Milestones 1–28 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 in this
+commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and
+un-gated, unchanged from before. M26 and M28 both touched frontend UI and were verified by clean
+typecheck/build/vitest only — live browser interaction was not exercised for either (no Chrome
+automation available); worth a combined manual pass. M27 was backend/CLI-only.
 
 ## Next recommended milestone
 
-1. **Project Duplication & Workspace Forking** (`POST /api/projects/:id/fork`) — single-click
-   project cloning, independent workspace replication (no shared filesystem references, no
-   inherited sandbox/collaboration state), reusing the existing project-creation, M24 upload
-   quota, and M16 lazy-sandbox-provisioning conventions rather than inventing new ones.
+1. Manual/browser QA pass on the M26 search & replace UI and the M28 Fork Project UI (see caveat
+   above) — no code changes expected, just closing the live-interaction verification gap both
+   milestones share.
 2. Other candidates, lower priority than the above:
-   - Manual/browser QA pass on the M26 search & replace UI (see caveat above).
+   - Export currently allows only the project owner (`requireOwnedProject` in
+     `exportProjectZip`), while fork now allows any collaborator with at least viewer access —
+     worth revisiting whether export's narrower policy is still the intended product decision
+     now that two similar read-of-whole-workspace operations disagree.

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { User, Project, TreeNode } from '../../types';
-import { api } from '../../api';
+import React, { useState, useEffect } from "react";
+import { User, Project, TreeNode } from "../../types";
+import { api } from "../../api";
 import {
   IconFolder,
   IconFolderOpen,
@@ -17,9 +17,10 @@ import {
   IconFileUpload,
   IconFolderUpload,
   IconSettings,
-} from '../common/Icons';
-import { getLanguageIcon } from '../common/iconUtils';
-import { PromptModal, ConfirmModal } from '../common/Modal';
+  IconCopy,
+} from "../common/Icons";
+import { getLanguageIcon } from "../common/iconUtils";
+import { PromptModal, ConfirmModal } from "../common/Modal";
 
 interface SidebarProps {
   user: User;
@@ -53,23 +54,32 @@ export default function Sidebar({
   onOpenSettings,
 }: SidebarProps) {
   const [showProjectsAccordion, setShowProjectsAccordion] = useState(true);
-  const [searchFilter, setSearchFilter] = useState('');
+  const [searchFilter, setSearchFilter] = useState("");
 
   // Modals state
   const [modalState, setModalState] = useState<{
-    type: 'new_file' | 'new_folder' | 'rename' | 'delete' | 'new_project' | null;
+    type:
+      | "new_file"
+      | "new_folder"
+      | "rename"
+      | "delete"
+      | "new_project"
+      | "fork_project"
+      | null;
     node?: TreeNode | null;
     initialValue?: string;
   }>({ type: null });
+  const [isForking, setIsForking] = useState(false);
 
-  const isDemoUser = user.username.startsWith('evaluator_') || (user as any).isDemo;
+  const isDemoUser =
+    user.username.startsWith("evaluator_") || (user as any).isDemo;
 
   const handleCreateProject = async (name: string) => {
     if (!name.trim()) return;
     try {
-      const res = await api<{ project: Project }>('/api/projects', {
-        method: 'POST',
-        body: JSON.stringify({ name: name.trim(), language: 'auto' }),
+      const res = await api<{ project: Project }>("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim(), language: "auto" }),
       });
       onCreateProject();
       if (res.project) {
@@ -82,32 +92,55 @@ export default function Sidebar({
     }
   };
 
+  const handleForkProject = async (name: string) => {
+    if (!project || isForking) return;
+    setIsForking(true);
+    try {
+      const res = await api<{ project: Project }>(
+        `/api/projects/${project.id}/fork`,
+        {
+          method: "POST",
+          body: JSON.stringify(name.trim() ? { name: name.trim() } : {}),
+        },
+      );
+      onCreateProject();
+      if (res.project) {
+        onSelectProject(res.project);
+      }
+    } catch (err: any) {
+      alert(`Fork failed: ${err.message}`);
+    } finally {
+      setIsForking(false);
+      setModalState({ type: null });
+    }
+  };
+
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const replaceFileInputRef = React.useRef<HTMLInputElement | null>(null);
   const directFileInputRef = React.useRef<HTMLInputElement | null>(null);
   const folderInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const [uploadTargetDir, setUploadTargetDir] = useState<string>('');
+  const [uploadTargetDir, setUploadTargetDir] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [conflictModal, setConflictModal] = useState<{
     isOpen: boolean;
     files: File[];
     targetDir: string;
     conflicts: string[];
-  }>({ isOpen: false, files: [], targetDir: '', conflicts: [] });
+  }>({ isOpen: false, files: [], targetDir: "", conflicts: [] });
 
-  const triggerFileUpload = (targetDir = '') => {
+  const triggerFileUpload = (targetDir = "") => {
     setUploadTargetDir(targetDir);
     if (directFileInputRef.current) {
-      directFileInputRef.current.value = '';
+      directFileInputRef.current.value = "";
       directFileInputRef.current.click();
     }
   };
 
-  const triggerFolderUpload = (targetDir = '') => {
+  const triggerFolderUpload = (targetDir = "") => {
     setUploadTargetDir(targetDir);
     if (folderInputRef.current) {
-      folderInputRef.current.value = '';
+      folderInputRef.current.value = "";
       folderInputRef.current.click();
     }
   };
@@ -123,26 +156,28 @@ export default function Sidebar({
 
     try {
       const formData = new FormData();
-      if (targetDir) formData.append('targetDir', targetDir);
-      if (overwrite) formData.append('overwrite', 'true');
+      if (targetDir) formData.append("targetDir", targetDir);
+      if (overwrite) formData.append("overwrite", "true");
 
       for (const file of filesArray) {
         const relPath = (file as any).webkitRelativePath || file.name;
-        formData.append('files', file, relPath);
+        formData.append("files", file, relPath);
       }
 
       const res = await fetch(
-        `/api/projects/${project.id}/upload?targetDir=${encodeURIComponent(targetDir)}${overwrite ? '&overwrite=true' : ''}`,
+        `/api/projects/${project.id}/upload?targetDir=${encodeURIComponent(targetDir)}${overwrite ? "&overwrite=true" : ""}`,
         {
-          method: 'POST',
+          method: "POST",
           body: formData,
-          credentials: 'include',
+          credentials: "include",
         },
       );
 
       if (res.status === 409) {
         const errJson = await res.json().catch(() => ({}));
-        const conflicts = errJson.error?.details?.conflicts || [errJson.error?.message || 'File conflict'];
+        const conflicts = errJson.error?.details?.conflicts || [
+          errJson.error?.message || "File conflict",
+        ];
         setConflictModal({
           isOpen: true,
           files: filesArray,
@@ -154,17 +189,24 @@ export default function Sidebar({
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `Upload failed with status ${res.status}`);
+        throw new Error(
+          errJson.error?.message || `Upload failed with status ${res.status}`,
+        );
       }
 
       refreshTree();
-      setConflictModal({ isOpen: false, files: [], targetDir: '', conflicts: [] });
+      setConflictModal({
+        isOpen: false,
+        files: [],
+        targetDir: "",
+        conflicts: [],
+      });
     } catch (err: any) {
       alert(`Upload failed: ${err.message}`);
     } finally {
       setIsUploading(false);
-      if (directFileInputRef.current) directFileInputRef.current.value = '';
-      if (folderInputRef.current) folderInputRef.current.value = '';
+      if (directFileInputRef.current) directFileInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = "";
     }
   };
 
@@ -172,17 +214,19 @@ export default function Sidebar({
     if (!project) return;
     try {
       const res = await fetch(`/api/projects/${project.id}/export`, {
-        credentials: 'include',
+        credentials: "include",
       });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `Export failed with status ${res.status}`);
+        throw new Error(
+          errJson.error?.message || `Export failed with status ${res.status}`,
+        );
       }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = `${project.name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'project'}.zip`;
+      a.download = `${project.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "project"}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -192,125 +236,159 @@ export default function Sidebar({
     }
   };
 
-  const handleImportNewProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportNewProject = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
-      let binary = '';
+      let binary = "";
       const len = bytes.byteLength;
       for (let i = 0; i < len; i++) {
         binary += String.fromCharCode(bytes[i]);
       }
       const base64 = btoa(binary);
-      const projectName = file.name.replace(/\.zip$/i, '');
-      const res = await api<{ project: Project }>('/api/projects/import', {
-        method: 'POST',
+      const projectName = file.name.replace(/\.zip$/i, "");
+      const res = await api<{ project: Project }>("/api/projects/import", {
+        method: "POST",
         body: JSON.stringify({ name: projectName, archiveBase64: base64 }),
       });
       onCreateProject();
       if (res.project) {
         onSelectProject(res.project);
       }
-      alert(`Project "${res.project?.name || projectName}" imported successfully!`);
+      alert(
+        `Project "${res.project?.name || projectName}" imported successfully!`,
+      );
     } catch (err: any) {
       alert(`Import failed: ${err.message}`);
     } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  const handleImportWorkspace = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportWorkspace = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     if (!project) return;
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!window.confirm(`Replace all workspace files in "${project.name}" with contents of ${file.name}?`)) {
-      if (replaceFileInputRef.current) replaceFileInputRef.current.value = '';
+    if (
+      !window.confirm(
+        `Replace all workspace files in "${project.name}" with contents of ${file.name}?`,
+      )
+    ) {
+      if (replaceFileInputRef.current) replaceFileInputRef.current.value = "";
       return;
     }
     try {
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
-      let binary = '';
+      let binary = "";
       const len = bytes.byteLength;
       for (let i = 0; i < len; i++) {
         binary += String.fromCharCode(bytes[i]);
       }
       const base64 = btoa(binary);
-      await api<{ ok: boolean; fileCount: number }>(`/api/projects/${project.id}/import?replace=true`, {
-        method: 'POST',
-        body: JSON.stringify({ archiveBase64: base64, replace: true }),
-      });
+      await api<{ ok: boolean; fileCount: number }>(
+        `/api/projects/${project.id}/import?replace=true`,
+        {
+          method: "POST",
+          body: JSON.stringify({ archiveBase64: base64, replace: true }),
+        },
+      );
       refreshTree();
       alert(`Workspace updated with ${file.name}!`);
     } catch (err: any) {
       alert(`Workspace import failed: ${err.message}`);
     } finally {
-      if (replaceFileInputRef.current) replaceFileInputRef.current.value = '';
+      if (replaceFileInputRef.current) replaceFileInputRef.current.value = "";
     }
   };
 
   const handleFileActionConfirm = async (val?: string) => {
     if (!project) return;
     const { type, node } = modalState;
-    const parentPath = node?.type === 'dir' ? node.path : node ? node.path.split('/').slice(0, -1).join('/') : '';
+    const parentPath =
+      node?.type === "dir"
+        ? node.path
+        : node
+          ? node.path.split("/").slice(0, -1).join("/")
+          : "";
 
     try {
-      if (type === 'new_file' && val) {
+      if (type === "new_file" && val) {
         const fullPath = parentPath ? `${parentPath}/${val}` : val;
         await api(`/api/projects/${project.id}/file`, {
-          method: 'POST',
-          body: JSON.stringify({ path: fullPath, content: '' }),
+          method: "POST",
+          body: JSON.stringify({ path: fullPath, content: "" }),
         });
         refreshTree();
         onOpenFile(fullPath);
-      } else if (type === 'new_folder' && val) {
-        const fullPath = parentPath ? `${parentPath}/${val}/.keep` : `${val}/.keep`;
+      } else if (type === "new_folder" && val) {
+        const fullPath = parentPath
+          ? `${parentPath}/${val}/.keep`
+          : `${val}/.keep`;
         await api(`/api/projects/${project.id}/file`, {
-          method: 'POST',
-          body: JSON.stringify({ path: fullPath, content: '' }),
+          method: "POST",
+          body: JSON.stringify({ path: fullPath, content: "" }),
         });
         refreshTree();
-      } else if (type === 'rename' && val && node) {
+      } else if (type === "rename" && val && node) {
         const newPath = parentPath ? `${parentPath}/${val}` : val;
         await api(`/api/projects/${project.id}/move`, {
-          method: 'POST',
+          method: "POST",
           body: JSON.stringify({ from: node.path, to: newPath }),
         });
         refreshTree();
         if (activeFile === node.path) onOpenFile(newPath);
-      } else if (type === 'delete' && node) {
+      } else if (type === "delete" && node) {
         await api(`/api/projects/${project.id}/delete`, {
-          method: 'POST',
+          method: "POST",
           body: JSON.stringify({ path: node.path }),
         });
         refreshTree();
       }
     } catch (err: any) {
-      alert(`Error: ${err.message || 'Action failed'}`);
+      alert(`Error: ${err.message || "Action failed"}`);
     } finally {
       setModalState({ type: null });
     }
   };
 
   return (
-    <aside className="sidebar" style={{ width: `${width}px`, minWidth: `${width}px` }} aria-label="Project Explorer">
+    <aside
+      className="sidebar"
+      style={{ width: `${width}px`, minWidth: `${width}px` }}
+      aria-label="Project Explorer"
+    >
       {/* Sidebar Header with User Profile / Demo Tag */}
       <div className="sidebar-header">
         <div className="sidebar-user-badge">
           <span className="user-status-dot" title="Workspace Connected" />
-          <span style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span
+            style={{
+              maxWidth: "120px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {user.username}
           </span>
           {isDemoUser && (
-            <span className="glass-badge glass-badge-success" style={{ fontSize: '9px', padding: '1px 5px' }}>
+            <span
+              className="glass-badge glass-badge-success"
+              style={{ fontSize: "9px", padding: "1px 5px" }}
+            >
               DEMO
             </span>
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
           {onOpenTour && (
             <button
               className="glass-btn glass-btn-icon"
@@ -347,25 +425,40 @@ export default function Sidebar({
         <div className="sidebar-section">
           <div
             className="section-header"
-            style={{ cursor: 'pointer' }}
+            style={{ cursor: "pointer" }}
             onClick={() => setShowProjectsAccordion(!showProjectsAccordion)}
             tabIndex={0}
             role="button"
             aria-expanded={showProjectsAccordion}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowProjectsAccordion(!showProjectsAccordion); }}}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setShowProjectsAccordion(!showProjectsAccordion);
+              }
+            }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {showProjectsAccordion ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              {showProjectsAccordion ? (
+                <IconChevronDown size={12} />
+              ) : (
+                <IconChevronRight size={12} />
+              )}
               Projects
-              <span className="glass-badge" style={{ padding: '0 5px', fontSize: '10px' }}>
+              <span
+                className="glass-badge"
+                style={{ padding: "0 5px", fontSize: "10px" }}
+              >
                 {projects.length}
               </span>
             </span>
-            <div className="section-actions" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="section-actions"
+              onClick={(e) => e.stopPropagation()}
+            >
               <input
                 type="file"
                 ref={fileInputRef}
-                style={{ display: 'none' }}
+                style={{ display: "none" }}
                 accept=".zip,application/zip"
                 onChange={handleImportNewProject}
               />
@@ -379,7 +472,7 @@ export default function Sidebar({
               </button>
               <button
                 className="glass-btn glass-btn-icon"
-                onClick={() => setModalState({ type: 'new_project' })}
+                onClick={() => setModalState({ type: "new_project" })}
                 title="Create New Project"
                 aria-label="Create New Project"
               >
@@ -393,15 +486,27 @@ export default function Sidebar({
               {projects.map((p: Project) => (
                 <li
                   key={p.id}
-                  className={`project-item ${project?.id === p.id ? 'active' : ''}`}
+                  className={`project-item ${project?.id === p.id ? "active" : ""}`}
                   onClick={() => onSelectProject(p)}
                   tabIndex={0}
                   role="option"
                   aria-selected={project?.id === p.id}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectProject(p); }}}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectProject(p);
+                    }
+                  }}
                 >
                   <IconFolder size={14} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      flex: 1,
+                    }}
+                  >
                     {p.name}
                   </span>
                 </li>
@@ -412,30 +517,38 @@ export default function Sidebar({
 
         {/* Workspace File Explorer */}
         {project && (
-          <div className="sidebar-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div
+            className="sidebar-section"
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+            }}
+          >
             <div className="section-header">
               <span>Files</span>
               <div className="section-actions">
                 <input
                   type="file"
                   ref={replaceFileInputRef}
-                  style={{ display: 'none' }}
+                  style={{ display: "none" }}
                   accept=".zip,application/zip"
                   onChange={handleImportWorkspace}
                 />
                 <input
                   type="file"
                   ref={directFileInputRef}
-                  style={{ display: 'none' }}
+                  style={{ display: "none" }}
                   multiple
                   onChange={(e) => handleUploadFiles(e.target.files)}
                 />
                 <input
                   type="file"
                   ref={folderInputRef}
-                  style={{ display: 'none' }}
+                  style={{ display: "none" }}
                   multiple
-                  {...({ webkitdirectory: '', directory: '' } as any)}
+                  {...({ webkitdirectory: "", directory: "" } as any)}
                   onChange={(e) => handleUploadFiles(e.target.files)}
                 />
                 <button
@@ -466,6 +579,15 @@ export default function Sidebar({
                 </button>
                 <button
                   className="glass-btn glass-btn-icon"
+                  onClick={() => setModalState({ type: "fork_project" })}
+                  title="Fork Project"
+                  aria-label="Fork Project"
+                  disabled={isForking}
+                >
+                  <IconCopy size={12} />
+                </button>
+                <button
+                  className="glass-btn glass-btn-icon"
                   onClick={() => replaceFileInputRef.current?.click()}
                   title="Import / Replace Workspace (.zip)"
                   aria-label="Import / Replace Workspace (.zip)"
@@ -474,7 +596,7 @@ export default function Sidebar({
                 </button>
                 <button
                   className="glass-btn glass-btn-icon"
-                  onClick={() => setModalState({ type: 'new_file' })}
+                  onClick={() => setModalState({ type: "new_file" })}
                   title="New File"
                   aria-label="New File"
                 >
@@ -482,7 +604,7 @@ export default function Sidebar({
                 </button>
                 <button
                   className="glass-btn glass-btn-icon"
-                  onClick={() => setModalState({ type: 'new_folder' })}
+                  onClick={() => setModalState({ type: "new_folder" })}
                   title="New Folder"
                   aria-label="New Folder"
                 >
@@ -501,17 +623,34 @@ export default function Sidebar({
 
             {/* Upload Progress Indicator */}
             {isUploading && (
-              <div style={{ padding: '4px 8px 6px', fontSize: '11px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1.5px', display: 'inline-block' }} />
+              <div
+                style={{
+                  padding: "4px 8px 6px",
+                  fontSize: "11px",
+                  color: "var(--accent-primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span
+                  className="spinner"
+                  style={{
+                    width: "10px",
+                    height: "10px",
+                    borderWidth: "1.5px",
+                    display: "inline-block",
+                  }}
+                />
                 <span>Uploading files...</span>
               </div>
             )}
 
             {/* Quick Filter Bar */}
-            <div style={{ padding: '0 8px 6px' }}>
+            <div style={{ padding: "0 8px 6px" }}>
               <input
                 className="glass-input"
-                style={{ padding: '4px 8px', fontSize: '11px' }}
+                style={{ padding: "4px 8px", fontSize: "11px" }}
                 placeholder="Filter files..."
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
@@ -526,17 +665,33 @@ export default function Sidebar({
                 onSelect={onOpenFile}
                 selected={activeFile}
                 onAction={(action: any, node?: any) => {
-                  if (action === 'new_file' || action === 'new_folder' || action === 'rename' || action === 'delete') {
+                  if (
+                    action === "new_file" ||
+                    action === "new_folder" ||
+                    action === "rename" ||
+                    action === "delete"
+                  ) {
                     setModalState({
                       type: action,
                       node,
-                      initialValue: action === 'rename' && node ? node.name : '',
+                      initialValue:
+                        action === "rename" && node ? node.name : "",
                     });
-                  } else if (action === 'upload_file') {
-                    const parentPath = node?.type === 'dir' ? node.path : node ? node.path.split('/').slice(0, -1).join('/') : '';
+                  } else if (action === "upload_file") {
+                    const parentPath =
+                      node?.type === "dir"
+                        ? node.path
+                        : node
+                          ? node.path.split("/").slice(0, -1).join("/")
+                          : "";
                     triggerFileUpload(parentPath);
-                  } else if (action === 'upload_folder') {
-                    const parentPath = node?.type === 'dir' ? node.path : node ? node.path.split('/').slice(0, -1).join('/') : '';
+                  } else if (action === "upload_folder") {
+                    const parentPath =
+                      node?.type === "dir"
+                        ? node.path
+                        : node
+                          ? node.path.split("/").slice(0, -1).join("/")
+                          : "";
                     triggerFolderUpload(parentPath);
                   }
                 }}
@@ -548,7 +703,7 @@ export default function Sidebar({
 
       {/* Custom Liquid Glass Modals */}
       <PromptModal
-        isOpen={modalState.type === 'new_project'}
+        isOpen={modalState.type === "new_project"}
         title="Create Project"
         placeholder="Project Name"
         confirmLabel="Create"
@@ -557,7 +712,18 @@ export default function Sidebar({
       />
 
       <PromptModal
-        isOpen={modalState.type === 'new_file'}
+        isOpen={modalState.type === "fork_project"}
+        title="Fork Project"
+        message="Creates an independent copy of this project's workspace, owned by you."
+        initialValue={project ? `${project.name} (Fork)` : ""}
+        placeholder="Fork Name"
+        confirmLabel={isForking ? "Forking…" : "Fork"}
+        onConfirm={handleForkProject}
+        onCancel={() => setModalState({ type: null })}
+      />
+
+      <PromptModal
+        isOpen={modalState.type === "new_file"}
         title="New File"
         placeholder="filename.py, app.js, main.c..."
         confirmLabel="Create File"
@@ -566,7 +732,7 @@ export default function Sidebar({
       />
 
       <PromptModal
-        isOpen={modalState.type === 'new_folder'}
+        isOpen={modalState.type === "new_folder"}
         title="New Folder"
         placeholder="Folder Name"
         confirmLabel="Create Folder"
@@ -575,7 +741,7 @@ export default function Sidebar({
       />
 
       <PromptModal
-        isOpen={modalState.type === 'rename'}
+        isOpen={modalState.type === "rename"}
         title="Rename"
         initialValue={modalState.initialValue}
         confirmLabel="Rename"
@@ -584,9 +750,9 @@ export default function Sidebar({
       />
 
       <ConfirmModal
-        isOpen={modalState.type === 'delete'}
+        isOpen={modalState.type === "delete"}
         title="Delete Item"
-        message={`Are you sure you want to delete ${modalState.node?.name || 'this item'}? This action cannot be undone.`}
+        message={`Are you sure you want to delete ${modalState.node?.name || "this item"}? This action cannot be undone.`}
         confirmLabel="Delete Permanently"
         isDestructive={true}
         onConfirm={() => handleFileActionConfirm()}
@@ -596,11 +762,20 @@ export default function Sidebar({
       <ConfirmModal
         isOpen={conflictModal.isOpen}
         title="Overwrite Existing Files?"
-        message={`The following file(s) already exist in the workspace: ${conflictModal.conflicts.slice(0, 4).join(', ')}${conflictModal.conflicts.length > 4 ? ` and ${conflictModal.conflicts.length - 4} more` : ''}. Do you want to replace them?`}
+        message={`The following file(s) already exist in the workspace: ${conflictModal.conflicts.slice(0, 4).join(", ")}${conflictModal.conflicts.length > 4 ? ` and ${conflictModal.conflicts.length - 4} more` : ""}. Do you want to replace them?`}
         confirmLabel="Overwrite"
         isDestructive={true}
-        onConfirm={() => handleUploadFiles(conflictModal.files, conflictModal.targetDir, true)}
-        onCancel={() => setConflictModal({ isOpen: false, files: [], targetDir: '', conflicts: [] })}
+        onConfirm={() =>
+          handleUploadFiles(conflictModal.files, conflictModal.targetDir, true)
+        }
+        onCancel={() =>
+          setConflictModal({
+            isOpen: false,
+            files: [],
+            targetDir: "",
+            conflicts: [],
+          })
+        }
       />
     </aside>
   );
@@ -611,24 +786,34 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
     x: number;
     y: number;
     node: TreeNode | null;
-    type: 'bg' | 'node';
+    type: "bg" | "node";
   } | null>(null);
 
   const handleContextBg = (e: React.MouseEvent) => {
     e.preventDefault();
-    setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 180), y: Math.min(e.clientY, window.innerHeight - 200), node: null, type: 'bg' });
+    setContextMenu({
+      x: Math.min(e.clientX, window.innerWidth - 180),
+      y: Math.min(e.clientY, window.innerHeight - 200),
+      node: null,
+      type: "bg",
+    });
   };
 
   const handleContextNode = (e: React.MouseEvent, node: TreeNode) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 180), y: Math.min(e.clientY, window.innerHeight - 200), node, type: 'node' });
+    setContextMenu({
+      x: Math.min(e.clientX, window.innerWidth - 180),
+      y: Math.min(e.clientY, window.innerHeight - 200),
+      node,
+      type: "node",
+    });
   };
 
   useEffect(() => {
     const closeMenu = () => setContextMenu(null);
-    document.addEventListener('click', closeMenu);
-    return () => document.removeEventListener('click', closeMenu);
+    document.addEventListener("click", closeMenu);
+    return () => document.removeEventListener("click", closeMenu);
   }, []);
 
   const filterNodes = (items: TreeNode[]): TreeNode[] => {
@@ -636,8 +821,9 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
     const lower = filter.toLowerCase();
     return items
       .map((item) => {
-        if (item.type === 'file' && item.name.toLowerCase().includes(lower)) return item;
-        if (item.type === 'dir') {
+        if (item.type === "file" && item.name.toLowerCase().includes(lower))
+          return item;
+        if (item.type === "dir") {
           if (item.name.toLowerCase().includes(lower)) return item;
           if (item.children) {
             const matchingChildren = filterNodes(item.children);
@@ -654,18 +840,39 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
   const filtered = filterNodes(nodes);
 
   return (
-    <div onContextMenu={handleContextBg} style={{ minHeight: '100%', paddingBottom: '20px' }}>
+    <div
+      onContextMenu={handleContextBg}
+      style={{ minHeight: "100%", paddingBottom: "20px" }}
+    >
       {filtered.length === 0 ? (
-        <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
-          <p style={{ margin: '0 0 12px 0' }}>{filter ? 'No matching files' : 'Workspace is empty'}</p>
+        <div
+          style={{
+            padding: "24px 12px",
+            textAlign: "center",
+            color: "var(--fg-muted)",
+            fontSize: "var(--text-xs)",
+          }}
+        >
+          <p style={{ margin: "0 0 12px 0" }}>
+            {filter ? "No matching files" : "Workspace is empty"}
+          </p>
           {!filter && (
-            <button className="glass-btn glass-btn-primary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => onAction('new_file')}>
+            <button
+              className="glass-btn glass-btn-primary"
+              style={{ fontSize: "11px", padding: "4px 10px" }}
+              onClick={() => onAction("new_file")}
+            >
               + Add File
             </button>
           )}
         </div>
       ) : (
-        <FileTreeNodes nodes={filtered} onSelect={onSelect} selected={selected} onContextNode={handleContextNode} />
+        <FileTreeNodes
+          nodes={filtered}
+          onSelect={onSelect}
+          selected={selected}
+          onContextNode={handleContextNode}
+        />
       )}
 
       {/* Liquid Glass Context Menu */}
@@ -675,31 +882,67 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('new_file', contextMenu.node); }}>
+          <div
+            className="context-menu-item"
+            onClick={() => {
+              setContextMenu(null);
+              onAction("new_file", contextMenu.node);
+            }}
+          >
             <IconPlus size={13} />
             <span>New File</span>
           </div>
-          <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('new_folder', contextMenu.node); }}>
+          <div
+            className="context-menu-item"
+            onClick={() => {
+              setContextMenu(null);
+              onAction("new_folder", contextMenu.node);
+            }}
+          >
             <IconFolder size={13} />
             <span>New Folder</span>
           </div>
           <div className="context-menu-divider" />
-          <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('upload_file', contextMenu.node); }}>
+          <div
+            className="context-menu-item"
+            onClick={() => {
+              setContextMenu(null);
+              onAction("upload_file", contextMenu.node);
+            }}
+          >
             <IconFileUpload size={13} />
             <span>Upload Files Here...</span>
           </div>
-          <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('upload_folder', contextMenu.node); }}>
+          <div
+            className="context-menu-item"
+            onClick={() => {
+              setContextMenu(null);
+              onAction("upload_folder", contextMenu.node);
+            }}
+          >
             <IconFolderUpload size={13} />
             <span>Upload Folder Here...</span>
           </div>
-          {contextMenu.type === 'node' && (
+          {contextMenu.type === "node" && (
             <>
               <div className="context-menu-divider" />
-              <div className="context-menu-item" onClick={() => { setContextMenu(null); onAction('rename', contextMenu.node); }}>
+              <div
+                className="context-menu-item"
+                onClick={() => {
+                  setContextMenu(null);
+                  onAction("rename", contextMenu.node);
+                }}
+              >
                 <IconEdit size={13} />
                 <span>Rename</span>
               </div>
-              <div className="context-menu-item danger" onClick={() => { setContextMenu(null); onAction('delete', contextMenu.node); }}>
+              <div
+                className="context-menu-item danger"
+                onClick={() => {
+                  setContextMenu(null);
+                  onAction("delete", contextMenu.node);
+                }}
+              >
                 <IconTrash size={13} />
                 <span>Delete</span>
               </div>
@@ -720,14 +963,22 @@ function FileTreeNodes({ nodes, onSelect, selected, onContextNode }: any) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, n: TreeNode) => {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      if (n.type === 'dir') toggleCollapse(n.path);
+      if (n.type === "dir") toggleCollapse(n.path);
       else onSelect(n.path);
-    } else if (e.key === 'ArrowRight' && n.type === 'dir' && collapsed[n.path]) {
+    } else if (
+      e.key === "ArrowRight" &&
+      n.type === "dir" &&
+      collapsed[n.path]
+    ) {
       e.preventDefault();
       toggleCollapse(n.path);
-    } else if (e.key === 'ArrowLeft' && n.type === 'dir' && !collapsed[n.path]) {
+    } else if (
+      e.key === "ArrowLeft" &&
+      n.type === "dir" &&
+      !collapsed[n.path]
+    ) {
       e.preventDefault();
       toggleCollapse(n.path);
     }
@@ -736,13 +987,13 @@ function FileTreeNodes({ nodes, onSelect, selected, onContextNode }: any) {
   return (
     <ul className="file-tree" role="tree">
       {nodes.map((n: TreeNode) => {
-        const isDir = n.type === 'dir';
+        const isDir = n.type === "dir";
         const isCollapsed = collapsed[n.path];
 
         return (
           <li key={n.path} role="none">
             <div
-              className={`tree-node ${selected === n.path ? 'active' : ''}`}
+              className={`tree-node ${selected === n.path ? "active" : ""}`}
               onClick={(e) => {
                 if (isDir) toggleCollapse(n.path, e);
                 else onSelect(n.path);
@@ -756,13 +1007,23 @@ function FileTreeNodes({ nodes, onSelect, selected, onContextNode }: any) {
               title={n.path}
             >
               {isDir && (
-                <span style={{ color: 'var(--fg-muted)', display: 'inline-flex' }}>
-                  {isCollapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
+                <span
+                  style={{ color: "var(--fg-muted)", display: "inline-flex" }}
+                >
+                  {isCollapsed ? (
+                    <IconChevronRight size={12} />
+                  ) : (
+                    <IconChevronDown size={12} />
+                  )}
                 </span>
               )}
               <span className="tree-node-icon">
                 {isDir ? (
-                  isCollapsed ? <IconFolder size={14} /> : <IconFolderOpen size={14} />
+                  isCollapsed ? (
+                    <IconFolder size={14} />
+                  ) : (
+                    <IconFolderOpen size={14} />
+                  )
                 ) : (
                   getLanguageIcon(n.name, 14)
                 )}
