@@ -72,6 +72,7 @@ export function TemplateModal({
   }, [isOpen, onCancel]);
 
   if (!isOpen) return null;
+  if (typeof document === "undefined") return null;
 
   const selectBlank = () => {
     setSelectedTemplateId(null);

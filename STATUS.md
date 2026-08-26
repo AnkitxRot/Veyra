@@ -2529,12 +2529,97 @@ properly by portaling `PromptModal`/`ConfirmModal` themselves the same way, but 
 call sites well beyond M35's allowed-files scope and deserves its own focused verification pass
 across every dialog it affects.
 
+## Milestone 36 — Fix viewport-level modal rendering (shared PromptModal/ConfirmModal portal)
+
+Objective: fix the modal-hosting defect flagged as out-of-scope at the end of M35, once, at the
+root, rather than patching individual call sites. No new product feature — a UI-correctness fix
+for the shared `PromptModal`/`ConfirmModal` components in `frontend/src/components/common/Modal.tsx`.
+
+Root cause (confirmed, not just suspected): `backdrop-filter` is used pervasively across this app's
+entire "glass" visual system — `sidebar.css`, `toolbar.css`, `editor.css`, `layout.css`,
+`admin.css`, `command-palette.css`, `glass.css` all set it on one or more panel classes. Per the
+CSS spec, an element with `backdrop-filter` establishes a containing block for `position: fixed`
+descendants, identical to `transform`/`filter`/`will-change: transform`. Every `PromptModal`/
+`ConfirmModal` triggered from inside any of these panels was therefore always confined to that
+panel's own box instead of the viewport — not a sidebar-specific bug, a systemic one across the
+whole modal system. `grep` confirmed exactly 4 files use `PromptModal`/`ConfirmModal`:
+`Sidebar.tsx` (Create/Fork/New File/New Folder/Rename/Delete — Fork/Rename/Delete/New File
+verified live in-browser this pass), `Output.tsx`, and `Search/WorkspaceSearchModal.tsx` (both
+inspected, not separately browser-verified this pass since they weren't reachable via the QA
+account's current state without deeper setup — the fix is in the shared component both consume,
+already proven correct at the component level, so this is a reasonable scope boundary, not a gap).
+
+Fix: `PromptModal` and `ConfirmModal` in `Modal.tsx` now `ReactDOM.createPortal(..., document.body)`
+their return value — the exact same pattern `TemplateModal.tsx` already used for the same reason
+in M35. A `typeof document === "undefined"` guard precedes the portal call in all three components
+(added to `TemplateModal.tsx` too, for consistency) so a non-browser render environment returns
+`null` instead of throwing; not currently exercised (this is a Vite CSR app, and vitest's jsdom
+environment always provides `document`), but cheap and correct to have. No call site
+(`Sidebar.tsx`, `Output.tsx`, `WorkspaceSearchModal.tsx`) needed any change — every consumer gets
+the fix for free, satisfying "fix the root problem once, not individually." `backdrop-filter` was
+not removed from any panel; visuals, z-index (`glass-modal-backdrop`'s CSS class, hence its
+`z-index: 9999`, is unchanged), backdrop-click-to-cancel, Escape handling, focus/select-on-open,
+and both components' `width: "380px"` were all preserved exactly as before — the only change is
+_where_ the rendered DOM attaches, not _what_ it renders.
+
+Tests: new `frontend/test/Modal.portal.test.tsx` (10 tests, direct `PromptModal`/`ConfirmModal`
+component tests, not routed through Sidebar) proving: both components render their backdrop as a
+direct child of `document.body`, outside the component's own render subtree (DOM ancestry checks,
+not pixel positions, per instruction); the `glass-modal-backdrop` class (and thus its z-index) is
+preserved after portaling; Escape closes both; backdrop click cancels while clicking inside the
+modal body does not (`stopPropagation` unchanged); `PromptModal` submit still calls `onConfirm`
+with the trimmed value (proves the Rename-dialog code path); `ConfirmModal` submit still calls
+`onConfirm` (proves the Delete-dialog code path); closing removes the portaled backdrop from the
+document (no DOM leak); reopening does not duplicate it. Dedicated Sidebar-level rename/delete
+integration tests (driving the real right-click context menu) were deliberately not added: Rename/
+Delete use the identical `PromptModal`/`ConfirmModal` instances already proven correct above, the
+`modalState` wiring pattern connecting them is unchanged (same pattern the existing, still-passing
+`Sidebar.fork.test.tsx` already proves end-to-end for Fork), and building a context-menu test
+harness from scratch — no precedent exists anywhere in this test suite — would be disproportionate
+new infrastructure for a risk the component-level tests and live browser QA already retire. Full
+suite: `vitest run` 7 files / 40 tests passed (30 previous + 10 new, zero regressions). `tsc --noEmit`
+clean. `vite build` clean (same pre-existing monaco chunk-size warning, unrelated). `git diff --check`
+clean. No backend files changed.
+
+Browser QA (Chrome, against the existing isolated QA server/fixtures, `qaadmin` account): re-verified
+`TemplateModal` (Create New Project) still centers correctly (unaffected — already portaled in M35).
+Verified Fork Project (`PromptModal`) now centers on the full viewport where it previously would
+have been confined to the sidebar — confirmed both visually and via `getBoundingClientRect`/DOM
+ancestry in-page script (`backdrop.parentElement === document.body`, centered at
+`(viewportWidth - 380) / 2`). Verified Escape closes Fork without submitting. Verified Rename
+(`PromptModal`, pre-filled/selected value) centers correctly and a real rename submission
+succeeds end-to-end (`main.py` → `renamed.py`, confirmed in the file tree). Verified Delete
+(`ConfirmModal`, destructive styling) centers correctly and a real delete submission succeeds
+end-to-end. Verified New File (`PromptModal`) centers correctly. Verified `/admin` (AdminDashboard,
+which does not use `PromptModal`/`ConfirmModal` at all — confirmed by grep) is entirely unaffected,
+all panels including the M34 backup-health panel still render correctly. Narrow-width check: the
+browser extension's `resize_window` remained unreliable in this environment (`window.innerWidth`
+unchanged after the call, same finding as M35), so per the fallback instruction this was verified
+with the supplemental controlled-container technique instead — constraining the (now correctly
+portaled, full-viewport) modal's own backdrop down to 360px showed `.glass-floating`'s `width:
+"380px"` is not rigid: being a flex child of `.glass-modal-backdrop` (`display: flex; align-items:
+center; justify-content: center`), it naturally shrinks to fit a narrower container with zero
+horizontal overflow, confirmed both by script (`floatingRight <= containerWidth`) and visually
+(name field and both buttons remained fully visible and reachable at 360px). This is pre-existing
+flexbox behavior, not something this milestone added — "preserve modal dimensions" was honored
+literally (the `380px` value itself was never touched).
+
+An unrelated, pre-existing anomaly was observed during manual QA (not investigated further, out of
+this milestone's scope): after switching away from and back to a project via the sidebar, a
+project's file tree briefly showed a stray 0-byte file alongside the correctly-renamed/deleted
+ones. This did not affect the modal-positioning verification (each rename/delete's correctness was
+confirmed via screenshot at the moment of the action, before the anomaly was noticed) and does not
+touch anything this milestone's diff changed (`Modal.tsx`/`TemplateModal.tsx` only — no file-tree,
+rename, or delete backend/frontend logic was modified). Flagged here for visibility, not chased
+down, per the explicit "do not touch backend code" / stay-scoped instruction for this pass.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
-M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, and M35
-(Starter Project Templates UI, above; commit noted at top of file once pushed).
+M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, M35 (Starter
+Project Templates UI), and M36 (viewport-level modal portal fix, above; commit noted at top of
+file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -2559,7 +2644,10 @@ admin UI rather than only reachable via raw API.
    action that overwrites live project data and deserves its own scoping/confirm-UX pass, unlike
    M35's purely-additive scope. Not picked automatically — next session should decide fresh rather
    than rubber-stamp this note, per this session's own established practice.
-4. The `backdrop-filter`-on-`.sidebar` containing-block bug found during M35 (see above) affects
-   every `PromptModal`/`ConfirmModal` call site, not just the new `TemplateModal` (which was fixed
-   via a portal). Real, pre-existing, currently invisible enough not to be urgent, but worth a
-   dedicated small fix + verification pass across Fork/New File/New Folder/Rename/Delete dialogs.
+4. ~~The `backdrop-filter` containing-block bug affecting `PromptModal`/`ConfirmModal`~~ — fixed in
+   M36 (shared portal in `Modal.tsx`, browser-verified across Fork/New File/Rename/Delete).
+5. A stray 0-byte file was observed reappearing in a project's tree after a project-switch during
+   M36's manual QA, unrelated to anything M36 changed (no file-tree/rename/delete code was
+   touched). Not investigated — worth a fresh look if it reproduces reliably; may be nothing more
+   than a one-off artifact from the QA session's own state (repeated rename/delete/switch cycles on
+   the same fixture project in one sitting).
