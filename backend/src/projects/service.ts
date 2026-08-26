@@ -5,6 +5,7 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { IS_WINDOWS } from "../config.js";
 import { ApiError } from "../errors.js";
+import { recordAuditLog } from "../audit.js";
 
 export interface ProjectRow {
   id: string;
@@ -220,6 +221,14 @@ export async function createProject(
     typeof opts.language === "string" ? opts.language : "auto",
   );
   const project = getProject(db, id)!;
+
+  recordAuditLog(db, {
+    userId: ownerId,
+    projectId: project.id,
+    eventType: "PROJECT_CREATED",
+    details: { projectName: project.name, language: project.language },
+  });
+
   return project;
 }
 
@@ -230,6 +239,19 @@ export async function deleteProject(
   id: string,
 ): Promise<void> {
   const project = requireOwnedProject(db, ownerId, id);
+
+  // Recorded BEFORE the row is deleted, both so the project's own name is
+  // still resolvable and so this audit trail entry is never itself lost —
+  // audit_logs.project_id is now ON DELETE SET NULL (M33), so even this
+  // row would survive the delete regardless, but recording first is still
+  // the correct, unambiguous ordering.
+  recordAuditLog(db, {
+    userId: ownerId,
+    projectId: project.id,
+    eventType: "PROJECT_DELETED",
+    details: { projectName: project.name },
+  });
+
   // Disconnect any live collaborators before the workspace disappears under them
   try {
     const { collaborationManager } = await import("../collab/manager.js");

@@ -1,15 +1,17 @@
-import { createRequire } from 'node:module';
-import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { createRequire } from "node:module";
+import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 export type Db = DatabaseSyncType;
 
 const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: typeof DatabaseSyncType };
+const { DatabaseSync } = require("node:sqlite") as {
+  DatabaseSync: typeof DatabaseSyncType;
+};
 
 export function openDb(dbPath: string): Db {
-  if (dbPath !== ':memory:') {
+  if (dbPath !== ":memory:") {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
   const db = new DatabaseSync(dbPath);
@@ -67,7 +69,7 @@ export function openDb(dbPath: string): Db {
     CREATE TABLE IF NOT EXISTS audit_logs (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      project_id  TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      project_id  TEXT REFERENCES projects(id) ON DELETE SET NULL,
       event_type  TEXT NOT NULL,
       details     TEXT NOT NULL,
       ip_address  TEXT,
@@ -154,7 +156,7 @@ interface Migration {
 const MIGRATIONS: Migration[] = [
   {
     version: 2,
-    description: 'Add runs and audit_logs tables',
+    description: "Add runs and audit_logs tables",
     up: (db: Db) => {
       db.exec(`
         CREATE TABLE IF NOT EXISTS runs (
@@ -192,7 +194,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 3,
-    description: 'Add snapshots table',
+    description: "Add snapshots table",
     up: (db: Db) => {
       db.exec(`
         CREATE TABLE IF NOT EXISTS snapshots (
@@ -211,12 +213,14 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 4,
-    description: 'Add role column to users table',
+    description: "Add role column to users table",
     up: (db: Db) => {
       try {
-        db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+        db.exec(
+          "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
+        );
       } catch (err: any) {
-        if (!err.message?.includes('duplicate column name')) {
+        if (!err.message?.includes("duplicate column name")) {
           throw err;
         }
       }
@@ -224,7 +228,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 5,
-    description: 'Add telemetry_samples and resource_anomalies tables',
+    description: "Add telemetry_samples and resource_anomalies tables",
     up: (db: Db) => {
       db.exec(`
         CREATE TABLE IF NOT EXISTS telemetry_samples (
@@ -269,7 +273,8 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 6,
-    description: 'Create project_collaborators table for M4 real-time multiplayer sharing',
+    description:
+      "Create project_collaborators table for M4 real-time multiplayer sharing",
     up(db: Db) {
       db.exec(`
         CREATE TABLE IF NOT EXISTS project_collaborators (
@@ -287,7 +292,8 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 7,
-    description: 'Create ai_verifications journal table for M5 verification-aware AI assistant',
+    description:
+      "Create ai_verifications journal table for M5 verification-aware AI assistant",
     up(db: Db) {
       db.exec(`
         CREATE TABLE IF NOT EXISTS ai_verifications (
@@ -318,7 +324,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 8,
-    description: 'Create user_preferences table for M22 editor customization',
+    description: "Create user_preferences table for M22 editor customization",
     up(db: Db) {
       db.exec(`
         CREATE TABLE IF NOT EXISTS user_preferences (
@@ -335,10 +341,62 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 9,
+    description:
+      "Change audit_logs.project_id from ON DELETE CASCADE to ON DELETE SET NULL, so a project's prior audit history survives its deletion instead of being silently destroyed (M33)",
+    up(db: Db) {
+      // SQLite has no ALTER TABLE for changing a foreign key's ON DELETE
+      // action, so this uses the standard rename-recreate-copy-drop
+      // pattern. Idempotency check first: a database created after the
+      // baseline schema (openDb's inline SQL) was updated already has the
+      // correct constraint, so the (harmless but wasteful) recreate is
+      // skipped rather than blindly re-run on every fresh database, unlike
+      // most other migrations in this file which tolerate that via
+      // `CREATE TABLE IF NOT EXISTS` no-ops.
+      const fkRows = db
+        .prepare("PRAGMA foreign_key_list(audit_logs)")
+        .all() as Array<{
+        table: string;
+        from: string;
+        on_delete: string;
+      }>;
+      const projectFk = fkRows.find(
+        (r) => r.from === "project_id" && r.table === "projects",
+      );
+      if (projectFk && projectFk.on_delete === "SET NULL") {
+        return;
+      }
+
+      db.exec(`
+        CREATE TABLE audit_logs_new (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          project_id  TEXT REFERENCES projects(id) ON DELETE SET NULL,
+          event_type  TEXT NOT NULL,
+          details     TEXT NOT NULL,
+          ip_address  TEXT,
+          created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO audit_logs_new (id, user_id, project_id, event_type, details, ip_address, created_at)
+        SELECT id, user_id, project_id, event_type, details, ip_address, created_at FROM audit_logs;
+
+        DROP TABLE audit_logs;
+
+        ALTER TABLE audit_logs_new RENAME TO audit_logs;
+
+        CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_logs(project_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+      `);
+    },
+  },
 ];
 
 export function getSchemaVersion(db: Db): number {
-  const row = db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get() as {
+  const row = db
+    .prepare("SELECT MAX(version) AS v FROM schema_migrations")
+    .get() as {
     v: number | null;
   };
   return row?.v ?? 0;
@@ -354,21 +412,25 @@ function runMigrations(db: Db): void {
 
   let current = getSchemaVersion(db);
   if (current === 0) {
-    db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(BASELINE_SCHEMA_VERSION);
+    db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(
+      BASELINE_SCHEMA_VERSION,
+    );
     current = BASELINE_SCHEMA_VERSION;
   }
 
   for (const migration of MIGRATIONS) {
     if (migration.version <= current) continue;
-    db.exec('BEGIN');
+    db.exec("BEGIN");
     try {
       migration.up(db);
-      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(migration.version);
-      db.exec('COMMIT');
+      db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(
+        migration.version,
+      );
+      db.exec("COMMIT");
       current = migration.version;
     } catch (err) {
       try {
-        db.exec('ROLLBACK');
+        db.exec("ROLLBACK");
       } catch {
         // ignore rollback failure; the original migration error is what matters
       }
@@ -377,11 +439,22 @@ function runMigrations(db: Db): void {
   }
 }
 
-export function ensureAdminUser(db: Db, username: string, passwordHash: string): void {
-  const existing = db.prepare('SELECT id, role FROM users WHERE username = ?').get(username) as { id: number; role: string } | undefined;
+export function ensureAdminUser(
+  db: Db,
+  username: string,
+  passwordHash: string,
+): void {
+  const existing = db
+    .prepare("SELECT id, role FROM users WHERE username = ?")
+    .get(username) as { id: number; role: string } | undefined;
   if (!existing) {
-    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(username, passwordHash, 'admin');
-  } else if (existing.role !== 'admin') {
-    db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', existing.id);
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run(username, passwordHash, "admin");
+  } else if (existing.role !== "admin") {
+    db.prepare("UPDATE users SET role = ? WHERE id = ?").run(
+      "admin",
+      existing.id,
+    );
   }
 }

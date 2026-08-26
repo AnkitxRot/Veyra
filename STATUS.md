@@ -39,7 +39,8 @@ Last updated: 2026-08-25.
   - Milestone 29 (harden project fork authorization — owner-only, closing an export bypass) at `0f08432`.
   - Milestone 30 (automated database restore & disaster-recovery verification) at `bc8261e`.
   - Milestone 31 (automated per-project workspace & snapshot-body backup) at `a1077e1`.
-  - Milestone 32 (per-project workspace & snapshot restore) in this commit.
+  - Milestone 32 (per-project workspace & snapshot restore) at `9f5c130`.
+  - Milestone 33 (audit trail coverage & deletion integrity) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2227,6 +2228,31 @@ Verification:
 - Frontend: not touched, not rebuilt — confirmed via `git status` that zero frontend files are in this milestone's diff. No frontend UI surface added, per the governing contract.
 - `git diff --check`: PASS.
 
+### Milestone 33 — Audit Trail Coverage & Deletion Integrity
+
+A dedicated post-M32 discovery pass evaluated audit-log retention/pruning (the originally-suggested candidate) against the actual repository and rejected it in favor of this milestone. Evidence for that call, all confirmed by direct inspection rather than assumption: (1) `AuditEventType` declares 33 event types but only 21 ever had a real `recordAuditLog` call site — every high-frequency category (`EXECUTION_*`, `SANDBOX_CREATED/REAPED`) is already deliberately routed to the separate `telemetry_samples`/`runs` tables instead, so volume was never the actual problem; (2) `PROJECT_CREATED`, `PROJECT_DELETED`, `SNAPSHOT_CREATED`, `SNAPSHOT_RESTORED`, `SNAPSHOT_DELETED` were declared but never recorded — meaningful, low-frequency, security-relevant actions were simply invisible to the audit trail; (3) `audit_logs.project_id` was `ON DELETE CASCADE` while `user_id` was already `ON DELETE SET NULL` — deleting a project silently destroyed every audit row that ever referenced it, directly contradicting the product's own existing promise, shown in a real admin-confirmation dialog in `AdminDashboard.tsx`, that a destructive action is "permanently recorded in the immutable audit journal." Retention/pruning remains explicitly deferred — it would have been the wrong milestone to build on top of an audit trail that was both incomplete and self-destructing.
+
+1. **Schema migration (`backend/src/db.ts`, version 9)**: `audit_logs.project_id` changed from `ON DELETE CASCADE` to `ON DELETE SET NULL`, matching the `user_id` column's existing pattern exactly. SQLite has no `ALTER TABLE` for changing a foreign key's `ON DELETE` action, so this uses the standard rename-recreate-copy-drop sequence (`CREATE audit_logs_new` with the corrected FK → copy all rows, explicit `id`s preserved → `DROP TABLE audit_logs` → `RENAME TO audit_logs` → recreate both indexes), wrapped in the same transaction `runMigrations` already provides around every migration. Guarded by a `PRAGMA foreign_key_list` idempotency check so a database created _after_ the baseline schema was updated (see below) skips the redundant recreate entirely, rather than blindly re-running it the way most other migrations in this file tolerate via `CREATE TABLE IF NOT EXISTS` no-ops. The baseline inline schema in `openDb()` was also updated in place to the corrected FK directly (mirroring the exact precedent already set by migration v4's `users.role` retrofit) — a brand-new database gets the correct schema immediately, never needing the migration replay at all.
+2. **New audit coverage**: `PROJECT_CREATED` (`projects/service.ts`'s `createProject`, after the insert), `PROJECT_DELETED` (`deleteProject`, recorded _before_ the row delete so the project's own name is still resolvable — verified precisely, not assumed), `SNAPSHOT_CREATED`/`SNAPSHOT_RESTORED`/`SNAPSHOT_DELETED` (`projects/snapshots.ts`'s three corresponding functions, all already running inside `withProjectSnapshotLock` with `db`/`userId`/`projectId` already in scope). None of these can fail the calling operation — `recordAuditLog` was already fail-soft (internal try/catch, non-fatal by design) before this milestone; verified directly, not just inherited by assumption.
+3. **M27/M31 null-fallback workarounds: investigated, proven still necessary, deliberately preserved, NOT simplified.** The original plan (per the governing discovery pass) was to remove the `stillExists ? projectId : null` checks in `admin/routes.ts`'s backup-download route and `workspaceBackup.ts`'s `deleteWorkspaceBackup`, on the assumption that `ON DELETE SET NULL` would make them redundant. Verified empirically before touching anything (a throwaway `node:sqlite` script, then codified as a permanent regression test in `audit.test.ts`) that this assumption was **wrong**: a foreign key's `ON DELETE` action only governs what happens to _existing_ child rows when the _parent_ is later deleted — it has no effect on whether a _new_ `INSERT` referencing an already-nonexistent parent id succeeds, which still fails FK validation identically under `SET NULL` and `CASCADE`. Those two call sites handle exactly that different scenario (auditing an action against a backup whose _source project was already deleted before the action_), which this migration does not and cannot address. Both checks are therefore preserved exactly as they were — no changes to `admin/routes.ts` or `workspaceBackup.ts` in this milestone.
+
+Security considerations: `PROJECT_DELETED`'s recording-before-delete ordering was specifically verified, not just implemented; no audit detail includes file contents or secrets (verified directly for `PROJECT_CREATED`'s details, and the existing `sanitizeDetails` redaction set — `password`/`password_hash`/`token`/`secret`/`cookie`/`session_token`/`newpassword` — re-verified as a regression guard); no new admin route or deletion path was introduced; no retention/pruning mechanism was introduced; `user_id`'s existing `SET NULL` behavior was re-verified unchanged as an explicit regression guard, not just assumed safe because it wasn't touched.
+
+Files:
+
+- Production: `backend/src/db.ts` (migration v9 + baseline schema update), `backend/src/projects/service.ts` (`PROJECT_CREATED`/`PROJECT_DELETED`), `backend/src/projects/snapshots.ts` (`SNAPSHOT_CREATED`/`SNAPSHOT_RESTORED`/`SNAPSHOT_DELETED`).
+- Tests: `backend/test/audit.test.ts` (new, 11 tests: all five new event types recorded correctly with real project/snapshot state; project deletion preserves prior audit rows with `project_id` now `NULL` instead of cascading them away; `PROJECT_DELETED`'s detail retains the project's name; the existing redaction set still works; `queryAuditLogs`'s event_type/user_id/project_id/pagination filters; querying by a since-deleted project's id returns nothing without erroring; `recordAuditLog` failure never propagates; and a direct, explicit test proving the M27/M31 null-fallback checks remain necessary — inserting a new row against a nonexistent `project_id` still throws `FOREIGN KEY constraint failed` under the new `SET NULL` schema, exactly as it did under the old `CASCADE` one). `backend/test/migrations.test.ts` extended: existing hardcoded version assertions bumped 8→9 (an intentional update, not silencing a broken test — the count is genuinely different now), plus two new tests: a fresh-database FK-shape assertion, and a full upgrade-path test that hand-builds a real file-backed pre-M33 database (schema version 8, real `CASCADE` FK, real user/project/audit rows), reopens it through the actual production `openDb()` code path, and verifies data preservation, FK correction, index survival, real project-deletion → `project_id NULL` behavior, real user-deletion → `user_id NULL` regression, and idempotency across a second reopen — not merely that the migration runs without a SQL error.
+
+Verification:
+
+- Focused suite `test/audit.test.ts`: **11 passed / 0 failed** (~1.7s).
+- Migration suite `test/migrations.test.ts`: **5 passed / 0 failed** (including the fresh-DB and full hand-built-upgrade-DB tests).
+- Related suite (`audit.test.ts`, `migrations.test.ts`, `snapshot-quotas.test.ts`, `fork.test.ts`, `backup.test.ts`, `workspace-backup.test.ts`, `workspace-restore.test.ts`, `restore.test.ts`, `archive-import-export.test.ts`, `admin.test.ts`): **150 passed / 0 failed, 5 skipped** (10 test files, 26.93s) — zero regression to project lifecycle, snapshots, fork, or any backup/restore milestone.
+- Full backend regression suite: **489 passed / 2 failed / 36 skipped (49 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts` (Docker unavailable) — unmodified, no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: not touched, not rebuilt — confirmed via `git status` that zero frontend files are in this milestone's diff. No new admin route or UI surface, per the governing contract.
+- `git diff --check`: PASS.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2237,21 +2263,22 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M32, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M32, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M33, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M33, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–32 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
-`0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 in this commit). Manual QA
-execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged
-from before. M26 and M28 both touched frontend UI and were verified by clean typecheck/build/vitest
-only — live browser interaction was not exercised for either (no Chrome automation available);
-worth a combined manual pass. M27, M29, M30, M31, and M32 were all backend-only (no frontend files
-touched). The M25–M32 database + workspace + snapshot backup/restore arc is now fully closed on
-both halves (backup and restore) for both data domains (DB and filesystem).
+Milestones 1–33 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
+`0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 in this
+commit). Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and
+un-gated, unchanged from before. M26 and M28 both touched frontend UI and were verified by clean
+typecheck/build/vitest only — live browser interaction was not exercised for either (no Chrome
+automation available); worth a combined manual pass. M27, M29, M30, M31, M32, and M33 were all
+backend-only (no frontend files touched). The M25–M32 database + workspace + snapshot backup/restore
+arc is fully closed; M33 closed the audit-trail coverage/integrity gap that a dedicated discovery
+pass found instead of the originally-assumed retention/pruning need.
 
 ## Next recommended milestone
 
@@ -2259,8 +2286,8 @@ both halves (backup and restore) for both data domains (DB and filesystem).
    above) — no code changes expected, just closing the live-interaction verification gap both
    milestones share. Fork's UI behavior itself is unchanged by M29 (still a button + name prompt);
    only the server-side outcome for non-owners changed (404 instead of 201).
-2. **Audit log retention/pruning** — `audit_logs` (`backend/src/audit.ts`) has no retention policy
-   or pruning tool; it grows unboundedly on a long-running instance. With the backup/restore arc now
-   fully closed, this is the strongest remaining evidence-backed operational gap.
+2. Audit-log retention/pruning remains explicitly deferred, now on firmer footing than before M33
+   (the trail is complete and no longer self-destructs on project deletion) — still not clearly
+   justified by any actual growth evidence; re-evaluate only if real production volume data emerges.
 3. Other candidates: none currently identified beyond the above from repo state; next session should
    re-audit rather than pick blind, per this session's own established practice.

@@ -14,6 +14,7 @@ import {
   safeResolve,
 } from "../files/service.js";
 import { collaborationManager } from "../collab/manager.js";
+import { recordAuditLog } from "../audit.js";
 
 export interface SnapshotRecord {
   id: string;
@@ -202,6 +203,13 @@ export async function createSnapshot(
       throw err;
     }
 
+    recordAuditLog(db, {
+      userId,
+      projectId: project.id,
+      eventType: "SNAPSHOT_CREATED",
+      details: { snapshotId, snapshotName, sizeBytes: newSizeBytes },
+    });
+
     return {
       id: snapshotId,
       project_id: project.id,
@@ -286,6 +294,13 @@ export async function restoreSnapshot(
         );
       } catch {}
     }
+
+    recordAuditLog(db, {
+      userId,
+      projectId: project.id,
+      eventType: "SNAPSHOT_RESTORED",
+      details: { snapshotId, snapshotName: row.name },
+    });
   });
 }
 
@@ -316,5 +331,12 @@ export async function deleteSnapshot(
     db.prepare(
       "DELETE FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
     ).run(snapshotId, project.id, userId);
+
+    recordAuditLog(db, {
+      userId,
+      projectId: project.id,
+      eventType: "SNAPSHOT_DELETED",
+      details: { snapshotId, snapshotName: row.name },
+    });
   });
 }
