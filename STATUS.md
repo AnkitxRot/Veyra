@@ -3098,6 +3098,76 @@ verified by dedicated non-regression tests; the fix can only ever prevent a writ
 otherwise have corrupted data, never suppress a legitimate one (every guard is a pure early-return on
 an already-terminal state, not a new code path).
 
+## Milestone 42 — Fresh read-only discovery + tree-cache stale-write-after-invalidate fix
+
+**Discovery scope**: a fresh, read-only audit for the M37-M41 bug class ("an async callback or
+re-armed timer completes after a concurrent authoritative operation already superseded the state it's
+about to act on") across every cross-layer lifecycle in the backend: collaboration dispose,
+import/restore/delete, workspace/file mutation, snapshot restore, sandbox teardown, project deletion,
+backup creation/deletion, audit preservation, caches, timers, background maintenance, WS reconnect,
+admin operations. Every `setTimeout`/`setInterval` call site in `backend/src/` was enumerated and
+read in context (`admin/telemetry-stream.ts`, `backup/shared.js`, `collab/manager.ts`, execution/
+`historian.ts`, execution/`sandbox.ts`, `index.ts`, `projects/format.ts`, `projects/search.ts`, `ws/
+connectionRegistry.ts`, `ws/index.ts`).
+
+**Findings**:
+
+- `execution/sandbox.ts`'s idle-container reaper (`startReaper`/`reapIdleSandboxes`) and every other
+  sandbox lifecycle operation are already serialized per-project through `withProjectLock` (a
+  promise-chain mutex) — structurally immune to this bug class, unlike collaboration rooms (which had
+  no analogous lock).
+- `execution/historian.ts`'s batched telemetry write queue is not cleared by `disposeProject()`; a
+  just-deleted project's queued samples could still attempt an INSERT after deletion. Assessed as
+  non-qualifying: at worst an FK-constrained insert failure (silently logged) or a harmless orphan
+  telemetry row — no data resurrection, no user-visible corruption, no security impact. Not pursued.
+- `auth/demoGc.ts`'s periodic demo-account GC already routes every project deletion through
+  `deleteProject()` (the same path M38/M41 hardened) and only targets accounts with no active
+  unexpired DB session — safe, reuses already-fixed machinery.
+- `index.ts`'s graceful shutdown sequence stops background maintenance first, then closes WS clients,
+  then flushes collaboration rooms last, in that order — already correctly sequenced, and now
+  additionally benefits from M41's disposed-room guards for any room that gets disposed mid-sequence.
+- `auth/middleware.ts`'s session cache read/populate path is entirely synchronous (`node:sqlite`'s
+  `DatabaseSync`), so no async gap exists between a DB read and the cache write — no race window is
+  possible regardless of concurrent revocation.
+- `files/service.ts`'s in-memory `tree()` cache (500ms TTL, single-flight per root) **is** a real
+  instance of the bug class: `invalidateTreeCache(root)` only deletes the in-flight promise's _map
+  entry_ — it cannot cancel the already-running fetch. If `doTree()` is still in flight when
+  `invalidateTreeCache()` runs (every import/delete/restore/write/move calls it after mutating the
+  workspace), the fetch's completion unconditionally writes its (now-stale) result into the cache with
+  a fresh timestamp, serving the pre-mutation file listing to every caller for a full new TTL window.
+  Deterministically reproduced with a mocked, gated `fs.readdir` forcing the exact interleaving.
+  Severity assessed as real but genuinely lower than M37-M41: this is a pure read-side cache with no
+  persisted-state consequence — no data is lost or corrupted on disk, the window is bounded to well
+  under a second, and it self-heals on the next TTL expiry. Selected for a bounded fix anyway (cheap,
+  safe, directly matches the requested audit pattern, no ambiguity) rather than deferred, per this
+  session's "fix all identified issues" directive.
+
+**Fix** (`backend/src/files/service.ts` only): a per-root `treeGeneration` counter, bumped by
+`invalidateTreeCache(root)` (and cleared entirely on a full-cache clear — `Map.get` correctly returns
+`undefined` for every root afterward, which compares unequal to any real captured generation number,
+so no per-root enumeration is needed). `tree()` captures the current generation before starting its
+fetch and only writes to `treeCache` if the generation is unchanged when the fetch completes —
+otherwise an invalidation happened mid-flight and the stale result is discarded instead of cached,
+exactly mirroring M41's "check a lifecycle flag immediately before every write" shape.
+
+**Tests** (`backend/test/files.test.ts`, extended `tree` describe block, 1 new test, 13 total in
+file): reproduces the exact race with a gated, mocked `fs.readdir` (old snapshot returned after
+`invalidateTreeCache()` has already run and the real directory has already been mutated), asserting
+the next `tree()` call sees the fresh, correct listing rather than the resurrected stale one.
+`git stash`-verified: stashing only the `service.ts` fix caused this test to fail with the exact
+stale-listing shape (`['old.txt']` instead of `['new.txt', 'old.txt']`), the other 12 tests in the
+file unaffected; restored fix, all 13 pass.
+
+Verification: focused suite (`files.test.ts` 13/13, `api.test.ts` 51/51 + 9 pre-existing skips, 0
+regressions), full backend suite (530 passed — up from 529, matching the one new test — 36 skipped,
+exactly the 2 pre-existing Docker-unavailable failures, untouched). `tsc --noEmit` clean. `git diff
+--check` clean. No frontend files changed.
+
+Security/data review: no authorization/protocol changes; the fix only ever makes the cache stricter
+(refusing a write it would previously have made), never serves anything it wouldn't have served
+before; no new I/O, no new cross-project surface — the generation counter is keyed by the same `root`
+path the cache itself already uses.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3105,8 +3175,9 @@ Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a
 M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, M35 (Starter
 Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration ghost-file
 resurrection fix), M38 (collaboration deletion race fix), M39 (collaboration import-replacement
-race fix), M40 (frontend collaboration-reconnect state reset), and M41 (disposed-room stale-flush
-guards, above; commit noted at top of file once pushed).
+race fix), M40 (frontend collaboration-reconnect state reset), M41 (disposed-room stale-flush
+guards), and M42 (tree-cache stale-write-after-invalidate fix, above; commit noted at top of file
+once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -3148,3 +3219,12 @@ admin UI rather than only reachable via raw API.
    `removeClient()`, `scheduleIdleDisposal()` and its callback, and `flushToDisk()`; see M41 above,
    including 3-scenario live re-verification against the real QA server with the exact 12-second wait
    that used to reproduce the clobber).
+9. ~~`files/service.ts`'s `tree()` cache could resurrect a stale pre-mutation listing after
+   `invalidateTreeCache()`~~ — fixed in M42 (per-root generation counter, see above). M42's discovery
+   pass also audited sandbox teardown, telemetry, demo-account GC, graceful shutdown, and the session
+   cache for the same bug class and found them already safe (locked, already routed through hardened
+   paths, or structurally race-free) — see M42 above for the full survey.
+10. No further evidence-backed milestone was identified as of the M42 release. Next session should
+    run its own fresh discovery pass rather than assume this list is exhaustive — a codebase this size
+    likely has more to find, but nothing else surfaced clear enough evidence during this session's
+    audit to justify autonomous implementation without product input or additional investigation time.
