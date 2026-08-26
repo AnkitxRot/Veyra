@@ -225,6 +225,14 @@ export class CollaborationClient {
     editor: monaco.editor.IStandaloneCodeEditor,
     _isReadOnly: boolean = false,
   ): void {
+    // A disposed client's doc/awareness/ws are already torn down. A stale
+    // React prop reference could still reach this call in the brief window
+    // between a project switch's cleanup and the new client replacing it in
+    // state; without this guard it would seed the destroyed Y.Doc from
+    // whatever model content happened to be passed in and build a binding
+    // that can never sync anywhere.
+    if (this.isDisposed) return;
+
     // Callers (Editor.tsx's model-management effect) re-run on every
     // keystroke because `openFiles` gets a new array/object reference per
     // edit. Without this guard, every keystroke would tear down and rebuild
@@ -278,7 +286,8 @@ export class CollaborationClient {
               isRerendering = true;
               try {
                 origRerender();
-              } catch {} finally {
+              } catch {
+              } finally {
                 isRerendering = false;
               }
             }

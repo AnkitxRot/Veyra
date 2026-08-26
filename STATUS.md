@@ -2382,11 +2382,65 @@ to the fix; the existing `Sidebar.fork.test.tsx` continues to cover the fork-cre
 (unaffected), and this fix was verified via reproducible manual QA with direct on-disk content
 verification via the file API, documented in full above.
 
+## Post-QA regression audit of the M26/M28 fixes (lifecycle correctness)
+
+Focused, code-only follow-up to the pass above: traced the M26 search-reveal fix and M28
+openFiles/activeFile reset fix against adjacent lifecycle paths (project A→B→A, same file path
+across two projects, dirty-state handling, search reveal into a closed/dirty file, and the
+collaboration binding teardown/re-establish sequence) to confirm the released fixes hold up beyond
+the exact scenarios manually exercised in browser QA. No behavioral defect found in either released
+fix; the M28 reset relies on — and correctly triggers — a pre-existing Editor.tsx effect ("Clean up
+models for closed files") that disposes every Monaco model once `openFiles` goes empty, which is
+what actually prevents stale cross-project model reuse (the reset alone wouldn't be sufficient
+without that disposal already existing).
+
+Two things were confirmed as pre-existing, _not_ regressions from the M28 fix, and left alone as
+out of scope for this narrow audit: (1) switching projects with unsaved (dirty) edits open silently
+discards them once `openFiles` resets — this is consistent with this app's existing convention (closing
+a single dirty tab already discards without confirmation, no `window.confirm` gate exists anywhere
+for either action), so the M28 fix didn't change the app's dirty-data semantics, it just applies the
+same pre-existing semantics one level higher; (2) the Problems panel's `onSelectDiagnostic` handler
+has the identical "doesn't open the file before dispatching `ide-reveal-location`" bug that M26 fixed
+for workspace search — noted in the prior QA pass as a known, deliberately out-of-scope sibling issue,
+still unfixed, still out of scope here (this audit's scope was M26/M28 lifecycle correctness, not a
+new UI-navigation sweep).
+
+One genuine adjacent gap was found and fixed: `CollaborationClient.bindMonacoModel()` in
+`frontend/src/collab/client.ts` had no `isDisposed` guard. In the current code this is not reachable
+through normal UI interaction (the M28 openFiles-reset means `openFiles` is empty, so Editor.tsx's
+model-management effect never calls `bindMonacoModel` during the brief window a stale/disposed
+`collabClient` reference could theoretically still be in scope), but it is a real hole in "no old room
+can write after project switch" as a lifecycle invariant, not just an observed-safe accident. Fixed by
+returning immediately when `this.isDisposed` is true, before any Y.Doc read/seed or `MonacoBinding`
+construction. Added `frontend/test/collab.disposedClient.test.ts` (2 tests, deterministic, no Chrome
+needed): disposed client's `bindMonacoModel` is a no-op (mocked `y-monaco` constructor never called);
+a live client still binds normally (negative control). No test was added for items already provable
+without a coverage gap (project-switch reset and same-path isolation are pure IDE.tsx effect-ordering
+facts, verified by static trace and by re-confirming the fixture on-disk state via the file API; the
+prior session's rationale for not building an `IDE.tsx` render-harness test stands — heavier than the
+fix it would cover).
+
+Verified: `vitest run` 5/5 files, 20/20 tests (18 previously + 2 new) pass; `tsc --noEmit` clean;
+`vite build` clean; `git diff --check` clean. No backend files touched.
+
+Browser smoke (Phase 3 of this audit — open A, edit, switch to same-named file in B, verify no
+cross-contamination, switch back, verify A intact, search into a closed file) was **not** executed
+this round: the Chrome extension reported zero connected browsers (`list_connected_browsers` empty
+across three attempts), despite this session's instructions asserting Chrome was available. Rather
+than fabricate a browser result, this was substituted with direct API verification of the QA fixture
+state left over from the prior session's browser-verified repro (`qa-search-project` /
+`qa-search-project (Fork)`, both `nomatch.py` still exactly 29 bytes / uncorrupted on both sides,
+confirmed via `GET /api/projects/:id/file`) — i.e., no drift or regression since the last actual
+browser verification, but not a fresh live re-run of the switch sequence. The QA backend/frontend dev
+servers (isolated `DATA_DIR` under the OS temp folder) were restarted against the existing fixtures
+and are running for a follow-up browser pass whenever Chrome connects.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
-M34 at `61c9cb2`), plus the post-M34 browser QA pass above (commit noted at top of file once pushed).
+M34 at `61c9cb2`), plus the post-M34 browser QA pass and this lifecycle regression audit (commit
+noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
