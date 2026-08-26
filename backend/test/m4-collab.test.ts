@@ -1532,4 +1532,197 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       expect(content).toBe(`room ${i}`);
     }
   });
+
+  // --- M37: ghost-file resurrection fix -----------------------------------
+  //
+  // Root cause: handleExternalFileMutation("", path) called doc.getText(path)
+  // unconditionally, which materializes `path` as an empty Y.Text in
+  // doc.share as a side effect — even for a path the room never tracked.
+  // flushToDisk()'s "dirtyFiles is empty" fallback then iterated every
+  // Y.Text in doc.share with no emptiness check, writing that dangling empty
+  // key back to disk as a 0-byte file. The /move and /delete routes call
+  // handleExternalFileMutation(path, "") for every affected old/deleted path
+  // specifically to guard against *stale* content resurrecting — the guard
+  // itself was what created the resurrection vector for paths that were
+  // never stale (never tracked) in the first place. Reproduced end-to-end
+  // against a live server with: open a collab WS -> rename via /move ->
+  // delete via /delete -> close the WS -> wait past the 10s idle-dispose
+  // delay -> both the renamed-away and deleted paths reappeared as 0-byte
+  // files. Test 16 above only asserted the path left dirtyFiles; it never
+  // called flushToDisk() afterward, so it could not have caught this.
+
+  it("26. The exact bug: an empty external mutation for a never-tracked path materializes nothing, and a subsequent empty-dirtyFiles flush does not resurrect it", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("oscar", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "GhostBugProj" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "never-existed.py";
+    const diskPath = join(projectDir(cfg, project.id), filePath);
+
+    // The room never loaded, edited, or otherwise touched this path.
+    expect((room as any).doc.share.has(filePath)).toBe(false);
+
+    // Exactly what /move and /delete call for every affected old/deleted
+    // path, unconditionally, whether or not the room ever tracked it.
+    await room.handleExternalFileMutation(filePath, "");
+
+    // With the fix: no key was materialized at all.
+    expect((room as any).doc.share.has(filePath)).toBe(false);
+
+    // dirtyFiles is empty (nothing else happened in this room), so this
+    // exercises the exact fallback branch that resurrected the file before
+    // the fix.
+    expect((room as any).dirtyFiles.size).toBe(0);
+    await room.flushToDisk();
+
+    await expect(fs.readFile(diskPath, "utf-8")).rejects.toThrow();
+
+    room.dispose();
+  });
+
+  it("27. Rename case: notifying the old path after a move leaves it absent from disk through an idle-style flush", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("pia", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "GhostRenameProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const oldPath = "main.py";
+    const newPath = "renamed.py";
+    const oldDiskPath = join(projectDir(cfg, project.id), oldPath);
+    const newDiskPath = join(projectDir(cfg, project.id), newPath);
+
+    // Mirrors POST /:id/move exactly: the file was never opened/tracked in
+    // this room (no ensureFileLoaded/file_open ever happened for it), and
+    // the actual disk rename already happened before these calls.
+    await fs.writeFile(newDiskPath, "print('renamed')", "utf-8");
+    await room.handleExternalFileMutation(oldPath, "");
+    await room.handleExternalFileMutation(newPath, "print('renamed')");
+
+    expect((room as any).doc.share.has(oldPath)).toBe(false);
+    expect((room as any).dirtyFiles.size).toBe(0);
+
+    await room.flushToDisk();
+
+    await expect(fs.readFile(oldDiskPath, "utf-8")).rejects.toThrow();
+    expect(await fs.readFile(newDiskPath, "utf-8")).toBe("print('renamed')");
+
+    room.dispose();
+  });
+
+  it("28. Delete case: notifying the deleted path leaves it absent from disk through an idle-style flush", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("quinn", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "GhostDeleteProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "doomed.py";
+    const diskPath = join(projectDir(cfg, project.id), filePath);
+
+    // Mirrors POST /:id/delete: the file is removed from disk first, then
+    // the room is notified — and, as in the real bug, this room never had
+    // the file open/tracked at all.
+    await fs.writeFile(diskPath, "print('about to die')", "utf-8");
+    await fs.rm(diskPath, { force: true });
+    await room.handleExternalFileMutation(filePath, "");
+
+    expect((room as any).doc.share.has(filePath)).toBe(false);
+    expect((room as any).dirtyFiles.size).toBe(0);
+
+    await room.flushToDisk();
+
+    await expect(fs.readFile(diskPath, "utf-8")).rejects.toThrow();
+
+    room.dispose();
+  });
+
+  it("29. Real-edit regression: the primary dirtyFiles-driven flush path is untouched by the ghost-key guards", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("river", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "GhostRealEditProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "real-work.py";
+    const diskPath = join(projectDir(cfg, project.id), filePath);
+    const content = "def real():\n    return 42\n";
+
+    // A genuine collaborative edit, tracked via the normal markFileDirty path
+    // (not an external mutation), exactly like test 2 above.
+    room.doc.transact(() => {
+      room.doc.getText(filePath).insert(0, content);
+    });
+    room.markFileDirty(filePath);
+    expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+
+    await room.flushToDisk();
+
+    expect(await fs.readFile(diskPath, "utf-8")).toBe(content);
+    expect((room as any).dirtyFiles.has(filePath)).toBe(false);
+
+    room.dispose();
+  });
+
+  it("30. Externally created file: a never-tracked path with real non-empty content is still seeded and persisted correctly", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("sage", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "GhostExternalCreateProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "brand-new.py";
+    const diskPath = join(projectDir(cfg, project.id), filePath);
+    const content = "print('created externally with real content')";
+
+    // Mirrors POST /:id/file (create/save): the file did not exist in this
+    // room before, and the notification carries real, non-empty content —
+    // the guard must not suppress this legitimate case.
+    expect((room as any).doc.share.has(filePath)).toBe(false);
+    await room.handleExternalFileMutation(filePath, content);
+
+    expect((room as any).doc.share.has(filePath)).toBe(true);
+    expect(room.doc.getText(filePath).toString()).toBe(content);
+    expect((room as any).dirtyFiles.size).toBe(0);
+
+    await room.flushToDisk();
+
+    expect(await fs.readFile(diskPath, "utf-8")).toBe(content);
+
+    room.dispose();
+  });
+
+  it("31. No ghost keys: an empty external mutation for an unknown path never registers a doc.share entry", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("tara", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "GhostNoKeyProj",
+    });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+    const filePath = "unknown/path/that/never/existed.txt";
+
+    await room.handleExternalFileMutation(filePath, "");
+
+    expect((room as any).doc.share.has(filePath)).toBe(false);
+
+    room.dispose();
+  });
 });

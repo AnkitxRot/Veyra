@@ -2613,13 +2613,98 @@ touch anything this milestone's diff changed (`Modal.tsx`/`TemplateModal.tsx` on
 rename, or delete backend/frontend logic was modified). Flagged here for visibility, not chased
 down, per the explicit "do not touch backend code" / stay-scoped instruction for this pass.
 
+## Milestone 37 — Prevent collaboration ghost-file resurrection
+
+Bug: a deleted or renamed-away file could silently reappear on disk as an empty (0-byte) file a
+few seconds after the last collaborator closed/navigated away from the project, resurrecting
+content the user had explicitly deleted, or leaving a ghost twin at a file's old (renamed-from)
+path. This is the anomaly flagged as out-of-scope during M36's manual QA and investigated for real
+in this milestone.
+
+Reproduction (deterministic, run against a live isolated QA server, not inferred from code alone):
+open a `/ws/collab` connection for a project (exactly what the IDE always does on project select) →
+rename a real file via `POST /:id/move` → delete the renamed file via `POST /:id/delete` → tree
+correctly shows empty → close the WS connection → wait past the room's 10s idle-dispose delay →
+tree now shows **both** the renamed-away original path and the deleted path, each resurrected as a
+0-byte file. 100% reproducible every run, not a QA-fixture artifact, not browser-specific — any
+project with collaboration active (which is every project, since it connects unconditionally on
+project select) is affected by any rename/delete followed by the last collaborator leaving.
+
+Root cause, fully traced in `backend/src/collab/manager.ts`: the `/move` and `/delete` route
+handlers in `backend/src/projects/routes.ts` (unmodified, and confirmed already correct) call
+`collaborationManager.notifyExternalFileMutation(projectId, affectedPath, "")` for every affected
+old/deleted path — intended, per their own existing comments, to clear any _stale_ content so a
+later flush can't resurrect it with old text. But `handleExternalFileMutation()` called
+`this.doc.getText(filePath)` unconditionally, and Yjs's `Y.Doc.getText()` always materializes that
+key in `doc.share` as a side effect — even for a path the room never tracked at all. Since the
+"cleared" content (`""`) matched the freshly-materialized empty `Y.Text`, no transact ever fired,
+but the empty key now permanently existed in `doc.share`. `flushToDisk()`'s fallback (used whenever
+`dirtyFiles` is empty — guaranteed on room idle-disposal) iterated _every_ `Y.Text` key in
+`doc.share` with no emptiness check, despite its own comment explicitly saying "flush all active
+**non-empty** text keys" — writing each one to disk unconditionally and resurrecting both ghost
+keys. The intended safety mechanism (clearing stale content) is what caused the bug.
+
+Fix, exactly two guards in `backend/src/collab/manager.ts`, no other files touched:
+
+1. `flushToDisk()`'s "dirtyFiles is empty" fallback now only pushes a key when
+   `type instanceof Y.Text && type.length > 0` — matches the comment's stated (and previously
+   violated) intent.
+2. `handleExternalFileMutation()` now returns immediately, before touching `doc.getText()` at all,
+   when `newContent === "" && !this.doc.share.has(filePath)` — a path that was never tracked and
+   has nothing to clear needs no Y.Doc access whatsoever. A path with real non-empty content (e.g.
+   `POST /:id/file` creating a brand-new file) is unaffected and still seeds the room correctly.
+
+The primary, real-edit persistence path (`dirtyFiles`-driven, not the fallback) was not touched.
+`backend/src/projects/routes.ts` was not touched — confirmed via inspection that its `/move` and
+`/delete` handlers already do the right thing by calling `notifyExternalFileMutation`; the bug was
+entirely in how that notification was handled inside `manager.ts`.
+
+Regression coverage: 6 new tests appended to `backend/test/m4-collab.test.ts` (tests 26–31,
+following its existing `CollaborationRoom`-direct testing convention, no WebSocket needed):
+the exact bug (untracked path, empty mutation, empty-dirtyFiles flush, file never created);
+the rename case (old path stays absent, new path persists correctly); the delete case (deleted
+path stays absent); a real-edit regression proving the primary `dirtyFiles` path is untouched; an
+externally-created-file case proving a genuinely new file with real content still seeds and
+persists correctly; and a direct `doc.share.has()` check proving no ghost key is ever registered.
+**Verified the tests actually catch the bug, not just assert a tautology**: reverted only the
+`manager.ts` fix (via `git stash`, tests left in place) and confirmed tests 26–28 fail with the
+exact pre-fix behavior (`doc.share.has(path)` true when it should be false), then restored the fix
+and confirmed all 32 tests in the file pass. Existing test 16 ("external mutations are never
+queued as dirty...") only asserted `dirtyFiles.has(path) === false` and never called
+`flushToDisk()` afterward — it could not have caught this bug, which is exactly why it wasn't caught
+originally.
+
+Live re-reproduction against the real server, post-fix: reran the exact reproduction sequence
+(fresh isolated project, WS connect → rename → delete → disconnect → wait 13s → inspect tree) —
+tree came back empty, no ghost files, confirming the fix closes the exact hole that was
+demonstrated open. Also confirmed a newly-created real file (`POST /:id/file`) still persists its
+exact content afterward.
+
+Browser smoke (Chrome, fresh `m37-smoke` project): created 3 real files (`to_rename.py`,
+`to_delete.py`, `keep_and_edit.py`, each opened and saved through the real editor). Renamed
+`to_rename.py` → `renamed_target.py` via the file-tree context menu. Deleted `to_delete.py` the
+same way. Edited and saved `keep_and_edit.py` with new content. Navigated away (`/admin`, a full
+page nav that tears down the WS) and waited 13s past the idle-dispose threshold. Navigated back:
+tree showed exactly `keep_and_edit.py` and `renamed_target.py` — no `to_rename.py` ghost at its old
+path, no `to_delete.py` resurrection. Opened both remaining files and confirmed byte-for-byte
+correct content, including the edit made just before disposal (`value = "original content" +
+" EDITED before disposal"`).
+
+Verification: `tsc --noEmit` clean (backend). Focused suite (`m4-collab.test.ts` +
+`m6-collab-coalesce-backpressure.test.ts`): 40/40 passed. Full backend suite: 45 files passed, 2
+failed — exactly `backend/test/m16-optimization.test.ts` and `backend/test/pipeline.test.ts`, both
+pre-existing, both Docker-daemon-unavailable failures unrelated to this change and left untouched;
+514 tests passed, 36 skipped (Docker-dependent), 0 new failures. `git diff --check` clean. No
+frontend files changed — frontend build/tests were not re-run, consistent with the established
+convention for backend-only changes.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
 M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, M35 (Starter
-Project Templates UI), and M36 (viewport-level modal portal fix, above; commit noted at top of
-file once pushed).
+Project Templates UI), M36 (viewport-level modal portal fix), and M37 (collaboration ghost-file
+resurrection fix, above; commit noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -2636,18 +2721,16 @@ admin UI rather than only reachable via raw API.
 2. The fork-denial `alert()` UX (M29) and other `alert()`-based error surfaces across
    `Sidebar.tsx`/`AdminDashboard.tsx` are a consistent but dated pattern noted during this pass — a
    candidate for a future UX-polish pass, not urgent, not a correctness or security issue.
-3. M35 (Starter Project Templates UI, above) is complete. From the discovery pass that selected it,
-   the strongest remaining candidate is the admin backup/restore action UI: `admin/routes.ts:984-1226`
-   has a fully built DB-backup and workspace-backup lifecycle (trigger/list/download/delete, plus
-   workspace **restore**) with zero frontend callers anywhere — the M34 health panel shows CRITICAL
-   with no button to act on it. Deliberately not started here: it includes a destructive restore
-   action that overwrites live project data and deserves its own scoping/confirm-UX pass, unlike
-   M35's purely-additive scope. Not picked automatically — next session should decide fresh rather
-   than rubber-stamp this note, per this session's own established practice.
-4. ~~The `backdrop-filter` containing-block bug affecting `PromptModal`/`ConfirmModal`~~ — fixed in
+3. ~~The `backdrop-filter` containing-block bug affecting `PromptModal`/`ConfirmModal`~~ — fixed in
    M36 (shared portal in `Modal.tsx`, browser-verified across Fork/New File/Rename/Delete).
-5. A stray 0-byte file was observed reappearing in a project's tree after a project-switch during
-   M36's manual QA, unrelated to anything M36 changed (no file-tree/rename/delete code was
-   touched). Not investigated — worth a fresh look if it reproduces reliably; may be nothing more
-   than a one-off artifact from the QA session's own state (repeated rename/delete/switch cycles on
-   the same fixture project in one sitting).
+4. ~~The stray 0-byte ghost-file anomaly observed during M36's manual QA~~ — root-caused and fixed
+   in M37 (collaboration-room fallback flush resurrecting deleted/renamed-away paths; see above).
+   Note: fixture projects created before this fix (`Python Data Science` in the QA environment)
+   still carry the ghost files the pre-fix bug already wrote to disk — the fix stops it from
+   happening again, it does not retroactively clean up prior damage. Not cleaned up here (QA
+   fixture only, out of scope for a backend-only bugfix pass); a real production instance with
+   pre-fix-created ghost files would need the same manual cleanup if this were ever deployed.
+5. From the M35/M37 discovery passes, the strongest still-open candidate remains the admin
+   backup/restore action UI (`admin/routes.ts:984-1226`, zero frontend callers, includes a
+   destructive restore action that deserves its own scoping pass). Not picked automatically —
+   next session should decide fresh rather than rubber-stamp this note.

@@ -510,11 +510,25 @@ export class CollaborationRoom {
   /**
    * External Mutation Safety: updates Y.Text when workspace file is modified externally
    * (e.g. via REST file save, snapshot restore, starter templates).
+   *
+   * `doc.getText(filePath)` materializes `filePath` as a key in `doc.share` as
+   * a side effect, even for a path this room never tracked. The /move and
+   * /delete routes call this with `newContent: ""` for every affected path to
+   * clear any stale content — including paths the room was never actually
+   * editing. Without the guard below, that "nothing to clear" call would
+   * itself create a dangling empty Y.Text, which flushToDisk()'s "no dirty
+   * files" fallback would then write back to disk, resurrecting the just
+   * deleted/renamed-away file. A path that isn't already tracked and has
+   * nothing (empty content) to apply needs no Y.Doc access at all.
    */
   public async handleExternalFileMutation(
     filePath: string,
     newContent: string,
   ): Promise<void> {
+    if (newContent === "" && !this.doc.share.has(filePath)) {
+      return;
+    }
+
     const yText = this.doc.getText(filePath);
     const currentContent = yText.toString();
 
@@ -808,12 +822,17 @@ export class CollaborationRoom {
     const baseDir = projectDir(this.cfg, this.projectId);
     const filesToFlush = Array.from(this.dirtyFiles);
 
-    // If dirtyFiles is empty, flush all active non-empty text keys in doc
+    // If dirtyFiles is empty, flush all active non-empty text keys in doc.
+    // The length check is load-bearing, not cosmetic: an empty Y.Text can be
+    // a dangling key materialized as a side effect (e.g. a rejected/never-
+    // tracked path touched by handleExternalFileMutation's own doc.getText()
+    // call) rather than real content — writing those back to disk would
+    // resurrect a deleted or renamed-away file as an empty ghost file.
     if (filesToFlush.length === 0) {
       for (const [key, type] of (
         this.doc.share as Map<string, any>
       ).entries()) {
-        if (type instanceof Y.Text) {
+        if (type instanceof Y.Text && type.length > 0) {
           filesToFlush.push(key);
         }
       }
