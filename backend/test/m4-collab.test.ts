@@ -1725,4 +1725,187 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     room.dispose();
   });
+
+  // --- M38: collaboration zombie-room race on project deletion ------------
+  //
+  // Root cause: deleteProject() disposes the active collaboration room
+  // early, then tears down the sandbox and telemetry state, removes the
+  // workspace/snapshot directories, and only deletes the project's DB row
+  // as its LAST statement. requireProjectAccess()/getProject() are pure DB
+  // lookups, so throughout that entire teardown window the project row
+  // still "exists" from the WS upgrade handler's point of view. A client
+  // reconnecting during that window recreates a room via getOrCreateRoom()
+  // — reproduced live against a real server with a 5ms-staggered concurrent
+  // DELETE + reconnect, which succeeded on the first attempt every time. An
+  // edit sent into that resurrected room was silently dropped (flushToDisk's
+  // realpath/assertInsideWorkspace guard throws ENOENT once the workspace
+  // directory is gone, caught by the same branch that logs a misleading
+  // "path escapes the workspace" warning and permanently drops the file from
+  // dirtyFiles) with no error or close signal ever reaching the client.
+  //
+  // Fix: a second `collaborationManager.getRoom(project.id)?.dispose()`
+  // immediately after the DB row delete, mirroring the RECONNECT step
+  // workspaceRestore.ts already uses (and already tests, see test #10 in
+  // workspace-restore.test.ts) for the identical race shape.
+
+  it("26. Existing normal delete still disposes an active room and closes its client with the standard code (no regression from the added second dispose)", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("uma", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "NormalDeleteNoRaceProj",
+    });
+    const room = collaborationManager.getOrCreateRoom(project.id);
+    const ws = makeMockWs();
+    let closeCode: number | undefined;
+    let closeCallCount = 0;
+    ws.close = (code: number) => {
+      closeCallCount++;
+      closeCode = code;
+    };
+    await room.addClient(ws, { userId: 1, username: "uma", role: "owner" });
+    expect(collaborationManager.getRoom(project.id)).toBe(room);
+
+    await deleteProject(cfg, db, 1, project.id);
+
+    // The one real room is disposed exactly once (closeCallCount, not the
+    // dispose count itself, is the observable proxy here): the added second
+    // dispose() call finds no room (getRoom returns undefined post-delete)
+    // and is a clean no-op, not a double-close of the same socket.
+    expect(closeCallCount).toBe(1);
+    expect(closeCode).toBe(1001);
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+  });
+
+  it("27. Racing reconnect during project deletion: a room created after the first dispose (project row still visible) is disposed by the post-delete safety net, its client is closed normally, and the project is genuinely gone", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("vic", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "DeleteReconnectRaceProj",
+    });
+
+    // An initial room/client, matching the pre-existing (test 9) scenario,
+    // so the FIRST dispose has something real to close before the race
+    // window even opens.
+    const preRoom = collaborationManager.getOrCreateRoom(project.id);
+    const preWs = makeMockWs();
+    let preCloseCode: number | undefined;
+    preWs.close = (code: number) => {
+      preCloseCode = code;
+    };
+    await preRoom.addClient(preWs, {
+      userId: 1,
+      username: "vic",
+      role: "owner",
+    });
+
+    // Pause deleteProject() at its workspace-removal fs.rm call: by the time
+    // execution reaches this await, the first dispose, sandbox teardown, and
+    // telemetry teardown have already run, but the DB row delete (the
+    // function's last statement) has not — exactly the race window this
+    // milestone closes. Same deferred-gate technique as test 22 above.
+    let releaseRm!: () => void;
+    const rmGate = new Promise<void>((resolve) => {
+      releaseRm = resolve;
+    });
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      await rmGate;
+    });
+
+    const deletePromise = deleteProject(cfg, db, 1, project.id);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The first dispose already ran and removed preRoom...
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+    // ...but the project row is still visible: this is exactly what lets a
+    // reconnect through requireProjectAccess() during teardown.
+    expect(() => requireProjectAccess(db, 1, project.id)).not.toThrow();
+
+    // Simulate the race: a client reconnects here, mirroring exactly what
+    // the /ws/collab upgrade handler does on a successful auth check.
+    const raceRoom = collaborationManager.getOrCreateRoom(project.id);
+    expect(collaborationManager.getRoom(project.id)).toBe(raceRoom);
+    const raceWs = makeMockWs();
+    let raceCloseCode: number | undefined;
+    raceWs.close = (code: number) => {
+      raceCloseCode = code;
+    };
+    await raceRoom.addClient(raceWs, {
+      userId: 1,
+      username: "vic",
+      role: "owner",
+    });
+
+    // Let deleteProject() finish: unblocks the paused fs.rm, runs the
+    // snapshot-dir rm, the DB row delete, then the new second dispose.
+    releaseRm();
+    await deletePromise;
+    rmSpy.mockRestore();
+
+    // RACE_ROOM_CLOSED: the race-created room is gone, not left running.
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+    // CLIENT SIGNAL: the race-created connection got the normal disposal
+    // close code, not silent continuation.
+    expect(raceCloseCode).toBe(1001);
+    expect(preCloseCode).toBe(1001);
+
+    // POST_DELETE_RECONNECT: the project row is genuinely gone — a further
+    // access attempt gets the existing, unmodified IDOR-safe "not found"
+    // behavior, the same as any other deleted project.
+    expect(() => requireProjectAccess(db, 1, project.id)).toThrowError(
+      /not found/,
+    );
+  });
+
+  it("28. A race-created room cannot silently persist an edit after the project is deleted: the edit never reaches disk and the room does not survive to retry it", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("wren", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "DeleteRaceSilentLossProj",
+    });
+    const diskPath = join(projectDir(cfg, project.id), "zombie.py");
+
+    let releaseRm!: () => void;
+    const rmGate = new Promise<void>((resolve) => {
+      releaseRm = resolve;
+    });
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      await rmGate;
+    });
+
+    const deletePromise = deleteProject(cfg, db, 1, project.id);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Race-created room, plus a real collaborative edit sent into it while
+    // the project row is still (briefly) visible — exactly the scenario
+    // that silently dropped content before this fix.
+    const raceRoom = collaborationManager.getOrCreateRoom(project.id);
+    const raceWs = makeMockWs();
+    await raceRoom.addClient(raceWs, {
+      userId: 1,
+      username: "wren",
+      role: "owner",
+    });
+    raceRoom.doc.transact(() => {
+      raceRoom.doc.getText("zombie.py").insert(0, "print('doomed edit')");
+    });
+    raceRoom.markFileDirty("zombie.py");
+    expect((raceRoom as any).dirtyFiles.has("zombie.py")).toBe(true);
+
+    releaseRm();
+    await deletePromise;
+    rmSpy.mockRestore();
+
+    // The room is gone — disposed by the safety net before its own debounced
+    // flush timers could ever fire, so there is no lingering retry loop.
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+    // Nothing was ever written for a project whose workspace no longer
+    // exists.
+    await expect(fs.readFile(diskPath, "utf-8")).rejects.toThrow();
+  });
 });

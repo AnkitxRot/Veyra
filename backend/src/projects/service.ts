@@ -283,6 +283,20 @@ export async function deleteProject(
     // Best-effort: snapshot directory may not exist
   }
   db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+
+  // RECONNECT-style safety net, mirroring workspaceRestore.ts's own
+  // documented mitigation for the same race: a client can reconnect
+  // between the first dispose above and this point, recreating a room via
+  // getOrCreateRoom() since requireProjectAccess only checks the DB row,
+  // which was still present throughout teardown. Dispose again now that
+  // the row (and workspace) are truly gone, so any race-created room is
+  // torn down instead of silently accepting edits it can never persist.
+  try {
+    const { collaborationManager } = await import("../collab/manager.js");
+    collaborationManager.getRoom(project.id)?.dispose();
+  } catch {
+    // Best-effort: room may not exist
+  }
 }
 
 export function touchProject(db: Db, id: string): void {

@@ -2698,13 +2698,102 @@ pre-existing, both Docker-daemon-unavailable failures unrelated to this change a
 frontend files changed — frontend build/tests were not re-run, consistent with the established
 convention for backend-only changes.
 
+## Milestone 38 — Close collaboration deletion race
+
+Bug: `deleteProject()` in `backend/src/projects/service.ts` disposes the active collaboration room
+early, then tears down the sandbox and telemetry state, removes the workspace/snapshot directories,
+and only deletes the project's DB row as its **last** statement. `requireProjectAccess()`/
+`getProject()` are pure DB lookups, so throughout that entire teardown window the project row still
+"exists" from the `/ws/collab` upgrade handler's point of view. A client reconnecting during that
+window recreates a room via `getOrCreateRoom()`. Reproduced live against the isolated QA server: a
+fresh project, an initial collab WS connection, then a concurrent `DELETE` + reconnect with only a
+5ms stagger — the reconnect succeeded on the very first attempt, every run. A real Yjs edit sent
+into that resurrected room was silently dropped (`flushToDisk()`'s `assertInsideWorkspace` realpath
+guard throws `ENOENT` once the workspace directory is gone, caught by the same branch that already
+handles genuine path-traversal rejections, logging a misleading "path escapes the workspace"
+warning and permanently dropping the file from `dirtyFiles`) with **no error or close signal ever
+reaching the client** — a user could keep "editing" a doomed session with zero data durability and
+no warning. This is the anomaly identified and root-caused during the M37/M38 discovery pass;
+`backend/test/m4-collab.test.ts` test 9 only proves the _initial_ dispose closes the initially-
+connected client — it never simulated a reconnect during the delete window, so this gap had zero
+existing test coverage.
+
+Fix, one addition, no reordering: `deleteProject()` now performs a second
+`collaborationManager.getRoom(project.id)?.dispose()` immediately after the DB row delete (its new
+last statement), wrapped in the same best-effort `try { ... } catch { // Best-effort: room may not
+exist }` idiom every other optional teardown step in this function already uses. This mirrors
+`backend/src/backup/workspaceRestore.ts`'s own documented RECONNECT mitigation for the identical
+race shape (already shipped, already tested via `workspace-restore.test.ts` test #10) — a proven
+pattern, not a novel one. The early dispose, sandbox teardown, workspace/snapshot removal order,
+and DB-delete-being-last are all unchanged; this is purely an added safety net, not a restructure.
+`backend/src/projects/routes.ts`, `backend/src/collab/manager.ts`, `backend/src/backup/workspaceRestore.ts`,
+and `backend/src/projects/archive.ts` were all read to confirm current behavior matched the
+discovery pass exactly before editing, and none of them were touched.
+
+Regression coverage: 3 new tests appended to `backend/test/m4-collab.test.ts` (tests 26–28,
+following the file's own established deferred-gate mocking convention from test 22 — no new
+production test hooks were added to `deleteProject()` itself, keeping its signature unchanged):
+(26) the ordinary, non-racing delete path still disposes its one real room exactly once with the
+standard close code, proving the added second dispose is a clean no-op when no race occurs; (27)
+the exact race — `fs.rm` is paused mid-`deleteProject()` via a deferred-promise spy (mirroring test
+22's technique), a race room is created while the project row is still visible, execution resumes,
+and the race-created room is confirmed disposed, its client closed with code 1001, and a further
+access attempt correctly throws "not found"; (28) a real collaborative edit sent into the
+race-created room is confirmed to never reach disk, and the room does not survive to retry it.
+**Verified the tests actually catch the bug, not just assert a tautology**: reverted only the
+`service.ts` fix via `git stash` (tests left in place), confirmed tests 27 and 28 fail against the
+pre-fix code while test 26 (by design, since the fix is a no-op in the non-racing case) still
+passes, then restored the fix and confirmed all 35 tests in the file pass.
+
+Live re-reproduction against the real server, post-fix: reran the exact original reproduction
+sequence (fresh project → WS connect → concurrent delete+reconnect with a 5ms stagger → edit sent
+into the momentarily-resurrected room). The reconnect still momentarily succeeds during the race
+window (expected and correct — the fix closes the room afterward rather than trying to prevent the
+inherent DB-row-still-visible timing gap, exactly matching `workspaceRestore.ts`'s own accepted
+design), but this time the zombie socket was actively closed by the server with code 1001 within
+the observed window — a real, honest signal reaching the client instead of silence. No misleading
+"path escapes the workspace" log line appeared for this run's project ID at all: the second dispose
+runs fast enough to tear the room down before its 2s debounce timer could ever fire the flawed
+flush path, so the confusing diagnostic is avoided entirely, not just the resurrection. Confirmed
+the project is genuinely deleted (404) and that a later, non-racing reconnect attempt is cleanly
+rejected (403, the WS upgrade handler's deliberate non-information-leaking blanket response for any
+access/not-found failure — consistent with this codebase's established pattern elsewhere, not new
+behavior).
+
+Verification: `tsc --noEmit` clean. Focused collaboration suite (`m4-collab.test.ts` — 35/35 —
+plus `m6-collab-coalesce-backpressure.test.ts`, `workspace-restore.test.ts`, `workspace-backup.test.ts`,
+`snapshot-quotas.test.ts`, `audit.test.ts`, `upload.test.ts`, `m12-optimization.test.ts` — every
+suite touching project deletion or collaboration room lifecycle, 8 files, 122/123 passed, 1
+pre-existing unrelated skip, 0 regressions). Full backend suite: 45 files passed, 2 failed — exactly
+`backend/test/m16-optimization.test.ts` and `backend/test/pipeline.test.ts`, both pre-existing,
+both Docker-daemon-unavailable failures unrelated to this change and left untouched; 517 tests
+passed (up from 514 pre-M38, matching the 3 new tests), 36 skipped (Docker-dependent), 0 new
+failures. `git diff --check` clean. No frontend files changed — frontend build/tests were not
+re-run, confirmed via `git status`/`git diff` showing only the two backend files touched.
+
+Security/data review: no authorization logic touched (`requireProjectAccess`/`requireOwnedProject`
+untouched); project deletion remains owner/admin-gated exactly as before; no workspace path-safety
+code (`safeResolve`, `assertInsideWorkspace`) touched; no collaboration wire protocol changed
+(`backend/src/collab/manager.ts` untouched); the second `dispose()` call cannot resurrect or create
+a room — `getRoom()` is a pure `Map.get()` and `dispose()` is a pure teardown method, confirmed
+safe by test 26's no-op assertion; normal (non-racing) project deletion remains idempotent —
+calling `deleteProject()` a second time on an already-deleted project still throws "not found" at
+`requireOwnedProject()`'s first line, before ever reaching the new code, exactly as before this fix.
+
+**Not fixed, intentionally out of scope**: `backend/src/projects/archive.ts`'s project-import path
+has the identical unmitigated pattern (disposes the collaboration room once, before overwriting
+files, never again after) — a sibling gap in the same bug family, noted during the M37/M38
+discovery pass and left untouched here per this milestone's explicit scope boundary. Worth a future
+pass, not bundled into this one.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
 M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, M35 (Starter
-Project Templates UI), M36 (viewport-level modal portal fix), and M37 (collaboration ghost-file
-resurrection fix, above; commit noted at top of file once pushed).
+Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration ghost-file
+resurrection fix), and M38 (collaboration deletion race fix, above; commit noted at top of file
+once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -2730,7 +2819,12 @@ admin UI rather than only reachable via raw API.
    happening again, it does not retroactively clean up prior damage. Not cleaned up here (QA
    fixture only, out of scope for a backend-only bugfix pass); a real production instance with
    pre-fix-created ghost files would need the same manual cleanup if this were ever deployed.
-5. From the M35/M37 discovery passes, the strongest still-open candidate remains the admin
+5. From the M35/M37/M38 discovery passes, the strongest still-open candidate remains the admin
    backup/restore action UI (`admin/routes.ts:984-1226`, zero frontend callers, includes a
    destructive restore action that deserves its own scoping pass). Not picked automatically —
    next session should decide fresh rather than rubber-stamp this note.
+6. `backend/src/projects/archive.ts`'s project-import path has the same unmitigated
+   dispose-once-before-mutating race M38 just fixed for project deletion (disposes the
+   collaboration room before overwriting files, never again after) — a real, evidenced, same-family
+   sibling gap, deliberately left out of M38's scope. Not picked automatically here either — a
+   genuine candidate for a focused future pass, not urgent enough to justify reopening M38's scope.
