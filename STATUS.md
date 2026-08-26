@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-26.
+Last updated: 2026-08-27.
 
 ## Current state
 
@@ -2898,14 +2898,142 @@ successful replacement **for the backend race this milestone targets** — the s
 finding above means that claim does not yet hold against a stale already-open editor tab, which is
 explicitly out of scope here.
 
+**Correction (from M40's discovery/implementation pass)**: the paragraph above attributes the
+frontend vulnerability's mechanism to `CollaborationClient.bindMonacoModel()`'s seed heuristic
+re-firing on reconnect. That attribution is imprecise. Tracing `Editor.tsx`'s model-management
+effect dependencies (`[activeFile, openFiles, collabClient, isReadOnly]`) shows none of them change
+on a bare WebSocket reconnect — `bindMonacoModel()` is in fact **not** re-invoked, and the seed
+heuristic does not fire in this scenario. The true mechanism (see M40 below) is that
+`CollaborationClient.doc`/`.awareness` are created once and never invalidated by reconnect logic —
+only by the externally-triggered `dispose()` on project switch — so a stale client-side Y.Doc
+lineage survives a server-side room disposal and merges (rather than being replaced by) the fresh
+server lineage on reconnect. The **observed symptom and severity** described above remain accurate;
+only the root-cause attribution is corrected here.
+
+## Milestone 40 — Reset collaboration state after explicit server disposal
+
+**Root cause (corrected, see note above)**: `CollaborationClient.doc` (`Y.Doc`) and `.awareness` are
+created once in the constructor and never recreated by `connect()`/`scheduleReconnect()` — only by
+the externally-triggered `dispose()` (project switch/unmount). When the server explicitly disposes a
+room (import/replace, workspace restore, snapshot restore, project delete — all four call
+`collaborationManager.getRoom(id)?.dispose()`), the client is closed with WS code `1001` and, on
+reconnect, the server creates a **new**, disk-loaded Y.Doc lineage with no shared CRDT history with
+the client's still-alive old one. Ordinary Yjs sync between two independent lineages does not pick a
+winner — it merges (concatenates) both, and pollution is reciprocal once the client's own update
+reaches the server. Proven deterministically with a standalone Node script driving the raw `yjs`
+library directly (two independently-seeded `Y.Doc`s merge rather than one overwriting the other) and
+via a full-lifecycle test through the real `CollaborationClient`.
+
+**Class A vs Class B reconnects** (the core distinction this fix hinges on): a WS close code of
+`1001` received while the client was previously `"connected"` can only originate from an explicit,
+intentional `CollaborationRoom.dispose()` call — `scheduleIdleDisposal()` only arms/fires when the
+room's client set is empty, which cannot be true for an actively-connected client, so idle timeout
+never produces this signal. Class A (explicit disposal): discard local Y.Doc/Awareness lineage
+before the next sync, fresh server content wins, dirty local Monaco content is intentionally
+discarded — matching the already-established policy from `m4-collab.test.ts` test #10 ("not left on
+the collaborator's stale local edit, which would otherwise get flushed back to disk shortly after,
+silently undoing the restore") and M28's project-switch precedent (`IDE.tsx`: "the real sync that
+follows merges rather than replaces it — corrupting the new project's file with duplicated content",
+the identical merge-not-replace root cause, just triggered by project switch reusing a stale Monaco
+model rather than reconnect reusing a stale Y.Doc). Class B (ordinary reconnect — any other close
+reason, no explicit disposal): existing offline delta reconciliation is preserved unchanged, dirty
+local edits are never discarded.
+
+**Fix** (`frontend/src/collab/client.ts` only): `doc`/`awareness` field declarations changed from
+`readonly` to definite-assignment (`!`) so they can be recreated; doc/awareness construction and
+listener wiring factored out of the constructor into `initDocAndAwareness()`, reused by a new
+`resetLocalCollabState()`. `ws.onclose` now captures `wasExplicitDisposal = event.code === 1001 &&
+this.status === "connected"` (checked _before_ `setStatus("disconnected")` mutates `status`) and,
+when true and the client isn't itself disposed, calls `resetLocalCollabState()`: detaches the
+current y-monaco binding from the doomed doc (must happen before destroying it), destroys the old
+`doc`/`awareness`, calls `initDocAndAwareness()` for a genuinely new lineage, then — if a Monaco
+model was bound — rebinds the same model/editor to the fresh, empty Y.Text via a new shared
+`attachBinding(filePath, model, editor, allowSeed)` helper with `allowSeed=false`. The existing seed
+heuristic in `bindMonacoModel()` (used for the legitimate "first collaborator opens this file with
+existing local content" case) is unchanged and still reachable via the normal external call path
+(`allowSeed=true`) — not deleted, per the milestone's explicit constraint. y-monaco's own
+`MonacoBinding` constructor (confirmed by reading `node_modules/y-monaco/src/y-monaco.js`) overwrites
+the Monaco model _from_ the Y.Text on bind, never the reverse, so binding to the fresh empty Y.Text
+without seeding briefly clears the model, then the server's real content flows in via the normal sync
+exchange and the existing Y.Text-observer path — no merge is possible because the stale lineage never
+enters the sync exchange in the first place.
+
+**Tests** (`frontend/test/collab.explicitDisposalReset.test.ts`, new file, 8 tests, reusing the
+`FakeWebSocket`/`MonacoBinding`-mock pattern from the existing `collab.disposedClient.test.ts`, but
+with real `yjs`/`y-protocols`/`lib0` driving actual protocol exchanges — only `y-monaco` and
+`monacoSetup` are mocked): explicit-disposal reset discards dirty stale content and adopts a
+genuinely new Y.Doc lineage (identity + `clientID` both change) synced to fresh server content;
+standalone merge-prevention reproduction through the real client (mirrors the M40 root-cause script);
+frontend-observable disk-preservation proxy (client never re-transmits discarded content after
+reconnecting); multi-file coverage (the whole shared Y.Doc is discarded, not just the actively-bound
+file); ordinary (non-1001) reconnect preserves the same Y.Doc lineage and local edits unchanged (the
+most important non-regression); 1001-before-ever-connected is not treated as explicit disposal;
+`dispose()` still fully tears down a lineage that was previously reset; and an explicit
+import-vs-restore-signal-equivalence test, since the fix keys only off the close-code signal, not off
+which backend operation caused it. `git stash`-verified: stashing only the `client.ts` change caused
+exactly 3 of the 8 tests to fail (the merge/reset-focused ones — including the merge-prevention test
+visibly reproducing string concatenation), while the non-regression tests (ordinary reconnect,
+early-close, dispose-teardown) correctly still passed pre-fix, confirming these are genuine
+regression tests, not tautologies. All 8 pass post-fix; full frontend suite 48/48 passed (0
+regressions); `tsc --noEmit` clean; production build clean.
+
+Standalone reproduction (`yjs` only, no client/server code, matching the M40 discovery script):
+pre-fix shape (two independently-seeded `Y.Doc`s merged directly) produces
+`"OLD STALE CONTENT\nFRESH IMPORTED CONTENT\n"` on both sides (concatenated, reciprocal pollution);
+post-fix shape (client doc reset to a fresh, empty `Y.Doc` before the same exchange) produces
+`"FRESH IMPORTED CONTENT\n"` exactly on both sides. Confirms the fix's mechanism is sound at the CRDT
+level, independent of any client/server plumbing.
+
+**Live verification and a newly discovered, separate backend bug**: browser-verified against the QA
+server (fresh `m40-smoke` project, `main.py` open in a connected tab) across three rounds of a real
+`replace=true` import. In every round, the editor showed clean, non-merged fresh content immediately
+after the import (confirmed both visually and via a JS query of the live Monaco model) — the frontend
+fix's own target mechanism is fully closed and working as designed. However, **disk content reliably
+reverted to the pre-import (stale) value roughly 10-11 seconds after every import**, in every round,
+including rounds with the file's dirty-state and content deliberately varied — a delay matching
+`scheduleIdleDisposal()`'s `IDLE_DISPOSE_BASE_MS = 10000` exactly. Root-caused via temporary,
+immediately-reverted diagnostic logging (`git diff` confirmed clean afterward) plus source tracing:
+`CollaborationRoom.dispose()` force-closes each client with `ws.close(1001, ...)`; that close fires
+**asynchronously**, after `dispose()` has already returned; `backend/src/ws/index.ts:352-355`'s
+`ws.on("close", ...)` handler (registered once per connection, closing over the `room` reference from
+connection time) unconditionally calls `room.removeClient(ws)` on that same, now-disposed room
+instance; `removeClient()` (`manager.ts:669-695`) has **no `this.disposed` guard** and unconditionally
+calls `scheduleIdleDisposal()` when the client count hits zero — which it always does, since
+`dispose()` already cleared `this.clients`. This re-arms a fresh 10-second idle-dispose timer _on an
+already-disposed room whose `doc`/`awareness` have already been destroyed_. When that timer fires,
+`flushToDisk()` (also unguarded) reads `this.doc.getText(filePath)` — Yjs does not throw on a
+destroyed doc's still-referenced `Y.Text`, it returns the plain string content frozen at destroy time
+— and writes that stale, pre-disposal content back to disk, clobbering whatever legitimately fresh
+content (an import, a restore, anything) has been written since. This is a **separate,
+pre-existing backend bug**, entirely independent of the M39/M40 frontend fixes (it is triggered by
+`dispose()`'s own force-close side effect, not by anything the client sends or does — the client-side
+merge bug M40 targets is confirmed fully closed by the same live test rounds' immediate,
+clean post-reconnect content) and it is **not scoped to import** — it affects every `dispose()` call
+in the codebase with a connected client at dispose time: delete (`service.ts`), import/replace
+(`archive.ts`), workspace restore and snapshot restore (`workspaceRestore.ts`). Existing test #22 in
+`m4-collab.test.ts` ("A client reconnecting while idle-disposal's flush is in flight is not evicted")
+covers only the "reconnected client not evicted" half of this interaction — it does not cover the
+"stale flush already landed before the recheck" half, since its own flush content matches what the
+reconnecting client wants anyway (same room, no concurrent external mutation). Confirmed **not**
+fixed here — it is a `backend/src/collab/manager.ts` change, explicitly out of scope for M40's
+frontend-only contract; flagged below as the strongest candidate for the next dedicated milestone.
+
+Security/data review: no authorization changes; no cross-project access (the reset only ever
+discards/recreates the client's _own_ Y.Doc for its own project); no stale client state can re-enter
+a CRDT merge after explicit server disposal (the old lineage is destroyed, never used to seed the
+new one); ordinary reconnect remains fully non-destructive (verified by dedicated regression test);
+no secret/content logging introduced by the shipped change (temporary diagnostic logging used during
+live-verification investigation was fully reverted, confirmed via `git diff` before proceeding).
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
 M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, M35 (Starter
 Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration ghost-file
-resurrection fix), M38 (collaboration deletion race fix), and M39 (collaboration import-replacement
-race fix, above; commit noted at top of file once pushed).
+resurrection fix), M38 (collaboration deletion race fix), M39 (collaboration import-replacement
+race fix), and M40 (frontend collaboration-reconnect state reset, above; commit noted at top of file
+once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -2937,15 +3065,22 @@ admin UI rather than only reachable via raw API.
    next session should decide fresh rather than rubber-stamp this note.
 6. ~~`archive.ts`'s project-import race~~ — fixed in M39 (second dispose after workspace
    replacement, mirroring M38; live-sweep-verified 0/9 staggers clobbered, see above).
-7. **New, real, unfixed**: a frontend collaboration-reconnect vulnerability discovered during M39's
-   own browser verification (see M39 above for full detail) — `CollaborationClient.bindMonacoModel()`
-   in `frontend/src/collab/client.ts`'s pre-existing "seed an empty Y.Text from the current Monaco
-   model" heuristic can re-insert stale content into a freshly-reconnected room whenever a client's
-   collaboration WebSocket is disposed and reconnects while the SAME file stays open in the editor
-   (no project switch involved, so M28's fix does not apply) — observed live overwriting a
-   just-imported file back down to its pre-import content within ~10s, no error, no warning. This
-   is pre-existing, not introduced by M37/M38/M39, and not scoped to import specifically — any
-   server-side room disposal (import, restore, or a future similar operation) while a client has the
-   affected file open could trigger it. Strong candidate for the next dedicated milestone; requires
-   frontend changes (`collab/client.ts` and/or `Editor.tsx`), explicitly out of scope for M39's
-   backend-only contract.
+7. ~~The frontend collaboration-reconnect vulnerability discovered during M39's browser
+   verification~~ — fixed in M40 (`frontend/src/collab/client.ts` discards the stale client-side
+   Y.Doc/Awareness lineage on an explicit-disposal reconnect instead of letting it merge with the
+   server's fresh lineage; see M40 above, including the STATUS.md correction to M39's original
+   root-cause attribution).
+8. **New, real, unfixed — highest priority**: a separate, pre-existing backend race discovered during
+   M40's own live verification (see M40 above for full detail) — `CollaborationRoom.removeClient()`
+   (`backend/src/collab/manager.ts:669-695`) has no `disposed` guard, so `dispose()`'s own
+   `ws.close(1001, ...)` calls asynchronously trigger `ws/index.ts`'s close handler back into
+   `removeClient()` on the already-disposed room, re-arming a fresh 10-second
+   `scheduleIdleDisposal()` timer whose eventual `flushToDisk()` (also unguarded) writes the room's
+   pre-disposal content — frozen in the already-destroyed `Y.Doc` — back to disk. Live-reproduced
+   reliably (3/3 rounds) clobbering a just-completed import ~10-11s later, with zero error or
+   warning. Not scoped to import — affects every `dispose()` call with a connected client at dispose
+   time: delete, import/replace, workspace restore, snapshot restore. Requires a
+   `backend/src/collab/manager.ts` change (likely a `disposed` guard at the top of `removeClient()`
+   and/or `scheduleIdleDisposal()`/`flushToDisk()`); explicitly out of scope for M40's frontend-only
+   contract. Existing test #22 in `m4-collab.test.ts` covers an adjacent but different case (a
+   reconnecting client must not be evicted by an in-flight idle flush) and does not cover this gap.

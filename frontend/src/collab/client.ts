@@ -33,13 +33,14 @@ export interface CollaboratorPresence {
 
 export class CollaborationClient {
   public readonly projectId: string;
-  public readonly doc: Y.Doc;
-  public readonly awareness: awarenessProtocol.Awareness;
+  public doc!: Y.Doc;
+  public awareness!: awarenessProtocol.Awareness;
   public status: CollabConnectionStatus = "disconnected";
 
   private ws: WebSocket | null = null;
   private currentBinding: MonacoBinding | null = null;
   private boundModel: monaco.editor.ITextModel | null = null;
+  private boundEditor: monaco.editor.IStandaloneCodeEditor | null = null;
   private activeFilePath: string | null = null;
   private readonly listeners: Map<string, Set<(...args: any[]) => void>> =
     new Map();
@@ -51,15 +52,25 @@ export class CollaborationClient {
   constructor(projectId: string, user: User) {
     this.projectId = projectId;
     this.user = user;
+    this.initDocAndAwareness();
+    this.connect();
+  }
+
+  // M40: factored out of the constructor so a fresh Y.Doc/Awareness lineage
+  // can also be created after an explicit server-initiated room disposal
+  // (see resetLocalCollabState) — never just by clearing the existing
+  // Y.Text in place, which would keep the same CRDT lineage and merge
+  // rather than replace when synced against the server's own fresh doc.
+  private initDocAndAwareness(): void {
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
 
     // Configure user awareness
     this.awareness.setLocalStateField("user", {
-      id: user.id,
-      name: user.username,
-      color: getUserColor(user.id),
-      role: user.role === "admin" ? "owner" : "editor",
+      id: this.user.id,
+      name: this.user.username,
+      color: getUserColor(this.user.id),
+      role: this.user.role === "admin" ? "owner" : "editor",
     });
 
     // Notify local listeners when awareness changes
@@ -103,8 +114,57 @@ export class CollaborationClient {
         }
       },
     );
+  }
 
-    this.connect();
+  // M40: called when the server has explicitly torn down this project's
+  // collaboration room (import/replace, workspace or snapshot restore,
+  // project delete) while this client was actively connected — signaled by
+  // a 1001 close code received in the "connected" state (see ws.onclose;
+  // idle-timeout disposal never fires while a client is connected, so this
+  // signal is unambiguous). The old Y.Doc/Awareness lineage is discarded
+  // entirely (never merged, never used to seed the new one) so the next
+  // connect() starts from a genuinely blank state and the server's fresh,
+  // disk-backed content becomes authoritative once synced in. Any unsaved
+  // local edits in the old lineage are intentionally lost, matching the
+  // same-source-wins policy already established for project switches (M28)
+  // and external mutations (M37-M39).
+  private resetLocalCollabState(): void {
+    const staleModel = this.boundModel;
+    const staleEditor = this.boundEditor;
+    const staleFilePath = this.activeFilePath;
+
+    // Detach the y-monaco binding from the doomed doc/Y.Text BEFORE
+    // destroying them — a live binding must never be left observing (or
+    // writing into) a destroyed Y.Doc.
+    this.unbindCurrentModel();
+
+    try {
+      this.awareness.destroy();
+    } catch {}
+    try {
+      this.doc.destroy();
+    } catch {}
+
+    this.initDocAndAwareness();
+
+    // Rebind the same Monaco model/editor to the fresh, empty Y.Text so the
+    // file stays live once reconnected — but explicitly WITHOUT the normal
+    // "seed Y.Text from model" step (see attachBinding's `allowSeed`
+    // param). Seeding here would just re-insert the same stale content
+    // this reset exists to discard, straight into the new lineage, and it
+    // would be synced up to the server the moment the connection reopens.
+    // MonacoBinding's own constructor will immediately overwrite the
+    // model's (possibly stale) content with the new, empty Y.Text; the
+    // server's real content then arrives moments later via the normal sync
+    // exchange and flows into the model through the existing observer.
+    if (
+      staleModel &&
+      staleEditor &&
+      staleFilePath &&
+      !staleModel.isDisposed()
+    ) {
+      this.attachBinding(staleFilePath, staleModel, staleEditor, false);
+    }
   }
 
   public connect(): void {
@@ -157,7 +217,26 @@ export class CollaborationClient {
           return;
         }
 
+        // M40 — CLASS A vs CLASS B reconnects: a close code of 1001
+        // received while this client was actively "connected" can only
+        // originate from an explicit, intentional CollaborationRoom
+        // .dispose() call on the server (import/replace, workspace or
+        // snapshot restore, project delete). Idle-timeout disposal never
+        // fires while any client is connected (scheduleIdleDisposal only
+        // arms when the room's client set is empty), so this signal is
+        // unambiguous — it never fires for an ordinary network blip, which
+        // instead surfaces as some other close code (or none at all) and
+        // must keep using the existing offline delta reconciliation
+        // (Class B), preserving local edits exactly as before.
+        const wasExplicitDisposal =
+          event.code === 1001 && this.status === "connected";
+
         this.setStatus("disconnected");
+
+        if (wasExplicitDisposal && !this.isDisposed) {
+          this.resetLocalCollabState();
+        }
+
         if (!this.isDisposed) {
           this.scheduleReconnect();
         }
@@ -245,6 +324,21 @@ export class CollaborationClient {
       return;
     }
 
+    this.attachBinding(filePath, model, editor, true);
+  }
+
+  // M40: shared by the normal external bindMonacoModel() call (which is
+  // allowed to seed an empty Y.Text from the local model — the legitimate
+  // "first collaborator opens this file" case) and resetLocalCollabState's
+  // internal rebind after an explicit-disposal reconnect (which must
+  // never seed, since the local model content at that point is exactly
+  // the stale content the reset exists to discard).
+  private attachBinding(
+    filePath: string,
+    model: monaco.editor.ITextModel,
+    editor: monaco.editor.IStandaloneCodeEditor,
+    allowSeed: boolean,
+  ): void {
     this.unbindCurrentModel();
 
     this.activeFilePath = filePath;
@@ -253,7 +347,7 @@ export class CollaborationClient {
     const yText = this.doc.getText(filePath);
 
     // If local model has content but Y.Text is empty, sync model content into Y.Text
-    if (yText.length === 0 && model.getValue().length > 0) {
+    if (allowSeed && yText.length === 0 && model.getValue().length > 0) {
       this.doc.transact(() => {
         yText.insert(0, model.getValue());
       }, "initial_model_sync");
@@ -303,6 +397,7 @@ export class CollaborationClient {
 
       this.currentBinding = binding;
       this.boundModel = model;
+      this.boundEditor = editor;
     } catch (err) {
       console.error("[CollabClient] Failed to bind Monaco editor:", err);
     }
@@ -310,6 +405,7 @@ export class CollaborationClient {
 
   public unbindCurrentModel(): void {
     this.boundModel = null;
+    this.boundEditor = null;
     if (this.currentBinding) {
       try {
         this.currentBinding.destroy();
