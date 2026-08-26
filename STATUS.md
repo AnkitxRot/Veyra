@@ -2784,7 +2784,119 @@ calling `deleteProject()` a second time on an already-deleted project still thro
 has the identical unmitigated pattern (disposes the collaboration room once, before overwriting
 files, never again after) — a sibling gap in the same bug family, noted during the M37/M38
 discovery pass and left untouched here per this milestone's explicit scope boundary. Worth a future
-pass, not bundled into this one.
+pass, not bundled into this one. **Now fixed — see M39, below.**
+
+## Milestone 39 — Close collaboration race during workspace replacement import
+
+Bug: `importProjectZip()` (replace=true) disposes the active collaboration room once, early, then
+tears down the sandbox/telemetry state, then wipes and repopulates the workspace directory.
+Unlike `deleteProject()`, an import never touches the project's DB row, so `requireProjectAccess()`
+succeeds throughout the entire operation — any reconnect during the async window between the first
+dispose and the actual file replacement creates a fresh room that loads whatever is on disk _at
+that exact moment_, which (before the file-replacement step runs) is still the pre-import content.
+Precisely time-mapped against the live QA server with a 9-value stagger sweep (0/1/2/3/5/8/12/20/
+40ms): the first dispose fires at ~21-23ms, the whole import completes at ~290-300ms (widened by
+`stopProjectSandbox()`'s unconditional `docker rm -f` attempt even with no sandbox running — see
+`backend/src/execution/sandbox.ts:437-466`). Reconnects at 20ms/40ms reliably created a room that
+read the stale pre-import content and — with no second dispose to close it — survived the import
+entirely; sending a real Yjs edit into that surviving room and waiting for its debounced flush
+overwrote the just-imported file with the old content plus the new edit, completely undoing the
+import with no error, no forced close, and no log warning anywhere.
+
+**Precondition analysis, verified before writing any fix** (not assumed, per this milestone's
+explicit requirement): `CollaborationRoom.dispose()` (`backend/src/collab/manager.ts:937-963`)
+unconditionally iterates every client registered on that specific room instance and closes each
+with `ws.close(1001, "Room disposed")`, then removes the room from the manager's map as its final,
+synchronous statement (`onDisposeCallback`, wired to `this.rooms.delete(pid)`). This means **no
+client can ever remain continuously connected across a dispose call** — every connection present
+after the first dispose is, by construction, a fresh reconnect, never a survivor. Consequence: there
+is no such thing as "a legitimate collaborator who stayed connected through the first dispose" to
+protect from a second one. Anything connected at the moment of a second dispose is either (a) a
+race reconnect holding stale content (must be torn down), or (b) in the sub-millisecond gap after
+the file replacement genuinely finishes, a room that happened to load correct content but gets
+disposed anyway (harmless — one extra reconnect, explicitly the accepted tradeoff this milestone's
+own brief states: "correctness/data integrity beats preserving a transient collaboration connection
+during a destructive workspace replacement"). **Conclusion: an unconditional second dispose is
+safe.** No `collab/manager.ts` change was needed or made.
+
+Fix, one addition to `backend/src/projects/archive.ts`'s `importProjectZip()` only: a second
+`collaborationManager.getRoom(project.id)?.dispose()` placed after the workspace replacement, tree-
+cache invalidation, `touchProject()`, and audit-log recording all complete, before the function's
+`finally` block cleans up the staging directory — mirroring M38's identical fix to `deleteProject()`
+and `workspaceRestore.ts`'s own RECONNECT step. `importNewProjectZip()` (create-new-project-from-
+zip) and `exportProjectZip()` were left untouched — a brand-new project has no pre-existing room to
+race. No route, `collab/manager.ts`, `service.ts`, or frontend changes.
+
+Regression coverage: 4 new tests appended to `backend/test/m4-collab.test.ts` (tests 29-32,
+importing `importProjectZip`/`createZipArchive` and reusing the file's established `makeMockWs`/
+deferred-gate/CollaborationRoom-direct-construction conventions from tests 22 and 27-28): (29) the
+ordinary, non-racing import still disposes its one real pre-existing room exactly once with the
+standard close code and produces correct content — proving the added second dispose is a clean
+no-op when no race occurs; (30) the exact race — `fs.rm` paused mid-import via a deferred-promise
+spy, a room created in the window reads the still-on-disk stale content, the import resumes, and
+the race room is confirmed disposed; (31) a real collaborative edit sent into that race room before
+resuming never reaches disk — the imported content is untouched; (32) the full legitimate-reconnect
+lifecycle modeled explicitly end to end: old client → first dispose (closed, code 1001, not
+preserved) → race reconnect → second dispose (also closed) → a reconnect _after_ the import has
+genuinely finished, which correctly loads the authoritative imported content and is _not_ itself
+disposed by anything left over. **Verified the tests actually catch the bug**: reverted only the
+`archive.ts` fix via `git stash` (tests left in place), confirmed tests 30-32 fail against the
+pre-fix code while test 29 (by design, since the fix is a no-op in the non-racing case) still
+passes, then restored the fix and confirmed all 39 tests in the file pass.
+
+Live re-reproduction against the real server, post-fix: reran the exact 9-value stagger sweep from
+the discovery pass. Every trial's final on-disk content was the correctly-imported
+`"NEW CONTENT FROM IMPORT"` — **zero staggers produced a clobbered import**, versus the original
+discovery pass where the 20ms/40ms staggers reliably clobbered it every time.
+
+**Important finding from browser verification — real, but explicitly OUT OF SCOPE for this
+milestone, not fixed here**: per this milestone's own instruction to fall back to browser-only
+"post-import UX sanity" (the precise race being impractical to trigger reliably through real UI
+timing), a concise Chrome smoke was run: opened a project with `main.py` = `"before import"` already
+open in the editor, triggered a real `replace=true` import via the same API path the UI's own
+"Replace Workspace" button calls (`Sidebar.tsx`'s `handleReplaceImport`, which itself is gated by a
+blocking native `window.confirm()` — deliberately not driven through the UI to avoid the dialog-hang
+risk this session has already hit before), confirmed via direct API check that the import correctly
+wrote `"AFTER IMPORT..."` to disk immediately afterward. The already-open browser tab's collaboration
+WebSocket was disposed by the import (code 1001) and auto-reconnected per `CollaborationClient`'s
+existing `scheduleReconnect()` logic. Because the Monaco model for `main.py` was never torn down
+(a same-project, same-file WS reconnect is not a project switch, so M28's fix does not apply here),
+`CollaborationClient.bindMonacoModel()`'s pre-existing "seed an empty Y.Text from the current model
+content" heuristic re-inserted the stale `"before import"` text into the fresh post-reconnect Y.Doc
+and sent it to the server as a genuine update. The editor visibly showed both lines merged
+(`"AFTER IMPORT...\nbefore import"`, tab marked dirty), and — more seriously — a follow-up disk
+check ~10s later showed the file had been **overwritten back down to just `"before import"`**,
+silently destroying the import result via a completely different mechanism than the one this
+milestone fixes. This is a real, pre-existing frontend vulnerability (in `frontend/src/collab/
+client.ts`, untouched by any change in M37-M39, confirmed not to be a regression this fix
+introduced — the exhaustive live backend-only sweep above, driven by scriptable clients with no
+Monaco model and no seed-on-reconnect behavior, proves the _backend_ race M39 targets is fully
+closed independent of this). Not fixed here per this milestone's explicit backend-only,
+`archive.ts`-only scope (fixing it would require touching `collab/client.ts` and/or `Editor.tsx`,
+both explicitly disallowed). Flagged as the strongest candidate for a focused future milestone —
+arguably higher real-world likelihood than the M39 race itself, since it needs no precise timing at
+all: any user with the affected file already open when a replace-import happens (including
+importing into their own currently-open project) can trigger it.
+
+Verification: `tsc --noEmit` clean. Focused collaboration/import suite (`m4-collab.test.ts` — 39/39
+— plus `m6-collab-coalesce-backpressure.test.ts`, `archive-import-export.test.ts`,
+`workspace-restore.test.ts`, `workspace-backup.test.ts`, `upload.test.ts` — every suite touching
+import/replace, collaboration room lifecycle, or workspace restore, 6 files, 113/114 passed, 1
+pre-existing unrelated skip, 0 regressions). Full backend suite: 45 files passed, 2 failed — exactly
+`backend/test/m16-optimization.test.ts` and `backend/test/pipeline.test.ts`, both pre-existing, both
+Docker-daemon-unavailable failures unrelated to this change and left untouched; 521 tests passed (up
+from 517, matching the 4 new tests), 36 skipped (Docker-dependent), 0 new failures. `git diff --check`
+clean. No frontend files changed — frontend build/tests were not re-run, confirmed via `git status`.
+
+Security/data review: no authorization logic touched; project ownership/ import permission checks
+(`requireOwnedProject`) untouched; no workspace path-safety code touched; no collaboration wire
+protocol changed (`collab/manager.ts` untouched, confirmed unnecessary by the precondition
+analysis); no cross-project data exposure — the second dispose only ever affects the same project's
+own room; the second dispose cannot resurrect anything — `getRoom()`/`dispose()` are unchanged,
+pure, already-proven-safe primitives. Imported content is authoritative immediately after a
+successful replacement **for the backend race this milestone targets** — the separate frontend
+finding above means that claim does not yet hold against a stale already-open editor tab, which is
+explicitly out of scope here.
 
 ## Current active work
 
@@ -2792,8 +2904,8 @@ Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a
 `0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 at `9f5c130`, M33 at `31f00e6`,
 M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, M35 (Starter
 Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration ghost-file
-resurrection fix), and M38 (collaboration deletion race fix, above; commit noted at top of file
-once pushed).
+resurrection fix), M38 (collaboration deletion race fix), and M39 (collaboration import-replacement
+race fix, above; commit noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -2823,8 +2935,17 @@ admin UI rather than only reachable via raw API.
    backup/restore action UI (`admin/routes.ts:984-1226`, zero frontend callers, includes a
    destructive restore action that deserves its own scoping pass). Not picked automatically —
    next session should decide fresh rather than rubber-stamp this note.
-6. `backend/src/projects/archive.ts`'s project-import path has the same unmitigated
-   dispose-once-before-mutating race M38 just fixed for project deletion (disposes the
-   collaboration room before overwriting files, never again after) — a real, evidenced, same-family
-   sibling gap, deliberately left out of M38's scope. Not picked automatically here either — a
-   genuine candidate for a focused future pass, not urgent enough to justify reopening M38's scope.
+6. ~~`archive.ts`'s project-import race~~ — fixed in M39 (second dispose after workspace
+   replacement, mirroring M38; live-sweep-verified 0/9 staggers clobbered, see above).
+7. **New, real, unfixed**: a frontend collaboration-reconnect vulnerability discovered during M39's
+   own browser verification (see M39 above for full detail) — `CollaborationClient.bindMonacoModel()`
+   in `frontend/src/collab/client.ts`'s pre-existing "seed an empty Y.Text from the current Monaco
+   model" heuristic can re-insert stale content into a freshly-reconnected room whenever a client's
+   collaboration WebSocket is disposed and reconnects while the SAME file stays open in the editor
+   (no project switch involved, so M28's fix does not apply) — observed live overwriting a
+   just-imported file back down to its pre-import content within ~10s, no error, no warning. This
+   is pre-existing, not introduced by M37/M38/M39, and not scoped to import specifically — any
+   server-side room disposal (import, restore, or a future similar operation) while a client has the
+   affected file open could trigger it. Strong candidate for the next dedicated milestone; requires
+   frontend changes (`collab/client.ts` and/or `Editor.tsx`), explicitly out of scope for M39's
+   backend-only contract.

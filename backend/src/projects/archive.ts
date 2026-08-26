@@ -11,11 +11,12 @@ import {
   touchProject,
   createProject,
 } from "./service.js";
+import { listFiles, invalidateTreeCache } from "../files/service.js";
 import {
-  listFiles,
-  invalidateTreeCache,
-} from "../files/service.js";
-import { createZipArchive, extractZipArchive, type ZipFileEntry } from "./zip.js";
+  createZipArchive,
+  extractZipArchive,
+  type ZipFileEntry,
+} from "./zip.js";
 import { withProjectSnapshotLock } from "./snapshots.js";
 import { collaborationManager } from "../collab/manager.js";
 import { sandboxManager } from "../execution/sandbox.js";
@@ -149,6 +150,23 @@ export async function importProjectZip(
             archiveBytes: zipBuffer.length,
           },
         });
+      } catch {}
+
+      // Second dispose, mirroring M38's identical fix to deleteProject() and
+      // workspaceRestore.ts's own RECONNECT step: the project row is never
+      // deleted by an import, so a client can reconnect via getOrCreateRoom()
+      // at any point during this async replacement window and end up holding
+      // pre-import content in a fresh Y.Doc. The dispose above already
+      // force-closed every client that was connected before it ran (dispose()
+      // unconditionally closes its own room's clients with code 1001 and
+      // removes the room from the manager), so no legitimately-continuous
+      // session can exist at this point — anything connected now either
+      // raced in with stale content (must be torn down) or connected in the
+      // narrow gap after replacement finished and would just need one more
+      // harmless reconnect either way. Disposing again ensures the imported
+      // content is what the next reconnect actually loads.
+      try {
+        collaborationManager.getRoom(project.id)?.dispose();
       } catch {}
 
       return { ok: true, fileCount: extractedFiles.length };

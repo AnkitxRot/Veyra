@@ -21,6 +21,8 @@ import {
   projectDir,
 } from "../src/projects/service.js";
 import { createSnapshot, restoreSnapshot } from "../src/projects/snapshots.js";
+import { importProjectZip } from "../src/projects/archive.js";
+import { createZipArchive } from "../src/projects/zip.js";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1907,5 +1909,300 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // Nothing was ever written for a project whose workspace no longer
     // exists.
     await expect(fs.readFile(diskPath, "utf-8")).rejects.toThrow();
+  });
+
+  // --- M39: collaboration race during workspace-replacement import --------
+  //
+  // Root cause: importProjectZip() (replace=true) disposes the active
+  // collaboration room once, early, then tears down the sandbox and
+  // telemetry state, then wipes and repopulates the workspace directory.
+  // Unlike deleteProject(), the project's DB row is NEVER touched by an
+  // import, so requireProjectAccess() succeeds throughout the entire
+  // operation -- any reconnect during the async window between the first
+  // dispose and the actual file replacement creates a fresh room that reads
+  // STALE, pre-import content straight off disk (the wipe hasn't happened
+  // yet). Reproduced live against a real server with a precisely time-mapped
+  // stagger sweep (0-40ms): the first dispose fires at ~21-23ms, the whole
+  // import completes at ~290-300ms (widened by stopProjectSandbox's
+  // unconditional `docker rm -f` attempt even with no sandbox running) --
+  // reconnects landing in that ~270ms window created a room that survived
+  // the import entirely (no second dispose existed), and a real edit sent
+  // through it silently overwrote the freshly-imported file with the old
+  // content plus the new edit moments later.
+  //
+  // Precondition verified before this fix (not assumed): CollaborationRoom
+  // .dispose() unconditionally closes every client registered on that room
+  // instance (ws.close(1001, ...) for each, then removes the room from the
+  // manager's map as its last, synchronous step) -- so no client can ever
+  // remain continuously connected across a dispose call. Every connection
+  // present after the first dispose is therefore, by construction, a fresh
+  // reconnect, never a survivor. This is what makes an UNCONDITIONAL second
+  // dispose safe here: anything connected when it runs either raced in with
+  // stale content (must be torn down) or connected in the sub-millisecond
+  // gap after replacement finished and would just need one harmless extra
+  // reconnect either way -- the same accepted tradeoff M38 and
+  // workspaceRestore.ts's RECONNECT step already establish for this exact
+  // dispose-based mitigation shape.
+
+  it("29. Normal (non-racing) import still disposes any pre-existing room exactly once, produces correct content, and leaves no room behind (no regression from the added second dispose)", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("xena", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "ImportNormalNoRaceProj",
+    });
+    const diskPath = join(projectDir(cfg, project.id), "main.py");
+    await fs.writeFile(diskPath, "print('OLD CONTENT')\n", "utf-8");
+
+    const room = collaborationManager.getOrCreateRoom(project.id);
+    const ws = makeMockWs();
+    let closeCode: number | undefined;
+    let closeCallCount = 0;
+    ws.close = (code: number) => {
+      closeCallCount++;
+      closeCode = code;
+    };
+    await room.addClient(ws, { userId: 1, username: "xena", role: "owner" });
+    expect(collaborationManager.getRoom(project.id)).toBe(room);
+
+    const zip = createZipArchive([
+      { path: "main.py", content: Buffer.from("print('NEW CONTENT')\n") },
+    ]);
+    const result = await importProjectZip(cfg, db, 1, project.id, zip, {
+      replace: true,
+    });
+
+    expect(result.ok).toBe(true);
+    // The pre-existing client is closed exactly once -- the added second
+    // dispose finds no room left (getRoom returns undefined) and is a clean
+    // no-op, not a double-close of the same socket.
+    expect(closeCallCount).toBe(1);
+    expect(closeCode).toBe(1001);
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+    expect(await fs.readFile(diskPath, "utf-8")).toBe("print('NEW CONTENT')\n");
+  });
+
+  it("30. Exact race: a room created after the first dispose but before workspace replacement reads stale pre-import content, and is disposed by the second (post-replacement) safety net", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("yara", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "ImportRaceStaleReadProj",
+    });
+    const diskPath = join(projectDir(cfg, project.id), "main.py");
+    await fs.writeFile(diskPath, "print('OLD CONTENT')\n", "utf-8");
+
+    // Pause importProjectZip() at its workspace-wipe fs.rm call: by the time
+    // execution reaches this await, the first dispose, sandbox teardown, and
+    // telemetry teardown have already run, but the old files are still on
+    // disk (the wipe/repopulate hasn't happened) -- exactly the race window
+    // this milestone closes. Same deferred-gate technique as tests 22/27/28.
+    let releaseRm!: () => void;
+    const rmGate = new Promise<void>((resolve) => {
+      releaseRm = resolve;
+    });
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      await rmGate;
+    });
+
+    const zip = createZipArchive([
+      {
+        path: "main.py",
+        content: Buffer.from("print('NEW CONTENT FROM IMPORT')\n"),
+      },
+    ]);
+    const importPromise = importProjectZip(cfg, db, 1, project.id, zip, {
+      replace: true,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The first dispose already ran (nothing was registered before this
+    // test's own race room, so nothing to observe there directly) -- the
+    // meaningful check is that the workspace still holds the OLD content.
+    expect(await fs.readFile(diskPath, "utf-8")).toBe("print('OLD CONTENT')\n");
+
+    // Simulate the race: a fresh room is created and loads whatever is
+    // actually on disk right now -- the stale, pre-import content.
+    const raceRoom = collaborationManager.getOrCreateRoom(project.id);
+    expect(collaborationManager.getRoom(project.id)).toBe(raceRoom);
+    const yText = await raceRoom.ensureFileLoaded("main.py");
+    expect(yText.toString()).toBe("print('OLD CONTENT')\n");
+
+    const raceWs = makeMockWs();
+    let raceCloseCode: number | undefined;
+    raceWs.close = (code: number) => {
+      raceCloseCode = code;
+    };
+    await raceRoom.addClient(raceWs, {
+      userId: 1,
+      username: "yara",
+      role: "owner",
+    });
+
+    // Let the import finish: unblocks the paused fs.rm, runs the actual
+    // wipe/repopulate, cache invalidation, audit log, then the new second
+    // dispose, then the staging-dir cleanup in the finally block.
+    releaseRm();
+    await importPromise;
+    rmSpy.mockRestore();
+
+    // The race-created room is gone, and its client got the normal
+    // disposal close code, not silent continuation.
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+    expect(raceCloseCode).toBe(1001);
+    // The import's own result is authoritative on disk.
+    expect(await fs.readFile(diskPath, "utf-8")).toBe(
+      "print('NEW CONTENT FROM IMPORT')\n",
+    );
+  });
+
+  it("31. A real edit sent into the race-created room before the second dispose never overwrites the imported content", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("zane", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "ImportRaceStaleWriteProj",
+    });
+    const diskPath = join(projectDir(cfg, project.id), "main.py");
+    await fs.writeFile(diskPath, "print('OLD CONTENT')\n", "utf-8");
+
+    let releaseRm!: () => void;
+    const rmGate = new Promise<void>((resolve) => {
+      releaseRm = resolve;
+    });
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      await rmGate;
+    });
+
+    const zip = createZipArchive([
+      {
+        path: "main.py",
+        content: Buffer.from("print('NEW CONTENT FROM IMPORT')\n"),
+      },
+    ]);
+    const importPromise = importProjectZip(cfg, db, 1, project.id, zip, {
+      replace: true,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Race-created room, loaded with stale content, plus a REAL
+    // collaborative edit sent into it before the import finishes -- exactly
+    // the scenario that silently clobbered the import before this fix.
+    const raceRoom = collaborationManager.getOrCreateRoom(project.id);
+    const yText = await raceRoom.ensureFileLoaded("main.py");
+    raceRoom.doc.transact(() => {
+      yText.insert(yText.length, "print('EDIT SENT INTO RACE ROOM')\n");
+    });
+    raceRoom.markFileDirty("main.py");
+    expect((raceRoom as any).dirtyFiles.has("main.py")).toBe(true);
+
+    releaseRm();
+    await importPromise;
+    rmSpy.mockRestore();
+
+    // The race room is gone -- disposed before its own debounced flush
+    // timer could ever fire, so there is no lingering retry that could
+    // still clobber the import later either.
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+    // The imported content is untouched by the stale edit.
+    expect(await fs.readFile(diskPath, "utf-8")).toBe(
+      "print('NEW CONTENT FROM IMPORT')\n",
+    );
+  });
+
+  it("32. Legitimate reconnect semantics: old client -> first dispose -> race reconnect -> second dispose -> a reconnect AFTER completion sees correct content and is not disposed", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("aria", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "ImportLegitReconnectProj",
+    });
+    const diskPath = join(projectDir(cfg, project.id), "main.py");
+    await fs.writeFile(diskPath, "print('OLD CONTENT')\n", "utf-8");
+
+    // Step 1: an "old" client, connected before the import starts.
+    const oldRoom = collaborationManager.getOrCreateRoom(project.id);
+    const oldWs = makeMockWs();
+    let oldCloseCode: number | undefined;
+    oldWs.close = (code: number) => {
+      oldCloseCode = code;
+    };
+    await oldRoom.addClient(oldWs, {
+      userId: 1,
+      username: "aria",
+      role: "owner",
+    });
+
+    let releaseRm!: () => void;
+    const rmGate = new Promise<void>((resolve) => {
+      releaseRm = resolve;
+    });
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      await rmGate;
+    });
+
+    const zip = createZipArchive([
+      {
+        path: "main.py",
+        content: Buffer.from("print('NEW CONTENT FROM IMPORT')\n"),
+      },
+    ]);
+    const importPromise = importProjectZip(cfg, db, 1, project.id, zip, {
+      replace: true,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Step 2: the first dispose already ran -- the old client is gone, not
+    // preserved. There is no such thing as a client that "remains
+    // continuously connected" across a dispose in this architecture.
+    expect(oldCloseCode).toBe(1001);
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+
+    // Step 3: a reconnect during the race window -- necessarily stale,
+    // necessarily torn down by the second dispose below.
+    const raceRoom = collaborationManager.getOrCreateRoom(project.id);
+    const raceWs = makeMockWs();
+    let raceCloseCode: number | undefined;
+    raceWs.close = (code: number) => {
+      raceCloseCode = code;
+    };
+    await raceRoom.addClient(raceWs, {
+      userId: 1,
+      username: "aria",
+      role: "owner",
+    });
+
+    // Step 4: let the import complete -- runs the second dispose.
+    releaseRm();
+    await importPromise;
+    rmSpy.mockRestore();
+
+    expect(raceCloseCode).toBe(1001);
+    expect(collaborationManager.getRoom(project.id)).toBeUndefined();
+
+    // Step 5: a reconnect AFTER the import has genuinely finished gets a
+    // brand-new room with the correct, authoritative imported content, and
+    // is not itself disposed by anything left over from the import.
+    const finalRoom = collaborationManager.getOrCreateRoom(project.id);
+    const finalWs = makeMockWs();
+    let finalCloseCode: number | undefined;
+    finalWs.close = (code: number) => {
+      finalCloseCode = code;
+    };
+    await finalRoom.addClient(finalWs, {
+      userId: 1,
+      username: "aria",
+      role: "owner",
+    });
+    const finalText = await finalRoom.ensureFileLoaded("main.py");
+    expect(finalText.toString()).toBe("print('NEW CONTENT FROM IMPORT')\n");
+    expect(finalCloseCode).toBeUndefined();
+    expect(collaborationManager.getRoom(project.id)).toBe(finalRoom);
+
+    finalRoom.dispose();
   });
 });
