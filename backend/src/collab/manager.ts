@@ -667,6 +667,18 @@ export class CollaborationRoom {
    * Handles client disconnection.
    */
   public removeClient(ws: WebSocket): void {
+    // M41: dispose() force-closes every client with ws.close(1001, ...),
+    // but the 'close' event fires asynchronously — after dispose() has
+    // already cleared this.clients, destroyed doc/awareness, and removed
+    // this room from the manager's map. The ws/index.ts connection handler
+    // closes over this SAME room instance and unconditionally calls
+    // removeClient() on that event, with no way to know the room is already
+    // gone. Without this guard, that call would find clients.size === 0
+    // (dispose() already cleared it) and re-arm a fresh scheduleIdleDisposal()
+    // timer on an already-destroyed room — see dispose()'s and
+    // scheduleIdleDisposal()'s own guards for the rest of this defense.
+    if (this.disposed) return;
+
     const clientState = this.clients.get(ws);
     this.clients.delete(ws);
 
@@ -810,6 +822,17 @@ export class CollaborationRoom {
    * Materializes dirty Y.Text contents to the workspace filesystem.
    */
   public async flushToDisk(): Promise<void> {
+    // M41: a disposed room's doc/awareness are already destroyed, and any
+    // content this.doc.getText(...) still returns is a frozen snapshot from
+    // the moment of destruction — necessarily pre-disposal, since dispose()
+    // is what made it stale in the first place (import/restore/delete all
+    // replace on-disk content as part of the same operation that disposes
+    // the room). Writing that snapshot back would silently clobber whatever
+    // legitimately fresh content was written since. This is the final,
+    // authoritative guard: even if some other path reaches flushToDisk() on
+    // a disposed room in the future, it must still refuse to write.
+    if (this.disposed) return;
+
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
@@ -891,6 +914,11 @@ export class CollaborationRoom {
   private scheduleIdleDisposal(
     delayMs: number = CollaborationRoom.IDLE_DISPOSE_BASE_MS,
   ): void {
+    // M41: once disposed, a room must never arm another idle-dispose timer
+    // (invariant A) — belt-and-suspenders alongside removeClient()'s own
+    // disposed guard, in case some future caller invokes this directly.
+    if (this.disposed) return;
+
     if (this.idleDisposeTimer) clearTimeout(this.idleDisposeTimer);
 
     // Idle grace timer before freeing room from memory. On retry (a prior
@@ -901,6 +929,12 @@ export class CollaborationRoom {
     // and logs forever at a fixed 10s cadence. Content is never dropped —
     // only the retry cadence backs off.
     this.idleDisposeTimer = setTimeout(async () => {
+      // M41: the room may have been disposed by an explicit operation
+      // (import/restore/delete) during the delay window between this timer
+      // being armed and firing. flushToDisk() already refuses to write once
+      // disposed, but checking here too avoids the pointless work and the
+      // (harmless but confusing) double-dispose() call below.
+      if (this.disposed) return;
       if (this.clients.size === 0) {
         await this.flushToDisk();
         // A client can reconnect (addClient) while the await above is in

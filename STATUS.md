@@ -3025,6 +3025,79 @@ new one); ordinary reconnect remains fully non-destructive (verified by dedicate
 no secret/content logging introduced by the shipped change (temporary diagnostic logging used during
 live-verification investigation was fully reverted, confirmed via `git diff` before proceeding).
 
+## Milestone 41 — Prevent disposed collaboration rooms from flushing stale state
+
+**Root cause** (confirmed by direct source tracing, not just live inference): `CollaborationRoom
+.dispose()` force-closes every client with `ws.close(1001, "Room disposed")`. That close fires
+**asynchronously** — after `dispose()` has already returned, cleared `this.clients`, destroyed
+`doc`/`awareness`, and removed the room from the manager's map via `onDisposeCallback`.
+`backend/src/ws/index.ts:333-355`'s `/ws/collab` upgrade handler captures the `room` reference once,
+at connection time, and its `ws.on("close", ...)`/`ws.on("error", ...)` handlers unconditionally call
+`room.removeClient(ws)` on that same closure-captured instance whenever the socket actually closes —
+with no way to know the room is already disposed. Pre-fix, `removeClient()`
+(`manager.ts:669-695`) had no `disposed` guard: it would find `this.clients.size === 0` (`dispose()`
+already cleared it) and call `scheduleIdleDisposal()`, re-arming a fresh 10-second idle timer **on an
+already-destroyed room**. `scheduleIdleDisposal()`'s callback and `flushToDisk()` were themselves also
+unguarded — when the timer fired, `flushToDisk()` read `this.doc.getText(filePath)` on the destroyed
+`Y.Doc` (Yjs returns the plain string frozen at destroy time rather than throwing) and wrote that
+stale, pre-disposal content back to disk, silently clobbering whatever legitimately fresh content
+(an import, a restore) had been written since. Not scoped to import — every `dispose()` call with a
+connected client at dispose time is affected: delete (`service.ts`), import/replace (`archive.ts`),
+workspace restore and snapshot restore (`workspaceRestore.ts`).
+
+**Fix** (`backend/src/collab/manager.ts` only, 34 lines, purely additive — four `if (this.disposed)
+return;` guards, no removed logic, no redesign): (1) `removeClient()` returns immediately if
+`this.disposed`, closing the primary exploit path — the async close-event re-entry can no longer
+schedule anything. (2) `scheduleIdleDisposal()` itself also returns immediately if disposed
+(belt-and-suspenders, in case any future caller invokes it directly rather than through
+`removeClient()`). (3) its `setTimeout` callback re-checks `this.disposed` as its first statement,
+covering the case where a room is disposed during the delay window between a legitimately-armed timer
+and its firing. (4) `flushToDisk()` itself refuses to run at all if `this.disposed` — the final,
+authoritative guard: even if some future code path reaches it on a disposed room by a route not yet
+imagined, it still cannot write. Existing dispose semantics, client cleanup, and the pre-existing
+private `disposed` field (already used to guard Yjs/awareness update coalescing) are all unchanged.
+
+**Tests** (`backend/test/m41-dispose-guards.test.ts`, new file, 8 tests): disposed room +
+`removeClient()` re-arms no idle timer (simulating the exact async close-event race); disposed room's
+`flushToDisk()` writes nothing even with dirty content queued; import protection (a collaborator's
+pre-import room holds pre-import content, import replaces the file, the disposed room's
+`removeClient()`+`flushToDisk()` sequence is driven directly and disk stays post-import); restore
+protection (same shape via `createWorkspaceBackup`/`restoreWorkspaceBackup`); delete protection (same
+shape via `deleteProject`, asserting the DB row and workspace directory both stay gone and
+`fs.writeFile` is never called); non-regression — a genuinely idle non-disposed room still arms its
+timer and disposes normally after 10s (fake timers, mirrors existing test 13's pattern); non-regression
+— a normal dirty edit on a live room still flushes to disk correctly; reconnect/remove race — calling
+`removeClient()` twice after dispose (mirroring `ws/index.ts`'s separate `close`/`error` handlers both
+firing for the same socket) stays idempotent, no timer resurrection. `git stash`-verified: stashing
+only the `manager.ts` guards caused exactly 6 of 8 tests to fail (every test directly exercising the
+guarded paths), while the two non-regression tests (normal idle disposal, normal flush) correctly
+still passed pre-fix, confirming genuine regression coverage rather than tautologies. All 8 pass
+post-fix.
+
+**Live verification** against the real QA server (raw WebSocket client script, real dispose()/real
+async close events/real 10s timers, no test mocks): three scenarios, each connecting a collaborator
+before the disposing operation, then waiting 12s past the idle window and reading disk directly.
+Import: disk held `"M41 NEW IMPORTED"` before AND after the wait (pre-fix this reverted to the
+pre-import content ~10-11s later, per M40's live findings). Delete: project stayed deleted, nothing
+resurrected. Restore: disk held the backed-up content both immediately and after the wait, never the
+pre-restore content. All three observed the client receiving the expected `1001` close code (proving
+the race window was genuinely exercised, not accidentally avoided), yet disk content remained correct
+in every case.
+
+Verification: focused suite (`m41-dispose-guards.test.ts` 8/8, `m4-collab.test.ts` 39/39, 0
+regressions), broader collaboration/lifecycle suites (`archive-import-export.test.ts`,
+`workspace-restore.test.ts`, `workspace-backup.test.ts`, `m6-collab-coalesce-backpressure.test.ts`,
+`api.test.ts` — 96 passed, 10 pre-existing skips, 0 failures), full backend suite (529 passed, 36
+skipped, exactly the 2 pre-existing Docker-unavailable failures —
+`m16-optimization.test.ts`/`pipeline.test.ts` — untouched and unrelated). `tsc --noEmit` clean.
+`git diff --check` clean. No frontend files changed.
+
+Security/data review: no authorization changes; no protocol changes; no cross-project access (guards
+are entirely local to each room instance); ordinary (non-disposed) room behavior is unchanged and
+verified by dedicated non-regression tests; the fix can only ever prevent a write that would
+otherwise have corrupted data, never suppress a legitimate one (every guard is a pure early-return on
+an already-terminal state, not a new code path).
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3032,8 +3105,8 @@ Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a
 M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression audit, M35 (Starter
 Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration ghost-file
 resurrection fix), M38 (collaboration deletion race fix), M39 (collaboration import-replacement
-race fix), and M40 (frontend collaboration-reconnect state reset, above; commit noted at top of file
-once pushed).
+race fix), M40 (frontend collaboration-reconnect state reset), and M41 (disposed-room stale-flush
+guards, above; commit noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
@@ -3070,17 +3143,8 @@ admin UI rather than only reachable via raw API.
    Y.Doc/Awareness lineage on an explicit-disposal reconnect instead of letting it merge with the
    server's fresh lineage; see M40 above, including the STATUS.md correction to M39's original
    root-cause attribution).
-8. **New, real, unfixed — highest priority**: a separate, pre-existing backend race discovered during
-   M40's own live verification (see M40 above for full detail) — `CollaborationRoom.removeClient()`
-   (`backend/src/collab/manager.ts:669-695`) has no `disposed` guard, so `dispose()`'s own
-   `ws.close(1001, ...)` calls asynchronously trigger `ws/index.ts`'s close handler back into
-   `removeClient()` on the already-disposed room, re-arming a fresh 10-second
-   `scheduleIdleDisposal()` timer whose eventual `flushToDisk()` (also unguarded) writes the room's
-   pre-disposal content — frozen in the already-destroyed `Y.Doc` — back to disk. Live-reproduced
-   reliably (3/3 rounds) clobbering a just-completed import ~10-11s later, with zero error or
-   warning. Not scoped to import — affects every `dispose()` call with a connected client at dispose
-   time: delete, import/replace, workspace restore, snapshot restore. Requires a
-   `backend/src/collab/manager.ts` change (likely a `disposed` guard at the top of `removeClient()`
-   and/or `scheduleIdleDisposal()`/`flushToDisk()`); explicitly out of scope for M40's frontend-only
-   contract. Existing test #22 in `m4-collab.test.ts` covers an adjacent but different case (a
-   reconnecting client must not be evicted by an in-flight idle flush) and does not cover this gap.
+8. ~~The disposed-room stale-flush backend race discovered during M40's own live verification~~ —
+   fixed in M41 (four `if (this.disposed) return;` guards in `backend/src/collab/manager.ts`'s
+   `removeClient()`, `scheduleIdleDisposal()` and its callback, and `flushToDisk()`; see M41 above,
+   including 3-scenario live re-verification against the real QA server with the exact 12-second wait
+   that used to reproduce the clobber).
