@@ -636,6 +636,38 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
     expect(scriptSource).not.toMatch(/function\s+verifyIntegrity\s*\(/);
   });
 
+  // chmod is a no-op on Windows for the mode bits Node's fs API reports
+  // (verified: statSync().mode is unchanged after chmodSync on this
+  // platform's filesystem), so these assertions are only meaningful — and
+  // only run — on POSIX, which is the actual production deployment target.
+  it.skipIf(process.platform === "win32")(
+    "26. restricts the backup file to 0o600 (owner-only) on POSIX",
+    async () => {
+      const db = openDb(dbPath);
+      try {
+        const backup = await createDatabaseBackup(db, cfg);
+        const mode = statSync(backup.filePath).mode & 0o777;
+        expect(mode).toBe(0o600);
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "27. restricts the backup directory to 0o700 (owner-only) on POSIX",
+    async () => {
+      const db = openDb(dbPath);
+      try {
+        await createDatabaseBackup(db, cfg);
+        const mode = statSync(cfg.backupDir).mode & 0o777;
+        expect(mode).toBe(0o700);
+      } finally {
+        db.close();
+      }
+    },
+  );
+
   describe("Admin API HTTP Endpoints", () => {
     let api: TestApi;
     let adminToken: string;
@@ -738,6 +770,17 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       );
       expect(downloadRes.status).toBe(200);
       expect(downloadRes.text.length).toBeGreaterThan(0);
+
+      // Downloading a full database export is sensitive enough to audit.
+      const auditRes = await api.request(
+        "GET",
+        "/api/admin/audit?eventType=DATABASE_BACKUP_DOWNLOADED",
+        { token: adminToken },
+      );
+      expect(auditRes.status).toBe(200);
+      expect(
+        auditRes.data.logs.some((l: any) => l.details.filename === filename),
+      ).toBe(true);
     });
 
     it("18. DELETE /api/admin/backups/:filename deletes backup file and records audit log", async () => {

@@ -1,34 +1,35 @@
-import { EventEmitter } from 'node:events';
-import type { Db } from './db.js';
+import { EventEmitter } from "node:events";
+import type { Db } from "./db.js";
 
 export type AuditEventType =
-  | 'AUTH_LOGIN'
-  | 'AUTH_LOGOUT'
-  | 'AUTH_FAILED_LOGIN'
-  | 'ADMIN_LOGIN'
-  | 'DEMO_SESSION_CREATED'
-  | 'DEMO_ACCOUNTS_GC'
-  | 'PROJECT_CREATED'
-  | 'PROJECT_DELETED'
-  | 'PROJECT_EXPORTED'
-  | 'PROJECT_IMPORTED'
-  | 'PROJECT_FILES_UPLOADED'
-  | 'EXECUTION_STARTED'
-  | 'EXECUTION_COMPLETED'
-  | 'EXECUTION_FAILED'
-  | 'SANDBOX_CREATED'
-  | 'SANDBOX_REAPED'
-  | 'SANDBOX_TERMINATED_BY_ADMIN'
-  | 'SNAPSHOT_CREATED'
-  | 'SNAPSHOT_RESTORED'
-  | 'SNAPSHOT_DELETED'
-  | 'USER_UPDATED_BY_ADMIN'
-  | 'USER_PASSWORD_RESET_BY_ADMIN'
-  | 'USER_DELETED_BY_ADMIN'
-  | 'USER_PREFERENCES_UPDATED'
-  | 'DATABASE_BACKUP_CREATED'
-  | 'DATABASE_BACKUP_DELETED'
-  | 'ADMIN_ACTION';
+  | "AUTH_LOGIN"
+  | "AUTH_LOGOUT"
+  | "AUTH_FAILED_LOGIN"
+  | "ADMIN_LOGIN"
+  | "DEMO_SESSION_CREATED"
+  | "DEMO_ACCOUNTS_GC"
+  | "PROJECT_CREATED"
+  | "PROJECT_DELETED"
+  | "PROJECT_EXPORTED"
+  | "PROJECT_IMPORTED"
+  | "PROJECT_FILES_UPLOADED"
+  | "EXECUTION_STARTED"
+  | "EXECUTION_COMPLETED"
+  | "EXECUTION_FAILED"
+  | "SANDBOX_CREATED"
+  | "SANDBOX_REAPED"
+  | "SANDBOX_TERMINATED_BY_ADMIN"
+  | "SNAPSHOT_CREATED"
+  | "SNAPSHOT_RESTORED"
+  | "SNAPSHOT_DELETED"
+  | "USER_UPDATED_BY_ADMIN"
+  | "USER_PASSWORD_RESET_BY_ADMIN"
+  | "USER_DELETED_BY_ADMIN"
+  | "USER_PREFERENCES_UPDATED"
+  | "DATABASE_BACKUP_CREATED"
+  | "DATABASE_BACKUP_DELETED"
+  | "DATABASE_BACKUP_DOWNLOADED"
+  | "ADMIN_ACTION";
 
 export interface AuditRecord {
   id: number;
@@ -44,10 +45,18 @@ export interface AuditRecord {
 
 export const auditEmitter = new EventEmitter();
 
-const REDACTED_KEYS = new Set(['password', 'password_hash', 'token', 'secret', 'cookie', 'session_token', 'newpassword']);
+const REDACTED_KEYS = new Set([
+  "password",
+  "password_hash",
+  "token",
+  "secret",
+  "cookie",
+  "session_token",
+  "newpassword",
+]);
 
 function sanitizeDetails(details: any): any {
-  if (!details || typeof details !== 'object') {
+  if (!details || typeof details !== "object") {
     return details;
   }
   if (Array.isArray(details)) {
@@ -56,8 +65,8 @@ function sanitizeDetails(details: any): any {
   const clean: Record<string, any> = {};
   for (const [key, val] of Object.entries(details)) {
     if (REDACTED_KEYS.has(key.toLowerCase())) {
-      clean[key] = '[REDACTED]';
-    } else if (typeof val === 'object') {
+      clean[key] = "[REDACTED]";
+    } else if (typeof val === "object") {
       clean[key] = sanitizeDetails(val);
     } else {
       clean[key] = val;
@@ -74,29 +83,33 @@ export function recordAuditLog(
     eventType: AuditEventType;
     details?: Record<string, any> | string;
     ipAddress?: string | null;
-  }
+  },
 ): void {
   try {
     let rawDetailsObj: Record<string, any> = {};
-    let detailsStr = '{}';
-    if (typeof params.details === 'string') {
+    let detailsStr = "{}";
+    if (typeof params.details === "string") {
       rawDetailsObj = { message: params.details };
       detailsStr = JSON.stringify(rawDetailsObj);
-    } else if (params.details && typeof params.details === 'object') {
+    } else if (params.details && typeof params.details === "object") {
       rawDetailsObj = sanitizeDetails(params.details);
       detailsStr = JSON.stringify(rawDetailsObj);
     }
 
-    const res = db.prepare(`
+    const res = db
+      .prepare(
+        `
       INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address)
       VALUES (?, ?, ?, ?, ?)
-    `).run(
-      params.userId ?? null,
-      params.projectId ?? null,
-      params.eventType,
-      detailsStr,
-      params.ipAddress ?? null
-    );
+    `,
+      )
+      .run(
+        params.userId ?? null,
+        params.projectId ?? null,
+        params.eventType,
+        detailsStr,
+        params.ipAddress ?? null,
+      );
 
     const record: AuditRecord = {
       id: Number(res.lastInsertRowid),
@@ -108,10 +121,10 @@ export function recordAuditLog(
       created_at: new Date().toISOString(),
     };
 
-    auditEmitter.emit('audit', record);
+    auditEmitter.emit("audit", record);
   } catch (err) {
     // Non-fatal: audit log should not crash transaction
-    console.error('[AuditLog] Failed to record audit log:', err);
+    console.error("[AuditLog] Failed to record audit log:", err);
   }
 }
 
@@ -123,7 +136,7 @@ export function queryAuditLogs(
     projectId?: string;
     limit?: number;
     offset?: number;
-  } = {}
+  } = {},
 ): { logs: AuditRecord[]; total: number } {
   const limit = Math.max(1, Math.min(filters.limit ?? 50, 200));
   const offset = Math.max(0, filters.offset ?? 0);
@@ -132,24 +145,29 @@ export function queryAuditLogs(
   const params: any[] = [];
 
   if (filters.eventType) {
-    whereClauses.push('a.event_type = ?');
+    whereClauses.push("a.event_type = ?");
     params.push(filters.eventType);
   }
   if (filters.userId !== undefined) {
-    whereClauses.push('a.user_id = ?');
+    whereClauses.push("a.user_id = ?");
     params.push(filters.userId);
   }
   if (filters.projectId) {
-    whereClauses.push('a.project_id = ?');
+    whereClauses.push("a.project_id = ?");
     params.push(filters.projectId);
   }
 
-  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const whereSql =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-  const countRow = db.prepare(`SELECT COUNT(*) as total FROM audit_logs a ${whereSql}`).get(...params) as { total: number };
+  const countRow = db
+    .prepare(`SELECT COUNT(*) as total FROM audit_logs a ${whereSql}`)
+    .get(...params) as { total: number };
   const total = countRow?.total ?? 0;
 
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT a.id, a.user_id, a.project_id, a.event_type, a.details, a.ip_address, a.created_at,
            u.username, p.name as project_name
     FROM audit_logs a
@@ -158,7 +176,9 @@ export function queryAuditLogs(
     ${whereSql}
     ORDER BY a.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(...params, limit, offset) as Array<{
+  `,
+    )
+    .all(...params, limit, offset) as Array<{
     id: number;
     user_id: number | null;
     username: string | null;

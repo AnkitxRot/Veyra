@@ -28,6 +28,7 @@ import {
   writeSync,
   readFileSync,
   unlinkSync,
+  chmodSync,
 } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -59,6 +60,24 @@ export function generateBackupFilename() {
 }
 
 /**
+ * Restricts a freshly-created backup file to owner-only read/write (0o600).
+ * `VACUUM INTO` creates its destination file honoring the process umask,
+ * which commonly leaves it group/world-readable (e.g. 0644) — and a backup
+ * is a full database export (password hashes, session tokens), so it should
+ * not be readable by other local accounts on a shared host. Best-effort: a
+ * chmod failure (e.g. an unsupported filesystem, or Windows where this is a
+ * no-op) must not fail the backup itself.
+ * @param {string} filePath
+ */
+export function secureBackupFilePermissions(filePath) {
+  try {
+    chmodSync(filePath, 0o600);
+  } catch {
+    // Best-effort — see doc comment above.
+  }
+}
+
+/**
  * Verifies a SQLite database file via `PRAGMA integrity_check`.
  * @param {string} filePath
  * @returns {string} 'ok' on success, otherwise a human-readable failure reason.
@@ -86,7 +105,10 @@ export function verifyDatabaseBackupIntegrity(filePath) {
  * @param {string} backupDir
  */
 export function ensureBackupDir(backupDir) {
-  mkdirSync(backupDir, { recursive: true });
+  // 0o700: backup files contain full database exports (password hashes,
+  // session tokens) — owner-only. No-op on Windows (NTFS ACLs, not POSIX
+  // mode bits), meaningful on the Linux/Docker production target.
+  mkdirSync(backupDir, { recursive: true, mode: 0o700 });
 }
 
 /**
@@ -284,7 +306,10 @@ function tryReclaimStaleLock(lockPath, staleMs) {
 export function acquireBackupLock(backupDir, opts = {}) {
   const staleMs = opts.staleMs ?? DEFAULT_BACKUP_LOCK_STALE_MS;
   const maxWaitMs = opts.maxWaitMs ?? DEFAULT_LOCK_MAX_WAIT_MS;
-  mkdirSync(backupDir, { recursive: true });
+  // 0o700: backup files contain full database exports (password hashes,
+  // session tokens) — owner-only. No-op on Windows (NTFS ACLs, not POSIX
+  // mode bits), meaningful on the Linux/Docker production target.
+  mkdirSync(backupDir, { recursive: true, mode: 0o700 });
   const lockPath = join(backupDir, LOCK_FILENAME);
   const token = `${process.pid}-${Date.now()}-${randomBytes(3).toString("hex")}`;
   const deadline = Date.now() + maxWaitMs;
@@ -338,7 +363,10 @@ export function acquireBackupLock(backupDir, opts = {}) {
 export async function acquireBackupLockAsync(backupDir, opts = {}) {
   const staleMs = opts.staleMs ?? DEFAULT_BACKUP_LOCK_STALE_MS;
   const maxWaitMs = opts.maxWaitMs ?? DEFAULT_LOCK_MAX_WAIT_MS;
-  mkdirSync(backupDir, { recursive: true });
+  // 0o700: backup files contain full database exports (password hashes,
+  // session tokens) — owner-only. No-op on Windows (NTFS ACLs, not POSIX
+  // mode bits), meaningful on the Linux/Docker production target.
+  mkdirSync(backupDir, { recursive: true, mode: 0o700 });
   const lockPath = join(backupDir, LOCK_FILENAME);
   const token = `${process.pid}-${Date.now()}-${randomBytes(3).toString("hex")}`;
   const deadline = Date.now() + maxWaitMs;

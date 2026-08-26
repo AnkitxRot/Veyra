@@ -1022,13 +1022,29 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
           filename.includes("\\") ||
           filename.includes("\0")
         ) {
-          throw new ApiError(400, "Invalid backup filename", "invalid_filename");
+          throw new ApiError(
+            400,
+            "Invalid backup filename",
+            "invalid_filename",
+          );
         }
 
         const filePath = join(cfg.backupDir, filename);
         if (!existsSync(filePath)) {
           throw new ApiError(404, "Backup not found", "not_found");
         }
+
+        // Log the download attempt before streaming starts, not after
+        // completion — a full-database export (password hashes, session
+        // tokens) is sensitive enough that even an interrupted/aborted
+        // transfer should leave an audit trail.
+        const actorUserId = (req as any).user?.id;
+        recordAuditLog(db, {
+          userId: actorUserId,
+          eventType: "DATABASE_BACKUP_DOWNLOADED",
+          details: { filename },
+          ipAddress: req.ip,
+        });
 
         res.download(filePath, filename);
       } catch (err) {

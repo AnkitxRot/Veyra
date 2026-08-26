@@ -21,6 +21,7 @@ import {
   verifyDatabaseBackupIntegrity,
   pruneBackupFilesSync,
   withBackupLockSync,
+  secureBackupFilePermissions,
 } from "../backend/src/backup/shared.js";
 
 const require = createRequire(import.meta.url);
@@ -126,6 +127,8 @@ async function main() {
             } catch {}
           }
         }
+
+        secureBackupFilePermissions(backupPath);
 
         const integrity = verifyDatabaseBackupIntegrity(backupPath);
         if (integrity !== "ok") {

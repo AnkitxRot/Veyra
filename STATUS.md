@@ -33,7 +33,8 @@ Last updated: 2026-08-25.
   - Milestone 23 (automated production deployment smoke & readiness verification harness) at `8669219`.
   - Milestone 24 (direct workspace file & folder upload) at `8c63827`.
   - Milestone 25 (production database backup & disaster recovery automation) at `941b545`.
-  - Milestone 26 (workspace-wide search & replace) in this commit.
+  - Milestone 26 (workspace-wide search & replace) at `ed8deb7`.
+  - Milestone 27 (database backup security hardening — file/directory permissions, download audit logging) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -1940,7 +1941,7 @@ Verification:
 - Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
 - Frontend build & typecheck: PASS (Vite built in 27.57s).
 - `git diff --check`: PASS.
-- Independent read-only security review of the filesystem lock, admin routes, CLI, and `allowJs` change: confirmed admin-only gating, path-traversal rejection, and rate limiting intact; found and fixed two Medium findings (synchronous lock-wait could block the Node event loop up to 5s under lock contention — server-side acquire is now async; stale-lock reclaim was age-only with no liveness check, risking reclaim of a still-legitimately-running large-DB backup — reclaim now also requires the recorded holder PID to be verifiably dead). Two Low findings deferred as follow-up, not fixed here: backup files/directory don't get explicit `0o600`/`0o700` permissions (relies on process umask), and downloading a backup via `GET /api/admin/backups/:filename` doesn't emit an audit event (create/delete do).
+- Independent read-only security review of the filesystem lock, admin routes, CLI, and `allowJs` change: confirmed admin-only gating, path-traversal rejection, and rate limiting intact; found and fixed two Medium findings (synchronous lock-wait could block the Node event loop up to 5s under lock contention — server-side acquire is now async; stale-lock reclaim was age-only with no liveness check, risking reclaim of a still-legitimately-running large-DB backup — reclaim now also requires the recorded holder PID to be verifiably dead). Two Low findings deferred as follow-up at the time: backup files/directory don't get explicit `0o600`/`0o700` permissions (relies on process umask), and downloading a backup via `GET /api/admin/backups/:filename` doesn't emit an audit event (create/delete do). **Both closed in Milestone 27** — see below.
 
 ## Architecture decisions (do not rediscover)
 
@@ -2039,6 +2040,34 @@ Verification:
 - `git diff --check`: PASS.
 - Frontend diff is larger than the functional change alone: editing this file triggered the project's own PostToolUse Prettier hook to normalize the whole file from single- to double-quoted strings (Prettier's default with no project override configured) — an incidental, tool-driven, zero-semantic-change reformat of pre-existing code, not a manual unrelated edit.
 
+### Milestone 27 — Database Backup Security Hardening
+
+Closes the two Low-severity findings the Milestone 25 security review deferred: backup files/directory relied on the process umask instead of explicit permissions, and backup downloads were the only backup admin action that didn't emit an audit event.
+
+1. **File/directory permissions (`backend/src/backup/shared.js`)**:
+   - New `secureBackupFilePermissions(filePath)`: best-effort `chmodSync(filePath, 0o600)` immediately after a backup file is written (both in `createDatabaseBackup` in `service.ts` and the CLI's equivalent flow in `scripts/backup-db.js`), before integrity verification. `VACUUM INTO` creates its destination honoring the process umask, which commonly leaves it group/world-readable — a backup is a full database export (password hashes, session tokens), so it should not be readable by other local accounts on a shared host. A chmod failure (unsupported filesystem, or Windows) is swallowed and never fails the backup itself.
+   - All three `mkdirSync(backupDir, ...)` call sites (`ensureBackupDir`, `acquireBackupLock`, `acquireBackupLockAsync`) now pass `{ recursive: true, mode: 0o700 }` for the same reason.
+   - **Platform reality, verified empirically, not assumed**: a throwaway `node -e` script confirmed `chmodSync` is a no-op for `statSync().mode` bits on this Windows dev machine (`0o666` before and after `chmodSync(path, 0o600)`). The permission change is real and enforced on the Linux/Docker production deployment target (POSIX mode bits), and correctly inert on Windows (NTFS ACLs, not POSIX mode bits) — documented as such in code, not silently assumed to work everywhere.
+2. **Download audit logging (`backend/src/admin/routes.ts`)**:
+   - `GET /api/admin/backups/:filename` now records a `DATABASE_BACKUP_DOWNLOADED` audit event (filename, actor, IP) immediately before `res.download()` is called — before streaming starts, not after completion, so even an interrupted/aborted transfer of a full-database export leaves an audit trail. `DATABASE_BACKUP_DOWNLOADED` added to the `AuditEventType` union in `backend/src/audit.ts`.
+
+Security considerations: both changes are additive hardening with no behavior change to authorization, locking, retention, or integrity verification (already reviewed and covered in M25's section above). Filename validation, admin-only gating, and path-traversal rejection on the download route are unchanged and re-verified as still intact. chmod failures are non-fatal by design — a permission-hardening step must not turn a successful backup into a failed one.
+
+Files:
+
+- Production: `backend/src/backup/shared.js`, `backend/src/backup/service.ts`, `scripts/backup-db.js`, `backend/src/admin/routes.ts`, `backend/src/audit.ts`.
+- Tests: `backend/test/backup.test.ts` (2 new tests, both `it.skipIf(process.platform === "win32")`-gated since they assert real POSIX mode bits: test 26 asserts a freshly created backup file is `0o600`, test 27 asserts the backup directory is `0o700`; existing download test 17 extended with an assertion that the audit log now contains a `DATABASE_BACKUP_DOWNLOADED` entry with the correct filename after a successful download).
+
+Verification:
+
+- Focused suite `test/backup.test.ts`: **26 passed / 2 skipped** (the two new Windows-gated tests; 28 total).
+- Related suite (`backup.test.ts` + `admin.test.ts` together): **48 passed / 2 skipped, 0 failed** (4.34s).
+- Full backend regression suite: **414 passed / 2 failed / 33 skipped (44 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts`, both failing on `"Docker daemon is not running"` (environment, not code) — unmodified, no new regressions. Skipped count is 2 higher than M26's snapshot (31→33) solely from the two new Windows-gated permission tests.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: not affected, not rebuilt — no frontend files in scope for this milestone.
+- `git diff --check`: PASS.
+- `audit.ts` diff is 130/-59 lines for what is semantically a one-line union addition (`DATABASE_BACKUP_DOWNLOADED`): confirmed by direct diff inspection to be pure Prettier single→double-quote normalization (this file had never been run through the formatter before), zero logic change — same incidental-reformat pattern already disclosed for M26's `routes.ts` and `WorkspaceSearchModal.tsx`.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2049,27 +2078,24 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M26, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M26, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M27, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M27, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–25 are committed (M25 at `941b545`). Milestone 26 (workspace-wide search & replace)
-is complete in this working tree. Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`)
-remains outstanding and un-gated, unchanged from before. M26's frontend UI was verified by clean
-typecheck/build only — live browser interaction was not exercised this session (no Chrome
-automation available); worth a manual pass before/soon after this ships.
+Milestones 1–27 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 in this commit). Manual QA
+execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged
+from before. M26's frontend UI was verified by clean typecheck/build only — live browser
+interaction was not exercised (no Chrome automation available); worth a manual pass. M27 was
+backend/CLI-only (no frontend files touched).
 
 ## Next recommended milestone
 
-1. **Commit and Publish Milestone 26**:
-   Stage M26 production changes, tests, and STATUS.md; commit and push to master.
-2. **Milestone 27 candidates** (next session should re-audit rather than blindly pick):
+1. **Project Duplication & Workspace Forking** (`POST /api/projects/:id/fork`) — single-click
+   project cloning, independent workspace replication (no shared filesystem references, no
+   inherited sandbox/collaboration state), reusing the existing project-creation, M24 upload
+   quota, and M16 lazy-sandbox-provisioning conventions rather than inventing new ones.
+2. Other candidates, lower priority than the above:
    - Manual/browser QA pass on the M26 search & replace UI (see caveat above).
-   - Project Duplication & Workspace Forking (`POST /api/projects/:id/fork`) — single-click
-     project cloning, workspace replication, and isolated sandbox provisioning.
-   - Two Low-severity M25 security follow-ups deferred at the time: backup files/directory
-     don't get explicit `0o600`/`0o700` permissions (relies on process umask), and downloading
-     a backup via `GET /api/admin/backups/:filename` doesn't emit an audit event.

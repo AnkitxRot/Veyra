@@ -11,6 +11,7 @@ import {
   generateBackupFilename,
   listBackupFilesSync,
   pruneBackupFilesSync,
+  secureBackupFilePermissions,
   verifyDatabaseBackupIntegrity,
   withBackupLockAsync,
   type RawBackupEntry,
@@ -148,6 +149,8 @@ export async function createDatabaseBackup(
         "backup_failed",
       );
     }
+
+    secureBackupFilePermissions(backupPath);
 
     const integrity = verifyDatabaseBackupIntegrity(backupPath);
     if (integrity !== "ok") {
