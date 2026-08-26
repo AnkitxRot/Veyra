@@ -38,7 +38,8 @@ Last updated: 2026-08-25.
   - Milestone 28 (project duplication & workspace forking) at `0c56f0c`.
   - Milestone 29 (harden project fork authorization — owner-only, closing an export bypass) at `0f08432`.
   - Milestone 30 (automated database restore & disaster-recovery verification) at `bc8261e`.
-  - Milestone 31 (automated per-project workspace & snapshot-body backup) in this commit.
+  - Milestone 31 (automated per-project workspace & snapshot-body backup) at `a1077e1`.
+  - Milestone 32 (per-project workspace & snapshot restore) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -2197,6 +2198,35 @@ Verification:
 - Frontend: not touched, not rebuilt — confirmed via `git status` that zero frontend files are in this milestone's diff before skipping any frontend verification step. No admin UI surface added for this feature (deliberately deferred, per the governing contract).
 - `git diff --check`: PASS.
 
+### Milestone 32 — Per-Project Workspace & Snapshot Restore
+
+Completes the M31 backup/M32 restore pair. Admin-only; restores an EXISTING project's workspace files and (for a v2-manifest backup) its snapshot bodies + DB rows in place from an M31 backup archive. Does not recreate a deleted project and does not restore one project's backup into another.
+
+1. **Manifest v1 → v2 (`backend/src/backup/workspaceBackup.ts`)**: M31's manifest captured snapshot _bodies_ but no row metadata — restoring bodies-only would have left files on disk with no matching `snapshots` table row (exactly the "unzip files while leaving inconsistent database metadata" outcome this format must avoid). `createWorkspaceBackup` now walks the `snapshots` DB rows (source of truth) rather than the raw directory listing, and the manifest carries a `snapshots: [{id, name, userId, sizeBytes, createdAt}]` array. Backward compatible: a v1 archive (no such array) is still fully parseable; restore treats it explicitly, not as an error (see below). New `generousArchiveConfig()` export factors out the "override user-facing archive-size limits for this trusted, server-generated artifact" reasoning M31's own verification already established, now shared by both backup verification and restore extraction rather than duplicated.
+2. **Restore primitive (`backend/src/backup/workspaceRestore.ts`, new)**: PREPARE (outside the lock — resolve the backup only via `listWorkspaceBackups`'s already-validated output, never a raw path; extract with full `extractZipArchive` re-validation, generous size limits only; parse and strictly validate the manifest, including a hard `manifest.projectId === targetProjectId` check) → QUIESCE (inside `withProjectSnapshotLock`: dispose the collaboration room, stop the sandbox — which transitively kills any `docker exec` terminal PTYs and aborts in-flight execution, an accepted documented consequence — dispose telemetry historian state; matches `importProjectZip`'s (M21) teardown sequence exactly) → SWAP (rename current workspace/snapshot directories into rollback-staging _before_ any destructive action, move validated staged content into place, replace `snapshots` rows in one SQL transaction) → RECONNECT (dispose the collaboration room a _second_ time) → VERIFY (workspace file count, snapshot row/body counts) → ROLLBACK on any SWAP/VERIFY failure (quarantine the bad content — never deleted — restore the original from rollback-staging, re-insert the pre-restore snapshot rows, report structured failure, never fabricate success).
+3. **v1 compatibility policy**: a v1-manifest backup restores workspace files only; snapshot bodies/rows are explicitly left completely untouched (not deleted, not restored) — a v1 manifest carries no trustworthy row metadata to reconstruct with, and inventing fake metadata was explicitly out of bounds. The result structure reports this plainly (`snapshotRestored.attempted: false`, a human-readable `skippedReason`), never silently treated as an integrity failure.
+4. **Deleted-snapshot-creator handling**: `snapshots.user_id` is `NOT NULL`; if a v2 manifest's original creator account no longer exists at restore time, ownership falls back to the restoring admin (or the project's current owner as a defensive secondary fallback) — never a fabricated user. Every fallback is recorded both in the structured result (`deletedUserFallback.count`/`snapshotIds`) and the audit event.
+5. **Reconnect-race mitigation, named precisely as a mitigation, not a proof**: `withProjectSnapshotLock` is a purely in-process lock and does not gate new Yjs-room creation on a WS reconnect — a client reconnecting during the swap window can create a fresh room reading pre-swap content, whose later flush could overwrite the just-restored files. Disposing the room a second time immediately after SWAP forces any such room to reconnect once more, this time reading correctly restored content. Verified directly: `backend/test/workspace-restore.test.ts` test 10 deterministically creates a room exactly inside the window (via a narrowly-scoped, doc-commented, test-only hook mirroring M30's own `integrityCheckFn` precedent — never invoked by production code) and proves it is disposed by RECONNECT, not left dangling.
+6. **Named residual risk, not papered over**: the filesystem SWAP and the SQL snapshot-row replace are not one atomic transaction — this codebase has no cross-domain primitive for that, consistent with M31's own accepted per-project-eventual-consistency model. A hard process crash in the narrow window between the filesystem rename and the SQL `COMMIT` could leave an inconsistent intermediate state; this window contains no I/O-bound work and is kept as short as practically possible, but universal atomicity is not claimed.
+7. **A second real bug found and fixed via this milestone's own testing** (mirroring M31's own audit-FK discovery): the initial ROLLBACK implementation gated "quarantine the bad new workspace" on a single coarse `swapped` flag set only after the _entire_ swap (workspace + snapshots + DB) completed — meaning a failure injected between the workspace move and the snapshot/DB work (a real, reachable case, not a hypothetical) left the bad new workspace content in place with no quarantine and silently failed to restore the original from rollback-staging (`fs.rename` onto a non-empty existing directory throws `ENOTEMPTY`, caught and swallowed). Fixed by tracking `workspaceSwapped`/`snapshotDirMoved` as separate, precisely-scoped flags instead of one coarse one. A second bug was found alongside it: the original SWAP code unconditionally moved the live snapshot directory into rollback-staging regardless of manifest version, silently deleting a v1 restore's (untouched, unrelated) existing snapshots from their live location even though the v1 policy explicitly promises to leave them alone. Both fixed and covered by real (not hypothetical) tests before release, not left as known issues.
+8. **Admin API (`backend/src/admin/routes.ts`)**: `POST /workspace-backups/:projectId/:filename/restore`, same `requireAdmin`/rate-limit/audit conventions as every other backup route; never exposed to project owners or collaborators in this milestone (a deliberate, evidence-based policy choice — M31's backups are only listable/downloadable via admin routes today, so owner-triggered restore would require a whole separate owner-facing backup-listing surface, out of scope here).
+
+Security considerations: admin-only; the backup is fully re-validated (traversal, symlink rejection, corruption) on every restore regardless of its trusted origin — provenance is never substituted for verification; `manifest.projectId` must exactly match the target route parameter, closing any cross-project restore path; every path touched is derived from an already-validated `projectId`/staged directory, never raw request input; audit events never include file content (verified directly with a real `.env`-shaped secret in a test).
+
+Files:
+
+- Production: `backend/src/backup/workspaceRestore.ts` (new), `backend/src/backup/workspaceBackup.ts` (manifest v1→v2, DB-row-driven snapshot collection, `generousArchiveConfig` extracted for reuse), `backend/src/admin/routes.ts`, `backend/src/audit.ts` (`WORKSPACE_BACKUP_RESTORED`).
+- Tests: `backend/test/workspace-restore.test.ts` (new, 19 tests covering all 21 scenarios the governing contract required, several combined where naturally paired): v2 successful restore with full byte/metadata fidelity; v1-shaped-backup compatibility (workspace restores, snapshots explicitly untouched, explicit skip reason); corrupted-archive rejection before any live change; traversal/absolute/Windows-style/null-byte filename rejection combined with cross-project IDOR rejection; malformed-manifest rejection; `manifest.projectId` mismatch rejection; deleted-snapshot-creator fallback; sandbox/collaboration/telemetry teardown (each independently spied/verified); the reconnect-race mitigation (deterministic, via the test-only hook); tree-cache invalidation; rollback after an injected SWAP-phase failure (the exact scenario that exposed the two real bugs above); rollback after a genuine (tampered-manifest, not hook-injected) post-swap verification failure; repeated-restore determinism; project-deletion interaction; admin-auth matrix; audit content including a real secret-non-leakage check; lazy-sandbox-preservation. `backend/test/workspace-backup.test.ts` extended with v2-manifest-shape assertions (2 tests strengthened, not just left passing incidentally).
+
+Verification:
+
+- Focused suite `test/workspace-restore.test.ts`: **19 passed / 0 failed** (8.9s) — every test exercises real temporary workspaces/DB state; Docker-dependent teardown is verified via spies (structural verification) since Docker is unavailable in this environment, consistent with every prior Docker-dependent milestone's own documented approach.
+- Related suite (`workspace-restore.test.ts`, `workspace-backup.test.ts`, `archive-import-export.test.ts`, `snapshot-quotas.test.ts`, `admin.test.ts`, `fork.test.ts`, `backup.test.ts`, `restore.test.ts`): **134 passed / 0 failed, 5 skipped** (8 test files, 25.16s) — zero regression to backup, export/import, snapshots, fork, or database backup/restore.
+- Full backend regression suite: **476 passed / 2 failed / 36 skipped (48 test files)**; the 2 failures are the same confirmed pre-existing baseline failures — `m16-optimization.test.ts` and `pipeline.test.ts` (Docker unavailable) — unmodified, no new regressions.
+- Backend typecheck: PASS (`tsc --noEmit -p backend/tsconfig.json`).
+- Frontend: not touched, not rebuilt — confirmed via `git status` that zero frontend files are in this milestone's diff. No frontend UI surface added, per the governing contract.
+- `git diff --check`: PASS.
+
 ## Known non-blocking issues
 
 - Pre-existing: 3 frontend exhaustive-deps warnings (one lives in touched
@@ -2207,19 +2237,21 @@ Verification:
 - Pre-existing test suite baseline expectations:
   - `backend/test/lifecycle.test.ts` / `backend/test/m16-optimization.test.ts`: assertions expect eager container port publication on startup (`getMappedPort`), conflicting with M16's intentional optimization of resolving ports lazily in `getProxyTarget()`.
   - `backend/test/pipeline.test.ts`: test mock assumes `isRunnerImageAvailableAsync` is never invoked when `isDockerRunningAsync` resolves `false`, conflicting with M16's intentional parallelized `Promise.all([isDockerRunningAsync(), isRunnerImageAvailableAsync(), ...])` pre-flight checks.
-  - Both failures are pre-existing relative to M18–M31, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M31, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
+  - Both failures are pre-existing relative to M18–M32, reproduce identically on clean HEAD `477dfc7` and on baseline `8c63827`, are not caused by any milestone through M32, were not modified by any of them, and remain tracked non-blocking test expectation updates outside this milestone's scope.
 - `test/python-deps.test.ts`: passes in live-Docker runs (~46s execution time
   due to Docker/pip overhead), skipped in Docker-gated/Docker-unavailable environments.
   Not modified as part of any milestone.
 
 ## Current active work
 
-Milestones 1–31 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
-`0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 in this commit). Manual QA execution for M1
-(`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged from before. M26
-and M28 both touched frontend UI and were verified by clean typecheck/build/vitest only — live
-browser interaction was not exercised for either (no Chrome automation available); worth a
-combined manual pass. M27, M29, M30, and M31 were all backend-only (no frontend files touched).
+Milestones 1–32 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
+`0c56f0c`, M29 at `0f08432`, M30 at `bc8261e`, M31 at `a1077e1`, M32 in this commit). Manual QA
+execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated, unchanged
+from before. M26 and M28 both touched frontend UI and were verified by clean typecheck/build/vitest
+only — live browser interaction was not exercised for either (no Chrome automation available);
+worth a combined manual pass. M27, M29, M30, M31, and M32 were all backend-only (no frontend files
+touched). The M25–M32 database + workspace + snapshot backup/restore arc is now fully closed on
+both halves (backup and restore) for both data domains (DB and filesystem).
 
 ## Next recommended milestone
 
@@ -2227,11 +2259,8 @@ combined manual pass. M27, M29, M30, and M31 were all backend-only (no frontend 
    above) — no code changes expected, just closing the live-interaction verification gap both
    milestones share. Fork's UI behavior itself is unchanged by M29 (still a button + name prompt);
    only the server-side outcome for non-owners changed (404 instead of 201).
-2. **Workspace/snapshot restore** — the natural M32: M31 added backup for
-   `workspaces/<projectId>/` and `snapshots/<projectId>/` bodies but deliberately deferred restore
-   (mirroring the M25→M30 split, which worked well). A real disaster today can now recover project
-   code and snapshot bodies onto disk by hand (extract the ZIP), but there is no tested, automated,
-   admin-triggered restore path yet, and no defined behavior for what should happen to a project's
-   live sandbox/collaboration state when its workspace is replaced out from under it.
-3. **Audit log retention/pruning** — `audit_logs` (`backend/src/audit.ts`) has no retention policy
-   or pruning tool; it grows unboundedly on a long-running instance. Lower urgency than (2).
+2. **Audit log retention/pruning** — `audit_logs` (`backend/src/audit.ts`) has no retention policy
+   or pruning tool; it grows unboundedly on a long-running instance. With the backup/restore arc now
+   fully closed, this is the strongest remaining evidence-backed operational gap.
+3. Other candidates: none currently identified beyond the above from repo state; next session should
+   re-audit rather than pick blind, per this session's own established practice.

@@ -120,6 +120,10 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     );
     expect(manifest.projectId).toBe(projectId);
     expect(manifest.workspaceFileCount).toBe(5);
+    // Milestone 32: manifest is now v2 and carries per-snapshot row
+    // metadata (empty here — no snapshot was created in this test).
+    expect(manifest.version).toBe(2);
+    expect(manifest.snapshots).toEqual([]);
   });
 
   it("2. captures real snapshot payload bodies alongside workspace files", async () => {
@@ -139,6 +143,17 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     );
     const originalSnapshotBody = readFileSync(join(snapDir, snapFiles[0]));
     expect(Buffer.compare(extractedSnapshotBody, originalSnapshotBody)).toBe(0);
+
+    // Milestone 32: the v2 manifest carries the matching DB row metadata
+    // for this snapshot, not just its body.
+    const manifest = JSON.parse(
+      readFileSync(join(scratch, "manifest.json"), "utf8"),
+    );
+    expect(manifest.version).toBe(2);
+    expect(manifest.snapshots.length).toBe(1);
+    expect(manifest.snapshots[0].id).toBe(snapFiles[0].replace(/\.gz$/, ""));
+    expect(manifest.snapshots[0].name).toBe("My Snapshot");
+    expect(manifest.snapshots[0].userId).toBe(ownerId);
     void cwd;
   });
 

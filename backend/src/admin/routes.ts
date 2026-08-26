@@ -17,6 +17,7 @@ import {
   deleteWorkspaceBackup,
   assertValidProjectId,
 } from "../backup/workspaceBackup.js";
+import { restoreWorkspaceBackup } from "../backup/workspaceRestore.js";
 import { getProject } from "../projects/service.js";
 import {
   getSystemCapabilitiesAsync,
@@ -1184,6 +1185,31 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
           ipAddress: req.ip,
         });
         res.json({ ok: true, deleted: filename });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // Milestone 32 — restores an EXISTING project's workspace (and, for a
+  // v2-manifest backup, its snapshots) in place from a Milestone 31
+  // backup. Admin-only, matching every other backup route above; never
+  // exposed to project owners/collaborators in this milestone.
+  router.post(
+    "/workspace-backups/:projectId/:filename/restore",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        checkLimit(req);
+        const { projectId, filename } = req.params;
+        const actorUserId = (req as any).user?.id;
+        const result = await restoreWorkspaceBackup(
+          cfg,
+          db,
+          projectId,
+          filename,
+          { actorUserId, ipAddress: req.ip },
+        );
+        res.json({ ok: true, restore: result });
       } catch (err) {
         next(err);
       }

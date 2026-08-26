@@ -77,13 +77,62 @@ export interface WorkspaceBackupCreateResult extends WorkspaceBackupMetadata {
   skippedWorkspaceFiles: number;
 }
 
+export interface WorkspaceBackupManifestV1 {
+  version: 1;
+  projectId: string;
+  projectName: string;
+  createdAt: string;
+  workspaceFileCount: number;
+  snapshotCount: number;
+  skippedWorkspaceFiles: number;
+}
+
+export interface WorkspaceBackupSnapshotEntry {
+  id: string;
+  name: string;
+  userId: number;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface WorkspaceBackupManifestV2 extends Omit<
+  WorkspaceBackupManifestV1,
+  "version"
+> {
+  version: 2;
+  snapshots: WorkspaceBackupSnapshotEntry[];
+}
+
+export type WorkspaceBackupManifest =
+  WorkspaceBackupManifestV1 | WorkspaceBackupManifestV2;
+
+/**
+ * The archive-size limits (`maxArchiveUploadBytes` etc.) exist to bound
+ * untrusted user uploads (import). A workspace backup — and, by the same
+ * reasoning, a restore reading one back — is a server-generated,
+ * already-size-bounded-by-construction disaster-recovery artifact, so both
+ * `createWorkspaceBackup`'s own verification and `workspaceRestore.ts`
+ * deliberately override those limits when calling `extractZipArchive`:
+ * reusing the MECHANISM (EOCD parsing, CRC32 corruption detection,
+ * traversal/symlink rejection), never the user-facing upload POLICY.
+ */
+export function generousArchiveConfig(cfg: AppConfig): AppConfig {
+  return {
+    ...cfg,
+    maxArchiveUploadBytes: Number.MAX_SAFE_INTEGER,
+    maxArchiveEntries: Number.MAX_SAFE_INTEGER,
+    maxArchiveUncompressedBytes: Number.MAX_SAFE_INTEGER,
+    maxArchiveSingleFileBytes: Number.MAX_SAFE_INTEGER,
+  };
+}
+
 export function assertValidProjectId(projectId: string): void {
   if (typeof projectId !== "string" || !PROJECT_ID_RE.test(projectId)) {
     throw new ApiError(400, "Invalid project ID", "invalid_project_id");
   }
 }
 
-function assertValidWorkspaceBackupFilename(filename: string): void {
+export function assertValidWorkspaceBackupFilename(filename: string): void {
   if (
     typeof filename !== "string" ||
     !WORKSPACE_BACKUP_FILENAME_RE.test(filename) ||
@@ -224,17 +273,10 @@ async function verifyArchiveExtractable(
   );
   await fs.mkdir(scratchDir, { recursive: true });
   try {
-    const generousCfg: AppConfig = {
-      ...cfg,
-      maxArchiveUploadBytes: Number.MAX_SAFE_INTEGER,
-      maxArchiveEntries: Number.MAX_SAFE_INTEGER,
-      maxArchiveUncompressedBytes: Number.MAX_SAFE_INTEGER,
-      maxArchiveSingleFileBytes: Number.MAX_SAFE_INTEGER,
-    };
     const extracted = await extractZipArchive(
       zipBuffer,
       scratchDir,
-      generousCfg,
+      generousArchiveConfig(cfg),
     );
     return extracted.filter((e) => !e.isDir).length;
   } finally {
@@ -297,37 +339,58 @@ export async function createWorkspaceBackup(
       }
     }
 
+    // Milestone 32 addition: walk the DB rows (source of truth for what a
+    // restorable snapshot actually is), not the raw directory listing — a
+    // `.gz` file with no matching row would otherwise end up in the
+    // archive with no way to reconstruct its `snapshots` table row on
+    // restore, which is exactly the "unzip files while leaving
+    // inconsistent database metadata" outcome this format must avoid. A
+    // row whose body is missing on disk is skipped (and counted), never
+    // fabricated.
     const snapDir = snapshotDir(cfg, projectId);
+    const snapshotRows = db
+      .prepare(
+        "SELECT id, name, user_id, size_bytes, created_at FROM snapshots WHERE project_id = ? ORDER BY created_at ASC",
+      )
+      .all(projectId) as Array<{
+      id: string;
+      name: string;
+      user_id: number;
+      size_bytes: number;
+      created_at: string;
+    }>;
+
+    const manifestSnapshots: WorkspaceBackupSnapshotEntry[] = [];
     let includedSnapshots = 0;
-    if (existsSync(snapDir)) {
-      let snapFiles: string[] = [];
+    let skippedSnapshotBodies = 0;
+    for (const row of snapshotRows) {
       try {
-        snapFiles = await fs.readdir(snapDir);
+        const content = await fs.readFile(join(snapDir, `${row.id}.gz`));
+        entries.push({ path: `snapshots/${row.id}.gz`, content });
+        manifestSnapshots.push({
+          id: row.id,
+          name: row.name,
+          userId: row.user_id,
+          sizeBytes: row.size_bytes,
+          createdAt: row.created_at,
+        });
+        includedSnapshots++;
       } catch {
-        snapFiles = [];
-      }
-      for (const sf of snapFiles) {
-        if (!sf.endsWith(".gz")) continue;
-        try {
-          const content = await fs.readFile(join(snapDir, sf));
-          entries.push({ path: `snapshots/${sf}`, content });
-          includedSnapshots++;
-        } catch {
-          // Best-effort — snapshot bodies are not concurrently mutated by
-          // any route (only created/deleted under the same lock this
-          // backup already holds), so this should not occur in practice.
-        }
+        // DB row exists but the body is missing on disk — skip rather
+        // than fabricate a body-less restorable entry.
+        skippedSnapshotBodies++;
       }
     }
 
-    const manifest = {
-      version: 1,
+    const manifest: WorkspaceBackupManifestV2 = {
+      version: 2,
       projectId,
       projectName: project.name,
       createdAt: new Date().toISOString(),
       workspaceFileCount: includedWorkspaceFiles,
       snapshotCount: includedSnapshots,
       skippedWorkspaceFiles,
+      snapshots: manifestSnapshots,
     };
     entries.push({
       path: "manifest.json",
@@ -385,6 +448,7 @@ export async function createWorkspaceBackup(
         workspaceFileCount: includedWorkspaceFiles,
         snapshotCount: includedSnapshots,
         skippedWorkspaceFiles,
+        skippedSnapshotBodies,
       },
       ipAddress: options?.ipAddress,
     });

@@ -33,6 +33,7 @@ export type AuditEventType =
   | "WORKSPACE_BACKUP_CREATED"
   | "WORKSPACE_BACKUP_DOWNLOADED"
   | "WORKSPACE_BACKUP_DELETED"
+  | "WORKSPACE_BACKUP_RESTORED"
   | "ADMIN_ACTION";
 
 export interface AuditRecord {
