@@ -1,39 +1,49 @@
-import React, { useCallback, useEffect, useRef, useState, Suspense } from 'react';
-import { getWebSocketUrl, api } from '../../api';
-import {
-  IconTrash,
-  IconCheck,
-  IconClose,
-  IconRefresh,
-} from '../common/Icons';
-import { getLanguageIcon } from '../common/iconUtils';
-import { RunRecord, SnapshotRecord } from '../../types';
-import { PromptModal, ConfirmModal } from '../common/Modal';
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  Suspense,
+} from "react";
+import { getWebSocketUrl, api } from "../../api";
+import { IconTrash, IconCheck, IconClose, IconRefresh } from "../common/Icons";
+import { getLanguageIcon } from "../common/iconUtils";
+import { RunRecord, SnapshotRecord } from "../../types";
+import { PromptModal, ConfirmModal } from "../common/Modal";
 const ExecutionTelemetryModal = React.lazy(
-  () => import('./ExecutionTelemetryModal'),
+  () => import("./ExecutionTelemetryModal"),
 );
 
 type LogLine = {
-  type: 'stdout' | 'stderr' | 'system' | 'error';
+  type: "stdout" | "stderr" | "system" | "error";
   text: string;
   time: string;
 };
 
 export default function Output({ project, onRefreshTree }: any) {
   const [activeTab, setActiveTab] = useState<
-    'console' | 'history' | 'snapshots'
-  >('console');
+    "console" | "history" | "snapshots"
+  >("console");
   const [logs, setLogs] = useState<LogLine[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  // M43: the install effect below needs the *current* isRunning value at the
+  // moment ide-install-confirmed fires, as a defense-in-depth check backing
+  // Toolbar's own disabled-button enforcement. Reading `isRunning` directly
+  // from that effect's closure would capture a stale snapshot (the effect's
+  // own deps are just [project]), so a ref mirrors it instead.
+  const isRunningRef = useRef(false);
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+  }, [isRunning]);
   const [statusBadge, setStatusBadge] = useState<{
     text: string;
-    type: 'idle' | 'running' | 'success' | 'error';
+    type: "idle" | "running" | "success" | "error";
   }>({
-    text: 'Idle',
-    type: 'idle',
+    text: "Idle",
+    type: "idle",
   });
 
   // History state
@@ -46,16 +56,16 @@ export default function Output({ project, onRefreshTree }: any) {
   const [snapshots, setSnapshots] = useState<SnapshotRecord[]>([]);
   const [loadingSnapshots, setLoadingSnapshots] = useState(false);
   const [modalState, setModalState] = useState<{
-    type: 'new_snapshot' | 'restore_snapshot' | 'delete_snapshot' | null;
+    type: "new_snapshot" | "restore_snapshot" | "delete_snapshot" | null;
     snapshot?: SnapshotRecord;
   }>({ type: null });
 
   const scrollToBottom = () => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
-    if (activeTab === 'console') scrollToBottom();
+    if (activeTab === "console") scrollToBottom();
   }, [logs, activeTab]);
 
   const loadRuns = useCallback(async () => {
@@ -89,8 +99,8 @@ export default function Output({ project, onRefreshTree }: any) {
   }, [project]);
 
   useEffect(() => {
-    if (activeTab === 'history') loadRuns();
-    if (activeTab === 'snapshots') loadSnapshots();
+    if (activeTab === "history") loadRuns();
+    if (activeTab === "snapshots") loadSnapshots();
   }, [activeTab, project, loadRuns, loadSnapshots]);
 
   useEffect(() => {
@@ -98,18 +108,18 @@ export default function Output({ project, onRefreshTree }: any) {
       const { language, activeFile, langDisplay } = (e as CustomEvent).detail;
       if (!project) return;
 
-      setActiveTab('console');
+      setActiveTab("console");
       const time = new Date().toLocaleTimeString();
       setLogs([
         {
-          type: 'system',
-          text: `Starting execution (${activeFile ? `${activeFile} → ` : ''}${langDisplay || language})...`,
+          type: "system",
+          text: `Starting execution (${activeFile ? `${activeFile} → ` : ""}${langDisplay || language})...`,
           time,
         },
       ]);
       setIsRunning(true);
-      setStatusBadge({ text: 'Running', type: 'running' });
-      document.dispatchEvent(new Event('run-started'));
+      setStatusBadge({ text: "Running", type: "running" });
+      document.dispatchEvent(new Event("run-started"));
 
       if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
         wsRef.current.onclose = null;
@@ -118,11 +128,11 @@ export default function Output({ project, onRefreshTree }: any) {
         wsRef.current.close();
       }
 
-      const ws = new WebSocket(getWebSocketUrl('/ws/execute', project.id));
+      const ws = new WebSocket(getWebSocketUrl("/ws/execute", project.id));
       wsRef.current = ws;
       let exitedNormally = false;
-      let accStdout = '';
-      let accStderr = '';
+      let accStdout = "";
+      let accStderr = "";
       let logBuffer: LogLine[] = [];
       let rafId: number | null = null;
 
@@ -136,7 +146,7 @@ export default function Output({ project, onRefreshTree }: any) {
         });
       };
 
-      const appendLog = (logLine: Omit<LogLine, 'time'>) => {
+      const appendLog = (logLine: Omit<LogLine, "time">) => {
         const now = new Date().toLocaleTimeString();
         logBuffer.push({ ...logLine, time: now });
         if (rafId === null) {
@@ -148,33 +158,33 @@ export default function Output({ project, onRefreshTree }: any) {
       };
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'start', language, activeFile }));
+        ws.send(JSON.stringify({ type: "start", language, activeFile }));
       };
 
       ws.onmessage = (msg) => {
         try {
           const parsed = JSON.parse(msg.data);
 
-          if (parsed.type === 'stdout') {
+          if (parsed.type === "stdout") {
             accStdout += parsed.data;
-            appendLog({ type: 'stdout', text: parsed.data });
-          } else if (parsed.type === 'stderr') {
+            appendLog({ type: "stdout", text: parsed.data });
+          } else if (parsed.type === "stderr") {
             accStderr += parsed.data;
-            appendLog({ type: 'stderr', text: parsed.data });
-          } else if (parsed.type === 'status') {
-            appendLog({ type: 'system', text: parsed.data });
-          } else if (parsed.type === 'error') {
+            appendLog({ type: "stderr", text: parsed.data });
+          } else if (parsed.type === "status") {
+            appendLog({ type: "system", text: parsed.data });
+          } else if (parsed.type === "error") {
             accStderr += parsed.data;
-            appendLog({ type: 'error', text: parsed.data });
-            setStatusBadge({ text: 'Error', type: 'error' });
-          } else if (parsed.type === 'exit') {
+            appendLog({ type: "error", text: parsed.data });
+            setStatusBadge({ text: "Error", type: "error" });
+          } else if (parsed.type === "exit") {
             exitedNormally = true;
             const { exitCode, signal, timedOut, oom } = parsed.result;
             let status = `Process exited with code ${exitCode}`;
             if (signal) status += ` (signal: ${signal})`;
-            if (timedOut) status = 'Process timed out';
-            if (oom) status = 'Process ran out of memory (OOM)';
-            appendLog({ type: 'system', text: status });
+            if (timedOut) status = "Process timed out";
+            if (oom) status = "Process ran out of memory (OOM)";
+            appendLog({ type: "system", text: status });
 
             if (parsed.telemetrySummary) {
               const peakMb = (
@@ -182,7 +192,7 @@ export default function Output({ project, onRefreshTree }: any) {
                 (1024 * 1024)
               ).toFixed(1);
               appendLog({
-                type: 'system',
+                type: "system",
                 text: `Resource Profile — Peak CPU: ${parsed.telemetrySummary.peakCpuPercent}% | Peak Memory: ${peakMb} MB | PIDs: ${parsed.telemetrySummary.peakPids || 1}`,
               });
             }
@@ -195,19 +205,19 @@ export default function Output({ project, onRefreshTree }: any) {
 
             setIsRunning(false);
             setStatusBadge({
-              text: exitCode === 0 ? 'Exited (0)' : `Exited (${exitCode})`,
-              type: exitCode === 0 ? 'success' : 'error',
+              text: exitCode === 0 ? "Exited (0)" : `Exited (${exitCode})`,
+              type: exitCode === 0 ? "success" : "error",
             });
-            document.dispatchEvent(new Event('run-stopped'));
+            document.dispatchEvent(new Event("run-stopped"));
 
             // Dispatch execution result for diagnostics / problems parser
             document.dispatchEvent(
-              new CustomEvent('ide-execution-result', {
+              new CustomEvent("ide-execution-result", {
                 detail: {
                   result: {
                     ...parsed.result,
-                    stdout: accStdout || parsed.result?.stdout || '',
-                    stderr: accStderr || parsed.result?.stderr || '',
+                    stdout: accStdout || parsed.result?.stdout || "",
+                    stderr: accStderr || parsed.result?.stderr || "",
                   },
                   activeFile,
                   language,
@@ -233,52 +243,52 @@ export default function Output({ project, onRefreshTree }: any) {
           setLogs((prev) => [
             ...prev,
             {
-              type: 'system',
-              text: 'Execution stream closed',
+              type: "system",
+              text: "Execution stream closed",
               time: new Date().toLocaleTimeString(),
             },
           ]);
-          setStatusBadge({ text: 'Stopped', type: 'idle' });
+          setStatusBadge({ text: "Stopped", type: "idle" });
         }
         setIsRunning(false);
-        document.dispatchEvent(new Event('run-stopped'));
+        document.dispatchEvent(new Event("run-stopped"));
       };
 
       ws.onerror = () => {
         setLogs((prev) => [
           ...prev,
           {
-            type: 'error',
-            text: 'WebSocket connection error',
+            type: "error",
+            text: "WebSocket connection error",
             time: new Date().toLocaleTimeString(),
           },
         ]);
         setIsRunning(false);
-        setStatusBadge({ text: 'Connection Error', type: 'error' });
-        document.dispatchEvent(new Event('run-stopped'));
+        setStatusBadge({ text: "Connection Error", type: "error" });
+        document.dispatchEvent(new Event("run-stopped"));
       };
     };
 
     const handleStop = () => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'stop' }));
+        wsRef.current.send(JSON.stringify({ type: "stop" }));
         setLogs((prev) => [
           ...prev,
           {
-            type: 'system',
-            text: 'Stopping execution process...',
+            type: "system",
+            text: "Stopping execution process...",
             time: new Date().toLocaleTimeString(),
           },
         ]);
       }
     };
 
-    document.addEventListener('ide-run-confirmed', handleRun);
-    document.addEventListener('ide-stop', handleStop);
+    document.addEventListener("ide-run-confirmed", handleRun);
+    document.addEventListener("ide-stop", handleStop);
 
     return () => {
-      document.removeEventListener('ide-run-confirmed', handleRun);
-      document.removeEventListener('ide-stop', handleStop);
+      document.removeEventListener("ide-run-confirmed", handleRun);
+      document.removeEventListener("ide-stop", handleStop);
       if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
         wsRef.current.onclose = null;
         wsRef.current.onerror = null;
@@ -288,19 +298,176 @@ export default function Output({ project, onRefreshTree }: any) {
     };
   }, [project, loadRuns]);
 
-  const handleInputSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && input) {
-      wsRef.current.send(JSON.stringify({ type: 'stdin', data: input + '\n' }));
-      setLogs((prev) => [
-        ...prev,
+  // M43: dedicated effect for the dependency-install stream. This is a
+  // separate request/response shape from the run WebSocket above (chunked
+  // plain-text HTTP, not JSON-framed WS messages), so it gets its own
+  // effect rather than being folded into the one above. Reuses the same
+  // LogLine/appendLog/rAF-batching approach and the same statusBadge as the
+  // single "what is this console currently doing" indicator — Run and
+  // Install are mutually exclusive (enforced in Toolbar, and defensively
+  // re-checked here), so there is never a genuine ambiguity in sharing it.
+  useEffect(() => {
+    let isUnmounted = false;
+    let installInFlight = false;
+    let installReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    const installAbortController = new AbortController();
+    let installRafId: number | null = null;
+    let installLogBuffer: LogLine[] = [];
+
+    const flushInstallLogs = () => {
+      if (installLogBuffer.length === 0) return;
+      const toAppend = installLogBuffer;
+      installLogBuffer = [];
+      setLogs((prev) => {
+        const next = [...prev, ...toAppend];
+        return next.length > 2000 ? next.slice(next.length - 2000) : next;
+      });
+    };
+
+    const appendInstallLog = (logLine: Omit<LogLine, "time">) => {
+      const now = new Date().toLocaleTimeString();
+      installLogBuffer.push({ ...logLine, time: now });
+      if (installRafId === null) {
+        installRafId = requestAnimationFrame(() => {
+          installRafId = null;
+          flushInstallLogs();
+        });
+      }
+    };
+
+    const handleInstall = async () => {
+      if (!project || installInFlight || isRunningRef.current) return;
+      installInFlight = true;
+
+      setActiveTab("console");
+      setLogs([
         {
-          type: 'stdout',
-          text: input + '\n',
+          type: "system",
+          text: "Installing dependencies...",
           time: new Date().toLocaleTimeString(),
         },
       ]);
-      setInput('');
+      setStatusBadge({ text: "Installing", type: "running" });
+      document.dispatchEvent(new Event("install-started"));
+
+      try {
+        const res = await fetch(`/api/projects/${project.id}/install`, {
+          method: "POST",
+          credentials: "include",
+          signal: installAbortController.signal,
+        });
+        if (isUnmounted) return;
+
+        if (!res.ok) {
+          let errText = `Install request failed (${res.status})`;
+          try {
+            const body = await res.text();
+            if (body) errText = body;
+          } catch {
+            // fall back to the generic status-based message above
+          }
+          if (isUnmounted) return;
+          appendInstallLog({ type: "error", text: errText });
+          setStatusBadge({ text: "Install Failed", type: "error" });
+          return;
+        }
+
+        if (!res.body) {
+          appendInstallLog({
+            type: "error",
+            text: "Install response had no readable body",
+          });
+          setStatusBadge({ text: "Install Failed", type: "error" });
+          return;
+        }
+
+        const reader = res.body.getReader();
+        installReader = reader;
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (isUnmounted) return;
+          if (done) {
+            // Flush any buffered partial multibyte sequence held by the
+            // decoder so a final split character isn't silently dropped.
+            const tail = decoder.decode();
+            if (tail) appendInstallLog({ type: "system", text: tail });
+            break;
+          }
+          const chunk = decoder.decode(value, { stream: true });
+          if (chunk) appendInstallLog({ type: "system", text: chunk });
+        }
+
+        if (installRafId !== null) {
+          cancelAnimationFrame(installRafId);
+          installRafId = null;
+        }
+        flushInstallLogs();
+        if (isUnmounted) return;
+        setStatusBadge({ text: "Install Complete", type: "success" });
+      } catch (err: any) {
+        if (isUnmounted || err?.name === "AbortError") {
+          // Unmount cleanup below already tore this down; don't touch state.
+          return;
+        }
+        if (installRafId !== null) {
+          cancelAnimationFrame(installRafId);
+          installRafId = null;
+        }
+        flushInstallLogs();
+        appendInstallLog({
+          type: "error",
+          text: `Install error: ${err?.message || String(err)}`,
+        });
+        setStatusBadge({ text: "Install Failed", type: "error" });
+      } finally {
+        installReader = null;
+        installInFlight = false;
+        if (!isUnmounted) {
+          document.dispatchEvent(new Event("install-stopped"));
+        }
+      }
+    };
+
+    document.addEventListener("ide-install-confirmed", handleInstall);
+
+    return () => {
+      isUnmounted = true;
+      document.removeEventListener("ide-install-confirmed", handleInstall);
+      if (installRafId !== null) {
+        cancelAnimationFrame(installRafId);
+        installRafId = null;
+      }
+      if (installReader) {
+        installReader.cancel().catch(() => {});
+      }
+      installAbortController.abort();
+      // handleInstall's own finally intentionally skips its dispatch once
+      // isUnmounted is true (it must not touch React state post-unmount) —
+      // so if a fetch/stream was actually in flight when we unmounted, this
+      // is the only place left to reset Toolbar's mirrored busy state.
+      // Without it, switching away from the Output tab mid-install would
+      // leave Run and Install permanently disabled.
+      if (installInFlight) {
+        document.dispatchEvent(new Event("install-stopped"));
+      }
+    };
+  }, [project]);
+
+  const handleInputSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && input) {
+      wsRef.current.send(JSON.stringify({ type: "stdin", data: input + "\n" }));
+      setLogs((prev) => [
+        ...prev,
+        {
+          type: "stdout",
+          text: input + "\n",
+          time: new Date().toLocaleTimeString(),
+        },
+      ]);
+      setInput("");
     }
   };
 
@@ -308,7 +475,7 @@ export default function Output({ project, onRefreshTree }: any) {
     if (!project) return;
     try {
       await api(`/api/projects/${project.id}/snapshots`, {
-        method: 'POST',
+        method: "POST",
         body: JSON.stringify({ name }),
       });
       loadSnapshots();
@@ -325,11 +492,11 @@ export default function Output({ project, onRefreshTree }: any) {
       await api(
         `/api/projects/${project.id}/snapshots/${modalState.snapshot.id}/restore`,
         {
-          method: 'POST',
+          method: "POST",
         },
       );
       if (onRefreshTree) onRefreshTree();
-      alert('Snapshot restored successfully!');
+      alert("Snapshot restored successfully!");
     } catch (err: any) {
       alert(`Error restoring snapshot: ${err.message}`);
     } finally {
@@ -343,7 +510,7 @@ export default function Output({ project, onRefreshTree }: any) {
       await api(
         `/api/projects/${project.id}/snapshots/${modalState.snapshot.id}`,
         {
-          method: 'DELETE',
+          method: "DELETE",
         },
       );
       loadSnapshots();
@@ -357,59 +524,59 @@ export default function Output({ project, onRefreshTree }: any) {
   return (
     <div
       className="panel-content"
-      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+      style={{ display: "flex", flexDirection: "column", height: "100%" }}
     >
       {/* Sub-Tabs Header */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '4px 12px',
-          background: 'var(--glass-surface-2)',
-          borderBottom: '1px solid var(--glass-border)',
-          fontSize: 'var(--text-xs)',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "4px 12px",
+          background: "var(--glass-surface-2)",
+          borderBottom: "1px solid var(--glass-border)",
+          fontSize: "var(--text-xs)",
         }}
       >
         {/* Navigation Tabs */}
         <div
           className="glass-tabs-container"
-          style={{ padding: '2px', background: 'rgba(0,0,0,0.2)' }}
+          style={{ padding: "2px", background: "rgba(0,0,0,0.2)" }}
         >
           <button
-            className={`glass-tab ${activeTab === 'console' ? 'active' : ''}`}
-            onClick={() => setActiveTab('console')}
-            style={{ padding: '3px 10px', fontSize: '11px' }}
+            className={`glass-tab ${activeTab === "console" ? "active" : ""}`}
+            onClick={() => setActiveTab("console")}
+            style={{ padding: "3px 10px", fontSize: "11px" }}
           >
             Output Console
           </button>
           <button
-            className={`glass-tab ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveTab('history')}
-            style={{ padding: '3px 10px', fontSize: '11px' }}
+            className={`glass-tab ${activeTab === "history" ? "active" : ""}`}
+            onClick={() => setActiveTab("history")}
+            style={{ padding: "3px 10px", fontSize: "11px" }}
           >
             Job History {runs.length > 0 && `(${runs.length})`}
           </button>
           <button
-            className={`glass-tab ${activeTab === 'snapshots' ? 'active' : ''}`}
-            onClick={() => setActiveTab('snapshots')}
-            style={{ padding: '3px 10px', fontSize: '11px' }}
+            className={`glass-tab ${activeTab === "snapshots" ? "active" : ""}`}
+            onClick={() => setActiveTab("snapshots")}
+            style={{ padding: "3px 10px", fontSize: "11px" }}
           >
             Snapshots {snapshots.length > 0 && `(${snapshots.length})`}
           </button>
         </div>
 
         {/* Tab-Specific Actions */}
-        {activeTab === 'console' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {activeTab === "console" && (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span
-              className={`glass-badge glass-badge-${statusBadge.type === 'running' ? 'accent' : statusBadge.type === 'success' ? 'success' : statusBadge.type === 'error' ? 'error' : 'warning'}`}
+              className={`glass-badge glass-badge-${statusBadge.type === "running" ? "accent" : statusBadge.type === "success" ? "success" : statusBadge.type === "error" ? "error" : "warning"}`}
             >
-              {statusBadge.type === 'running' && (
+              {statusBadge.type === "running" && (
                 <span className="capability-dot ready" />
               )}
-              {statusBadge.type === 'success' && <IconCheck size={10} />}
-              {statusBadge.type === 'error' && <IconClose size={10} />}
+              {statusBadge.type === "success" && <IconCheck size={10} />}
+              {statusBadge.type === "error" && <IconClose size={10} />}
               <span>{statusBadge.text}</span>
             </span>
             <button
@@ -423,7 +590,7 @@ export default function Output({ project, onRefreshTree }: any) {
           </div>
         )}
 
-        {activeTab === 'history' && (
+        {activeTab === "history" && (
           <button
             className="glass-btn glass-btn-icon"
             onClick={loadRuns}
@@ -433,11 +600,11 @@ export default function Output({ project, onRefreshTree }: any) {
           </button>
         )}
 
-        {activeTab === 'snapshots' && (
+        {activeTab === "snapshots" && (
           <button
             className="glass-btn glass-btn-primary"
-            style={{ padding: '3px 8px', fontSize: '11px' }}
-            onClick={() => setModalState({ type: 'new_snapshot' })}
+            style={{ padding: "3px 8px", fontSize: "11px" }}
+            onClick={() => setModalState({ type: "new_snapshot" })}
           >
             + Create Snapshot
           </button>
@@ -445,12 +612,12 @@ export default function Output({ project, onRefreshTree }: any) {
       </div>
 
       {/* Tab 1: Live Output Console */}
-      {activeTab === 'console' && (
+      {activeTab === "console" && (
         <div
           style={{
             flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
+            display: "flex",
+            flexDirection: "column",
             minHeight: 0,
           }}
         >
@@ -458,9 +625,9 @@ export default function Output({ project, onRefreshTree }: any) {
             {logs.length === 0 ? (
               <div
                 style={{
-                  color: 'var(--fg-muted)',
-                  fontStyle: 'italic',
-                  padding: '12px 0',
+                  color: "var(--fg-muted)",
+                  fontStyle: "italic",
+                  padding: "12px 0",
                 }}
               >
                 Program output and container execution logs will appear here.
@@ -489,7 +656,7 @@ export default function Output({ project, onRefreshTree }: any) {
               <button
                 type="submit"
                 className="glass-btn"
-                style={{ padding: '2px 8px', fontSize: '11px' }}
+                style={{ padding: "2px 8px", fontSize: "11px" }}
               >
                 Send
               </button>
@@ -499,14 +666,14 @@ export default function Output({ project, onRefreshTree }: any) {
       )}
 
       {/* Tab 2: Execution / Job History */}
-      {activeTab === 'history' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+      {activeTab === "history" && (
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
           {loadingRuns ? (
             <div
               style={{
-                padding: '20px',
-                textAlign: 'center',
-                color: 'var(--fg-muted)',
+                padding: "20px",
+                textAlign: "center",
+                color: "var(--fg-muted)",
               }}
             >
               Loading history...
@@ -514,10 +681,10 @@ export default function Output({ project, onRefreshTree }: any) {
           ) : runs.length === 0 ? (
             <div
               style={{
-                padding: '24px',
-                textAlign: 'center',
-                color: 'var(--fg-muted)',
-                fontStyle: 'italic',
+                padding: "24px",
+                textAlign: "center",
+                color: "var(--fg-muted)",
+                fontStyle: "italic",
               }}
             >
               No execution records found. Run a file to record job telemetry!
@@ -525,26 +692,26 @@ export default function Output({ project, onRefreshTree }: any) {
           ) : (
             <table
               style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: 'var(--text-xs)',
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: "var(--text-xs)",
               }}
             >
               <thead>
                 <tr
                   style={{
-                    borderBottom: '1px solid var(--glass-border)',
-                    color: 'var(--fg-muted)',
-                    textAlign: 'left',
+                    borderBottom: "1px solid var(--glass-border)",
+                    color: "var(--fg-muted)",
+                    textAlign: "left",
                   }}
                 >
-                  <th style={{ padding: '6px 8px' }}>File / Language</th>
-                  <th style={{ padding: '6px 8px' }}>Status</th>
-                  <th style={{ padding: '6px 8px' }}>Duration</th>
-                  <th style={{ padding: '6px 8px' }}>Peak RAM</th>
-                  <th style={{ padding: '6px 8px' }}>Exit Code</th>
-                  <th style={{ padding: '6px 8px' }}>Timestamp</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>
+                  <th style={{ padding: "6px 8px" }}>File / Language</th>
+                  <th style={{ padding: "6px 8px" }}>Status</th>
+                  <th style={{ padding: "6px 8px" }}>Duration</th>
+                  <th style={{ padding: "6px 8px" }}>Peak RAM</th>
+                  <th style={{ padding: "6px 8px" }}>Exit Code</th>
+                  <th style={{ padding: "6px 8px" }}>Timestamp</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right" }}>
                     Profile
                   </th>
                 </tr>
@@ -553,48 +720,48 @@ export default function Output({ project, onRefreshTree }: any) {
                 {runs.map((r) => {
                   const peakMb = r.peak_memory_bytes
                     ? `${(r.peak_memory_bytes / (1024 * 1024)).toFixed(1)} MB`
-                    : '-';
+                    : "-";
                   return (
                     <tr
                       key={r.id}
                       style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.03)',
+                        borderBottom: "1px solid rgba(255,255,255,0.03)",
                       }}
                     >
                       <td
                         style={{
-                          padding: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
+                          padding: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
                         }}
                       >
                         {getLanguageIcon(r.file_path, 13)}
                         <span>{r.file_path}</span>
                         <span
                           className="glass-badge"
-                          style={{ fontSize: '9px', padding: '0 4px' }}
+                          style={{ fontSize: "9px", padding: "0 4px" }}
                         >
                           {r.language}
                         </span>
                       </td>
-                      <td style={{ padding: '8px' }}>
+                      <td style={{ padding: "8px" }}>
                         <span
-                          className={`glass-badge glass-badge-${r.status === 'success' ? 'success' : 'error'}`}
-                          style={{ fontSize: '10px' }}
+                          className={`glass-badge glass-badge-${r.status === "success" ? "success" : "error"}`}
+                          style={{ fontSize: "10px" }}
                         >
                           {r.status}
                         </span>
                       </td>
                       <td
-                        style={{ padding: '8px', color: 'var(--fg-secondary)' }}
+                        style={{ padding: "8px", color: "var(--fg-secondary)" }}
                       >
                         {r.duration_ms} ms
                       </td>
                       <td
                         style={{
-                          padding: '8px',
-                          color: '#a6e3a1',
+                          padding: "8px",
+                          color: "#a6e3a1",
                           fontWeight: 600,
                         }}
                       >
@@ -602,23 +769,23 @@ export default function Output({ project, onRefreshTree }: any) {
                       </td>
                       <td
                         style={{
-                          padding: '8px',
+                          padding: "8px",
                           color:
                             r.exit_code === 0
-                              ? 'var(--accent-green)'
-                              : 'var(--accent-red)',
+                              ? "var(--accent-green)"
+                              : "var(--accent-red)",
                         }}
                       >
-                        {r.exit_code ?? '-'}
+                        {r.exit_code ?? "-"}
                       </td>
-                      <td style={{ padding: '8px', color: 'var(--fg-muted)' }}>
+                      <td style={{ padding: "8px", color: "var(--fg-muted)" }}>
                         {new Date(r.created_at).toLocaleTimeString()}
                       </td>
-                      <td style={{ padding: '8px', textAlign: 'right' }}>
+                      <td style={{ padding: "8px", textAlign: "right" }}>
                         <button
                           className="glass-btn glass-btn-ghost"
                           onClick={() => setSelectedRunForTelemetry(r)}
-                          style={{ fontSize: '10.5px', padding: '2px 7px' }}
+                          style={{ fontSize: "10.5px", padding: "2px 7px" }}
                           title="View Execution Resource Profile & Time Series"
                         >
                           Graph
@@ -634,14 +801,14 @@ export default function Output({ project, onRefreshTree }: any) {
       )}
 
       {/* Tab 3: Workspace Snapshots */}
-      {activeTab === 'snapshots' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+      {activeTab === "snapshots" && (
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
           {loadingSnapshots ? (
             <div
               style={{
-                padding: '20px',
-                textAlign: 'center',
-                color: 'var(--fg-muted)',
+                padding: "20px",
+                textAlign: "center",
+                color: "var(--fg-muted)",
               }}
             >
               Loading snapshots...
@@ -649,10 +816,10 @@ export default function Output({ project, onRefreshTree }: any) {
           ) : snapshots.length === 0 ? (
             <div
               style={{
-                padding: '24px',
-                textAlign: 'center',
-                color: 'var(--fg-muted)',
-                fontStyle: 'italic',
+                padding: "24px",
+                textAlign: "center",
+                color: "var(--fg-muted)",
+                fontStyle: "italic",
               }}
             >
               No snapshots created yet. Create a snapshot to preserve this
@@ -660,54 +827,54 @@ export default function Output({ project, onRefreshTree }: any) {
             </div>
           ) : (
             <div
-              style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
             >
               {snapshots.map((s) => (
                 <div
                   key={s.id}
                   className="glass-card"
                   style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--radius-sm)',
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
                   }}
                 >
                   <div
                     style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '2px',
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
                     }}
                   >
                     <span
-                      style={{ fontWeight: 600, color: 'var(--fg-primary)' }}
+                      style={{ fontWeight: 600, color: "var(--fg-primary)" }}
                     >
                       {s.name}
                     </span>
                     <span
-                      style={{ fontSize: '10px', color: 'var(--fg-muted)' }}
+                      style={{ fontSize: "10px", color: "var(--fg-muted)" }}
                     >
-                      Size: {Math.round(s.size_bytes / 1024)} KB • Created:{' '}
+                      Size: {Math.round(s.size_bytes / 1024)} KB • Created:{" "}
                       {new Date(s.created_at).toLocaleString()}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <div style={{ display: "flex", gap: "6px" }}>
                     <button
                       className="glass-btn glass-btn-primary"
-                      style={{ fontSize: '11px', padding: '3px 8px' }}
+                      style={{ fontSize: "11px", padding: "3px 8px" }}
                       onClick={() =>
-                        setModalState({ type: 'restore_snapshot', snapshot: s })
+                        setModalState({ type: "restore_snapshot", snapshot: s })
                       }
                     >
                       Restore
                     </button>
                     <button
                       className="glass-btn glass-btn-icon"
-                      style={{ color: 'var(--accent-red)' }}
+                      style={{ color: "var(--accent-red)" }}
                       onClick={() =>
-                        setModalState({ type: 'delete_snapshot', snapshot: s })
+                        setModalState({ type: "delete_snapshot", snapshot: s })
                       }
                       title="Delete Snapshot"
                     >
@@ -723,7 +890,7 @@ export default function Output({ project, onRefreshTree }: any) {
 
       {/* Snapshot Modals */}
       <PromptModal
-        isOpen={modalState.type === 'new_snapshot'}
+        isOpen={modalState.type === "new_snapshot"}
         title="Create Workspace Snapshot"
         placeholder="e.g. Before Refactoring"
         confirmLabel="Save Snapshot"
@@ -732,7 +899,7 @@ export default function Output({ project, onRefreshTree }: any) {
       />
 
       <ConfirmModal
-        isOpen={modalState.type === 'restore_snapshot'}
+        isOpen={modalState.type === "restore_snapshot"}
         title="Restore Workspace"
         message={`Are you sure you want to restore "${modalState.snapshot?.name}"? Current workspace files will be overwritten with the snapshot state.`}
         confirmLabel="Restore Snapshot"
@@ -742,7 +909,7 @@ export default function Output({ project, onRefreshTree }: any) {
       />
 
       <ConfirmModal
-        isOpen={modalState.type === 'delete_snapshot'}
+        isOpen={modalState.type === "delete_snapshot"}
         title="Delete Snapshot"
         message={`Are you sure you want to delete snapshot "${modalState.snapshot?.name}"?`}
         confirmLabel="Delete"

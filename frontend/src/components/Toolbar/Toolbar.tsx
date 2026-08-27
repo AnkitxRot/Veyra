@@ -1,6 +1,6 @@
-import React from 'react';
-import { getLanguageInfo } from '../../utils/language';
-import { IS_MAC } from '../../hooks/useKeyboardShortcuts';
+import React from "react";
+import { getLanguageInfo } from "../../utils/language";
+import { IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import {
   IconPlay,
   IconStop,
@@ -8,14 +8,15 @@ import {
   IconChevronRight,
   IconActivity,
   IconShield,
-} from '../common/Icons';
-import { getLanguageIcon } from '../common/iconUtils';
-import { Project, ContainerStats, User } from '../../types';
-import CollaboratorAvatarStack from '../Collab/CollaboratorAvatarStack';
+  IconDownload,
+} from "../common/Icons";
+import { getLanguageIcon } from "../common/iconUtils";
+import { Project, ContainerStats, User } from "../../types";
+import CollaboratorAvatarStack from "../Collab/CollaboratorAvatarStack";
 import type {
   CollaboratorPresence,
   CollabConnectionStatus,
-} from '../../collab/client';
+} from "../../collab/client";
 
 interface ToolbarProps {
   project: Project | null;
@@ -44,20 +45,46 @@ export default function Toolbar({
   onOpenCommandPalette: _onOpenCommandPalette,
   onOpenHealthModal,
   collaborators = [],
-  collabStatus = 'disconnected',
+  collabStatus = "disconnected",
   onFollowCollaborator,
   onOpenShareModal,
 }: ToolbarProps) {
   const [isRunning, setIsRunning] = React.useState(false);
+  // M43: mirrors the isRunning/run-started/run-stopped pattern above.
+  // Output.tsx owns the actual install request/stream and is the single
+  // source of truth for when it starts/stops; Toolbar only mirrors that
+  // state via document events to drive its own disabled/label logic.
+  const [isInstalling, setIsInstalling] = React.useState(false);
+  // Synchronous (non-React-state) guard against a rapid double-click firing
+  // two `ide-install` dispatches before the install-started event round-trip
+  // has had a chance to re-render this component with isInstalling=true.
+  const installInFlightRef = React.useRef(false);
 
   React.useEffect(() => {
     const onStart = () => setIsRunning(true);
     const onStop = () => setIsRunning(false);
-    document.addEventListener('run-started', onStart);
-    document.addEventListener('run-stopped', onStop);
+    document.addEventListener("run-started", onStart);
+    document.addEventListener("run-stopped", onStop);
     return () => {
-      document.removeEventListener('run-started', onStart);
-      document.removeEventListener('run-stopped', onStop);
+      document.removeEventListener("run-started", onStart);
+      document.removeEventListener("run-stopped", onStop);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const onInstallStart = () => {
+      installInFlightRef.current = true;
+      setIsInstalling(true);
+    };
+    const onInstallStop = () => {
+      installInFlightRef.current = false;
+      setIsInstalling(false);
+    };
+    document.addEventListener("install-started", onInstallStart);
+    document.addEventListener("install-stopped", onInstallStop);
+    return () => {
+      document.removeEventListener("install-started", onInstallStart);
+      document.removeEventListener("install-stopped", onInstallStop);
     };
   }, []);
 
@@ -65,11 +92,12 @@ export default function Toolbar({
   const langDisplay = langInfo.name;
   const runnable = langInfo.runnable;
   const langId = langInfo.id;
+  const isBusy = isRunning || isInstalling;
 
   const handleRun = () => {
-    if (project && !isRunning && activeFile) {
+    if (project && !isBusy && activeFile) {
       document.dispatchEvent(
-        new CustomEvent('ide-run', {
+        new CustomEvent("ide-run", {
           detail: {
             language: langId,
             activeFile,
@@ -82,59 +110,67 @@ export default function Toolbar({
 
   const handleStop = () => {
     if (isRunning) {
-      document.dispatchEvent(new Event('ide-stop'));
+      document.dispatchEvent(new Event("ide-stop"));
     }
+  };
+
+  const handleInstall = () => {
+    if (!project || isBusy || installInFlightRef.current) return;
+    // Set synchronously, before dispatch — a second click landing before
+    // React re-renders with isInstalling=true must still be rejected here.
+    installInFlightRef.current = true;
+    document.dispatchEvent(new Event("ide-install"));
   };
 
   let toolchainAvailable = true;
   let notRunnableTitle = activeFile
     ? `Files of type ${langDisplay} cannot be executed directly.`
-    : 'Open a file to run';
+    : "Open a file to run";
 
   if (runnable && capabilities) {
     if (!capabilities.docker) {
       toolchainAvailable = false;
       notRunnableTitle =
-        'Docker Sandbox unavailable. CloudeeeIDE requires Docker Desktop.';
+        "Docker Sandbox unavailable. CloudeeeIDE requires Docker Desktop.";
     } else if (!capabilities.runnerImage) {
       toolchainAvailable = false;
       notRunnableTitle =
-        'Runner Image unavailable. Please build cloudeeeide-runner:latest.';
-    } else if (langId === 'python' && !capabilities.languages.python)
+        "Runner Image unavailable. Please build cloudeeeide-runner:latest.";
+    } else if (langId === "python" && !capabilities.languages.python)
       toolchainAvailable = false;
-    else if (langId === 'node' && !capabilities.languages.node)
+    else if (langId === "node" && !capabilities.languages.node)
       toolchainAvailable = false;
-    else if (langId === 'typescript' && !capabilities.languages.typescript)
+    else if (langId === "typescript" && !capabilities.languages.typescript)
       toolchainAvailable = false;
-    else if (langId === 'c' && !capabilities.languages.c)
+    else if (langId === "c" && !capabilities.languages.c)
       toolchainAvailable = false;
-    else if (langId === 'cpp' && !capabilities.languages.cpp)
+    else if (langId === "cpp" && !capabilities.languages.cpp)
       toolchainAvailable = false;
-    else if (langId === 'java' && !capabilities.languages.java)
+    else if (langId === "java" && !capabilities.languages.java)
       toolchainAvailable = false;
 
-    if (runnable && !toolchainAvailable && notRunnableTitle === '') {
+    if (runnable && !toolchainAvailable && notRunnableTitle === "") {
       notRunnableTitle = `Required toolchain for ${langDisplay} is unavailable in runner image.`;
     }
   }
 
-  const runLabel = langDisplay && runnable ? `Run ${langDisplay}` : 'Run';
+  const runLabel = langDisplay && runnable ? `Run ${langDisplay}` : "Run";
   const canRun = runnable && toolchainAvailable;
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        if (canRun && !isRunning) handleRun();
+        if (canRun && !isBusy) handleRun();
         else if (isRunning) handleStop();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canRun, isRunning, project, activeFile, langId, langDisplay]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [canRun, isRunning, isBusy, project, activeFile, langId, langDisplay]);
 
   const memMb = stats ? Math.round(stats.memoryUsageBytes / (1024 * 1024)) : 0;
-  const cpuVal = stats ? stats.cpuPercent.toFixed(1) : '0.0';
+  const cpuVal = stats ? stats.cpuPercent.toFixed(1) : "0.0";
 
   return (
     <header className="toolbar" aria-label="Editor Toolbar">
@@ -142,7 +178,7 @@ export default function Toolbar({
       <div className="toolbar-breadcrumbs">
         <span className="breadcrumb-project">
           <IconLayers size={14} color="var(--accent)" />
-          <span>{project ? project.name : 'No Project'}</span>
+          <span>{project ? project.name : "No Project"}</span>
         </span>
         {activeFile && (
           <>
@@ -165,34 +201,34 @@ export default function Toolbar({
           onClick={onOpenQuickOpen}
           title="Quick Open File (Ctrl+P / Cmd+P) or Command Palette (Ctrl+Shift+P)"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'rgba(255, 255, 255, 0.04)',
-            border: '1px solid var(--glass-border-subtle)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '4px 12px',
-            fontSize: '12px',
-            color: 'var(--fg-muted)',
-            cursor: 'pointer',
-            transition: 'all 120ms ease',
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            background: "rgba(255, 255, 255, 0.04)",
+            border: "1px solid var(--glass-border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            padding: "4px 12px",
+            fontSize: "12px",
+            color: "var(--fg-muted)",
+            cursor: "pointer",
+            transition: "all 120ms ease",
           }}
         >
-          <span style={{ fontSize: '11px', color: 'var(--fg-secondary)' }}>
+          <span style={{ fontSize: "11px", color: "var(--fg-secondary)" }}>
             Search files or type &gt;
           </span>
           <span
             className="shortcut-hint"
             style={{
-              fontSize: '10px',
-              padding: '1px 5px',
-              fontFamily: 'var(--font-mono)',
-              background: 'rgba(0,0,0,0.3)',
-              borderRadius: '3px',
-              border: '1px solid var(--glass-border-subtle)',
+              fontSize: "10px",
+              padding: "1px 5px",
+              fontFamily: "var(--font-mono)",
+              background: "rgba(0,0,0,0.3)",
+              borderRadius: "3px",
+              border: "1px solid var(--glass-border-subtle)",
             }}
           >
-            {IS_MAC ? '⌘P' : 'Ctrl+P'}
+            {IS_MAC ? "⌘P" : "Ctrl+P"}
           </span>
         </button>
       )}
@@ -202,8 +238,8 @@ export default function Toolbar({
         <div
           className="capability-hud"
           style={{
-            background: 'rgba(255, 255, 255, 0.03)',
-            border: '1px solid rgba(137, 180, 250, 0.2)',
+            background: "rgba(255, 255, 255, 0.03)",
+            border: "1px solid rgba(137, 180, 250, 0.2)",
           }}
           title="Real-Time Container Resource Telemetry (cgroups)"
           role="status"
@@ -211,11 +247,11 @@ export default function Toolbar({
         >
           <span
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              fontSize: '11px',
-              color: 'var(--fg-secondary)',
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "11px",
+              color: "var(--fg-secondary)",
             }}
           >
             <IconActivity size={12} color="var(--accent)" />
@@ -224,17 +260,17 @@ export default function Toolbar({
             </span>
           </span>
 
-          <span style={{ color: 'var(--glass-border-light)' }}>|</span>
+          <span style={{ color: "var(--glass-border-light)" }}>|</span>
 
-          <span style={{ fontSize: '11px', color: 'var(--fg-secondary)' }}>
-            RAM: <strong>{memMb}MB</strong>{' '}
+          <span style={{ fontSize: "11px", color: "var(--fg-secondary)" }}>
+            RAM: <strong>{memMb}MB</strong>{" "}
             <span style={{ opacity: 0.6 }}>/ 512MB</span>
           </span>
 
           {stats.pids > 0 && (
             <>
-              <span style={{ color: 'var(--glass-border-light)' }}>|</span>
-              <span style={{ fontSize: '11px', color: 'var(--fg-muted)' }}>
+              <span style={{ color: "var(--glass-border-light)" }}>|</span>
+              <span style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
                 PIDs: <strong>{stats.pids}</strong>
               </span>
             </>
@@ -248,56 +284,56 @@ export default function Toolbar({
           <span
             style={{
               fontWeight: 600,
-              color: 'var(--fg-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
+              color: "var(--fg-secondary)",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
             }}
           >
             <span>Docker</span>
             <span
-              className={`capability-dot ${capabilities.docker && capabilities.runnerImage ? 'ready' : 'error'}`}
+              className={`capability-dot ${capabilities.docker && capabilities.runnerImage ? "ready" : "error"}`}
             />
           </span>
 
-          <span style={{ color: 'var(--glass-border-light)' }}>|</span>
+          <span style={{ color: "var(--glass-border-light)" }}>|</span>
 
           <span
-            className={`capability-chip ${capabilities.languages.python ? 'ready' : 'error'}`}
+            className={`capability-chip ${capabilities.languages.python ? "ready" : "error"}`}
             title="Python 3.11"
           >
             <span
-              className={`capability-dot ${capabilities.languages.python ? 'ready' : 'error'}`}
+              className={`capability-dot ${capabilities.languages.python ? "ready" : "error"}`}
             />
             Py
           </span>
 
           <span
-            className={`capability-chip ${capabilities.languages.node ? 'ready' : 'error'}`}
+            className={`capability-chip ${capabilities.languages.node ? "ready" : "error"}`}
             title="Node.js & TS"
           >
             <span
-              className={`capability-dot ${capabilities.languages.node ? 'ready' : 'error'}`}
+              className={`capability-dot ${capabilities.languages.node ? "ready" : "error"}`}
             />
             Node
           </span>
 
           <span
-            className={`capability-chip ${capabilities.languages.c ? 'ready' : 'error'}`}
+            className={`capability-chip ${capabilities.languages.c ? "ready" : "error"}`}
             title="GCC C/C++"
           >
             <span
-              className={`capability-dot ${capabilities.languages.c ? 'ready' : 'error'}`}
+              className={`capability-dot ${capabilities.languages.c ? "ready" : "error"}`}
             />
             GCC
           </span>
 
           <span
-            className={`capability-chip ${capabilities.languages.java ? 'ready' : 'error'}`}
+            className={`capability-chip ${capabilities.languages.java ? "ready" : "error"}`}
             title="OpenJDK Java"
           >
             <span
-              className={`capability-dot ${capabilities.languages.java ? 'ready' : 'error'}`}
+              className={`capability-dot ${capabilities.languages.java ? "ready" : "error"}`}
             />
             Java
           </span>
@@ -321,14 +357,14 @@ export default function Toolbar({
           className="glass-btn"
           onClick={onOpenHealthModal}
           style={{
-            padding: '5px 10px',
-            fontSize: '11px',
-            background: 'rgba(166, 227, 161, 0.1)',
-            color: '#a6e3a1',
-            border: '1px solid rgba(166, 227, 161, 0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
+            padding: "5px 10px",
+            fontSize: "11px",
+            background: "rgba(166, 227, 161, 0.1)",
+            color: "#a6e3a1",
+            border: "1px solid rgba(166, 227, 161, 0.3)",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
           }}
           title="Open Project Health Center"
         >
@@ -338,20 +374,20 @@ export default function Toolbar({
       )}
 
       {/* Admin Control Plane Switcher */}
-      {user?.role === 'admin' && onSwitchToAdmin && (
+      {user?.role === "admin" && onSwitchToAdmin && (
         <button
           className="glass-btn"
           onClick={onSwitchToAdmin}
           style={{
-            padding: '5px 12px',
-            fontSize: '11px',
-            background: 'rgba(243, 139, 168, 0.15)',
-            color: '#f38ba8',
-            border: '1px solid rgba(243, 139, 168, 0.35)',
+            padding: "5px 12px",
+            fontSize: "11px",
+            background: "rgba(243, 139, 168, 0.15)",
+            color: "#f38ba8",
+            border: "1px solid rgba(243, 139, 168, 0.35)",
             fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
           }}
           title="Open Admin Control Plane Dashboard"
         >
@@ -362,6 +398,20 @@ export default function Toolbar({
 
       {/* Action Controls */}
       <div className="toolbar-actions">
+        <button
+          className="glass-btn"
+          onClick={handleInstall}
+          disabled={!project || isBusy}
+          title={
+            isInstalling
+              ? "Installing dependencies…"
+              : "Install project dependencies (requirements.txt / package.json)"
+          }
+        >
+          <IconDownload size={12} />
+          <span>{isInstalling ? "Installing…" : "Install"}</span>
+        </button>
+
         {isRunning ? (
           <button
             className="glass-btn btn-stop"
@@ -370,18 +420,24 @@ export default function Toolbar({
           >
             <IconStop size={12} />
             <span>Stop</span>
-            <span className="shortcut-hint">{IS_MAC ? '⌘↵' : 'Ctrl+↵'}</span>
+            <span className="shortcut-hint">{IS_MAC ? "⌘↵" : "Ctrl+↵"}</span>
           </button>
         ) : (
           <button
             className="glass-btn btn-run"
             onClick={handleRun}
-            disabled={!canRun}
-            title={canRun ? `${runLabel} (Ctrl+Enter)` : notRunnableTitle}
+            disabled={!canRun || isInstalling}
+            title={
+              isInstalling
+                ? "Install in progress — run is unavailable until it finishes"
+                : canRun
+                  ? `${runLabel} (Ctrl+Enter)`
+                  : notRunnableTitle
+            }
           >
             <IconPlay size={12} />
             <span>{runLabel}</span>
-            <span className="shortcut-hint">{IS_MAC ? '⌘↵' : 'Ctrl+↵'}</span>
+            <span className="shortcut-hint">{IS_MAC ? "⌘↵" : "Ctrl+↵"}</span>
           </button>
         )}
       </div>

@@ -634,6 +634,25 @@ export default function IDE({
     return () => document.removeEventListener("ide-run", handleRunRequest);
   }, [project, openFiles, resolveLiveFileContent]);
 
+  // M43: Output (which owns the actual install request/stream) only exists
+  // in the DOM while bottomTab === "output" and the panel isn't collapsed —
+  // the same reason ide-run above must switch to that tab before its
+  // *-confirmed event fires, or the listener that would handle it won't be
+  // mounted yet. Install has no async dirty-file-save gate like Run does,
+  // so this handler is a synchronous, minimal echo of that same fix.
+  useEffect(() => {
+    const handleInstallRequest = () => {
+      if (!project) return;
+      setBottomTab("output");
+      setIsBottomCollapsed(false);
+      document.dispatchEvent(new Event("ide-install-confirmed"));
+    };
+
+    document.addEventListener("ide-install", handleInstallRequest);
+    return () =>
+      document.removeEventListener("ide-install", handleInstallRequest);
+  }, [project]);
+
   // Listen for execution completion events to parse compiler/runtime diagnostics
   useEffect(() => {
     const handleExecutionResult = (e: Event) => {

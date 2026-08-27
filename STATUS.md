@@ -3168,6 +3168,104 @@ Security/data review: no authorization/protocol changes; the fix only ever makes
 before; no new I/O, no new cross-project surface — the generation counter is keyed by the same `root`
 path the cache itself already uses.
 
+## Milestone 43 — Surface the dependency-install pipeline in the IDE UI
+
+**Discovery context**: a fresh product-audit pass (read-only, no code changes) after M42 identified
+`POST /api/projects/:id/install` (`backend/src/projects/routes.ts:1043-1102`) as a fully built,
+authenticated, ownership-checked, run-gated, streaming endpoint with `resolveInstallSpec()`
+(`backend/src/projects/install.ts`, already covered by `install.test.ts`'s 7 cases) with **zero
+frontend caller anywhere in the codebase** — the only way to install a project's dependencies was to
+open a terminal and run `pip`/`npm` manually. Selected over five other candidates (admin backup/
+restore UI, an env-vars/secrets manager, an observability panel, and wiring a real LLM behind the
+currently-deterministic "AI" feature) as the only one needing no product-policy decision and no
+backend change at all.
+
+**Fix — frontend only, no backend files touched**:
+
+- `frontend/src/components/Toolbar/Toolbar.tsx`: new `isInstalling` state (mirrors the existing
+  `isRunning`/`run-started`/`run-stopped` pattern via new `install-started`/`install-stopped` document
+  events dispatched by Output.tsx) plus a synchronous `installInFlightRef` guard against a second
+  click landing before React re-renders the disabled button. `isBusy = isRunning || isInstalling`
+  gates both Run and Install (and the Ctrl+Enter shortcut) so the two stay mutually exclusive,
+  matching the backend's shared `runGate`. New "Install" button dispatches a plain `ide-install`
+  event (no detail needed — Output already has `project` via props).
+- `frontend/src/components/IDE/IDE.tsx` (minimal, deliberately out-of-original-scope addition,
+  documented here per this pass's own "adapt minimally and document the discrepancy" instruction):
+  Output.tsx only exists in the DOM while `bottomTab === "output"` and the panel isn't collapsed —
+  exactly the reason the pre-existing `ide-run` → `ide-run-confirmed` two-hop pattern exists (IDE.tsx
+  forces the output tab open before the confirmed event fires, or Run silently does nothing when the
+  user is on, say, the Terminal tab). Install has the identical latent problem and no async
+  dirty-file-save gate, so a small synchronous mirror of that same fix was added: `ide-install` →
+  `setBottomTab("output")` + `setIsBottomCollapsed(false)` → dispatch `ide-install-confirmed`.
+- `frontend/src/components/Output/Output.tsx`: a new, dedicated `useEffect` (kept separate from the
+  existing WS-based run effect — different request/response shape, chunked plain-text HTTP vs
+  JSON-framed WebSocket messages) listening for `ide-install-confirmed`. Uses raw `fetch` +
+  `credentials: "include"` (never `api()`, which unconditionally calls `res.json()` and would throw on
+  this endpoint's plain-text stream) with an `AbortController`, reads `response.body.getReader()` in a
+  loop, decodes with `TextDecoder` (`{ stream: true }` per chunk, a final no-arg `decode()` call at
+  stream end to flush any buffered partial multibyte sequence), and feeds each chunk into the existing
+  `LogLine`/`appendLog`-style rAF-batched buffer as `type: "system"` (the endpoint's stream interleaves
+  stdout/stderr with no type tag, so no false stdout/stderr distinction is invented). Reuses the
+  existing `statusBadge` state as the single "what is this console doing" indicator, since Run and
+  Install can never be concurrently active. A defense-in-depth `isRunningRef` (kept live via a small
+  mirroring effect, avoiding the stale-closure trap a direct `isRunning` read would hit) additionally
+  refuses to start an install while a run is active, backing up Toolbar's own button-disable
+  enforcement. Non-2xx responses read and surface the plain-text error body; network/fetch rejections
+  and `AbortError` (unmount) are each handled explicitly; the effect's cleanup cancels the reader,
+  aborts the controller, and — critically — dispatches `install-stopped` itself if an install was still
+  in flight at unmount time (the async handler's own `finally` deliberately skips that dispatch once
+  unmounted, to avoid a post-unmount `setState`; without the cleanup's own dispatch, switching away
+  from the Output tab mid-install would leave Run and Install permanently disabled).
+
+**Tests** (18 new, 0 modified, 0 removed):
+
+- `frontend/test/output.installStream.test.ts` (8 tests): request shape (POST, exact URL, credentials
+  included), incremental streaming (first chunk visible before the second is delivered — via a
+  hand-built gated fake `ReadableStreamDefaultReader` rather than fighting real Streams-API timing),
+  UTF-8 finalization (a multibyte `é` sequence split across two chunk boundaries decodes correctly),
+  success (flush + idle transition + `install-stopped` fires once), non-2xx (visible error, state
+  resets), network rejection (visible error, no stuck busy state), rapid-duplicate-dispatch protection
+  (three `ide-install-confirmed` events in flight-time produce exactly one `fetch` call), and
+  unmount-mid-stream cleanup (reader cancelled, `install-stopped` still fires exactly once).
+- `frontend/test/toolbar.install.test.tsx` (10 tests): Install button renders and dispatches
+  `ide-install`; Run disabled (button + Ctrl+Enter) while installing; Install disabled while running
+  (button-level and click-is-a-no-op); two rapid Install clicks dispatch only one `ide-install`;
+  `install-stopped` re-enables both actions; and two explicit non-regression checks that Run/Stop
+  still dispatch `ide-run`/`ide-stop` correctly (this Toolbar had no prior test coverage at all, so
+  these are new baseline coverage, not a modification of anything pre-existing).
+- Both suites needed a one-line jsdom polyfill for `Element.prototype.scrollIntoView` (unrelated,
+  pre-existing `Output.tsx` auto-scroll effect; jsdom doesn't implement it, real browsers do) —
+  environment-only, not a production code change.
+
+Full frontend suite: 66/66 passed (48 pre-existing + 18 new), 0 regressions. `tsc --noEmit` clean.
+`vite build` clean (pre-existing >500kB Monaco/xterm chunk-size warning only, unrelated). `git diff
+--check` clean. `git diff --name-only` confirmed no `backend/` file changed — backend test suite not
+re-run, per that same evidence.
+
+**Live verification**: the Chrome browser extension was not connected in this environment (Chrome
+itself was not running) — retried, then a fresh process check confirmed no Chrome process existed, so
+this was treated as genuine unavailability rather than flakiness worth retrying further. Fell back to
+an authoritative Node-level check against the actual running dev backend (`localhost:3000`), issuing
+the exact same `fetch` + `credentials: "include"` + `getReader()` + `TextDecoder` sequence Output.tsx
+uses: registered a QA user, created a Python project with a `requirements.txt`, and called
+`POST /:id/install` — confirmed `200 OK`, `Content-Type: text/plain; charset=utf-8`,
+`Transfer-Encoding: chunked`, and two genuinely separate chunks arriving 255ms apart (not buffered into
+one response). Docker was not running in this environment, so no real `pip`/`npm` output could be
+observed (pre-existing, unrelated to this change — `sandboxRun` already degrades to a
+`stderr`-less "Process exited with code null" without ever touching the streamed chunks when Docker is
+down); also exercised the "no manifest, language-inferred command" path, the genuine
+"no dependency configuration found" path (a C project with nothing to install), and a 404 for an
+invalid project id — all matched `resolveInstallSpec()`'s documented priority order. This Node-level
+pass proves the real server contract the frontend unit tests mock; it cannot substitute for an actual
+DOM/click-driven browser pass, which is the one piece of PHASE 6 that could not be completed as
+originally specified — stated plainly rather than implied to have happened. QA scratch script cleaned
+up; QA users/projects left in the dev DB (harmless, consistent with prior sessions' QA data).
+
+Security/data review: no backend changes, no new trust boundary — the frontend calls the same
+authenticated, ownership-checked, run-gated endpoint a `curl` from an authenticated session could
+already call. No secrets or credentials pass through the new code path beyond the existing session
+cookie/bearer token `fetch` already sends via `credentials: "include"`.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3176,14 +3274,17 @@ M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression a
 Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration ghost-file
 resurrection fix), M38 (collaboration deletion race fix), M39 (collaboration import-replacement
 race fix), M40 (frontend collaboration-reconnect state reset), M41 (disposed-room stale-flush
-guards), and M42 (tree-cache stale-write-after-invalidate fix, above; commit noted at top of file
-once pushed).
+guards), M42 (tree-cache stale-write-after-invalidate fix), and M43 (dependency-install pipeline
+surfaced in the IDE UI, above; commit noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
-were backend-only and remain unverified by browser (nothing to verify — no frontend surface). The
-M25–M32 backup/restore arc is fully closed; M33 closed the audit-trail coverage/integrity gap; M34
-closed the resulting observability blind spot and, as of this pass, is now actually surfaced in the
-admin UI rather than only reachable via raw API.
+were backend-only and remain unverified by browser (nothing to verify — no frontend surface); M43 was
+verified live against the real dev server at the HTTP/stream level, not via an actual Chrome
+click-through (Chrome was not running in this environment — see M43 above). The M25–M32 backup/
+restore arc is fully closed; M33 closed the audit-trail coverage/integrity gap; M34 closed the
+resulting observability blind spot and, as of that pass, is surfaced in the admin UI rather than only
+reachable via raw API; M43 closes the equivalent frontend-surfacing gap for the dependency-install
+endpoint.
 
 ## Next recommended milestone
 
@@ -3224,7 +3325,38 @@ admin UI rather than only reachable via raw API.
    pass also audited sandbox teardown, telemetry, demo-account GC, graceful shutdown, and the session
    cache for the same bug class and found them already safe (locked, already routed through hardened
    paths, or structurally race-free) — see M42 above for the full survey.
-10. No further evidence-backed milestone was identified as of the M42 release. Next session should
-    run its own fresh discovery pass rather than assume this list is exhaustive — a codebase this size
-    likely has more to find, but nothing else surfaced clear enough evidence during this session's
-    audit to justify autonomous implementation without product input or additional investigation time.
+10. ~~No further evidence-backed milestone was identified as of the M42 release~~ — a subsequent
+    fresh product-audit pass (not a race-hunting pass) found M43 (see above): the dependency-install
+    endpoint was fully built with zero frontend caller. That same audit pass surfaced five other real,
+    evidence-backed but not-yet-actioned candidates, listed as items 11–15 below.
+11. Admin backup/restore UI — `GET/POST/DELETE /api/admin/backups` (DB-level) and `POST/GET/DELETE
+.../restore /api/admin/workspace-backups/:projectId` (7 endpoints total, all already
+    authenticated/admin-gated/tested) have zero frontend caller in `AdminDashboard.tsx`. An operator
+    currently has no self-service way to trigger, list, or restore a backup without SSH +
+    `scripts/backup-db.js`/`restore-db.js` — the single highest-stakes recovery operation in the
+    system is CLI/SSH-only. Engineering-determined, no product decision needed; larger scope than M43
+    (admin-only UI, a genuinely destructive restore action deserving its own careful confirm-flow
+    design) — this is the same item as the old item 5 above, re-confirmed still open by the M43-era
+    audit.
+12. Environment variables / secrets management — `execution/sandbox.ts:942-947` already accepts and
+    correctly injects `opts.env` into every `docker exec` call, but nothing in `pipeline.ts` ever
+    populates it; there is no DB table, no routes, no UI. Table-stakes for a cloud IDE that executes
+    arbitrary user code. **Product-decision-required** before implementation: visibility scope (owner-
+    only vs all collaborators), encryption-at-rest approach, and redaction policy across
+    audit/telemetry logs all need an explicit answer first.
+13. Real AI provider wiring — `ai/provider.ts`'s `AIProviderType` already declares
+    `"openai" | "anthropic"` variants, but `AIProviderRegistry.getProvider()` only ever returns the
+    local `DeterministicEngineeringProvider`; there is no API-key config anywhere. Highest-ceiling
+    differentiation candidate found, but explicitly **product-decision-required**: this product reads
+    as an intentional evaluator/demo sandbox (`evaluator_%` demo accounts, a "Guided Evaluator
+    Walkthrough Tour"), so whether a real, cost-incurring external LLM call is even desired is a product
+    question, not an engineering one — plus it would introduce a new trust boundary (prompt-injection/
+    context-leak review) that doesn't exist today.
+14. `/api/admin/observability` (live connection/room/sandbox counters) has no frontend caller in
+    `AdminDashboard.tsx` either — lower value than item 11, likely worth bundling into the same pass
+    rather than a standalone milestone.
+15. No security finding rose to the level of a standalone milestone during the M43-era audit (zip
+    import path-traversal/zip-bomb guards, admin authorization, and the — reassuringly local-only,
+    nothing-leaves-the-server — "AI" context-building path were all re-checked and found already
+    sound). Re-evaluate if items 12 or 13 above are ever actioned, since each introduces a genuinely
+    new trust boundary that doesn't exist yet.
