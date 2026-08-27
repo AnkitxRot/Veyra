@@ -22,6 +22,7 @@ import {
 import { getLanguageIcon } from "../common/iconUtils";
 import { PromptModal, ConfirmModal } from "../common/Modal";
 import { TemplateModal } from "../common/TemplateModal";
+import type { CollaboratorPresence } from "../../collab/client";
 
 interface SidebarProps {
   user: User;
@@ -37,6 +38,8 @@ interface SidebarProps {
   width?: number;
   onOpenTour?: () => void;
   onOpenSettings?: () => void;
+  collaborators?: CollaboratorPresence[];
+  currentUserId?: number;
 }
 
 export default function Sidebar({
@@ -53,6 +56,8 @@ export default function Sidebar({
   width = 260,
   onOpenTour,
   onOpenSettings,
+  collaborators,
+  currentUserId,
 }: SidebarProps) {
   const [showProjectsAccordion, setShowProjectsAccordion] = useState(true);
   const [searchFilter, setSearchFilter] = useState("");
@@ -75,6 +80,19 @@ export default function Sidebar({
 
   const isDemoUser =
     user.username.startsWith("evaluator_") || (user as any).isDemo;
+
+  const collaboratorsByPath = React.useMemo(() => {
+    const map = new Map<string, CollaboratorPresence[]>();
+    if (!collaborators) return map;
+    for (const c of collaborators) {
+      if (c.userId !== currentUserId && c.activeFile) {
+        const list = map.get(c.activeFile) || [];
+        list.push(c);
+        map.set(c.activeFile, list);
+      }
+    }
+    return map;
+  }, [collaborators, currentUserId]);
 
   const handleCreateProject = async (opts: {
     templateId: string | null;
@@ -679,6 +697,7 @@ export default function Sidebar({
                 filter={searchFilter}
                 onSelect={onOpenFile}
                 selected={activeFile}
+                collaboratorsByPath={collaboratorsByPath}
                 onAction={(action: any, node?: any) => {
                   if (
                     action === "new_file" ||
@@ -794,7 +813,14 @@ export default function Sidebar({
   );
 }
 
-function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
+function FileTree({
+  nodes,
+  filter,
+  onSelect,
+  selected,
+  onAction,
+  collaboratorsByPath,
+}: any) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -885,6 +911,7 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
           onSelect={onSelect}
           selected={selected}
           onContextNode={handleContextNode}
+          collaboratorsByPath={collaboratorsByPath}
         />
       )}
 
@@ -967,7 +994,13 @@ function FileTree({ nodes, filter, onSelect, selected, onAction }: any) {
   );
 }
 
-function FileTreeNodes({ nodes, onSelect, selected, onContextNode }: any) {
+function FileTreeNodes({
+  nodes,
+  onSelect,
+  selected,
+  onContextNode,
+  collaboratorsByPath,
+}: any) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const toggleCollapse = (path: string, e?: React.MouseEvent) => {
@@ -1002,6 +1035,9 @@ function FileTreeNodes({ nodes, onSelect, selected, onContextNode }: any) {
       {nodes.map((n: TreeNode) => {
         const isDir = n.type === "dir";
         const isCollapsed = collapsed[n.path];
+        const nodeCollaborators = !isDir
+          ? collaboratorsByPath?.get(n.path) || []
+          : [];
 
         return (
           <li key={n.path} role="none">
@@ -1042,6 +1078,28 @@ function FileTreeNodes({ nodes, onSelect, selected, onContextNode }: any) {
                 )}
               </span>
               <span className="tree-node-name">{n.name}</span>
+              {nodeCollaborators.length > 0 && (
+                <span
+                  className="tree-node-collab-badge"
+                  title={nodeCollaborators
+                    .map((c: any) => `${c.name} (${c.activity?.type || "viewing"})`)
+                    .join(", ")}
+                  aria-label={`${nodeCollaborators.length} active collaborator(s)`}
+                >
+                  {nodeCollaborators.slice(0, 3).map((c: any) => (
+                    <span
+                      key={c.clientId}
+                      className="tree-node-collab-dot"
+                      style={{ backgroundColor: c.color }}
+                    />
+                  ))}
+                  {nodeCollaborators.length > 3 && (
+                    <span className="tree-node-collab-count">
+                      +{nodeCollaborators.length - 3}
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
             {isDir && n.children && !isCollapsed && (
               <div className="tree-children" role="group">
@@ -1050,6 +1108,7 @@ function FileTreeNodes({ nodes, onSelect, selected, onContextNode }: any) {
                   onSelect={onSelect}
                   selected={selected}
                   onContextNode={onContextNode}
+                  collaboratorsByPath={collaboratorsByPath}
                 />
               </div>
             )}

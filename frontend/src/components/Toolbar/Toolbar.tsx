@@ -30,7 +30,11 @@ interface ToolbarProps {
   onOpenHealthModal?: () => void;
   collaborators?: CollaboratorPresence[];
   collabStatus?: CollabConnectionStatus;
+  isDnd?: boolean;
+  followingUserId?: number | null;
+  onToggleDnd?: (dnd: boolean) => void;
   onFollowCollaborator?: (c: CollaboratorPresence) => void;
+  onJumpToCollaborator?: (c: CollaboratorPresence) => void;
   onOpenShareModal?: () => void;
   onOpenSecretsModal?: () => void;
 }
@@ -47,7 +51,11 @@ export default function Toolbar({
   onOpenHealthModal,
   collaborators = [],
   collabStatus = "disconnected",
+  isDnd = false,
+  followingUserId = null,
+  onToggleDnd,
   onFollowCollaborator,
+  onJumpToCollaborator,
   onOpenShareModal,
   onOpenSecretsModal,
 }: ToolbarProps) {
@@ -348,7 +356,11 @@ export default function Toolbar({
           collaborators={collaborators}
           status={collabStatus}
           currentUserId={user.id}
+          isDnd={isDnd}
+          followingUserId={followingUserId}
+          onToggleDnd={onToggleDnd}
           onFollowCollaborator={onFollowCollaborator}
+          onJumpToCollaborator={onJumpToCollaborator}
           onOpenShareModal={onOpenShareModal}
         />
       )}

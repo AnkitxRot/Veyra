@@ -44,6 +44,7 @@ const Tour = React.lazy(() => import("../common/Tour"));
 import CommandPaletteModal from "../common/CommandPaletteModal";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 import WorkspaceSearchModal from "../Search/WorkspaceSearchModal";
+import FollowBanner from "../Collab/FollowBanner";
 import type {
   CollaborationClient,
   CollaboratorPresence,
@@ -169,6 +170,12 @@ export default function IDE({
   const [projectRole, setProjectRole] = useState<"owner" | "editor" | "viewer">(
     "owner",
   );
+
+  // M48 Follow Mode & DND states
+  const [followedUserId, setFollowedUserId] = useState<number | null>(null);
+  const [followPaused, setFollowPaused] = useState<boolean>(false);
+  const [followPauseReason, setFollowPauseReason] = useState<string>("");
+  const [isDnd, setIsDnd] = useState<boolean>(false);
 
   // M5: Verification-Aware AI Engineering Assistant States
   const [aiExplainState, setAiExplainState] = useState<{
@@ -407,6 +414,155 @@ export default function IDE({
   useEffect(() => {
     openFilesRef.current = openFiles;
   }, [openFiles]);
+
+  const followedUser = useMemo(
+    () =>
+      followedUserId
+        ? collaborators.find((c) => c.userId === followedUserId) || null
+        : null,
+    [followedUserId, collaborators],
+  );
+
+  // Auto-track followed collaborator
+  useEffect(() => {
+    if (!followedUser) {
+      if (followedUserId !== null) {
+        setFollowedUserId(null);
+        setFollowPaused(false);
+        setFollowPauseReason("");
+      }
+      return;
+    }
+
+    if (followedUser.activeFile && followedUser.activeFile !== activeFile) {
+      const isCurrentFileDirty = openFiles.some(
+        (f) => f.path === activeFile && f.dirty,
+      );
+      if (isCurrentFileDirty) {
+        setFollowPaused(true);
+        setFollowPauseReason("Follow paused — you have unsaved changes");
+      } else {
+        setFollowPaused(false);
+        setFollowPauseReason("");
+        handleOpenFile(followedUser.activeFile);
+      }
+    } else if (followedUser.activeFile === activeFile) {
+      setFollowPaused(false);
+      setFollowPauseReason("");
+      if (followedUser.cursor) {
+        document.dispatchEvent(
+          new CustomEvent("ide-reveal-location", {
+            detail: {
+              filePath: followedUser.activeFile,
+              line: followedUser.cursor.line,
+              column: followedUser.cursor.column,
+            },
+          }),
+        );
+      }
+    }
+  }, [followedUser, activeFile, openFiles, followedUserId]);
+
+  const handleFollowCollaborator = useCallback(
+    (c: CollaboratorPresence) => {
+      if (followedUserId === c.userId) {
+        setFollowedUserId(null);
+        setFollowPaused(false);
+        setFollowPauseReason("");
+      } else {
+        setFollowedUserId(c.userId);
+        setFollowPaused(false);
+        setFollowPauseReason("");
+        if (c.activeFile) {
+          const isCurrentFileDirty = openFiles.some(
+            (f) => f.path === activeFile && f.dirty,
+          );
+          if (!isCurrentFileDirty) {
+            handleOpenFile(c.activeFile);
+          } else if (c.activeFile !== activeFile) {
+            setFollowPaused(true);
+            setFollowPauseReason("Follow paused — you have unsaved changes");
+          }
+        }
+      }
+    },
+    [followedUserId, activeFile, openFiles],
+  );
+
+  const handleStopFollowing = useCallback(() => {
+    setFollowedUserId(null);
+    setFollowPaused(false);
+    setFollowPauseReason("");
+  }, []);
+
+  const handleJumpToCollaborator = useCallback(
+    (c: CollaboratorPresence) => {
+      if (c.activeFile) {
+        handleOpenFile(c.activeFile);
+        if (c.cursor) {
+          setTimeout(() => {
+            document.dispatchEvent(
+              new CustomEvent("ide-reveal-location", {
+                detail: {
+                  filePath: c.activeFile,
+                  line: c.cursor?.line,
+                  column: c.cursor?.column,
+                },
+              }),
+            );
+          }, 100);
+        }
+      }
+    },
+    [],
+  );
+
+  const handleToggleDnd = useCallback((dnd: boolean) => {
+    setIsDnd(dnd);
+    collabClientRef.current?.setDnd(dnd);
+  }, []);
+
+  const handleUserEdit = useCallback(() => {
+    if (followedUserId !== null) {
+      setFollowedUserId(null);
+      setFollowPaused(false);
+      setFollowPauseReason("");
+    }
+  }, [followedUserId]);
+
+  // M48: Update collaboration activity on run events
+  useEffect(() => {
+    const handleRunStarted = () => {
+      collabClientRef.current?.setActivity("running");
+    };
+    const handleRunStopped = () => {
+      collabClientRef.current?.restoreActivity();
+    };
+    document.addEventListener("ide-run-started", handleRunStarted);
+    document.addEventListener("ide-run-stopped", handleRunStopped);
+    return () => {
+      document.removeEventListener("ide-run-started", handleRunStarted);
+      document.removeEventListener("ide-run-stopped", handleRunStopped);
+    };
+  }, []);
+
+  // M48: Update collaboration activity on workspace search
+  useEffect(() => {
+    if (isWorkspaceSearchOpen) {
+      collabClientRef.current?.setActivity("searching");
+    } else {
+      collabClientRef.current?.restoreActivity();
+    }
+  }, [isWorkspaceSearchOpen]);
+
+  // M48: Update collaboration activity on terminal
+  useEffect(() => {
+    if (bottomTab === "terminal" && !isBottomCollapsed) {
+      collabClientRef.current?.setActivity("terminal");
+    } else if (bottomTab !== "terminal") {
+      collabClientRef.current?.restoreActivity();
+    }
+  }, [bottomTab, isBottomCollapsed]);
 
   // ---------------------------------------------------------------------------
   // M1 truthful-content resolution.
@@ -1264,6 +1420,8 @@ export default function IDE({
           width={sidebarWidth}
           onOpenTour={() => setShowTour(true)}
           onOpenSettings={() => setShowSettings(true)}
+          collaborators={collaborators}
+          currentUserId={user.id}
         />
       )}
 
@@ -1296,22 +1454,30 @@ export default function IDE({
           onOpenHealthModal={() => setIsHealthModalOpen(true)}
           collaborators={collaborators}
           collabStatus={collabStatus}
+          isDnd={isDnd}
+          followingUserId={followedUserId}
+          onToggleDnd={handleToggleDnd}
+          onFollowCollaborator={handleFollowCollaborator}
+          onJumpToCollaborator={handleJumpToCollaborator}
           onOpenShareModal={() => setIsShareModalOpen(true)}
           onOpenSecretsModal={
             projectRole === "owner"
               ? () => setIsSecretsModalOpen(true)
               : undefined
           }
-          onFollowCollaborator={(c) => {
-            if (c.activeFile) {
-              handleOpenFile(c.activeFile);
-            }
-          }}
         />
 
         {/* Central Editor & Bottom Workspace */}
         <div className="ide-workspace" style={{ flexDirection: "column" }}>
-          <div className="ide-editor-area">
+          <div className="ide-editor-area" style={{ position: "relative" }}>
+            {followedUser && (
+              <FollowBanner
+                followedUser={followedUser}
+                isPaused={followPaused}
+                pauseReason={followPauseReason}
+                onStopFollowing={handleStopFollowing}
+              />
+            )}
             <ErrorBoundary label="Editor">
               <Suspense
                 fallback={
@@ -1345,6 +1511,9 @@ export default function IDE({
                   setActiveFile={setActiveFile}
                   diagnostics={diagnostics}
                   collabClient={collabClient}
+                  collaborators={collaborators}
+                  currentUserId={user.id}
+                  onUserEdit={handleUserEdit}
                   isReadOnly={projectRole === "viewer"}
                   liveApiRef={liveApiRef}
                   preferences={preferences}

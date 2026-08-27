@@ -81,6 +81,10 @@ export class FakeEditorInstance {
     return { dispose: () => {} };
   }
 
+  onDidChangeCursorSelection(_cb: (e: unknown) => void) {
+    return { dispose: () => {} };
+  }
+
   addCommand(_keybinding: number, handler: (...args: unknown[]) => unknown) {
     const id = `cmd-${this.commandCounter++}`;
     this.commands.set(id, handler);

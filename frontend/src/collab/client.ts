@@ -21,15 +21,47 @@ export type CollabConnectionStatus =
   | "disconnected"
   | "forbidden";
 
+export type AvailabilityStatus = "online" | "idle" | "dnd";
+
+export type ActivityType =
+  | "viewing"
+  | "editing"
+  | "running"
+  | "terminal"
+  | "searching"
+  | "reviewing";
+
+export interface ActivityState {
+  type: ActivityType;
+  detail?: string | null;
+  timestamp: number;
+}
+
+export interface SelectionRange {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
 export interface CollaboratorPresence {
   clientId: number;
   userId: number;
   name: string;
   role: "owner" | "editor" | "viewer";
   color: string;
+  status: AvailabilityStatus;
+  activity: ActivityState;
   activeFile?: string | null;
   cursor?: { line: number; column: number } | null;
+  selection?: SelectionRange | null;
+  lastActive: number;
 }
+
+const IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+const BLUR_IDLE_TIMEOUT_MS = 60 * 1000; // 1 minute
+const EDITING_HYSTERESIS_MS = 5 * 1000; // 5 seconds
+const SELECTION_DEBOUNCE_MS = 50; // 50 milliseconds
 
 export class CollaborationClient {
   public readonly projectId: string;
@@ -49,10 +81,32 @@ export class CollaborationClient {
   private isDisposed = false;
   private user: User;
 
+  // Activity & Availability state machine
+  private availability: AvailabilityStatus = "online";
+  private isManualDnd = false;
+  private currentActivity: ActivityState = {
+    type: "viewing",
+    detail: null,
+    timestamp: Date.now(),
+  };
+
+  // Timers for state transitions
+  private idleTimer: any = null;
+  private blurTimer: any = null;
+  private editHysteresisTimer: any = null;
+  private selectionTimer: any = null;
+  private cursorTimer: number | null = null;
+
+  // Bound window listener references for clean removal on disposal
+  private handleUserInteractionBound = () => this.handleUserInteraction();
+  private handleWindowBlurBound = () => this.handleWindowBlur();
+  private handleWindowFocusBound = () => this.handleWindowFocus();
+
   constructor(projectId: string, user: User) {
     this.projectId = projectId;
     this.user = user;
     this.initDocAndAwareness();
+    this.initActivityListeners();
     this.connect();
   }
 
@@ -65,13 +119,16 @@ export class CollaborationClient {
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
 
-    // Configure user awareness
+    // Configure user awareness with M48 rich presence fields
     this.awareness.setLocalStateField("user", {
       id: this.user.id,
       name: this.user.username,
       color: getUserColor(this.user.id),
       role: this.user.role === "admin" ? "owner" : "editor",
     });
+    this.awareness.setLocalStateField("status", this.availability);
+    this.awareness.setLocalStateField("activity", this.currentActivity);
+    this.awareness.setLocalStateField("lastActive", Date.now());
 
     // Notify local listeners when awareness changes
     this.awareness.on("change", () => {
@@ -88,7 +145,7 @@ export class CollaborationClient {
       }
     });
 
-    // 2. Transmit local awareness updates (cursor, selection, active file) to server
+    // 2. Transmit local awareness updates to server
     this.awareness.on(
       "update",
       (
@@ -114,6 +171,145 @@ export class CollaborationClient {
         }
       },
     );
+  }
+
+  // --- Local Activity & Availability State Machine ---
+
+  private initActivityListeners(): void {
+    if (typeof window === "undefined") return;
+
+    window.addEventListener("mousemove", this.handleUserInteractionBound, {
+      passive: true,
+    });
+    window.addEventListener("keydown", this.handleUserInteractionBound, {
+      passive: true,
+    });
+    window.addEventListener("click", this.handleUserInteractionBound, {
+      passive: true,
+    });
+    window.addEventListener("scroll", this.handleUserInteractionBound, {
+      passive: true,
+    });
+    window.addEventListener("blur", this.handleWindowBlurBound);
+    window.addEventListener("focus", this.handleWindowFocusBound);
+
+    this.resetIdleTimer();
+  }
+
+  private removeActivityListeners(): void {
+    if (typeof window === "undefined") return;
+
+    window.removeEventListener("mousemove", this.handleUserInteractionBound);
+    window.removeEventListener("keydown", this.handleUserInteractionBound);
+    window.removeEventListener("click", this.handleUserInteractionBound);
+    window.removeEventListener("scroll", this.handleUserInteractionBound);
+    window.removeEventListener("blur", this.handleWindowBlurBound);
+    window.removeEventListener("focus", this.handleWindowFocusBound);
+  }
+
+  private handleUserInteraction(): void {
+    if (this.isDisposed) return;
+    this.resetIdleTimer();
+
+    if (!this.isManualDnd && this.availability === "idle") {
+      this.setAvailability("online");
+    }
+  }
+
+  private handleWindowBlur(): void {
+    if (this.isDisposed || this.isManualDnd) return;
+    if (this.blurTimer) clearTimeout(this.blurTimer);
+    this.blurTimer = setTimeout(() => {
+      if (!this.isDisposed && !this.isManualDnd) {
+        this.setAvailability("idle");
+      }
+    }, BLUR_IDLE_TIMEOUT_MS);
+  }
+
+  private handleWindowFocus(): void {
+    if (this.isDisposed) return;
+    if (this.blurTimer) {
+      clearTimeout(this.blurTimer);
+      this.blurTimer = null;
+    }
+    if (!this.isManualDnd && this.availability === "idle") {
+      this.setAvailability("online");
+    }
+    this.resetIdleTimer();
+  }
+
+  private resetIdleTimer(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      if (!this.isDisposed && !this.isManualDnd) {
+        this.setAvailability("idle");
+      }
+    }, IDLE_TIMEOUT_MS);
+  }
+
+  public setAvailability(status: AvailabilityStatus): void {
+    if (this.isDisposed) return;
+    this.availability = status;
+    this.awareness.setLocalStateField("status", status);
+    this.awareness.setLocalStateField("lastActive", Date.now());
+  }
+
+  public setDnd(enabled: boolean): void {
+    this.isManualDnd = enabled;
+    this.setAvailability(enabled ? "dnd" : "online");
+  }
+
+  public getDnd(): boolean {
+    return this.isManualDnd;
+  }
+
+  public setActivity(type: ActivityType, detail?: string | null): void {
+    if (this.isDisposed) return;
+    if (this.editHysteresisTimer) {
+      clearTimeout(this.editHysteresisTimer);
+      this.editHysteresisTimer = null;
+    }
+
+    this.currentActivity = {
+      type,
+      detail: detail ?? (type === "viewing" || type === "editing" ? this.activeFilePath : null),
+      timestamp: Date.now(),
+    };
+    this.awareness.setLocalStateField("activity", this.currentActivity);
+    this.awareness.setLocalStateField("lastActive", Date.now());
+  }
+
+  public recordEdit(): void {
+    if (this.isDisposed) return;
+    this.handleUserInteraction();
+
+    if (this.currentActivity.type !== "editing" || this.currentActivity.detail !== this.activeFilePath) {
+      this.setActivity("editing", this.activeFilePath);
+    } else {
+      this.awareness.setLocalStateField("lastActive", Date.now());
+    }
+
+    if (this.editHysteresisTimer) clearTimeout(this.editHysteresisTimer);
+    this.editHysteresisTimer = setTimeout(() => {
+      if (!this.isDisposed && this.currentActivity.type === "editing") {
+        this.setActivity("viewing", this.activeFilePath);
+      }
+    }, EDITING_HYSTERESIS_MS);
+  }
+
+  public restoreActivity(): void {
+    if (this.isDisposed) return;
+    this.setActivity("viewing", this.activeFilePath);
+  }
+
+  public updateSelection(selection: SelectionRange | null): void {
+    if (this.isDisposed) return;
+    if (this.selectionTimer) clearTimeout(this.selectionTimer);
+    this.selectionTimer = setTimeout(() => {
+      if (!this.isDisposed) {
+        this.awareness.setLocalStateField("selection", selection);
+      }
+    }, SELECTION_DEBOUNCE_MS);
   }
 
   // M40: called when the server has explicitly torn down this project's
@@ -284,6 +480,7 @@ export class CollaborationClient {
   public notifyFileOpen(filePath: string): void {
     this.activeFilePath = filePath;
     this.awareness.setLocalStateField("activeFile", filePath);
+    this.setActivity("viewing", filePath);
 
     // Send custom message to server
     const encoder = encoding.createEncoder();
@@ -419,23 +616,59 @@ export class CollaborationClient {
     const collaborators: CollaboratorPresence[] = [];
 
     for (const [clientId, state] of states.entries()) {
-      if (state.user) {
+      if (state && state.user && typeof state.user === "object") {
+        const rawActivity = state.activity;
+        const activity: ActivityState =
+          rawActivity && typeof rawActivity.type === "string"
+            ? {
+                type: rawActivity.type as ActivityType,
+                detail: typeof rawActivity.detail === "string" ? rawActivity.detail : null,
+                timestamp: typeof rawActivity.timestamp === "number" ? rawActivity.timestamp : Date.now(),
+              }
+            : {
+                type: "viewing",
+                detail: state.activeFile || null,
+                timestamp: Date.now(),
+              };
+
+        const rawSelection = state.selection;
+        const selection: SelectionRange | null =
+          rawSelection &&
+          typeof rawSelection.startLine === "number" &&
+          typeof rawSelection.startColumn === "number" &&
+          typeof rawSelection.endLine === "number" &&
+          typeof rawSelection.endColumn === "number"
+            ? {
+                startLine: rawSelection.startLine,
+                startColumn: rawSelection.startColumn,
+                endLine: rawSelection.endLine,
+                endColumn: rawSelection.endColumn,
+              }
+            : null;
+
         collaborators.push({
           clientId,
-          userId: state.user.id,
-          name: state.user.name || "Anonymous",
-          role: state.user.role || "editor",
-          color: state.user.color || getUserColor(state.user.id || 0),
-          activeFile: state.activeFile,
-          cursor: state.cursor,
+          userId: Number(state.user.id) || 0,
+          name: typeof state.user.name === "string" ? state.user.name : "Anonymous",
+          role: state.user.role === "owner" || state.user.role === "viewer" ? state.user.role : "editor",
+          color: typeof state.user.color === "string" ? state.user.color : getUserColor(state.user.id || 0),
+          status: state.status === "idle" || state.status === "dnd" ? state.status : "online",
+          activity,
+          activeFile: typeof state.activeFile === "string" ? state.activeFile : null,
+          cursor:
+            state.cursor &&
+            typeof state.cursor.line === "number" &&
+            typeof state.cursor.column === "number"
+              ? { line: state.cursor.line, column: state.cursor.column }
+              : null,
+          selection,
+          lastActive: typeof state.lastActive === "number" ? state.lastActive : Date.now(),
         });
       }
     }
 
     return collaborators;
   }
-
-  private cursorTimer: number | null = null;
 
   public updateCursorPosition(line: number, column: number): void {
     if (this.cursorTimer !== null) {
@@ -445,6 +678,7 @@ export class CollaborationClient {
       this.cursorTimer = null;
       if (!this.isDisposed) {
         this.awareness.setLocalStateField("cursor", { line, column });
+        this.awareness.setLocalStateField("lastActive", Date.now());
       }
     });
   }
@@ -493,10 +727,15 @@ export class CollaborationClient {
   public dispose(): void {
     this.isDisposed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.blurTimer) clearTimeout(this.blurTimer);
+    if (this.editHysteresisTimer) clearTimeout(this.editHysteresisTimer);
+    if (this.selectionTimer) clearTimeout(this.selectionTimer);
     if (this.cursorTimer !== null) {
       cancelAnimationFrame(this.cursorTimer);
       this.cursorTimer = null;
     }
+    this.removeActivityListeners();
     this.unbindCurrentModel();
     if (this.ws) {
       try {
@@ -524,3 +763,4 @@ const USER_COLORS = [
 export function getUserColor(userId: number): string {
   return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
 }
+

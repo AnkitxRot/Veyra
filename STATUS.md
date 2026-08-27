@@ -41,10 +41,9 @@ Last updated: 2026-08-27.
   - Milestone 31 (automated per-project workspace & snapshot-body backup) at `a1077e1`.
   - Milestone 32 (per-project workspace & snapshot restore) at `9f5c130`.
   - Milestone 33 (audit trail coverage & deletion integrity) at `31f00e6`.
-  - Milestone 34 (backup & restore operational health observability) at `61c9cb2`.
-  - Post-M34 browser QA pass (M26 nav-open fix, M28 cross-project editor-state corruption fix, M29
-    authz re-verification, M34 backup-health admin UI + unrelated Overview-tab crash fix) in this
-    commit.
+  - Milestone 46 (admin backup/restore controls surfaced in the admin dashboard) at `4d2c8fb`.
+  - Milestone 47 (encrypted per-project secrets & environment variables) at `91d0120`.
+  - Milestone 48 (ambient workspace presence, activity intent & safe follow mode) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -3638,6 +3637,48 @@ the value, install does not; terminal context audit; fail-closed missing key); f
 50/52 test files passed, 599/610 tests passed (2 known pre-existing baseline failures); backend `tsc --noEmit`
 clean (0 errors). Frontend 128/128 (18 files, +8 in `ProjectSecretsModal.test.tsx`); `tsc --noEmit` clean;
 `vite build` clean. Full live 15-step QA + audit leakage sweep verified against live Docker & WebSockets.
+
+## Milestone 48 — Ambient Workspace Presence, Activity Intent & Safe Follow Mode
+
+**Objective**: transform Veyra's basic Yjs multiplayer collaboration into a responsive, privacy-safe ambient
+collaboration experience with independent availability and activity tracking, active-file and selection awareness,
+file-tree and tab indicators, proximity warnings, and safe, interruptible Follow Mode with dirty-state protection.
+
+**Locked semantics implemented**:
+
+- **Presence & Awareness Schema**:
+  - `AvailabilityStatus`: `"online" | "idle" | "dnd"`.
+  - `ActivityType`: `"viewing" | "editing" | "running" | "terminal" | "searching" | "reviewing"`.
+  - `CollaboratorPresence`: carries `{ clientId, userId, name, role, color, status, activity, activeFile, cursor, selection, lastActive }`.
+  - **Local State Machine & Timers**:
+    - Inactivity timer: 2 minutes without user interaction transitions availability from `online` to `idle`.
+    - Window blur timer: 1 minute without window focus transitions availability to `idle`. Window focus immediately restores `online`.
+    - Typing hysteresis: typing sets activity to `editing` with a 5-second hysteresis before reverting to `viewing`.
+    - Selection debounce: cursor selection updates are debounced by 50ms before awareness broadcast.
+    - DND Mode: local user can toggle Do Not Disturb (`dnd`), suppressing idle/activity transitions.
+- **Privacy Boundaries (Strictly Invariant)**:
+  - Awareness broadcasts NEVER contain file contents, selected text, terminal output, stdout/stderr, secrets, environment variables, AI prompts, or command arguments.
+  - Selection broadcasts contain ONLY range coordinates `{ startLine, startColumn, endLine, endColumn }`.
+  - Following state is strictly local UI state and is never broadcast across the network.
+- **UI Affordances & Components**:
+  - `FollowBanner.tsx`: Floating liquid glass banner showing followed user, current file & line location, pause warning, `Esc to stop` hint, and "Stop" button.
+  - `CollaboratorAvatarStack.tsx`: Live availability status dots (green = online, amber = idle, purple = DND), rich presence popover with user role, current activity description, DND toggle button, one-click "Follow", and "Jump to File".
+  - File Tree Indicators (`Sidebar.tsx`): Colored presence dots and overflow badge on files currently opened or edited by remote collaborators.
+  - Tab Bar Indicators & Proximity Warning (`Editor.tsx`): Miniature colored collaborator dots on tab headers, and real-time proximity warning badge when concurrent edits occur within 5 lines on the same file.
+  - Remote Cursor Polish (`editor.css`): `.yRemoteSelectionHead::after` name tags smoothly fade after 3 seconds of inactivity to avoid code occlusion while remaining hoverable.
+- **Safe Follow Mode**:
+  - Follower smoothly tracks followed collaborator's file switches and viewport scroll locations.
+  - **Dirty-State Protection**: If follower has unsaved changes on their current active file and followed collaborator navigates to another file, follow mode automatically pauses (`"Follow paused — you have unsaved changes"`) without clobbering or switching follower's open dirty file.
+  - **Automatic Detach**: Any local user edit, manual file navigation, or Escape key press immediately stops/detaches follow mode.
+
+**Files added**: `frontend/src/components/Collab/FollowBanner.tsx`, `frontend/test/collab.awareness.test.ts` (7 tests), `frontend/test/collab.follow.test.tsx` (7 tests).
+**Files changed**: `frontend/src/collab/client.ts`, `frontend/src/components/Collab/CollaboratorAvatarStack.tsx`, `frontend/src/components/Editor/Editor.tsx`, `frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/Toolbar/Toolbar.tsx`, `frontend/src/components/IDE/IDE.tsx`, `frontend/src/styles/editor.css`, `frontend/test/mocks/monaco.ts`, `STATUS.md`.
+
+**Verification**:
+- Frontend full test suite: **20/20 test files passed, 143/143 tests passed** (including all 14 new M48 unit and integration tests).
+- Frontend typecheck: `tsc --noEmit` clean (0 errors).
+- Frontend production build: `npm run build` (`tsc --noEmit && vite build`) passed with exit code 0 and clean bundle chunks.
+- Backend test suite: 50/52 test files passed, 599/610 tests passed (only 2 pre-existing Docker-gated baseline failures).
 
 ## Current active work
 

@@ -4,7 +4,7 @@ import { getLanguageInfo } from "../../utils/language";
 import { Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
-import type { CollaborationClient } from "../../collab/client";
+import type { CollaborationClient, CollaboratorPresence } from "../../collab/client";
 import type { UserPreferences } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -38,12 +38,6 @@ function normalizeModelKey(path: string): string {
 /**
  * Returns the content currently visible in the live Monaco model for `path`,
  * or null when no live model exists (file not materialized in an editor).
- * Synchronous by design: save handlers need a consistent point-in-time read.
- *
- * Exported from a component file deliberately: M1's strict file boundary
- * forbids adding a shared module, and a value import here would drag the
- * Editor/Monaco chunk out of its lazy boundary for consumers anyway (IDE.tsx
- * accesses these through LiveContentApi ref indirection instead).
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function getLiveContent(path: string): string | null {
@@ -97,6 +91,9 @@ export interface EditorProps {
   onCreateFile?: () => void;
   diagnostics?: Diagnostic[];
   collabClient?: CollaborationClient | null;
+  collaborators?: CollaboratorPresence[];
+  currentUserId?: number;
+  onUserEdit?: () => void;
   isReadOnly?: boolean;
   liveApiRef?: React.MutableRefObject<LiveContentApi | null>;
   preferences?: UserPreferences;
@@ -111,15 +108,20 @@ export default function Editor({
   onCreateFile,
   diagnostics = [],
   collabClient,
+  collaborators = [],
+  currentUserId,
+  onUserEdit,
   isReadOnly = false,
   liveApiRef,
   preferences,
 }: EditorProps) {
+  const [localCursorLine, setLocalCursorLine] = React.useState<number>(1);
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const activeFileRef = useRef(activeFile);
   const isUpdatingModelRef = useRef(false);
   const collabClientRef = useRef(collabClient);
+  const onUserEditRef = useRef(onUserEdit);
   const isReadOnlyRef = useRef(isReadOnly);
   // Tracks what the model-management effect last *fully* processed. Used to
   // skip expensive setup (setModelLanguage / bindMonacoModel / layout) when the
@@ -138,6 +140,22 @@ export default function Editor({
   useEffect(() => {
     collabClientRef.current = collabClient;
   }, [collabClient]);
+
+  useEffect(() => {
+    onUserEditRef.current = onUserEdit;
+  }, [onUserEdit]);
+
+  const nearbyEditingCollaborators = React.useMemo(() => {
+    if (!activeFile || !collaborators) return [];
+    return collaborators.filter(
+      (c) =>
+        c.userId !== currentUserId &&
+        c.activeFile === activeFile &&
+        c.activity?.type === "editing" &&
+        c.cursor &&
+        Math.abs(c.cursor.line - localCursorLine) <= 5,
+    );
+  }, [activeFile, collaborators, currentUserId, localCursorLine]);
 
   // Dynamically apply preferences changes without remounting editor or replacing models
   useEffect(() => {
@@ -184,6 +202,7 @@ export default function Editor({
       }
 
       monacoRef.current.onDidChangeCursorPosition((e) => {
+        setLocalCursorLine(e.position.lineNumber);
         if (collabClientRef.current) {
           collabClientRef.current.updateCursorPosition(
             e.position.lineNumber,
@@ -192,8 +211,25 @@ export default function Editor({
         }
       });
 
+      monacoRef.current.onDidChangeCursorSelection((e) => {
+        if (collabClientRef.current) {
+          const sel = e.selection;
+          collabClientRef.current.updateSelection({
+            startLine: sel.startLineNumber,
+            startColumn: sel.startColumn,
+            endLine: sel.endLineNumber,
+            endColumn: sel.endColumn,
+          });
+        }
+      });
+
       monacoRef.current.onDidChangeModelContent(() => {
         if (isUpdatingModelRef.current) return;
+        if (collabClientRef.current) {
+          collabClientRef.current.recordEdit();
+        }
+        onUserEditRef.current?.();
+
         const currentPath = activeFileRef.current;
         if (!currentPath) return;
 
@@ -540,43 +576,86 @@ export default function Editor({
       {/* Liquid Glass Tabs Strip */}
       {hasOpenFiles && (
         <div className="editor-tabs" role="tablist">
-          {openFiles.map((f: any) => (
-            <div
-              key={f.path}
-              className={`editor-tab ${activeFile === f.path ? "active" : ""}`}
-              onClick={() => setActiveFile(f.path)}
-              role="tab"
-              aria-selected={activeFile === f.path}
-              title={f.path}
-            >
-              {getLanguageIcon(f.path, 13)}
-              <span className="tab-filename">{f.path.split("/").pop()}</span>
-              {f.dirty && (
-                <span className="tab-dirty-indicator" title="Unsaved changes" />
-              )}
-              <button
-                className="tab-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const newFiles = openFiles.filter(
-                    (of: any) => of.path !== f.path,
-                  );
-                  setOpenFiles(newFiles);
-                  if (activeFile === f.path) {
-                    setActiveFile(
-                      newFiles.length
-                        ? newFiles[newFiles.length - 1].path
-                        : null,
-                    );
-                  }
-                }}
-                title="Close Tab"
-                aria-label={`Close ${f.path}`}
+          {openFiles.map((f: any) => {
+            const tabCollaborators = (collaborators || []).filter(
+              (c) => c.userId !== currentUserId && c.activeFile === f.path,
+            );
+            return (
+              <div
+                key={f.path}
+                className={`editor-tab ${activeFile === f.path ? "active" : ""}`}
+                onClick={() => setActiveFile(f.path)}
+                role="tab"
+                aria-selected={activeFile === f.path}
+                title={f.path}
               >
-                <IconClose size={10} />
-              </button>
+                {getLanguageIcon(f.path, 13)}
+                <span className="tab-filename">{f.path.split("/").pop()}</span>
+                {f.dirty && (
+                  <span className="tab-dirty-indicator" title="Unsaved changes" />
+                )}
+                {tabCollaborators.length > 0 && (
+                  <span
+                    className="tab-collab-badge"
+                    title={tabCollaborators
+                      .map((c) => `${c.name} (${c.activity?.type || "viewing"})`)
+                      .join(", ")}
+                    aria-label={`${tabCollaborators.length} active collaborator(s) on this tab`}
+                  >
+                    {tabCollaborators.slice(0, 3).map((c) => (
+                      <span
+                        key={c.clientId}
+                        className="tab-collab-dot"
+                        style={{ backgroundColor: c.color }}
+                      />
+                    ))}
+                    {tabCollaborators.length > 3 && (
+                      <span className="tab-collab-count">
+                        +{tabCollaborators.length - 3}
+                      </span>
+                    )}
+                  </span>
+                )}
+                <button
+                  className="tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newFiles = openFiles.filter(
+                      (of: any) => of.path !== f.path,
+                    );
+                    setOpenFiles(newFiles);
+                    if (activeFile === f.path) {
+                      setActiveFile(
+                        newFiles.length
+                          ? newFiles[newFiles.length - 1].path
+                          : null,
+                      );
+                    }
+                  }}
+                  title="Close Tab"
+                  aria-label={`Close ${f.path}`}
+                >
+                  <IconClose size={10} />
+                </button>
+              </div>
+            );
+          })}
+
+          {/* Proximity Edit Warning Indicator */}
+          {nearbyEditingCollaborators.length > 0 && (
+            <div
+              className="proximity-warning-badge"
+              role="status"
+              aria-live="polite"
+              title={`Concurrent edits nearby: ${nearbyEditingCollaborators.map((c) => `${c.name} (Line ${c.cursor?.line || 1})`).join(", ")}`}
+            >
+              <span className="proximity-warning-dot" />
+              <span>
+                Nearby edit:{" "}
+                {nearbyEditingCollaborators.map((c) => c.name).join(", ")} (within 5 lines)
+              </span>
             </div>
-          ))}
+          )}
         </div>
       )}
 
