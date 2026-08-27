@@ -47,8 +47,11 @@ Last updated: 2026-08-27.
   - Milestone 50 (safe workspace-wide Replace All — pre-apply safety snapshot,
     open-editor buffer reconciliation, per-file selection & diff) at `c6b650e`.
   - Milestone 51 (first-class local Git version control — per-project repo,
-    Source Control panel, full branches, terminal parity, local-only) in this
-    commit.
+    Source Control panel, full branches, terminal parity, local-only) at `e9f8b73`.
+  - Milestone 52 (eliminate the Yjs/Monaco initial-load seed race that could
+    duplicate a file's content on disk — server is now the single seeding
+    authority via an explicit `file_ready` signal; the client never seeds a
+    shared Y.Text from the Monaco model) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -3825,6 +3828,116 @@ With a live collaboration room, `notifyExternalFileMutation` still flows the rep
 - Browser QA (real Chrome + Docker, live `:3000` hot-reloaded to M51, fresh runner image): **A** init (repo + `.git` created); **B** all 3 files shown as untracked; **C** stage one → moves to Staged (`A` glyph); **D** per-file staged diff `@@ -0,0 +1,2 @@` with `+` lines; **E** commit → working tree clean, toast + short hash, history entry, author `m51qa <m51qa@veyra.local>` on disk; **F** modify → diff (`- old`/`+ new`) → stage → commit → history newest-first; **G** create branch + checkout → panel + tab branch badge update; **H** checkout to another branch → the clean open Monaco buffer reconciled to that branch's content and the explorer picked up a branch-only file; **I** genuine unsaved editor edit + conflicting checkout → **rejected**, banner names the file, editor content and branch untouched (verified on disk); **J** Veyra terminal `git branch`/`checkout -b` operate on the **same `.git`** (host confirms the terminal-created branch alongside the API-created commit), and the panel Refresh shows the terminal's branch; **N** viewer collaborator: all git reads 200, all writes 403; non-collaborator 404. QA projects deleted afterward.
 - `git diff --check` clean.
 
+## Milestone 52 — Eliminate Yjs initial-load content duplication
+
+**Objective:** close the collaboration seed race that could double a file's
+content on disk. Reproduced live during M51 QA (it corrupted several M50/M51
+fixtures). M37–M41 hardened room _lifecycle_; none of them touched this
+_initial-load seed_ path. M50/M51 were both explicitly barred from Yjs
+internals — M52 is the focused follow-up (Known non-blocking issue #20).
+
+**Exact bug.** `frontend/src/collab/client.ts` `attachBinding()` seeded an
+empty shared `Y.Text` from the local Monaco model whenever
+`yText.length === 0 && model.getValue().length > 0`. The model already held the
+file's disk bytes (fetched by `handleOpenFile` via `GET /api/projects/:id/file`).
+On open the client sent `file_open` and then **synchronously** inserted that
+content into its `Y.Text` and transmitted it, while the server independently
+handled `file_open` → `CollaborationRoom.ensureFileLoaded()` → **async**
+`fs.readFile` → inserted the same bytes under origin `initial_disk_load`. Both
+sides' `yText.length === 0` guards are heuristics that both pass when the server
+`readFile` resolves before the client's seed update arrives: two independent
+CRDT insertions of the same text at offset 0 → `Y.mergeUpdates` → `"XX"` →
+`flushToDisk()` persisted the duplicate. Intermittent by nature (a narrow
+timing window), which is why it surfaced only occasionally.
+
+**Root cause.** A client-side file-content heuristic was acting as an
+initialization authority in parallel with the server's own disk load, with no
+coordination between them.
+
+**Initialization-authority contract (now enforced).** For a given file the
+initial `Y.Text` content is established exactly once, from the authoritative
+workspace state on the server. Monaco is a consumer of that state, never an
+independent initializer.
+
+**Fix.**
+
+- `backend/src/collab/manager.ts` — after `ensureFileLoaded(path)` resolves for
+  a `file_open`, the room sends that client a `{type:"file_ready", path}`
+  `MESSAGE_CUSTOM` frame (guards: room not disposed, `ws.readyState === 1`,
+  client still joined). Floating promise chain — `handleMessage` stays
+  synchronous and never throws. No new endpoint, no Yjs-protocol change, no
+  SQLite, no persisted metadata.
+- `frontend/src/collab/client.ts` — the `initial_model_sync` seed is **deleted
+  outright**. `bindMonacoModel()` now constructs the `y-monaco` binding
+  immediately only when the server content is already authoritative
+  (`Y.Text` non-empty, or `file_ready` already received for that path);
+  otherwise it records a single `pendingBind` and waits for `file_ready`, with
+  a 2000ms **seed-free** fallback timer for an older server or a lost message.
+  `readyFiles` is cleared on explicit-disposal reset so the fresh lineage
+  re-waits for the server's fresh signal (preserves the M40 "stale content
+  discarded, never merged" guarantee — the reset rebind carries `fromReset` so
+  the dirty re-apply below is suppressed for it).
+- **Phase-7 dirty-at-bind policy (local buffer wins, applied once).** First
+  bind is synchronous with the model's disk-content creation, so it is always
+  clean. If the user edits during the (sub-second) defer window, `completeBind`
+  captures the local value before constructing the binding and, once the
+  authoritative `Y.Text` is in place, re-applies the local buffer via one
+  `model.setValue` — y-monaco propagates it as a single full-replace edit, so
+  the base content is represented once and the edit is preserved. Never a
+  base-content re-insert, never a silent discard.
+
+**Verification.**
+
+- New `frontend/test/collab-initialization.test.ts` (**10/10**, real `yjs` +
+  real `y-protocols` sync; only `y-monaco`/`monacoSetup` faked, mirroring the
+  existing collab tests): clean open during room load stays single-copy;
+  `file_ready` before/after sync step 2; empty new file; first local edit once;
+  2000ms fallback (fake timers); Phase-7 dirty window (`"Xy"`, not `"XX"` /
+  `"XXy"` / lost `"y"`); concurrent multi-file binds never cross-seed;
+  ordinary-reconnect second `file_ready` no-dup; explicit-disposal reconnect
+  fresh-lineage-wins. **Pre-fix proof:** with `client.ts` reverted, **7 of 10
+  fail** with the exact duplication signature (`'XX'` vs `'X'`,
+  `'BBBBBB'` vs `'BBB'`, dirty `'XX'` vs `'Xy'`); all 10 pass with the fix.
+- `backend/test/m4-collab.test.ts` +4 (cases 33–36): `file_ready` emission to
+  the requesting client; a path-escape `file_open` key never registers in
+  `doc.share` and never reaches disk (a `file_ready` may still be signalled —
+  documented); disk byte fidelity incl. trailing newline through a real
+  sync-protocol edit; a client joining a file the server already loaded does
+  not double it. **m4-collab 43/43, m41 8/8, m6 8/8.**
+- `collab.disposedClient.test.ts` / `collab.explicitDisposalReset.test.ts` —
+  harness updated to drive the new `file_ready` frame (deferred binds no longer
+  fire synchronously); every existing assertion's intent preserved. Frontend
+  collab suites **34/34** (10 new + 24 existing).
+- Full backend suite: **only the two documented baseline failures**
+  (`lifecycle.test.ts`, `pipeline.test.ts` — reproduce identically on clean
+  `e9f8b73`; the transient `m16-optimization` failure seen mid-run was Docker
+  being down and passes with Docker up). Zero new failures.
+- Full frontend suite: **all pass** (208 M51-era + 10 new). `tsc --noEmit`
+  clean both packages; `vite build` clean (same pre-existing Monaco chunk-size
+  warning). `git diff --check` clean.
+- **Security audit (independent, read-only): PASS, zero findings.** Seed path
+  fully gone; the `file_ready` echo performs no filesystem access and reaches
+  only the originating socket; rejected paths never pollute `doc.share`;
+  per-instance `readyFiles`/`pendingBind` with exact path matching; fallback
+  timer always cleared; viewer write-block unchanged.
+- **Live e2e (substitutes for the Phase-21 browser pass — Chrome extension not
+  available in this environment; replicated `client.ts`'s exact wire protocol
+  against the running worktree backend with real `CollaborationRoom` /
+  `ensureFileLoaded` / `file_ready` / `flushToDisk` to real disk):** the
+  shipped no-seed/deferred-bind client produced **byte-exact single-copy disk
+  content across all 21 timing windows** (short / 12-line / 400-line files ×
+  0,1,5,10,20,50,100 ms open-delay). New empty file → type → flush →
+  `print('brand new')\n` exactly. Two collaborators opening the same file
+  concurrently during init, both editing → both converge identically, disk
+  matches, base line once, each edit once. Scratch project/server/data removed
+  afterward (`.qa-m52/` scratch dir left on disk — permission mode blocked its
+  recursive delete; untracked and not staged).
+
+**What was NOT verified:** the collaboration subsystem is not claimed formally
+race-free. Verified: the specific initial-load seed race is eliminated across
+the timing windows and scenarios above, with M37–M41 / M48 / M50 / M51
+regression suites green.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3963,16 +4076,14 @@ end-to-end.
     open-buffer reconciliation, per-file selection + diff.
 19. ~~No version control~~ — implemented in M51 (see the M51 section above): a real per-project Git
     repo, Source Control panel, full local branches, terminal parity, local-only (no remotes).
-20. **Collaboration Y.Text seed/merge duplication — a real pre-existing bug worth its own milestone,
-    surfaced again during M51 browser QA.** Opening a file in the editor while its content is also
-    being loaded into the collaboration room can CRDT-merge two copies (`bindMonacoModel`'s
-    "seed Y.Text from model if empty" heuristic racing the server's own disk load), leaving the file
-    doubled on disk after the room flushes. STATUS.md's M28 section describes the same mechanism; M37/
-    M40/M41 hardened room _lifecycle_ but not this _seed race_. It corrupted several M50/M51 QA
-    fixtures. Out of scope for both M50 and M51 (both explicitly barred from touching Yjs internals),
-    but it is the strongest standing data-integrity candidate — a focused milestone should make the
-    room the single seeding authority (server loads disk → client never seeds from a non-empty model),
-    with a regression test that opens a fresh file and asserts no duplication.
+20. ~~**Collaboration Y.Text seed/merge duplication**~~ — fixed in M52 (see the M52 section above).
+    The client-side "seed Y.Text from model if empty" heuristic is deleted; the server is now the
+    single seeding authority (loads disk on `file_open`, then sends an explicit `file_ready` signal),
+    and the client defers its y-monaco binding until that signal (seed-free 2s fallback). Regression:
+    `frontend/test/collab-initialization.test.ts` (10 cases, 7 fail pre-fix with the `'XX'`-vs-`'X'`
+    signature) + `m4-collab.test.ts` cases 33–36. `notifyExternalFileMutation` merging into
+    actively-edited collab buffers (M50 CROSS_LAYER finding, item 21) is a related but distinct path
+    and remains open.
 21. Real AI provider wiring (item 13 above) remains the highest-ceiling **product-decision-required**
     candidate; `notifyExternalFileMutation` merging into actively-edited collab buffers (M50 CROSS_LAYER
     finding) is the same class as item 20 and would likely be addressed together.

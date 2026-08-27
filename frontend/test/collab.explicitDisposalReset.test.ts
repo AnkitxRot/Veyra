@@ -40,6 +40,23 @@ vi.mock("y-monaco", () => ({
 import { CollaborationClient } from "../src/collab/client";
 
 const MESSAGE_SYNC = 0;
+const MESSAGE_CUSTOM = 3;
+
+// M52: the server now sends an explicit `{type:"file_ready"}` custom
+// message once it has loaded a file from disk into the room's Y.Text, and
+// the client defers constructing the y-monaco binding until it arrives
+// (seeding the Y.Text from the local model was removed — it raced the
+// server's disk load and duplicated content). This bare FakeWebSocket
+// harness has no real server loop, so tests drive that frame explicitly.
+function fileReadyMessage(path: string): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
+  encoding.writeVarString(
+    encoder,
+    JSON.stringify({ type: "file_ready", path }),
+  );
+  return encoding.toUint8Array(encoder);
+}
 
 class FakeModel {
   private value: string;
@@ -141,6 +158,8 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
 
     const model = new FakeModel("");
     client.bindMonacoModel("main.py", model as any, {} as any);
+    // M52: complete the (now deferred) initial bind.
+    ws1.simulateMessage(fileReadyMessage("main.py"));
 
     // Simulate the user having unsaved ("dirty") edits at the moment the
     // server disposes the room — a real Monaco edit would flow through
@@ -165,10 +184,12 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
     expect(client.doc.clientID).not.toBe(clientIdBeforeReset);
     expect(client.doc.getText("main.py").toString()).toBe("");
 
-    // MonacoBinding was rebound (fake constructor called again) but WITHOUT
-    // the seed heuristic: the model must not have re-inserted its own
-    // stale content into the new, empty Y.Text.
-    expect(model.getValue()).toBe("");
+    // M52: the rebind after reset is deferred until the fresh server sends
+    // `file_ready`, so the model still shows stale content for this brief
+    // window — but crucially the stale content was NOT merged into the new
+    // empty Y.Text (asserted above) and will be discarded, not re-applied,
+    // once the deferred bind completes (fromReset suppresses the dirty
+    // re-apply). The assertions after reconnect below prove no stale merge.
 
     // Reconnect (this is exactly what scheduleReconnect()'s deferred timer
     // would eventually call).
@@ -182,6 +203,8 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
     serverDoc.getText("main.py").insert(0, "NEW CONTENT FROM SERVER");
     const step2Reply = serverReplyToSyncStep1(serverDoc, syncStep1);
     ws2.simulateMessage(step2Reply);
+    // M52: fresh server signals the file is loaded → completes deferred bind.
+    ws2.simulateMessage(fileReadyMessage("main.py"));
 
     // STALE_MERGE|ELIMINATED — fresh content only, no concatenation with
     // the discarded old content in either order.
@@ -344,6 +367,9 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
 
     const model = new FakeModel("");
     client.bindMonacoModel("main.py", model as any, {} as any);
+    // M52: complete the (now deferred) initial bind so the local edit below
+    // flows into the model through y-monaco's observer.
+    ws1.simulateMessage(fileReadyMessage("main.py"));
     client.doc.transact(() => {
       client.doc.getText("main.py").insert(0, "unsaved offline edit");
     }, "test-local-edit");

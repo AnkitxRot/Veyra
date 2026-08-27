@@ -648,8 +648,38 @@ export class CollaborationRoom {
               parsed.type === "file_open" &&
               typeof parsed.path === "string"
             ) {
-              this.ensureFileLoaded(parsed.path);
-              clientState.activeFile = parsed.path;
+              const openedPath = parsed.path;
+              clientState.activeFile = openedPath;
+              // M52: the client no longer seeds its empty Y.Text from the
+              // Monaco model on first bind (that raced this server-side
+              // disk load and duplicated the file's content to "XX"). It
+              // now waits for this explicit readiness signal before
+              // constructing the y-monaco binding, so the server's
+              // disk-loaded content is authoritative. Kept as a floating
+              // promise chain — handleMessage stays synchronous and never
+              // throws. ensureFileLoaded never rejects (a path-escape
+              // resolves to a detached empty Y.Text), so always signalling
+              // after it settles successfully is correct: an empty file is
+              // legitimate and the client must not hang waiting.
+              this.ensureFileLoaded(openedPath)
+                .then(() => {
+                  if (this.disposed) return;
+                  if (ws.readyState !== 1) return;
+                  if (!this.clients.has(ws)) return;
+                  const encoder = encoding.createEncoder();
+                  encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
+                  encoding.writeVarString(
+                    encoder,
+                    JSON.stringify({
+                      type: "file_ready",
+                      path: openedPath,
+                    }),
+                  );
+                  try {
+                    ws.send(encoding.toUint8Array(encoder));
+                  } catch {}
+                })
+                .catch(() => {});
             }
           } catch {}
           break;

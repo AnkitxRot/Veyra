@@ -15,7 +15,24 @@ vi.mock("y-monaco", () => ({
   },
 }));
 
+import * as encoding from "lib0/encoding";
 import { CollaborationClient } from "../src/collab/client";
+
+const MESSAGE_CUSTOM = 3;
+
+// M52: the client defers constructing the y-monaco binding until the
+// server sends `{type:"file_ready"}` (seeding the Y.Text from the local
+// model was removed — it raced the server's disk load and duplicated
+// content). Build that frame the same way the server does.
+function fileReadyMessage(path: string): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
+  encoding.writeVarString(
+    encoder,
+    JSON.stringify({ type: "file_ready", path }),
+  );
+  return encoding.toUint8Array(encoder);
+}
 
 class FakeWebSocket {
   static OPEN = 1;
@@ -64,8 +81,20 @@ describe("CollaborationClient — disposed client cannot rebind (Y.Doc write-aft
       username: "bob",
     } as any);
 
-    const model = { getValue: () => "hello" } as any;
+    const model = {
+      getValue: () => "hello",
+      setValue: () => {},
+      isDisposed: () => false,
+    } as any;
     client.bindMonacoModel("main.py", model, {} as any);
+
+    // M52: the first bind is deferred until the server signals the file is
+    // loaded into the room's Y.Text — drive that frame through the client's
+    // real message handler.
+    const ws = (client as any).ws as {
+      onmessage: (e: { data: ArrayBufferLike }) => void;
+    };
+    ws.onmessage({ data: fileReadyMessage("main.py").buffer });
 
     expect(bindingCtor).toHaveBeenCalledTimes(1);
     client.dispose();

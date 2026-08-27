@@ -2205,4 +2205,175 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     finalRoom.dispose();
   });
+
+  // ---------------------------------------------------------------------------
+  // M52 — Yjs/Monaco initial-load seed-race fix (server side).
+  //
+  // The client no longer seeds the shared Y.Text from its local Monaco model
+  // on bind; instead it waits for an explicit `{type:"file_ready"}` custom
+  // frame the room now emits once it has loaded a file from disk. These
+  // cases pin the server half of that contract.
+  // ---------------------------------------------------------------------------
+
+  function decodeCustomFrames(frames: Uint8Array[]): any[] {
+    const out: any[] = [];
+    for (const m of frames) {
+      const d = decoding.createDecoder(m);
+      if (decoding.readVarUint(d) !== MESSAGE_CUSTOM) continue;
+      try {
+        out.push(JSON.parse(decoding.readVarString(d)));
+      } catch {}
+    }
+    return out;
+  }
+
+  it("33. file_open triggers a `file_ready` custom frame back to the requesting client once the file is loaded from disk", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("olga", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "FileReadyProj" });
+    await fs.writeFile(
+      join(projectDir(cfg, project.id), "notes.txt"),
+      "DISK",
+      "utf-8",
+    );
+
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const frames: Uint8Array[] = [];
+    const ws = makeMockWs();
+    ws.send = (m: Uint8Array) => frames.push(m);
+    await room.addClient(ws, { userId: 1, username: "olga", role: "editor" });
+    frames.length = 0; // drop the initial handshake frames
+
+    room.handleMessage(ws, buildFileOpenFrame("notes.txt"));
+    await flushAsync();
+
+    // Disk content is now live under the real key...
+    expect(room.doc.getText("notes.txt").toString()).toBe("DISK");
+    // ...and the client received the readiness signal for that exact path.
+    expect(decodeCustomFrames(frames)).toContainEqual({
+      type: "file_ready",
+      path: "notes.txt",
+    });
+
+    room.dispose();
+  });
+
+  it("34. A path-escape key in file_open never registers in doc.share and never reaches disk, even though a file_ready may still be signalled", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("pete", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "FileReadyEscapeProj",
+    });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const frames: Uint8Array[] = [];
+    const ws = makeMockWs();
+    ws.send = (m: Uint8Array) => frames.push(m);
+    await room.addClient(ws, { userId: 1, username: "pete", role: "editor" });
+    frames.length = 0;
+
+    const evil = "../../../etc/passwd";
+    expect(() =>
+      room.handleMessage(ws, buildFileOpenFrame(evil)),
+    ).not.toThrow();
+    await flushAsync();
+
+    // ensureFileLoaded refuses the path and returns a DETACHED Y.Text, so the
+    // key is never materialized in the shared doc and nothing is queued.
+    expect((room as any).doc.share.has(evil)).toBe(false);
+    expect((room as any).dirtyFiles.size).toBe(0);
+
+    // Nothing is written for the bad key on a flush.
+    await room.flushToDisk();
+    await expect(
+      fs.readFile(join(projectDir(cfg, project.id), evil), "utf-8"),
+    ).rejects.toThrow();
+
+    room.dispose();
+  });
+
+  it("35. Disk byte fidelity: a real sync-protocol edit on a loaded file flushes back byte-for-byte, trailing newline included", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("quinn", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "ByteFidelityProj",
+    });
+    const diskPath = join(projectDir(cfg, project.id), "doc.txt");
+    const base = "DISK CONTENT\nline2\n";
+    await fs.writeFile(diskPath, base, "utf-8");
+
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const yText = await room.ensureFileLoaded("doc.txt");
+    expect(yText.toString()).toBe(base);
+
+    const ws = makeMockWs();
+    const clientDoc = new Y.Doc();
+    wireClientToRoom(room, ws, clientDoc);
+    await room.addClient(ws, { userId: 1, username: "quinn", role: "editor" });
+    // Client adopts the room's already-loaded content (server -> client),
+    // then makes exactly one edit and broadcasts it via the real sync path.
+    Y.applyUpdate(clientDoc, Y.encodeStateAsUpdate(room.doc));
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => {
+        const t = clientDoc.getText("doc.txt");
+        t.insert(t.length, "line3\n");
+      }),
+    );
+
+    const expected = base + "line3\n";
+    expect(room.doc.getText("doc.txt").toString()).toBe(expected);
+
+    room.markFileDirty("doc.txt");
+    await room.flushToDisk();
+
+    const bytes = await fs.readFile(diskPath);
+    expect(bytes.toString("utf-8")).toBe(expected);
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("36. A client joining a file the server already loaded from disk does not double its content (server-side proof of the seed-race class)", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("rick", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, {
+      name: "NoDoubleSeedProj",
+    });
+    const diskPath = join(projectDir(cfg, project.id), "main.py");
+    await fs.writeFile(diskPath, "SAME", "utf-8");
+
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    await room.ensureFileLoaded("main.py"); // server loads "SAME" from disk
+
+    // A fresh client (distinct clientID) joins and runs the real sync
+    // handshake. Post-fix it adopts the server's authoritative content
+    // rather than independently seeding its own copy from a local buffer.
+    const ws = makeMockWs();
+    const clientDoc = new Y.Doc();
+    wireClientToRoom(room, ws, clientDoc);
+    await room.addClient(ws, { userId: 1, username: "rick", role: "editor" });
+
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, MESSAGE_SYNC);
+    syncProtocol.writeSyncStep1(enc, clientDoc);
+    room.handleMessage(ws, encoding.toUint8Array(enc));
+
+    expect(clientDoc.getText("main.py").toString()).toBe("SAME");
+
+    room.markFileDirty("main.py");
+    await room.flushToDisk();
+
+    expect(await fs.readFile(diskPath, "utf-8")).toBe("SAME");
+
+    clientDoc.destroy();
+    room.dispose();
+  });
 });

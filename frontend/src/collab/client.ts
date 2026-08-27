@@ -24,12 +24,7 @@ export type CollabConnectionStatus =
 export type AvailabilityStatus = "online" | "idle" | "dnd";
 
 export type ActivityType =
-  | "viewing"
-  | "editing"
-  | "running"
-  | "terminal"
-  | "searching"
-  | "reviewing";
+  "viewing" | "editing" | "running" | "terminal" | "searching" | "reviewing";
 
 export interface ActivityState {
   type: ActivityType;
@@ -58,6 +53,12 @@ export interface CollaboratorPresence {
   lastActive: number;
 }
 
+// M52: how long a deferred y-monaco bind waits for the server's
+// `file_ready` signal before force-completing anyway. Covers an older
+// server that never sends the signal, or a lost message — the completion
+// is still seed-free, so it stays duplication-proof either way.
+const DEFERRED_BIND_FALLBACK_MS = 2000;
+
 const IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const BLUR_IDLE_TIMEOUT_MS = 60 * 1000; // 1 minute
 const EDITING_HYSTERESIS_MS = 5 * 1000; // 5 seconds
@@ -74,6 +75,28 @@ export class CollaborationClient {
   private boundModel: monaco.editor.ITextModel | null = null;
   private boundEditor: monaco.editor.IStandaloneCodeEditor | null = null;
   private activeFilePath: string | null = null;
+
+  // M52: per-path readiness. A path enters this set when the server sends
+  // `{type:"file_ready"}` for it — meaning the room has finished loading
+  // that file from disk into its Y.Text, so the server content is now
+  // authoritative and it is safe to construct the y-monaco binding.
+  private readyFiles = new Set<string>();
+
+  // M52: a y-monaco bind that is waiting for `file_ready` (or the fallback
+  // timer). Only ever holds the single most-recent deferred bind; a newer
+  // bindMonacoModel call for a different file supersedes it.
+  private pendingBind: {
+    filePath: string;
+    model: monaco.editor.ITextModel;
+    editor: monaco.editor.IStandaloneCodeEditor;
+    // model value captured when the defer was recorded — used to detect
+    // whether the user made local edits during the defer window.
+    originalValue: string;
+    // true when this defer originated from resetLocalCollabState: the
+    // stale model content must be discarded, never dirty-re-applied.
+    fromReset: boolean;
+    timer: any;
+  } | null = null;
   private readonly listeners: Map<string, Set<(...args: any[]) => void>> =
     new Map();
   private reconnectAttempts = 0;
@@ -272,7 +295,9 @@ export class CollaborationClient {
 
     this.currentActivity = {
       type,
-      detail: detail ?? (type === "viewing" || type === "editing" ? this.activeFilePath : null),
+      detail:
+        detail ??
+        (type === "viewing" || type === "editing" ? this.activeFilePath : null),
       timestamp: Date.now(),
     };
     this.awareness.setLocalStateField("activity", this.currentActivity);
@@ -283,7 +308,10 @@ export class CollaborationClient {
     if (this.isDisposed) return;
     this.handleUserInteraction();
 
-    if (this.currentActivity.type !== "editing" || this.currentActivity.detail !== this.activeFilePath) {
+    if (
+      this.currentActivity.type !== "editing" ||
+      this.currentActivity.detail !== this.activeFilePath
+    ) {
       this.setActivity("editing", this.activeFilePath);
     } else {
       this.awareness.setLocalStateField("lastActive", Date.now());
@@ -333,6 +361,7 @@ export class CollaborationClient {
     // destroying them — a live binding must never be left observing (or
     // writing into) a destroyed Y.Doc.
     this.unbindCurrentModel();
+    this.clearPendingBind();
 
     try {
       this.awareness.destroy();
@@ -341,25 +370,31 @@ export class CollaborationClient {
       this.doc.destroy();
     } catch {}
 
+    // M52: the fresh lineage's Y.Texts are empty again, and the server will
+    // re-load every file from disk and re-signal `file_ready`. Any stale
+    // readiness from the discarded lineage must not carry over, or the
+    // rebind below would bind immediately to an empty Y.Text and briefly
+    // show a blank editor as authoritative.
+    this.readyFiles.clear();
+
     this.initDocAndAwareness();
 
     // Rebind the same Monaco model/editor to the fresh, empty Y.Text so the
-    // file stays live once reconnected — but explicitly WITHOUT the normal
-    // "seed Y.Text from model" step (see attachBinding's `allowSeed`
-    // param). Seeding here would just re-insert the same stale content
-    // this reset exists to discard, straight into the new lineage, and it
-    // would be synced up to the server the moment the connection reopens.
-    // MonacoBinding's own constructor will immediately overwrite the
-    // model's (possibly stale) content with the new, empty Y.Text; the
-    // server's real content then arrives moments later via the normal sync
-    // exchange and flows into the model through the existing observer.
+    // file stays live once reconnected. Seeding no longer exists anywhere
+    // (M52), so this goes through the identical no-seed path as a normal
+    // open: the new Y.Text is empty and not ready, so the bind defers and
+    // waits for the server's fresh `file_ready`. The stale model content is
+    // discarded, never merged (the M40 guarantee) — and never dirty-re-
+    // applied either, because attachBinding is told this bind originated
+    // from a reset (fromReset=true), so the M52 dirty-at-bind policy is
+    // suppressed for it.
     if (
       staleModel &&
       staleEditor &&
       staleFilePath &&
       !staleModel.isDisposed()
     ) {
-      this.attachBinding(staleFilePath, staleModel, staleEditor, false);
+      this.attachBinding(staleFilePath, staleModel, staleEditor, true);
     }
   }
 
@@ -471,6 +506,23 @@ export class CollaborationClient {
           );
           break;
         }
+
+        case MESSAGE_CUSTOM: {
+          // M52: the server's readiness signal. Until now the client never
+          // handled MESSAGE_CUSTOM at all (it only ever sends them).
+          const jsonStr = decoding.readVarString(decoder);
+          try {
+            const parsed = JSON.parse(jsonStr);
+            if (
+              parsed &&
+              parsed.type === "file_ready" &&
+              typeof parsed.path === "string"
+            ) {
+              this.handleFileReady(parsed.path);
+            }
+          } catch {}
+          break;
+        }
       }
     } catch (err) {
       console.error("[CollabClient] Error handling message:", err);
@@ -521,34 +573,119 @@ export class CollaborationClient {
       return;
     }
 
-    this.attachBinding(filePath, model, editor, true);
+    // M52: a deferred bind is already in flight for this same model/path —
+    // a per-keystroke re-call must not restart the defer (which would
+    // re-capture originalValue and lose the dirty-window detection).
+    if (
+      this.pendingBind &&
+      this.pendingBind.filePath === filePath &&
+      this.pendingBind.model === model
+    ) {
+      return;
+    }
+
+    this.attachBinding(filePath, model, editor, false);
   }
 
-  // M40: shared by the normal external bindMonacoModel() call (which is
-  // allowed to seed an empty Y.Text from the local model — the legitimate
-  // "first collaborator opens this file" case) and resetLocalCollabState's
-  // internal rebind after an explicit-disposal reconnect (which must
-  // never seed, since the local model content at that point is exactly
-  // the stale content the reset exists to discard).
+  // M52: shared by the normal bindMonacoModel() call and
+  // resetLocalCollabState's internal rebind after an explicit-disposal
+  // reconnect. Seeding the shared Y.Text from the local Monaco model no
+  // longer happens anywhere — it raced the server's own disk load of the
+  // same file (both "is the Y.Text empty?" guards passed inside the race
+  // window) and duplicated the file's content to "XX" on disk. Instead the
+  // binding is constructed immediately only when the server content is
+  // already authoritative (Y.Text non-empty, or the server has sent
+  // `file_ready` for this path); otherwise it is deferred until
+  // `file_ready` arrives (or the fallback timer fires). `fromReset`
+  // distinguishes the reset rebind, whose stale model content must be
+  // discarded rather than dirty-re-applied when the deferred bind completes.
   private attachBinding(
     filePath: string,
     model: monaco.editor.ITextModel,
     editor: monaco.editor.IStandaloneCodeEditor,
-    allowSeed: boolean,
+    fromReset: boolean,
   ): void {
     this.unbindCurrentModel();
+    this.clearPendingBind();
 
     this.activeFilePath = filePath;
     this.notifyFileOpen(filePath);
 
     const yText = this.doc.getText(filePath);
 
-    // If local model has content but Y.Text is empty, sync model content into Y.Text
-    if (allowSeed && yText.length === 0 && model.getValue().length > 0) {
-      this.doc.transact(() => {
-        yText.insert(0, model.getValue());
-      }, "initial_model_sync");
+    if (yText.length > 0 || this.readyFiles.has(filePath)) {
+      // Server content is authoritative and already present — bind now.
+      // This first bind is synchronous with the model's disk-content
+      // creation, so it is always clean: no dirty re-apply.
+      this.completeBind(filePath, model, editor, false, "");
+      return;
     }
+
+    // Defer: wait for the server's `file_ready` (or the fallback timer).
+    this.pendingBind = {
+      filePath,
+      model,
+      editor,
+      originalValue: model.getValue(),
+      fromReset,
+      timer: setTimeout(
+        () => this.completeDeferredBind(filePath),
+        DEFERRED_BIND_FALLBACK_MS,
+      ),
+    };
+  }
+
+  // M52: force-complete a deferred bind — from the incoming `file_ready`
+  // custom message or from the fallback timer.
+  private completeDeferredBind(filePath: string): void {
+    if (this.isDisposed) return;
+    if (!this.pendingBind || this.pendingBind.filePath !== filePath) return;
+    const { model, editor, originalValue, fromReset, timer } = this.pendingBind;
+    clearTimeout(timer);
+    this.pendingBind = null;
+    if (model.isDisposed()) return;
+    // Dirty-at-bind check runs only when this was NOT a reset rebind.
+    this.completeBind(filePath, model, editor, !fromReset, originalValue);
+  }
+
+  private handleFileReady(path: string): void {
+    if (this.isDisposed) return;
+    this.readyFiles.add(path);
+    if (this.pendingBind && this.pendingBind.filePath === path) {
+      this.completeDeferredBind(path);
+    }
+  }
+
+  private clearPendingBind(): void {
+    if (this.pendingBind) {
+      clearTimeout(this.pendingBind.timer);
+      this.pendingBind = null;
+    }
+  }
+
+  // M52: constructs the y-monaco binding (the MonacoBinding ctor overwrites
+  // the model FROM the Y.Text) and wires decoration-safe re-rendering.
+  // When `isDeferred`, applies the Phase-7 dirty-at-bind policy: if the
+  // user edited the model during the defer window (its value diverged from
+  // `originalValue` captured when the defer was recorded), the local buffer
+  // wins and is re-applied once via model.setValue — y-monaco then
+  // propagates it as a single full-replace edit into the Y.Text, so the
+  // authoritative base content is represented once and the user edit is
+  // preserved. When not deferred (or the deferred bind came from a reset),
+  // the authoritative Y.Text content wins and nothing extra is done.
+  private completeBind(
+    filePath: string,
+    model: monaco.editor.ITextModel,
+    editor: monaco.editor.IStandaloneCodeEditor,
+    isDeferred: boolean,
+    originalValue: string,
+  ): void {
+    if (this.isDisposed) return;
+
+    const yText = this.doc.getText(filePath);
+    // Capture BEFORE constructing the binding — the ctor overwrites the
+    // model from the Y.Text.
+    const localValue = model.getValue();
 
     try {
       const binding = new MonacoBinding(
@@ -595,6 +732,16 @@ export class CollaborationClient {
       this.currentBinding = binding;
       this.boundModel = model;
       this.boundEditor = editor;
+
+      // M52 Phase-7 dirty-at-bind policy (deferred binds only): local
+      // buffer wins if the user edited during the defer window.
+      if (
+        isDeferred &&
+        localValue !== originalValue &&
+        localValue !== model.getValue()
+      ) {
+        model.setValue(localValue);
+      }
     } catch (err) {
       console.error("[CollabClient] Failed to bind Monaco editor:", err);
     }
@@ -622,8 +769,14 @@ export class CollaborationClient {
           rawActivity && typeof rawActivity.type === "string"
             ? {
                 type: rawActivity.type as ActivityType,
-                detail: typeof rawActivity.detail === "string" ? rawActivity.detail : null,
-                timestamp: typeof rawActivity.timestamp === "number" ? rawActivity.timestamp : Date.now(),
+                detail:
+                  typeof rawActivity.detail === "string"
+                    ? rawActivity.detail
+                    : null,
+                timestamp:
+                  typeof rawActivity.timestamp === "number"
+                    ? rawActivity.timestamp
+                    : Date.now(),
               }
             : {
                 type: "viewing",
@@ -649,12 +802,23 @@ export class CollaborationClient {
         collaborators.push({
           clientId,
           userId: Number(state.user.id) || 0,
-          name: typeof state.user.name === "string" ? state.user.name : "Anonymous",
-          role: state.user.role === "owner" || state.user.role === "viewer" ? state.user.role : "editor",
-          color: typeof state.user.color === "string" ? state.user.color : getUserColor(state.user.id || 0),
-          status: state.status === "idle" || state.status === "dnd" ? state.status : "online",
+          name:
+            typeof state.user.name === "string" ? state.user.name : "Anonymous",
+          role:
+            state.user.role === "owner" || state.user.role === "viewer"
+              ? state.user.role
+              : "editor",
+          color:
+            typeof state.user.color === "string"
+              ? state.user.color
+              : getUserColor(state.user.id || 0),
+          status:
+            state.status === "idle" || state.status === "dnd"
+              ? state.status
+              : "online",
           activity,
-          activeFile: typeof state.activeFile === "string" ? state.activeFile : null,
+          activeFile:
+            typeof state.activeFile === "string" ? state.activeFile : null,
           cursor:
             state.cursor &&
             typeof state.cursor.line === "number" &&
@@ -662,7 +826,10 @@ export class CollaborationClient {
               ? { line: state.cursor.line, column: state.cursor.column }
               : null,
           selection,
-          lastActive: typeof state.lastActive === "number" ? state.lastActive : Date.now(),
+          lastActive:
+            typeof state.lastActive === "number"
+              ? state.lastActive
+              : Date.now(),
         });
       }
     }
@@ -736,6 +903,7 @@ export class CollaborationClient {
       this.cursorTimer = null;
     }
     this.removeActivityListeners();
+    this.clearPendingBind();
     this.unbindCurrentModel();
     if (this.ws) {
       try {
@@ -763,4 +931,3 @@ const USER_COLORS = [
 export function getUserColor(userId: number): string {
   return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
 }
-
