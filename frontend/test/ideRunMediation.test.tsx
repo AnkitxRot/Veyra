@@ -1,23 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
 import * as React from "react";
-import { flushSync } from "react-dom";
 import type { Project } from "../src/types";
 
-// M45: live browser QA caught the exact same defect M44 already fixed for
-// ide-install, this time in ide-run. IDE.tsx's ide-run listener did
-// `setBottomTab("output")` then an immediate
-// `document.dispatchEvent(new Event("ide-run-confirmed"))`. React 18
-// batches that setState, so when Output.tsx wasn't already mounted (the
-// user is on the Terminal or Problems tab — both live-reproduced), the
-// confirmed event fired into a DOM where nothing was listening yet and the
-// run silently never started. The dirty-file-save `await` loop above this
-// in the real handler only masked it when there were actual unsaved
-// changes. The real fix lives in IDE.tsx (wrapping the state update in
-// flushSync, mirroring the ide-install fix exactly); this test reproduces
-// the exact mechanism with the same minimal harness shape as
-// ideInstallMediation.test.tsx, without needing to render the full IDE
-// component tree.
+// M45 originally: IDE.tsx's ide-run listener did `setBottomTab("output")` then
+// an immediate `dispatchEvent("ide-run-confirmed")`. React 18 batches the
+// setState, so when Output.tsx (which owned the run WebSocket) was not already
+// mounted (user on the Terminal/Problems tab), the confirmed event fired into
+// a DOM with nothing listening and the run silently never started. M45's fix
+// was `flushSync`.
+//
+// M53 removes the whole class of bug: the run lifecycle moved out of <Output>
+// into the always-mounted ExecutionSessionProvider. The confirmed event always
+// has a listener regardless of which bottom tab is showing (or whether
+// <Output> is mounted at all). This test now asserts that M53 guarantee —
+// no flushSync required.
 
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
@@ -27,6 +24,7 @@ vi.mock("../src/api", () => ({
 }));
 
 import Output from "../src/components/Output/Output";
+import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 
 Element.prototype.scrollIntoView =
   Element.prototype.scrollIntoView || (() => {});
@@ -64,20 +62,17 @@ class FakeWebSocket {
 }
 
 /**
- * Minimal stand-in for IDE.tsx's own relevant slice: a bottomTab state that
- * conditionally mounts <Output>, plus an ide-run listener that must
- * guarantee Output is mounted (and its own ide-run-confirmed listener
- * registered) before the confirmed event is dispatched. `useFlushSync`
- * toggles between the buggy (pre-fix) and correct (post-fix) shape so the
- * same test body proves both that the bug was real and that the fix closes
- * it — exactly mirroring ideInstallMediation.test.tsx's harness.
+ * Mirrors IDE.tsx's M53 shape: the ExecutionSessionProvider wraps everything
+ * and is never unmounted by a bottom-tab change; <Output> is only mounted
+ * while its tab is active. The ide-run handler switches the tab and dispatches
+ * ide-run-confirmed with a plain setState (no flushSync).
  */
 function MediatorHarness({
   project,
-  useFlushSync,
+  mountOutput = true,
 }: {
   project: Project;
-  useFlushSync: boolean;
+  mountOutput?: boolean;
 }) {
   const [bottomTab, setBottomTab] = React.useState<"output" | "terminal">(
     "terminal", // starts on a non-output tab, exactly like the real bug case
@@ -85,13 +80,7 @@ function MediatorHarness({
 
   React.useEffect(() => {
     const handler = () => {
-      if (useFlushSync) {
-        flushSync(() => {
-          setBottomTab("output");
-        });
-      } else {
-        setBottomTab("output");
-      }
+      setBottomTab("output"); // plain setState — M53 no longer needs flushSync
       document.dispatchEvent(
         new CustomEvent("ide-run-confirmed", {
           detail: {
@@ -104,18 +93,20 @@ function MediatorHarness({
     };
     document.addEventListener("ide-run", handler);
     return () => document.removeEventListener("ide-run", handler);
-  }, [useFlushSync]);
+  }, []);
 
   return (
-    <div>
-      {bottomTab === "output" && (
-        <Output project={project} onRefreshTree={() => {}} />
-      )}
-    </div>
+    <ExecutionSessionProvider projectId={project.id}>
+      <div>
+        {mountOutput && bottomTab === "output" && (
+          <Output project={project} onRefreshTree={() => {}} />
+        )}
+      </div>
+    </ExecutionSessionProvider>
   );
 }
 
-describe("M45 regression — ide-run must reach Output even when it starts unmounted", () => {
+describe("M53 — ide-run reaches the execution session regardless of Output mount state", () => {
   const project: Project = { id: "proj-1", name: "My Project" };
 
   beforeEach(() => {
@@ -130,29 +121,8 @@ describe("M45 regression — ide-run must reach Output even when it starts unmou
     vi.restoreAllMocks();
   });
 
-  it("reproduces the pre-fix bug: without flushSync, dispatching ide-run while Output is unmounted never starts the run", async () => {
-    render(
-      React.createElement(MediatorHarness, {
-        project,
-        useFlushSync: false,
-      }),
-    );
-
-    document.dispatchEvent(new Event("ide-run"));
-
-    // Give any pending microtasks/effects a chance to run; the bug is that
-    // nothing happens, not that something happens slowly.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(FakeWebSocket.instances.length).toBe(0);
-  });
-
-  it("with flushSync (the real fix), dispatching ide-run while Output is unmounted still starts the run", async () => {
-    render(
-      React.createElement(MediatorHarness, {
-        project,
-        useFlushSync: true,
-      }),
-    );
+  it("dispatching ide-run while Output is unmounted still starts the run (no flushSync)", async () => {
+    render(React.createElement(MediatorHarness, { project }));
 
     document.dispatchEvent(new Event("ide-run"));
 
@@ -160,5 +130,19 @@ describe("M45 regression — ide-run must reach Output even when it starts unmou
     expect(FakeWebSocket.latest().url).toBe(
       "ws://test/ws/execute?projectId=proj-1",
     );
+  });
+
+  it("the run still starts even if <Output> never mounts at all — the session, not Output, owns it", async () => {
+    render(
+      React.createElement(MediatorHarness, { project, mountOutput: false }),
+    );
+
+    document.dispatchEvent(
+      new CustomEvent("ide-run-confirmed", {
+        detail: { language: "python", activeFile: "main.py" },
+      }),
+    );
+
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));
   });
 });

@@ -51,7 +51,13 @@ Last updated: 2026-08-27.
   - Milestone 52 (eliminate the Yjs/Monaco initial-load seed race that could
     duplicate a file's content on disk — server is now the single seeding
     authority via an explicit `file_ready` signal; the client never seeds a
-    shared Y.Text from the Monaco model) in this commit.
+    shared Y.Text from the Monaco model) at `8bc1ead`.
+  - Milestone 53 (persistent project-scoped execution session — the run +
+    dependency-install lifecycle, its `/ws/execute` socket, log buffer and
+    status now live in an always-mounted `ExecutionSessionProvider`, not the
+    `<Output>` component, so switching the bottom panel / collapsing it / tab
+    changes no longer kill a running program; also fixes the M48 `"running"`
+    activity event-name mismatch) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -3937,6 +3943,98 @@ independent initializer.
 race-free. Verified: the specific initial-load seed race is eliminated across
 the timing windows and scenarios above, with M37–M41 / M48 / M50 / M51
 regression suites green.
+
+## Milestone 53 — Persistent project-scoped execution session
+
+**Objective:** stop a run being owned by whichever bottom-panel component
+happens to be mounted. Discovery (Phase 4 of the post-M52 audit) confirmed the
+defect: `IDE.tsx` renders `{!isBottomCollapsed && (… {bottomTab === "output" &&
+<Output/>} …)}`, `Output.tsx` owned the `/ws/execute` WebSocket, and its effect
+cleanup called `ws.close()` → backend `ws/execution.ts` `ws.on("close") →
+controller.kill()`. So switching the bottom panel to Preview/Terminal/Git, or
+collapsing it, SIGKILLed a running program. Secondary bug: `IDE.tsx`'s M48
+run-activity effect listened for `ide-run-started`/`ide-run-stopped`, which
+nothing dispatched (Output dispatches `run-started`/`run-stopped`), so the
+`"running"` presence activity never fired.
+
+**Fix (frontend only — zero backend change).**
+
+- NEW `frontend/src/hooks/useExecutionSession.tsx` — `ExecutionSessionProvider`
+  (`projectId` prop) + `useExecutionSession()`. Owns the run WebSocket (still
+  created lazily inside `run()` — no socket between runs), the 2000-line `logs`
+  ring buffer, `status`, `isRunning`, `isInstalling`, `executionId`,
+  `missingDependencyHint`, and the dependency-install `fetch`/stream — all moved
+  verbatim from `Output.tsx`'s two effects. Listens for the `ide-run-confirmed`
+  / `ide-stop` / `ide-install-confirmed` document events; dispatches
+  `run-started` / `run-stopped` / `install-started` / `install-stopped`
+  (Toolbar unchanged). On `projectId` change / provider unmount it tears the
+  socket down and dispatches a final `run-stopped`/`install-stopped` if one was
+  in flight (the M45 stuck-Toolbar guard, relocated).
+- `frontend/src/components/IDE/IDE.tsx` — the whole layout (extracted to a
+  `const ideLayout` so the wrapper adds no re-indentation) is wrapped in
+  `<ExecutionSessionProvider projectId={project?.id ?? null}>`, mounted for the
+  lifetime of the project and never under any `bottomTab` / `isBottomCollapsed`
+  conditional. M48 effect now listens for `run-started` / `run-stopped`.
+- `frontend/src/components/Output/Output.tsx` — now a pure view:
+  `useExecutionSession()` for logs/status/isRunning/isInstalling/hint/sendStdin/
+  clearLogs. WebSocket, run/install state and the `ide-*` listeners are gone
+  (−420 lines). The history & snapshots sub-tabs (pure REST) are unchanged;
+  a `run-stopped` listener refreshes the History tab if it is the one showing.
+
+**Behavior after M53:** switching Output→Preview / Output→Terminal, collapsing
+the bottom panel, and editor-tab changes no longer kill a run; reopening Output
+shows the full accumulated output; Stop and stdin keep working after a remount;
+dependency install continues while Output is unmounted; Toolbar Run/Stop/Install
+state stays truthful; the M48 `"running"` collaboration activity now actually
+fires on a run.
+
+**Verification.**
+
+- NEW `frontend/test/executionSession.test.tsx` (8, real `<Output>` +
+  `<ExecutionSessionProvider>` + real React reconciliation): a run survives
+  `<Output>` unmount — WebSocket stays OPEN, no `stop` frame, output emitted
+  while unmounted is present on remount; Stop works post-remount; stdin works
+  post-remount; collapse ≡ unmount; a dependency install survives Output
+  unmount and completes; `projectId` change closes the old socket + dispatches
+  `run-stopped` once; **M48 regression proof** — a run dispatches `run-started`
+  and an `IDE`-shaped listener sees `"running"` (would fail pre-M53 — it
+  listened for the never-dispatched `ide-run-started`); `useExecutionSession()`
+  outside a provider throws; 2000-line log cap holds.
+- `frontend/test/ideRunMediation.test.tsx` + `ideInstallMediation.test.tsx` —
+  repurposed: their old premise (IDE's `flushSync` must mount `<Output>` before
+  the confirmed event) is structurally impossible under M53; they now assert
+  the run/install starts whether `<Output>` is mounted, unmounted, or never
+  mounts. `flushSync` in `IDE.tsx` is left in place (harmless, minimal diff).
+- `frontend/test/output.runStoppedCleanup.test.ts` → `.tsx` — re-framed around
+  the new teardown boundary: unmounting _only_ `<Output>` does NOT stop the run
+  or close the socket (new assertion); unmounting the _provider_ while a run is
+  active dispatches `run-stopped` exactly once; the "no double dispatch after
+  exit/error/close" M45 cases retargeted to provider unmount.
+- `frontend/test/output.installStream.test.ts` + `output.missingDependencyHint.
+test.ts` — render wrapped in `<ExecutionSessionProvider>`; all original
+  assertions unchanged and green.
+- Full frontend suite **217 passed / 0 failed** (25 files). `tsc --noEmit`
+  clean; `vite build` clean (same pre-existing Monaco chunk-size warning);
+  `eslint` on the 3 changed source files — 0 errors (`IDE.tsx` keeps only its 5
+  pre-existing `exhaustive-deps` warnings; the new hook has one benign
+  `react-refresh/only-export-components` warning for exporting a provider + hook
+  from one file).
+- Full backend suite **657 passed / 2 failed / 9 skipped** — the 2 are the
+  documented `lifecycle.test.ts` + `pipeline.test.ts` baseline failures
+  (reproduce identically on `8bc1ead`); zero backend files changed.
+- `git diff --check` clean.
+- Browser QA: the Chrome extension was not connected in this environment. The
+  "run survives a panel switch" guarantee is a pure frontend (React
+  mount/unmount) concern with no backend timing element, and is exercised
+  directly against the real `<Output>` / `<ExecutionSessionProvider>` in
+  `executionSession.test.tsx` — no browser-only behavior is left unverified.
+
+**Not done / deferred:** no shared/collaborative run state, no output
+streaming to collaborators, no server-side reconnect grace, no new REST
+endpoint — all explicitly out of scope. Collaborative run _awareness_ (surface
+"who is running what" to collaborators via the collab room, now that the M48
+`"running"` activity fires and a stable session exists) is the natural
+follow-up.
 
 ## Current active work
 

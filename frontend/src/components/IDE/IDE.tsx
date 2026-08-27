@@ -33,6 +33,7 @@ import type { LiveContentApi } from "../Editor/Editor";
 import Output from "../Output/Output";
 import Terminal from "../Terminal/Terminal";
 import Preview from "../Preview/Preview";
+import { ExecutionSessionProvider } from "../../hooks/useExecutionSession";
 import SourceControlPanel from "../Git/SourceControlPanel";
 import ProblemsPanel from "../Output/ProblemsPanel";
 import ResourcesView from "../Resources/ResourcesView";
@@ -634,11 +635,15 @@ export default function IDE({
     const handleRunStopped = () => {
       collabClientRef.current?.restoreActivity();
     };
-    document.addEventListener("ide-run-started", handleRunStarted);
-    document.addEventListener("ide-run-stopped", handleRunStopped);
+    // M53: the run lifecycle dispatches "run-started" / "run-stopped" (from the
+    // execution session, previously Output.tsx). The "ide-run-*" names this
+    // effect used were never dispatched by anything, so M48's "running"
+    // activity never actually fired.
+    document.addEventListener("run-started", handleRunStarted);
+    document.addEventListener("run-stopped", handleRunStopped);
     return () => {
-      document.removeEventListener("ide-run-started", handleRunStarted);
-      document.removeEventListener("ide-run-stopped", handleRunStopped);
+      document.removeEventListener("run-started", handleRunStarted);
+      document.removeEventListener("run-stopped", handleRunStopped);
     };
   }, []);
 
@@ -1498,7 +1503,7 @@ export default function IDE({
     (d) => d.severity === "warning",
   ).length;
 
-  return (
+  const ideLayout = (
     <div className="ide-layout">
       {/* Liquid Glass Sidebar */}
       {!isSidebarHidden && (
@@ -2104,5 +2109,15 @@ export default function IDE({
         onClose={() => setShowSettings(false)}
       />
     </div>
+  );
+
+  // M53: the execution session owns the /ws/execute run + install stream for
+  // the lifetime of this project, NOT the <Output> component's mount. Wrapping
+  // the whole layout here means switching the bottom panel away from Output (or
+  // collapsing it) can never unmount the session and kill a running program.
+  return (
+    <ExecutionSessionProvider projectId={project?.id ?? null}>
+      {ideLayout}
+    </ExecutionSessionProvider>
   );
 }

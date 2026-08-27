@@ -5,7 +5,7 @@ import React, {
   useState,
   Suspense,
 } from "react";
-import { getWebSocketUrl, api } from "../../api";
+import { api } from "../../api";
 import {
   IconTrash,
   IconCheck,
@@ -16,55 +16,31 @@ import {
 import { getLanguageIcon } from "../common/iconUtils";
 import { RunRecord, SnapshotRecord } from "../../types";
 import { PromptModal, ConfirmModal } from "../common/Modal";
-import {
-  detectMissingDependency,
-  MissingDependencyMatch,
-} from "../../utils/missingDependency";
+import { useExecutionSession } from "../../hooks/useExecutionSession";
 const ExecutionTelemetryModal = React.lazy(
   () => import("./ExecutionTelemetryModal"),
 );
-
-type LogLine = {
-  type: "stdout" | "stderr" | "system" | "error";
-  text: string;
-  time: string;
-};
 
 export default function Output({ project, onRefreshTree }: any) {
   const [activeTab, setActiveTab] = useState<
     "console" | "history" | "snapshots"
   >("console");
-  const [logs, setLogs] = useState<LogLine[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  // M43: the install effect below needs the *current* isRunning value at the
-  // moment ide-install-confirmed fires, as a defense-in-depth check backing
-  // Toolbar's own disabled-button enforcement. Reading `isRunning` directly
-  // from that effect's closure would capture a stale snapshot (the effect's
-  // own deps are just [project]), so a ref mirrors it instead.
-  const isRunningRef = useRef(false);
-  useEffect(() => {
-    isRunningRef.current = isRunning;
-  }, [isRunning]);
-  const [statusBadge, setStatusBadge] = useState<{
-    text: string;
-    type: "idle" | "running" | "success" | "error";
-  }>({
-    text: "Idle",
-    type: "idle",
-  });
-  // M44: set only from the just-finished run's own exit handler, cleared at
-  // the start of every new run and the moment an install begins — belongs
-  // exclusively to "the current run's own failure", never carried over.
-  const [missingDependencyHint, setMissingDependencyHint] =
-    useState<MissingDependencyMatch | null>(null);
-  // M44: drives the inline hint's own disabled state. Set directly by the
-  // M43 install effect below (not derived from the install-started/-stopped
-  // document events it itself dispatches, to avoid listening for its own
-  // broadcast).
-  const [isInstalling, setIsInstalling] = useState(false);
+
+  // M53: the run/install lifecycle, its WebSocket, log buffer and status all
+  // live in the project-scoped ExecutionSessionProvider now — this component is
+  // a pure view of it. Unmounting Output (bottom-tab switch / collapse) no
+  // longer closes the socket or kills the running program.
+  const {
+    logs,
+    status: statusBadge,
+    isRunning,
+    isInstalling,
+    missingDependencyHint,
+    sendStdin,
+    clearLogs,
+  } = useExecutionSession();
 
   // History state
   const [runs, setRuns] = useState<RunRecord[]>([]);
@@ -123,425 +99,29 @@ export default function Output({ project, onRefreshTree }: any) {
     if (activeTab === "snapshots") loadSnapshots();
   }, [activeTab, project, loadRuns, loadSnapshots]);
 
+  // A finished run records a new row in history — refresh the History tab if
+  // it is the one being viewed. (The run lifecycle itself is owned by the
+  // execution session; this component just reacts to its completion event.)
   useEffect(() => {
-    // M45: mirrors M43's installInFlight — tracked at the effect's own
-    // scope (not inside handleRun's per-invocation closure) specifically
-    // so the cleanup function below can see whether a run is still active
-    // when this effect tears down, e.g. the user switches away from the
-    // Output tab mid-run. Set true when a run starts, false the moment any
-    // of the three normal completion paths (exit message, onclose,
-    // onerror) has already handled it — so the cleanup's own dispatch only
-    // ever fires for the genuinely-new case none of those three reached.
-    let runInFlight = false;
-
-    const handleRun = (e: Event) => {
-      const { language, activeFile, langDisplay } = (e as CustomEvent).detail;
-      if (!project) return;
-
-      setActiveTab("console");
-      const time = new Date().toLocaleTimeString();
-      setLogs([
-        {
-          type: "system",
-          text: `Starting execution (${activeFile ? `${activeFile} → ` : ""}${langDisplay || language})...`,
-          time,
-        },
-      ]);
-      // M44: a new run starts with a clean slate — any missing-dependency
-      // hint belongs to the run that produced it, never to this new one.
-      setMissingDependencyHint(null);
-      runInFlight = true;
-      setIsRunning(true);
-      setStatusBadge({ text: "Running", type: "running" });
-      document.dispatchEvent(new Event("run-started"));
-
-      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-        wsRef.current.onclose = null;
-        wsRef.current.onerror = null;
-        wsRef.current.onmessage = null;
-        wsRef.current.close();
-      }
-
-      const ws = new WebSocket(getWebSocketUrl("/ws/execute", project.id));
-      wsRef.current = ws;
-      let exitedNormally = false;
-      let accStdout = "";
-      let accStderr = "";
-      let logBuffer: LogLine[] = [];
-      let rafId: number | null = null;
-
-      const flushLogs = () => {
-        if (logBuffer.length === 0) return;
-        const toAppend = logBuffer;
-        logBuffer = [];
-        setLogs((prev) => {
-          const next = [...prev, ...toAppend];
-          return next.length > 2000 ? next.slice(next.length - 2000) : next;
-        });
-      };
-
-      const appendLog = (logLine: Omit<LogLine, "time">) => {
-        const now = new Date().toLocaleTimeString();
-        logBuffer.push({ ...logLine, time: now });
-        if (rafId === null) {
-          rafId = requestAnimationFrame(() => {
-            rafId = null;
-            flushLogs();
-          });
-        }
-      };
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "start", language, activeFile }));
-      };
-
-      ws.onmessage = (msg) => {
-        try {
-          const parsed = JSON.parse(msg.data);
-
-          if (parsed.type === "stdout") {
-            accStdout += parsed.data;
-            appendLog({ type: "stdout", text: parsed.data });
-          } else if (parsed.type === "stderr") {
-            accStderr += parsed.data;
-            appendLog({ type: "stderr", text: parsed.data });
-          } else if (parsed.type === "status") {
-            appendLog({ type: "system", text: parsed.data });
-          } else if (parsed.type === "error") {
-            accStderr += parsed.data;
-            appendLog({ type: "error", text: parsed.data });
-            setStatusBadge({ text: "Error", type: "error" });
-          } else if (parsed.type === "exit") {
-            exitedNormally = true;
-            const { exitCode, signal, timedOut, oom } = parsed.result;
-            let status = `Process exited with code ${exitCode}`;
-            if (signal) status += ` (signal: ${signal})`;
-            if (timedOut) status = "Process timed out";
-            if (oom) status = "Process ran out of memory (OOM)";
-            appendLog({ type: "system", text: status });
-
-            if (parsed.telemetrySummary) {
-              const peakMb = (
-                parsed.telemetrySummary.peakMemoryBytes /
-                (1024 * 1024)
-              ).toFixed(1);
-              appendLog({
-                type: "system",
-                text: `Resource Profile — Peak CPU: ${parsed.telemetrySummary.peakCpuPercent}% | Peak Memory: ${peakMb} MB | PIDs: ${parsed.telemetrySummary.peakPids || 1}`,
-              });
-            }
-
-            if (rafId !== null) {
-              cancelAnimationFrame(rafId);
-              rafId = null;
-            }
-            flushLogs();
-
-            runInFlight = false;
-            setIsRunning(false);
-            setStatusBadge({
-              text: exitCode === 0 ? "Exited (0)" : `Exited (${exitCode})`,
-              type: exitCode === 0 ? "success" : "error",
-            });
-            // M44: only a failing run's own stderr is ever inspected — a
-            // successful run (exitCode 0) can't be a missing-dependency
-            // failure, so detection is skipped entirely rather than relying
-            // on the pattern simply not matching clean output.
-            setMissingDependencyHint(
-              exitCode !== 0 ? detectMissingDependency(accStderr) : null,
-            );
-            document.dispatchEvent(new Event("run-stopped"));
-
-            // Dispatch execution result for diagnostics / problems parser
-            document.dispatchEvent(
-              new CustomEvent("ide-execution-result", {
-                detail: {
-                  result: {
-                    ...parsed.result,
-                    stdout: accStdout || parsed.result?.stdout || "",
-                    stderr: accStderr || parsed.result?.stderr || "",
-                  },
-                  activeFile,
-                  language,
-                },
-              }),
-            );
-
-            loadRuns();
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      };
-
-      ws.onclose = () => {
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
-        flushLogs();
-
-        if (!exitedNormally) {
-          setLogs((prev) => [
-            ...prev,
-            {
-              type: "system",
-              text: "Execution stream closed",
-              time: new Date().toLocaleTimeString(),
-            },
-          ]);
-          setStatusBadge({ text: "Stopped", type: "idle" });
-        }
-        runInFlight = false;
-        setIsRunning(false);
-        document.dispatchEvent(new Event("run-stopped"));
-      };
-
-      ws.onerror = () => {
-        setLogs((prev) => [
-          ...prev,
-          {
-            type: "error",
-            text: "WebSocket connection error",
-            time: new Date().toLocaleTimeString(),
-          },
-        ]);
-        runInFlight = false;
-        setIsRunning(false);
-        setStatusBadge({ text: "Connection Error", type: "error" });
-        document.dispatchEvent(new Event("run-stopped"));
-      };
+    const onRunStopped = () => {
+      if (activeTab === "history") loadRuns();
     };
-
-    const handleStop = () => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "stop" }));
-        setLogs((prev) => [
-          ...prev,
-          {
-            type: "system",
-            text: "Stopping execution process...",
-            time: new Date().toLocaleTimeString(),
-          },
-        ]);
-      }
-    };
-
-    document.addEventListener("ide-run-confirmed", handleRun);
-    document.addEventListener("ide-stop", handleStop);
-
-    return () => {
-      document.removeEventListener("ide-run-confirmed", handleRun);
-      document.removeEventListener("ide-stop", handleStop);
-      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-        wsRef.current.onclose = null;
-        wsRef.current.onerror = null;
-        wsRef.current.onmessage = null;
-        wsRef.current.close();
-      }
-      // M45: mirrors M43's installInFlight cleanup dispatch. onclose was
-      // just nulled above (deliberately, to avoid a post-unmount setState)
-      // — so if a run was still active when this effect tore down (e.g.
-      // the user switched away from the Output tab mid-run), neither the
-      // exit handler nor onclose will ever get to dispatch run-stopped for
-      // it, and Toolbar's isRunning would stay stuck true forever with no
-      // way back to Run short of a page reload. runInFlight is already
-      // false by the time any of the three normal completion paths (exit
-      // message, onclose, onerror) has run, so this can only ever fire for
-      // the genuinely-new unmount-while-active case, never as a duplicate.
-      if (runInFlight) {
-        document.dispatchEvent(new Event("run-stopped"));
-      }
-    };
-  }, [project, loadRuns]);
-
-  // M43: dedicated effect for the dependency-install stream. This is a
-  // separate request/response shape from the run WebSocket above (chunked
-  // plain-text HTTP, not JSON-framed WS messages), so it gets its own
-  // effect rather than being folded into the one above. Reuses the same
-  // LogLine/appendLog/rAF-batching approach and the same statusBadge as the
-  // single "what is this console currently doing" indicator — Run and
-  // Install are mutually exclusive (enforced in Toolbar, and defensively
-  // re-checked here), so there is never a genuine ambiguity in sharing it.
-  useEffect(() => {
-    let isUnmounted = false;
-    let installInFlight = false;
-    let installReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    const installAbortController = new AbortController();
-    let installRafId: number | null = null;
-    let installLogBuffer: LogLine[] = [];
-
-    const flushInstallLogs = () => {
-      if (installLogBuffer.length === 0) return;
-      const toAppend = installLogBuffer;
-      installLogBuffer = [];
-      setLogs((prev) => {
-        const next = [...prev, ...toAppend];
-        return next.length > 2000 ? next.slice(next.length - 2000) : next;
-      });
-    };
-
-    const appendInstallLog = (logLine: Omit<LogLine, "time">) => {
-      const now = new Date().toLocaleTimeString();
-      installLogBuffer.push({ ...logLine, time: now });
-      if (installRafId === null) {
-        installRafId = requestAnimationFrame(() => {
-          installRafId = null;
-          flushInstallLogs();
-        });
-      }
-    };
-
-    const handleInstall = async () => {
-      if (!project || installInFlight || isRunningRef.current) return;
-      installInFlight = true;
-
-      setActiveTab("console");
-      setLogs([
-        {
-          type: "system",
-          text: "Installing dependencies...",
-          time: new Date().toLocaleTimeString(),
-        },
-      ]);
-      // M44: an install starting — whether from Toolbar's button or the
-      // inline missing-dependency hint dispatching the same ide-install
-      // event — means any hint from a prior run's failure no longer
-      // applies to what's on screen now.
-      setMissingDependencyHint(null);
-      setIsInstalling(true);
-      setStatusBadge({ text: "Installing", type: "running" });
-      document.dispatchEvent(new Event("install-started"));
-
-      try {
-        const res = await fetch(`/api/projects/${project.id}/install`, {
-          method: "POST",
-          credentials: "include",
-          signal: installAbortController.signal,
-        });
-        if (isUnmounted) return;
-
-        if (!res.ok) {
-          let errText = `Install request failed (${res.status})`;
-          try {
-            const body = await res.text();
-            if (body) errText = body;
-          } catch {
-            // fall back to the generic status-based message above
-          }
-          if (isUnmounted) return;
-          appendInstallLog({ type: "error", text: errText });
-          setStatusBadge({ text: "Install Failed", type: "error" });
-          return;
-        }
-
-        if (!res.body) {
-          appendInstallLog({
-            type: "error",
-            text: "Install response had no readable body",
-          });
-          setStatusBadge({ text: "Install Failed", type: "error" });
-          return;
-        }
-
-        const reader = res.body.getReader();
-        installReader = reader;
-        const decoder = new TextDecoder();
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (isUnmounted) return;
-          if (done) {
-            // Flush any buffered partial multibyte sequence held by the
-            // decoder so a final split character isn't silently dropped.
-            const tail = decoder.decode();
-            if (tail) appendInstallLog({ type: "system", text: tail });
-            break;
-          }
-          const chunk = decoder.decode(value, { stream: true });
-          if (chunk) appendInstallLog({ type: "system", text: chunk });
-        }
-
-        if (installRafId !== null) {
-          cancelAnimationFrame(installRafId);
-          installRafId = null;
-        }
-        flushInstallLogs();
-        if (isUnmounted) return;
-        setStatusBadge({ text: "Install Complete", type: "success" });
-      } catch (err: any) {
-        if (isUnmounted || err?.name === "AbortError") {
-          // Unmount cleanup below already tore this down; don't touch state.
-          return;
-        }
-        if (installRafId !== null) {
-          cancelAnimationFrame(installRafId);
-          installRafId = null;
-        }
-        flushInstallLogs();
-        appendInstallLog({
-          type: "error",
-          text: `Install error: ${err?.message || String(err)}`,
-        });
-        setStatusBadge({ text: "Install Failed", type: "error" });
-      } finally {
-        installReader = null;
-        installInFlight = false;
-        if (!isUnmounted) {
-          setIsInstalling(false);
-          document.dispatchEvent(new Event("install-stopped"));
-        }
-      }
-    };
-
-    document.addEventListener("ide-install-confirmed", handleInstall);
-
-    return () => {
-      isUnmounted = true;
-      document.removeEventListener("ide-install-confirmed", handleInstall);
-      if (installRafId !== null) {
-        cancelAnimationFrame(installRafId);
-        installRafId = null;
-      }
-      if (installReader) {
-        installReader.cancel().catch(() => {});
-      }
-      installAbortController.abort();
-      // handleInstall's own finally intentionally skips its dispatch once
-      // isUnmounted is true (it must not touch React state post-unmount) —
-      // so if a fetch/stream was actually in flight when we unmounted, this
-      // is the only place left to reset Toolbar's mirrored busy state.
-      // Without it, switching away from the Output tab mid-install would
-      // leave Run and Install permanently disabled.
-      if (installInFlight) {
-        document.dispatchEvent(new Event("install-stopped"));
-      }
-    };
-  }, [project]);
+    document.addEventListener("run-stopped", onRunStopped);
+    return () => document.removeEventListener("run-stopped", onRunStopped);
+  }, [activeTab, loadRuns]);
 
   // M44: the inline missing-dependency hint dispatches the exact same event
-  // Toolbar's own Install button does — Output's M43 install effect above
-  // is the single owner of everything that happens next (fetch, stream,
-  // state); this never duplicates any part of that pipeline. Its own
-  // `installInFlight`/isRunningRef guards make an extra dispatch here a
-  // harmless no-op in any state where it shouldn't start, so no additional
-  // guard is needed beyond the `disabled={isInstalling}` on the button.
+  // Toolbar's own Install button does — IDE's ide-install listener switches
+  // bottomTab back to "output" and re-dispatches ide-install-confirmed, which
+  // the execution session owns. This never duplicates any part of that flow.
   const handleInstallHintClick = () => {
     document.dispatchEvent(new Event("ide-install"));
   };
 
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && input) {
-      wsRef.current.send(JSON.stringify({ type: "stdin", data: input + "\n" }));
-      setLogs((prev) => [
-        ...prev,
-        {
-          type: "stdout",
-          text: input + "\n",
-          time: new Date().toLocaleTimeString(),
-        },
-      ]);
+    if (input) {
+      sendStdin(input + "\n");
       setInput("");
     }
   };
@@ -656,7 +236,7 @@ export default function Output({ project, onRefreshTree }: any) {
             </span>
             <button
               className="glass-btn glass-btn-icon"
-              onClick={() => setLogs([])}
+              onClick={() => clearLogs()}
               title="Clear Output"
               aria-label="Clear Output"
             >
@@ -716,8 +296,8 @@ export default function Output({ project, onRefreshTree }: any) {
             )}
             {/* M44: inline missing-dependency hint — appears directly
                 beneath the failing run's own output, never replaces or
-                alters it. Reuses the exact M43 ide-install event; Output's
-                own install effect owns everything after the click. */}
+                alters it. Reuses the exact M43 ide-install event; the
+                execution session owns everything after the click. */}
             {missingDependencyHint && (
               <div
                 className="output-missing-dependency-hint"

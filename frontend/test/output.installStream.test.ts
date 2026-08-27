@@ -14,6 +14,12 @@ vi.mock("../src/api", () => ({
 }));
 
 import Output from "../src/components/Output/Output";
+// M53: the install lifecycle now lives in the always-mounted execution
+// session, not Output. These tests still drive everything via document
+// events and assert Output's DOM — only the render wrapper changed, and the
+// mid-stream "unmount" step now tears down the provider (the real teardown
+// boundary) rather than Output.
+import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 
 // jsdom does not implement Element.scrollIntoView; Output's own (unrelated,
 // pre-existing) auto-scroll effect calls it on every log-console render.
@@ -82,7 +88,11 @@ describe("Output — Milestone 43 dependency-install stream", () => {
 
   function renderOutput() {
     return render(
-      React.createElement(Output, { project, onRefreshTree: vi.fn() }),
+      React.createElement(
+        ExecutionSessionProvider,
+        { projectId: "proj-1" },
+        React.createElement(Output, { project, onRefreshTree: vi.fn() }),
+      ),
     );
   }
 

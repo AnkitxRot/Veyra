@@ -11,6 +11,10 @@ vi.mock("../src/api", () => ({
 }));
 
 import Output from "../src/components/Output/Output";
+// M53: the run lifecycle + missing-dependency detection now live in the
+// always-mounted execution session. Behavior is unchanged; only the render
+// wrapper is added here. All tests still drive via document events.
+import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 
 // jsdom does not implement Element.scrollIntoView; Output's own (unrelated,
 // pre-existing) auto-scroll effect calls it on every log-console render —
@@ -81,7 +85,11 @@ describe("Output — Milestone 44 inline missing-dependency install hint", () =>
 
   function renderOutput() {
     return render(
-      React.createElement(Output, { project, onRefreshTree: vi.fn() }),
+      React.createElement(
+        ExecutionSessionProvider,
+        { projectId: "proj-1" },
+        React.createElement(Output, { project, onRefreshTree: vi.fn() }),
+      ),
     );
   }
 

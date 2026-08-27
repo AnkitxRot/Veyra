@@ -11,22 +11,20 @@ vi.mock("../src/api", () => ({
 }));
 
 import Output from "../src/components/Output/Output";
+import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 
-// jsdom does not implement Element.scrollIntoView; see
-// output.installStream.test.ts for the same, more detailed note.
+// jsdom does not implement Element.scrollIntoView.
 Element.prototype.scrollIntoView =
   Element.prototype.scrollIntoView || (() => {});
 
-// M45: Output.tsx's ide-run-confirmed effect cleanup nulls
-// ws.onclose/onerror/onmessage before calling ws.close() (deliberately, to
-// avoid a post-unmount setState) — but had no equivalent to M43's
-// installInFlight cleanup-time dispatch for run-stopped. Live-confirmed:
-// unmounting Output while a run was genuinely active (no exit/close
-// received yet) left Toolbar's isRunning permanently true, with the Stop
-// button stuck forever and no self-heal on returning to the Output tab.
-// This suite proves the fix's exact invariant: cleanup dispatches
-// run-stopped exactly once if and only if no other path (exit message,
-// onclose, onerror) already did so for that run.
+// M45 (relocated by M53): the run WebSocket + its cleanup now live in the
+// ExecutionSessionProvider, not <Output>. The M45 invariant is unchanged —
+// teardown dispatches run-stopped exactly once IFF no other path (exit
+// message, onclose, onerror) already did — but the teardown boundary is now
+// the PROVIDER unmounting (project switch / IDE teardown), NOT <Output>
+// unmounting. Unmounting <Output> alone (any bottom-tab switch / collapse)
+// must leave a running program completely untouched: that is the core M53
+// fix (also asserted in executionSession.test.tsx).
 
 class FakeWebSocket {
   static CONNECTING = 0;
@@ -52,9 +50,8 @@ class FakeWebSocket {
 
   close() {
     this.readyState = FakeWebSocket.CLOSED;
-    // Mirrors the real WebSocket API: if the caller (Output's unmount
-    // cleanup) already nulled onclose before calling close(), it must not
-    // fire here — this is exactly what makes the pre-fix bug possible.
+    // Mirrors the real WebSocket API: if the caller (the provider's teardown)
+    // already nulled onclose before calling close(), it must not fire here.
     this.onclose?.();
   }
 
@@ -72,7 +69,7 @@ class FakeWebSocket {
   }
 }
 
-describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
+describe("ExecutionSession — Milestone 45 run-stopped teardown guard (relocated by M53)", () => {
   const project: Project = { id: "proj-1", name: "My Project" };
 
   beforeEach(() => {
@@ -88,10 +85,20 @@ describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
     vi.restoreAllMocks();
   });
 
-  function renderOutput() {
-    return render(
-      React.createElement(Output, { project, onRefreshTree: vi.fn() }),
+  // Renders the provider (the teardown boundary) with <Output> as its child.
+  // `showOutput` toggles only the <Output> view; the provider stays mounted.
+  function Harness({ showOutput = true }: { showOutput?: boolean }) {
+    return (
+      <ExecutionSessionProvider projectId={project.id}>
+        {showOutput ? (
+          <Output project={project} onRefreshTree={() => {}} />
+        ) : null}
+      </ExecutionSessionProvider>
     );
+  }
+
+  function renderSession(showOutput = true) {
+    return render(<Harness showOutput={showOutput} />);
   }
 
   async function startRun() {
@@ -112,8 +119,24 @@ describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
     return ws;
   }
 
-  it("unmounting while a run is genuinely active dispatches run-stopped exactly once", async () => {
-    const { unmount } = renderOutput();
+  it("unmounting only <Output> (bottom-tab switch) does NOT stop the run and does NOT close the socket", async () => {
+    const { rerender } = renderSession(true);
+    const ws = await startRun();
+
+    const stopSpy = vi.fn();
+    document.addEventListener("run-stopped", stopSpy);
+
+    // Switch the bottom panel away from Output — provider stays mounted.
+    rerender(<Harness showOutput={false} />);
+
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+
+    document.removeEventListener("run-stopped", stopSpy);
+  });
+
+  it("unmounting the provider while a run is genuinely active dispatches run-stopped exactly once", async () => {
+    const { unmount } = renderSession(true);
     await startRun();
 
     const stopSpy = vi.fn();
@@ -125,8 +148,8 @@ describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
     document.removeEventListener("run-stopped", stopSpy);
   });
 
-  it("normal completion (exit message) does not get a second dispatch from unmount", async () => {
-    const { unmount } = renderOutput();
+  it("normal completion (exit message) does not get a second dispatch from provider unmount", async () => {
+    const { unmount } = renderSession(true);
     const ws = await startRun();
 
     const stopSpy = vi.fn();
@@ -138,16 +161,14 @@ describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
     });
     await waitFor(() => expect(stopSpy).toHaveBeenCalledTimes(1));
 
-    // The run already completed normally before unmount — runInFlight is
-    // already false, so cleanup must not add a second dispatch.
     unmount();
     expect(stopSpy).toHaveBeenCalledTimes(1);
 
     document.removeEventListener("run-stopped", stopSpy);
   });
 
-  it("a websocket error does not get a second dispatch from unmount", async () => {
-    const { unmount } = renderOutput();
+  it("a websocket error does not get a second dispatch from provider unmount", async () => {
+    const { unmount } = renderSession(true);
     const ws = await startRun();
 
     const stopSpy = vi.fn();
@@ -162,16 +183,13 @@ describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
     document.removeEventListener("run-stopped", stopSpy);
   });
 
-  it("Stop ending the run (server closes the socket) does not get a second dispatch from unmount", async () => {
-    const { unmount } = renderOutput();
+  it("Stop ending the run (server closes the socket) does not get a second dispatch from provider unmount", async () => {
+    const { unmount } = renderSession(true);
     const ws = await startRun();
 
     const stopSpy = vi.fn();
     document.addEventListener("run-stopped", stopSpy);
 
-    // Simulate the server closing the socket in response to a stop
-    // request — onclose is still wired at this point (run genuinely ended
-    // via the normal in-mount path, not via unmount).
     ws.onclose?.();
     await waitFor(() => expect(stopSpy).toHaveBeenCalledTimes(1));
 
@@ -181,8 +199,8 @@ describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
     document.removeEventListener("run-stopped", stopSpy);
   });
 
-  it("unmounting with no run ever started does not dispatch run-stopped", () => {
-    const { unmount } = renderOutput();
+  it("unmounting the provider with no run ever started does not dispatch run-stopped", () => {
+    const { unmount } = renderSession(true);
 
     const stopSpy = vi.fn();
     document.addEventListener("run-stopped", stopSpy);
@@ -193,8 +211,8 @@ describe("Output — Milestone 45 run-stopped cleanup-dispatch guard", () => {
     document.removeEventListener("run-stopped", stopSpy);
   });
 
-  it("cancels the in-flight websocket on unmount (existing behavior unchanged)", async () => {
-    const { unmount } = renderOutput();
+  it("cancels the in-flight websocket on provider unmount (existing behavior unchanged)", async () => {
+    const { unmount } = renderSession(true);
     const ws = await startRun();
 
     unmount();
