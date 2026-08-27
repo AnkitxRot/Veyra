@@ -619,9 +619,20 @@ export default function IDE({
         }),
       );
 
-      // Switch to output tab and expand drawer if collapsed
-      setBottomTab("output");
-      setIsBottomCollapsed(false);
+      // M45: switch to output tab and expand drawer if collapsed. Must be
+      // flushSync — see the identical M44 comment on the ide-install effect
+      // below for why: React 18 batches this state update, so without
+      // flushSync, Output isn't mounted (and its ide-run-confirmed listener
+      // isn't registered) by the time the dispatch below runs whenever the
+      // user wasn't already on the Output tab. Live-confirmed: Run from the
+      // Terminal or Problems tab silently did nothing pre-fix — the tab
+      // switched to Output but no run ever started. The dirty-file-save
+      // await above only masked this when there were actual unsaved
+      // changes to save.
+      flushSync(() => {
+        setBottomTab("output");
+        setIsBottomCollapsed(false);
+      });
 
       // Dispatch confirmed execution event
       document.dispatchEvent(

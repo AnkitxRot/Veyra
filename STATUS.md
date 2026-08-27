@@ -3362,6 +3362,95 @@ changes, on a non-Output bottom tab, pressing Ctrl+Enter or clicking Run, would 
 no-op. Worth its own small, focused milestone (`flushSync` around the same two `setState` calls in
 `handleRunRequest`) rather than folding into a future unrelated change.
 
+## Milestone 45 — Fix ide-run tab-dispatch race and stuck Stop button after mid-run tab switch
+
+**A dedicated read-only discovery pass** (static sweep of all 9 `document.dispatchEvent`/
+`addEventListener` pairs in the frontend, then live Chrome+Docker reproduction) confirmed the M44
+follow-up item above was real, and found a second, distinct defect in the same lifecycle.
+
+**Defect #1 — `ide-run` tab-dispatch race**: byte-for-byte the same mechanism M44 fixed for
+`ide-install`. `IDE.tsx`'s `handleRunRequest` called `setBottomTab("output")` /
+`setIsBottomCollapsed(false)` then immediately dispatched `ide-run-confirmed`, without `flushSync`.
+React 18 batches that state update, so when `Output.tsx` wasn't already mounted (Terminal tab,
+Problems tab), the confirmed event fired into a DOM with nothing listening and the run silently never
+started — the tab switched to Output but the console stayed idle, no history entry, no process ran.
+The dirty-file-save `await` loop above it only masked this when there were actual unsaved changes.
+Live-reproduced twice (Terminal tab, Problems tab) before the fix, with zero dirty files (the exact
+unmasked path); the Output-tab control case worked correctly throughout, isolating this to the
+tab-switch timing specifically.
+
+**Defect #2 — stuck Stop button after mid-run tab switch**: a second, independently-confirmed defect
+in the same effect, found via the same sweep. `Output.tsx`'s `ide-run-confirmed` effect cleanup nulls
+`ws.onclose`/`onerror`/`onmessage` before calling `.close()` (correctly avoiding a post-unmount
+`setState`) — but had no equivalent to M43's `installInFlight` cleanup-time dispatch. If a run was
+still genuinely active (no exit/close received yet) when `Output` unmounted — e.g. the user switches
+bottom tabs mid-run — neither the exit handler nor `onclose` ever gets to dispatch `run-stopped`, and
+Toolbar's `isRunning` stays permanently `true`. Live-reproduced: started a 6-second run
+(`time.sleep(6)`), switched to the Terminal tab ~1s in, waited 8+ seconds past actual completion —
+Toolbar stayed on "Stop Execution" with no self-heal on returning to the Output tab (a fresh instance
+mounts with `wsRef.current = null`, making even Stop a no-op).
+
+**Fix #1** (`frontend/src/components/IDE/IDE.tsx`): wrapped `handleRunRequest`'s
+`setBottomTab`/`setIsBottomCollapsed` calls in `flushSync` (imported from `react-dom`, already used
+for the identical `ide-install` fix in the same file) — mirrors M44's fix exactly, same file, same
+mechanism, no new abstraction. The dirty-file-save loop and all execution/WebSocket semantics are
+untouched.
+
+**Fix #2** (`frontend/src/components/Output/Output.tsx`): added a `runInFlight` boolean tracked at
+the `ide-run-confirmed` effect's own scope (mirroring M43's `installInFlight` exactly) — set `true`
+when a run starts, `false` the moment any of the three normal completion paths (exit message,
+`onclose`, `onerror`) has handled it. The effect's cleanup dispatches `run-stopped` if and only if
+`runInFlight` is still `true` at unmount time, so it can only ever fire for the genuinely-new
+unmount-while-active case, never as a duplicate alongside an already-fired normal-path dispatch. The
+existing `onclose`/`onerror`-path dispatches and the WebSocket protocol are untouched.
+
+**Tests** (8 new, 0 modified, 0 removed):
+
+- `frontend/test/ideRunMediation.test.tsx` (2 tests): mirrors M44's `ideInstallMediation.test.tsx`
+  harness shape exactly — a minimal stand-in for `IDE.tsx`'s conditional-mount + mediating-event
+  slice, proving the pre-fix shape drops `ide-run-confirmed` when `Output` starts unmounted, and the
+  `flushSync` shape delivers it.
+- `frontend/test/output.runStoppedCleanup.test.ts` (6 tests): unmount-while-active dispatches
+  `run-stopped` exactly once; normal completion (exit message), a websocket error, and a
+  server-initiated close (Stop) each independently produce exactly one dispatch with no second one
+  added by a later unmount; unmounting with no run ever started dispatches nothing; the existing
+  reader/socket-cancellation-on-unmount behavior is unchanged.
+- `git stash`-verified fix #2 against real source: stashed only `Output.tsx`'s change, reran the new
+  suite — 5/6 passed trivially (nothing extra to dispatch pre-fix), the one test that actually proves
+  the bug failed with the exact expected shape (`expected "spy" to be called 1 times, but got 0
+times`); restored the fix, all 6 passed. Fix #1's proof is via the harness's two dedicated test
+  cases (matching M44's own established, accepted pattern for this exact scenario) rather than a
+  literal git-stash against `IDE.tsx`, which isn't feasible to test directly without rendering the
+  full multi-thousand-line `IDE` component tree — noted plainly rather than glossed over.
+
+Full frontend suite: 100/100 passed (92 pre-existing M1–M44 + 8 new), 0 regressions, 0 existing tests
+modified. `tsc --noEmit` clean (caught one real type mismatch in the new cleanup test — a fake
+`onerror` called with an argument it wasn't typed to accept — fixed before this count). `vite build`
+clean (same pre-existing >500kB Monaco/xterm chunk-size warning, unrelated). `git diff --check`
+clean. No backend file changed; no `ide-install`/`ide-install-confirmed` code touched (only a comment
+cross-reference); no shared event-mediation abstraction introduced — the discovery pass's own sweep
+found exactly these two real instances, not a systemic pattern.
+
+**Live verification** (Chrome + Docker, both available; `cloudeeeide-runner:latest` already built):
+
+- **A. Run from Terminal**: switched to Terminal, clicked Run — tab switched to Output, real
+  execution ran (`done`, exit code 0), Job History incremented, Toolbar returned to Run. PASS.
+- **B. Run from Problems**: same, from the Problems tab. PASS.
+- **C. Run from Output** (control): unchanged, still works. PASS.
+- **D. Mid-run tab switch**: started a 6-second run, switched to Terminal ~1s in, waited past actual
+  completion — Toolbar correctly showed "Run Python", not stuck on "Stop" (the exact defect #2
+  scenario, now fixed); returned to the Output tab (fresh mount, idle console); clicked Run again —
+  worked correctly with no page reload (`done`, exit code 0, history incremented again). PASS.
+- **E. Stop path**: started a run, clicked Stop — completed cleanly to a single "Exited (0)" /
+  idle state with Toolbar correctly returned to Run, no stuck or duplicate state. PASS.
+- **F. Install regression**: from the Terminal tab, triggered Toolbar's Install — correctly switched
+  to Output and completed normally (unrelated M43 code, confirmed untouched and still working). PASS.
+
+Security/data review: no backend changes, no new trust boundary, no protocol change — purely a
+frontend event-timing and lifecycle-cleanup fix mirroring two already-shipped, already-reviewed
+patterns (M44's `flushSync`, M43's `installInFlight`). Worst-case pre-fix behavior was a stuck UI
+requiring a page reload, never data loss or a security exposure.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3371,21 +3460,24 @@ Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration
 resurrection fix), M38 (collaboration deletion race fix), M39 (collaboration import-replacement
 race fix), M40 (frontend collaboration-reconnect state reset), M41 (disposed-room stale-flush
 guards), M42 (tree-cache stale-write-after-invalidate fix), M43 (dependency-install pipeline
-surfaced in the IDE UI), and M44 (missing-dependency run-failure detection + inline install action,
-above; commit noted at top of file once pushed).
+surfaced in the IDE UI), M44 (missing-dependency run-failure detection + inline install action), and
+M45 (ide-run tab-dispatch race + stuck Stop button after mid-run tab switch, above; commit noted at
+top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface); M43's
 POST_INSTALL_RUN gap was closed by its own live-Chrome addendum; M44 was fully browser-verified live
-(Python path) with Node-specific detection covered by unit tests only (see M44 above). The M25–M32
-backup/restore arc is fully closed; M33 closed the audit-trail coverage/integrity gap; M34 closed the
-resulting observability blind spot and is surfaced in the admin UI rather than only reachable via raw
-API; M43 closed the equivalent frontend-surfacing gap for the dependency-install endpoint; M44 closes
-the discoverability gap for that same endpoint (a user who runs before installing now has a direct
-path back to the fix) and, along the way, fixed a real latent defect in M43's own `ide-install`
-mediation (see M44 above) — an equivalent latent defect in `ide-run`'s mediation remains open,
-flagged as a recommended follow-up in M44's own section, not fixed here (out of that milestone's
-scope).
+(Python path) with Node-specific detection covered by unit tests only; M45 was fully browser-verified
+live across all six affected Run/Install states (see M45 above). The M25–M32 backup/restore arc is
+fully closed; M33 closed the audit-trail coverage/integrity gap; M34 closed the resulting
+observability blind spot and is surfaced in the admin UI rather than only reachable via raw API; M43
+closed the equivalent frontend-surfacing gap for the dependency-install endpoint; M44 closed the
+discoverability gap for that same endpoint and, along the way, fixed a real latent defect in M43's own
+`ide-install` mediation; M45 closed the matching latent defect in `ide-run`'s mediation that M44 had
+flagged but left open (out of that milestone's scope), plus a second, independently-discovered defect
+in the same lifecycle (Toolbar's Stop button getting permanently stuck if the user switches away from
+the Output tab mid-run). A full static sweep of all 9 dispatch/listener event pairs in the frontend
+found no other real or latent instance of either bug class — that scope is now closed.
 
 ## Next recommended milestone
 
@@ -3464,12 +3556,10 @@ scope).
 16. ~~Detect missing-dependency Run failures and offer an inline Install action~~ — fixed in M44
     (`frontend/src/utils/missingDependency.ts` + `ProblemsPanel.tsx`, see above). Items 11–14 above
     remain open and unchanged.
-17. New from M44: `IDE.tsx`'s `ide-run` handler has the identical unguarded
-    `setBottomTab`/dispatch-timing race M44 fixed for `ide-install` (fixed there with `flushSync`) —
-    incidentally masked for Run by an `await` in its dirty-file-save loop that only executes when
-    there are actual unsaved changes. A user with no dirty files, on a non-Output bottom tab (e.g.
-    just landed on Problems after a prior failing run), pressing Ctrl+Enter or clicking Run, would
-    hit the same silent no-op M44 found and fixed for Install. Small, well-understood, bounded fix
-    (wrap the same two `setBottomTab`/`setIsBottomCollapsed` calls in `flushSync`) — good candidate
-    for the next session to pick up directly, though M44's own contract explicitly kept `ide-run`
-    out of scope so it is not fixed here.
+17. ~~`IDE.tsx`'s `ide-run` handler has the identical unguarded `setBottomTab`/dispatch-timing race
+    M44 fixed for `ide-install`~~ — fixed in M45 (`flushSync`, mirroring M44 exactly; see M45 above),
+    along with a second, independently-discovered defect in the same lifecycle (Toolbar's Stop button
+    permanently stuck if the user switches away from the Output tab mid-run — fixed via a
+    `runInFlight` cleanup-dispatch guard mirroring M43's `installInFlight`). A full static sweep of
+    every dispatch/listener event pair in the frontend (9 families) found no other real or latent
+    instance of either bug class — that investigation is closed, not just deferred.

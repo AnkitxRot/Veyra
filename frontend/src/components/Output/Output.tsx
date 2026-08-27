@@ -124,6 +124,16 @@ export default function Output({ project, onRefreshTree }: any) {
   }, [activeTab, project, loadRuns, loadSnapshots]);
 
   useEffect(() => {
+    // M45: mirrors M43's installInFlight — tracked at the effect's own
+    // scope (not inside handleRun's per-invocation closure) specifically
+    // so the cleanup function below can see whether a run is still active
+    // when this effect tears down, e.g. the user switches away from the
+    // Output tab mid-run. Set true when a run starts, false the moment any
+    // of the three normal completion paths (exit message, onclose,
+    // onerror) has already handled it — so the cleanup's own dispatch only
+    // ever fires for the genuinely-new case none of those three reached.
+    let runInFlight = false;
+
     const handleRun = (e: Event) => {
       const { language, activeFile, langDisplay } = (e as CustomEvent).detail;
       if (!project) return;
@@ -140,6 +150,7 @@ export default function Output({ project, onRefreshTree }: any) {
       // M44: a new run starts with a clean slate — any missing-dependency
       // hint belongs to the run that produced it, never to this new one.
       setMissingDependencyHint(null);
+      runInFlight = true;
       setIsRunning(true);
       setStatusBadge({ text: "Running", type: "running" });
       document.dispatchEvent(new Event("run-started"));
@@ -226,6 +237,7 @@ export default function Output({ project, onRefreshTree }: any) {
             }
             flushLogs();
 
+            runInFlight = false;
             setIsRunning(false);
             setStatusBadge({
               text: exitCode === 0 ? "Exited (0)" : `Exited (${exitCode})`,
@@ -280,6 +292,7 @@ export default function Output({ project, onRefreshTree }: any) {
           ]);
           setStatusBadge({ text: "Stopped", type: "idle" });
         }
+        runInFlight = false;
         setIsRunning(false);
         document.dispatchEvent(new Event("run-stopped"));
       };
@@ -293,6 +306,7 @@ export default function Output({ project, onRefreshTree }: any) {
             time: new Date().toLocaleTimeString(),
           },
         ]);
+        runInFlight = false;
         setIsRunning(false);
         setStatusBadge({ text: "Connection Error", type: "error" });
         document.dispatchEvent(new Event("run-stopped"));
@@ -324,6 +338,19 @@ export default function Output({ project, onRefreshTree }: any) {
         wsRef.current.onerror = null;
         wsRef.current.onmessage = null;
         wsRef.current.close();
+      }
+      // M45: mirrors M43's installInFlight cleanup dispatch. onclose was
+      // just nulled above (deliberately, to avoid a post-unmount setState)
+      // — so if a run was still active when this effect tore down (e.g.
+      // the user switched away from the Output tab mid-run), neither the
+      // exit handler nor onclose will ever get to dispatch run-stopped for
+      // it, and Toolbar's isRunning would stay stuck true forever with no
+      // way back to Run short of a page reload. runInFlight is already
+      // false by the time any of the three normal completion paths (exit
+      // message, onclose, onerror) has run, so this can only ever fire for
+      // the genuinely-new unmount-while-active case, never as a duplicate.
+      if (runInFlight) {
+        document.dispatchEvent(new Event("run-stopped"));
       }
     };
   }, [project, loadRuns]);
