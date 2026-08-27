@@ -3451,6 +3451,118 @@ frontend event-timing and lifecycle-cleanup fix mirroring two already-shipped, a
 patterns (M44's `flushSync`, M43's `installInFlight`). Worst-case pre-fix behavior was a stuck UI
 requiring a page reload, never data loss or a security exposure.
 
+## Milestone 46 — Surface admin backup and restore controls in the admin dashboard
+
+**Objective**: surface the nine already-built, admin-gated, audit-logged backup operations in
+`backend/src/admin/routes.ts` — none of which had a frontend caller before this milestone — as a new
+"Database & Workspace Backups" tab in `AdminDashboard.tsx`. No backend file touched.
+
+**The nine operations surfaced** (database backups: 4; workspace backups: 5):
+
+1. `GET /api/admin/backups` — list DB backups
+2. `POST /api/admin/backups` — create a DB backup
+3. `GET /api/admin/backups/:filename` — download a DB backup (audit-logged)
+4. `DELETE /api/admin/backups/:filename` — delete a DB backup
+5. `POST /api/admin/workspace-backups/:projectId` — create a workspace backup
+6. `GET /api/admin/workspace-backups/:projectId` — list a project's workspace backups
+7. `GET /api/admin/workspace-backups/:projectId/:filename` — download a workspace backup (audit-logged)
+8. `DELETE /api/admin/workspace-backups/:projectId/:filename` — delete a workspace backup
+9. `POST /api/admin/workspace-backups/:projectId/:filename/restore` — restore a workspace backup
+   (destructive: overwrites the project's live workspace in place)
+
+**Material discrepancy from the issued contract, adapted rather than forced**: the contract assumed
+destructive confirmations would use the shared `common/Modal.tsx` `ConfirmModal` component.
+`AdminDashboard.tsx` itself never uses that component anywhere — its own pre-existing destructive
+delete-user flow (search "MODAL 4" in that file) already established a different, admin-specific
+pattern: a locally-owned `admin-modal-overlay`/`admin-modal-card` dialog with its own loading/error
+state, no shared component. `AdminBackupsPanel.tsx`'s delete and restore confirmations mirror that
+established pattern exactly instead of introducing the shared `ConfirmModal` — "do not introduce a
+new UI architecture" pointed at matching what this file actually does, not what the contract assumed
+it did. (Cosmetic side note: the mirrored `glass-banner`/`glass-btn-ghost` classes have no CSS backing
+anywhere in the codebase — a pre-existing gap in that same delete-user modal, not introduced here;
+error text and the Cancel button both still render correctly, just without the intended color accent.)
+
+**Architecture**: `AdminBackupsPanel.tsx` is a new, self-contained component (mirrors
+`AdminResourceAnalytics.tsx`, the established precedent for an extracted admin tab — same
+`admin-table-wrap`/`admin-table-toolbar`/`admin-table-scroll`/`admin-table` CSS classes, same
+`glass-badge`/`glass-btn` conventions) rendered as `{activeTab === "backups" && <AdminBackupsPanel
+projects={projects} />}`. `projects` (already loaded once at mount via `AdminDashboard`'s existing
+`fetchOverviewFallback`/`refreshAll`) is passed as the one prop it needs rather than re-fetched.
+Own local success/error banners per section (no shared `actionMessage` reach-up, since the component
+is self-contained by design) — reuses the same visual language, not a new notification system.
+
+**Destructive restore UX** (the contract's primary UX gate): the restore confirmation explicitly
+names the exact backup filename, its creation timestamp, and the target project name, plus an
+explicit overwrite warning — never a generic "Are you sure?". Live-verified text:
+_"Restore workspace_backup\_...zip (created 8/27/2026, 2:07:02 PM) to m46-backup-qa? This will replace
+the project's current workspace contents."_
+
+**Concurrency/staleness guards**: `dbCreating`/`wsCreating` booleans block duplicate create clicks;
+delete/restore loading state disables their own confirm button during the request; a request-generation
+ref (`wsRequestIdRef`) guards the workspace-backup list fetch so a stale response from a
+previously-selected project cannot overwrite a since-selected different project's state — all three
+verified by dedicated tests (test 5, test 18, test 21) plus live browser behavior.
+
+**Integrity display kept honest**: `backup/service.ts`'s own `listDatabaseBackups()` returns
+`"unverified"` for every _listed_ backup (only a just-created backup's own response is `"ok"`, since
+that one was freshly checked at creation time — see that function's own doc comment). The UI renders
+exactly what the backend returns — `IntegrityBadge` never upgrades `"unverified"` to `"ok"`. Live-
+confirmed: a freshly-created backup, once the list was reloaded, correctly displayed **UNVERIFIED**
+(amber), not a misleading green OK.
+
+**Tests** (23 new: 21 in `AdminBackupsPanel.test.tsx` covering all required DB/workspace/error/
+staleness scenarios, matching the contract's enumerated list 1–21; items 22–23 — no pre-existing
+AdminDashboard tests existed to preserve, confirmed by search before starting; non-admin rejection is
+enforced server-side and was verified live against the real backend rather than re-asserted
+client-side, per "frontend authorization is not a security boundary"). One jsdom-only artifact: a
+benign, non-failing `"Not implemented: navigation"` stderr line from jsdom's incomplete support for
+the anchor `download` attribute during the download test — cosmetic, doesn't affect any assertion,
+documented inline in the test file.
+
+Full frontend suite: 121/121 passed (98 pre-existing M1–M45 + 23 new), 0 regressions, 0 existing
+tests modified. `tsc --noEmit` clean. `vite build` clean (`AdminDashboard` chunk grew from 49.76 kB to
+62.60 kB, expected — same pre-existing >500 kB Monaco/xterm warning, unrelated). `git diff --check`
+clean. No backend file changed.
+
+**Live verification** (Chrome + Docker, real backend; local dev admin password reset via the app's
+own `hashPassword()` function since it wasn't known — a legitimate local-dev credential reset, not a
+backend behavior change):
+
+- Created a real DB backup — appeared with correct filename/size/timestamp, **UNVERIFIED** integrity.
+- Downloaded it (network request confirmed 200 OK against the exact `/api/admin/backups/:filename`
+  URL) and deleted it (list correctly emptied).
+- Selected a real project (`m46-backup-qa`), created a real workspace backup.
+- Modified `main.py` through the actual IDE editor (not the API) from `ORIGINAL_CONTENT` to
+  `MODIFIED_AFTER_BACKUP` and saved.
+- Restored the workspace backup from the new admin tab — confirmation modal correctly named the
+  project, filename, and timestamp; after confirming, verified the revert at two independent levels:
+  a direct API read of the file (`ORIGINAL_CONTENT` restored) and a fresh IDE screenshot showing the
+  same.
+- Verified Cancel on both delete and restore confirmations makes no request and leaves state
+  untouched.
+- Verified every action (create/download ×2/delete DB, create/restore/delete workspace) appears
+  correctly in the pre-existing Audit Journal tab with the correct actor, workspace, and metadata —
+  confirming the existing backend audit logging (untouched) works end-to-end through the new UI.
+- Verified a non-admin session receives `403` directly from `/api/admin/backups` — backend
+  authorization unchanged and holding, confirming the frontend adds no bypass.
+- Attempted a narrow-viewport check; the automation environment's resize did not visibly affect the
+  rendered viewport, so this could not be conclusively re-verified beyond noting the panel reuses the
+  exact same table/modal CSS classes as every other existing admin tab, which already carries whatever
+  responsive behavior this admin dashboard has — stated plainly rather than claimed as verified.
+- Keyboard: Escape does not close the modal — matching the pre-existing user-delete modal's own
+  behavior exactly (no Escape handler exists in that established pattern either); Tab/Enter work via
+  native `<button>` semantics.
+
+**M34 backup-health panel** (Admin Overview tab): not modified, not duplicated — read-only reference
+during this pass; correctly showed `NEVER`/`0/33` before this pass's QA backups were created, and
+returned to that same coherent state after they were cleaned up (all QA backups deleted at the end of
+this pass).
+
+Security/data review: reuses only existing, unmodified, already-admin-gated/audit-logged endpoints —
+no new trust boundary. No filenames are client-constructed outside the backend-provided values already
+returned by the list endpoints. Restore's destructive semantics are entirely backend-owned (M32); this
+milestone adds no client-side restore logic, only the confirm-then-call UX gate.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3461,23 +3573,25 @@ resurrection fix), M38 (collaboration deletion race fix), M39 (collaboration imp
 race fix), M40 (frontend collaboration-reconnect state reset), M41 (disposed-room stale-flush
 guards), M42 (tree-cache stale-write-after-invalidate fix), M43 (dependency-install pipeline
 surfaced in the IDE UI), M44 (missing-dependency run-failure detection + inline install action), and
-M45 (ide-run tab-dispatch race + stuck Stop button after mid-run tab switch, above; commit noted at
-top of file once pushed).
+M45 (ide-run tab-dispatch race + stuck Stop button after mid-run tab switch), and M46 (admin backup/
+restore controls surfaced in the admin dashboard, above; commit noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
 were backend-only and remain unverified by browser (nothing to verify — no frontend surface); M43's
 POST_INSTALL_RUN gap was closed by its own live-Chrome addendum; M44 was fully browser-verified live
-(Python path) with Node-specific detection covered by unit tests only; M45 was fully browser-verified
-live across all six affected Run/Install states (see M45 above). The M25–M32 backup/restore arc is
-fully closed; M33 closed the audit-trail coverage/integrity gap; M34 closed the resulting
-observability blind spot and is surfaced in the admin UI rather than only reachable via raw API; M43
-closed the equivalent frontend-surfacing gap for the dependency-install endpoint; M44 closed the
-discoverability gap for that same endpoint and, along the way, fixed a real latent defect in M43's own
-`ide-install` mediation; M45 closed the matching latent defect in `ide-run`'s mediation that M44 had
-flagged but left open (out of that milestone's scope), plus a second, independently-discovered defect
-in the same lifecycle (Toolbar's Stop button getting permanently stuck if the user switches away from
-the Output tab mid-run). A full static sweep of all 9 dispatch/listener event pairs in the frontend
-found no other real or latent instance of either bug class — that scope is now closed.
+(Python path) with Node-specific detection covered by unit tests only; M45 and M46 were both fully
+browser-verified live end-to-end (see their sections above). The M25–M32 backup/restore arc is fully
+closed; M33 closed the audit-trail coverage/integrity gap; M34 closed the resulting observability
+blind spot and is surfaced in the admin UI rather than only reachable via raw API; M43 closed the
+equivalent frontend-surfacing gap for the dependency-install endpoint; M44 closed the discoverability
+gap for that same endpoint and, along the way, fixed a real latent defect in M43's own `ide-install`
+mediation; M45 closed the matching latent defect in `ide-run`'s mediation that M44 had flagged but
+left open (out of that milestone's scope), plus a second, independently-discovered defect in the same
+lifecycle (Toolbar's Stop button getting permanently stuck if the user switches away from the Output
+tab mid-run) — a full static sweep of all 9 dispatch/listener event pairs in the frontend found no
+other real or latent instance of either bug class, closing that scope; M46 closes the last
+consistently-flagged backend-only gap from every discovery pass since M35 — the admin backup/restore
+API now has a frontend surface, matching every other admin capability.
 
 ## Next recommended milestone
 
@@ -3522,15 +3636,10 @@ found no other real or latent instance of either bug class — that scope is now
     fresh product-audit pass (not a race-hunting pass) found M43 (see above): the dependency-install
     endpoint was fully built with zero frontend caller. That same audit pass surfaced five other real,
     evidence-backed but not-yet-actioned candidates, listed as items 11–15 below.
-11. Admin backup/restore UI — `GET/POST/DELETE /api/admin/backups` (DB-level) and `POST/GET/DELETE
-.../restore /api/admin/workspace-backups/:projectId` (7 endpoints total, all already
-    authenticated/admin-gated/tested) have zero frontend caller in `AdminDashboard.tsx`. An operator
-    currently has no self-service way to trigger, list, or restore a backup without SSH +
-    `scripts/backup-db.js`/`restore-db.js` — the single highest-stakes recovery operation in the
-    system is CLI/SSH-only. Engineering-determined, no product decision needed; larger scope than M43
-    (admin-only UI, a genuinely destructive restore action deserving its own careful confirm-flow
-    design) — this is the same item as the old item 5 above, re-confirmed still open by the M43-era
-    audit.
+11. ~~Admin backup/restore UI~~ — fixed in M46 (`AdminBackupsPanel.tsx`, a new "Database & Workspace
+    Backups" tab in `AdminDashboard.tsx` surfacing all nine DB-level and workspace-backup operations,
+    including a fully-gated destructive restore flow; see M46 above for the full live verification,
+    including an end-to-end modify-then-restore-then-revert proof against a real project).
 12. Environment variables / secrets management — `execution/sandbox.ts:942-947` already accepts and
     correctly injects `opts.env` into every `docker exec` call, but nothing in `pipeline.ts` ever
     populates it; there is no DB table, no routes, no UI. Table-stakes for a cloud IDE that executes
@@ -3545,9 +3654,10 @@ found no other real or latent instance of either bug class — that scope is now
     Walkthrough Tour"), so whether a real, cost-incurring external LLM call is even desired is a product
     question, not an engineering one — plus it would introduce a new trust boundary (prompt-injection/
     context-leak review) that doesn't exist today.
-14. `/api/admin/observability` (live connection/room/sandbox counters) has no frontend caller in
-    `AdminDashboard.tsx` either — lower value than item 11, likely worth bundling into the same pass
-    rather than a standalone milestone.
+14. `/api/admin/observability` (live connection/room/sandbox counters) still has no frontend caller
+    in `AdminDashboard.tsx` — deliberately not bundled into M46 (that milestone's contract scoped it
+    to backup/restore only). Still the strongest remaining backend-only gap, now smaller in isolation
+    than it looked next to the backup UI.
 15. No security finding rose to the level of a standalone milestone during the M43-era audit (zip
     import path-traversal/zip-bomb guards, admin authorization, and the — reassuringly local-only,
     nothing-leaves-the-server — "AI" context-building path were all re-checked and found already

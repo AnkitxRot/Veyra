@@ -36,6 +36,7 @@ import {
   IconDatabase,
 } from "../common/Icons";
 import AdminResourceAnalytics from "./AdminResourceAnalytics";
+import AdminBackupsPanel from "./AdminBackupsPanel";
 
 export default function AdminDashboard({
   user: _user,
@@ -47,7 +48,13 @@ export default function AdminDashboard({
   onSwitchToIde: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "sandboxes" | "executions" | "resources" | "tenants" | "audit"
+    | "overview"
+    | "sandboxes"
+    | "executions"
+    | "resources"
+    | "tenants"
+    | "audit"
+    | "backups"
   >("overview");
 
   // Real-time streaming state
@@ -659,6 +666,16 @@ export default function AdminDashboard({
         >
           <IconShield size={14} />
           <span>Audit Journal</span>
+        </button>
+
+        <button
+          className={`admin-nav-tab ${activeTab === "backups" ? "active" : ""}`}
+          onClick={() => setActiveTab("backups")}
+          role="tab"
+          aria-selected={activeTab === "backups"}
+        >
+          <IconDatabase size={14} />
+          <span>Database &amp; Workspace Backups</span>
         </button>
       </nav>
 
@@ -1777,6 +1794,8 @@ export default function AdminDashboard({
             </div>
           </div>
         )}
+
+        {activeTab === "backups" && <AdminBackupsPanel projects={projects} />}
       </main>
 
       {/* =========================================================================
