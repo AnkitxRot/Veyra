@@ -9,11 +9,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     default-jdk \
+    git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install tsx globally for TypeScript execution
 RUN npm install -g tsx typescript
+
+# The workspace .git is created by the backend process; inside this already
+# isolated sandbox the terminal git must operate on it regardless of which
+# uid owns the files. The sandbox container IS the security boundary here.
+RUN git config --system --add safe.directory '*'
 
 # Non-root execution user. The node base image already reserves uid 1000 for
 # `node`; rename it so the runner matches the backend's workspace ownership.

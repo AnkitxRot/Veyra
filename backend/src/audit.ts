@@ -38,6 +38,11 @@ export type AuditEventType =
   | "SECRET_UPDATED"
   | "SECRET_DELETED"
   | "SECRET_ACCESSED"
+  | "GIT_INIT"
+  | "GIT_COMMIT"
+  | "GIT_BRANCH_CREATED"
+  | "GIT_BRANCH_DELETED"
+  | "GIT_CHECKOUT"
   | "ADMIN_ACTION";
 
 export interface AuditRecord {

@@ -41,6 +41,23 @@ export function safeResolve(root: string, relPath: string): string {
   return resolved;
 }
 
+/**
+ * M51: `.git` is a managed repository, never an ordinary workspace file.
+ * The tree/search/quick-open surfaces already exclude it via SKIP_DIRS; this
+ * guards the by-path file APIs (read/write/move/delete) so a crafted path
+ * can't reach repository internals.
+ */
+function assertNotGitInternal(relPath: string): void {
+  const first = relPath.replace(/\\/g, "/").replace(/^\/+/, "").split("/")[0];
+  if (first === ".git") {
+    throw new ApiError(
+      400,
+      "cannot access .git repository internals",
+      "invalid_path",
+    );
+  }
+}
+
 export async function assertInsideWorkspace(
   root: string,
   abs: string,
@@ -235,6 +252,7 @@ export async function readProjectFile(
   root: string,
   relPath: string,
 ): Promise<{ content: string; size: number }> {
+  assertNotGitInternal(relPath);
   const abs = safeResolve(root, relPath);
   await assertInsideWorkspace(root, abs);
   let st;
@@ -258,6 +276,7 @@ export async function writeProjectFile(
 ): Promise<void> {
   if (typeof content !== "string")
     throw new ApiError(400, "content must be a string", "invalid_content");
+  assertNotGitInternal(relPath);
   const abs = safeResolve(root, relPath);
   await assertInsideWorkspace(root, abs);
   if (Buffer.byteLength(content, "utf8") > MAX_FILE_SIZE) {
@@ -273,6 +292,8 @@ export async function moveProjectPath(
   from: string,
   to: string,
 ): Promise<{ path: string }> {
+  assertNotGitInternal(from);
+  assertNotGitInternal(to);
   const srcAbs = safeResolve(root, from);
   const dstAbs = safeResolve(root, to);
   await assertInsideWorkspace(root, srcAbs);
@@ -300,6 +321,7 @@ export async function deleteProjectPath(
 ): Promise<void> {
   if (relPath === "" || relPath === ".")
     throw new ApiError(400, "cannot delete the workspace root", "invalid_path");
+  assertNotGitInternal(relPath);
   const abs = safeResolve(root, relPath);
   await assertInsideWorkspace(root, abs);
   if (abs === resolve(root))

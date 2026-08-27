@@ -148,6 +148,49 @@ backup files. It is **not** equivalent to a KMS/HSM and does not defend
 against an attacker with code execution or root on the live host (the key is
 resident in process memory while the server runs).
 
+## Local Git version control (M51)
+
+Every project can hold its own Git repository at
+`<data-dir>/workspaces/<projectId>/.git`. `git` is available both to the
+backend (which drives the in-IDE **Source Control** panel) and inside the
+project sandbox (so `git` in the Veyra terminal operates on the exact same
+repository). No configuration is required.
+
+- **Local-only, v1.** There is **no** remote support — no GitHub/GitLab, no
+  `push`/`pull`/`fetch`, no OAuth, no personal-access-token or SSH-key
+  storage, no credential handling of any kind. A Veyra Git repo never talks
+  to the network.
+- **Commit authorship.** Commits made from the IDE or the terminal are
+  attributed to `<username> <username@veyra.local>` — a synthesized local
+  identity derived from the authenticated account. The browser client cannot
+  set an arbitrary author. (A terminal user can `git config user.email` in
+  their own sandbox; that only affects their own subsequent terminal
+  commits.)
+- **Permissions.** Project owners and editors have full Git read/write;
+  viewers have read-only Git access; non-collaborators get the same
+  IDOR-safe `404` as every other project route.
+- **`.git` is NOT portable in v1.** It is deliberately excluded from ZIP
+  export, from `git`-less ZIP import, from per-project workspace backups, and
+  from project snapshots. **Forking a project starts a fresh repository** —
+  the source project's history is not inherited. If you need history to
+  travel with a project, keep it in a remote of your own (outside Veyra) for
+  now.
+- **Snapshot restore preserves `.git`.** Restoring a project snapshot rolls
+  back the ordinary workspace files but leaves the Git repository, its
+  commit history, and its branches intact (snapshots never captured `.git`
+  in the first place).
+- **Hooks.** A hook committed into `.git/hooks/` never runs on the
+  application/control-plane process — backend Git invocations force an empty
+  `core.hooksPath` and read no system/global/user Git config. Hooks _can_
+  run when you invoke `git` yourself from the Veyra terminal, but only
+  inside the isolated sandbox container, as the unprivileged sandbox user —
+  the same trust boundary that already contains all other terminal activity.
+- **Committing secrets.** If you `git commit` a `.env` file (or any file
+  with plaintext credentials), those secrets are written into the project's
+  Git history and will persist across commits. Veyra's platform-managed
+  encrypted secrets (M47) are the safe place for credentials; a committed
+  `.env` is not protected by them.
+
 ## Persistent volume paths
 
 | Path                                                | Contents                           | Survives redeploy? |

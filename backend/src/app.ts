@@ -13,6 +13,7 @@ import { projectRoutes } from "./projects/routes.js";
 import { projectSecretRoutes } from "./projectsecrets/routes.js";
 import { adminRoutes } from "./admin/routes.js";
 import { aiRoutes } from "./ai/routes.js";
+import { gitRoutes } from "./git/routes.js";
 import { getSystemCapabilitiesAsync } from "./tools.js";
 import { initCgroupRoot } from "./execution/sandbox.js";
 
@@ -108,6 +109,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   app.use("/api/projects", requireAuth(db), projectRoutes(cfg, db));
   app.use("/api/projects", requireAuth(db), projectSecretRoutes(cfg, db));
   app.use("/api/projects", requireAuth(db), aiRoutes(cfg, db));
+  app.use("/api/projects", requireAuth(db), gitRoutes(cfg, db));
   app.use("/api/admin", requireAdmin(db), adminRoutes(cfg, db));
 
   // Production frontend serving: the built Vite SPA. Only enabled when the

@@ -48,7 +48,7 @@ ARG DOCKER_GID=999
 # Docker CLI (to drive the host daemon over the socket) and setpriv for the
 # entrypoint's privilege drop.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg util-linux \
+      ca-certificates curl gnupg util-linux git \
  && install -m 0755 -d /etc/apt/keyrings \
  && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
  && chmod a+r /etc/apt/keyrings/docker.asc \

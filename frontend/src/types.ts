@@ -101,6 +101,66 @@ export interface ProjectTemplate {
   language: string;
 }
 
+// M51 — Local Git version control
+
+export interface GitFileEntry {
+  path: string;
+  index: string;
+  worktree: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  origPath?: string;
+}
+
+export interface GitStatus {
+  initialized: boolean;
+  branch: string | null;
+  detached: boolean;
+  hasCommits: boolean;
+  clean: boolean;
+  staged: GitFileEntry[];
+  unstaged: GitFileEntry[];
+}
+
+export interface GitDiffLine {
+  type: "add" | "del" | "context" | "meta";
+  content: string;
+  oldLine: number | null;
+  newLine: number | null;
+}
+
+export interface GitDiffHunk {
+  header: string;
+  lines: GitDiffLine[];
+}
+
+export interface GitFileDiff {
+  path: string;
+  staged: boolean;
+  binary: boolean;
+  truncated: boolean;
+  isNew: boolean;
+  isDeleted: boolean;
+  hunks: GitDiffHunk[];
+}
+
+export interface GitCommit {
+  hash: string;
+  shortHash: string;
+  author: string;
+  email: string;
+  date: string;
+  subject: string;
+}
+
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  shortHash: string | null;
+  unborn: boolean;
+}
+
 // Admin Control Plane Types
 
 export type BackupHealthStatus = "ok" | "stale" | "critical" | "never";

@@ -33,6 +33,7 @@ import type { LiveContentApi } from "../Editor/Editor";
 import Output from "../Output/Output";
 import Terminal from "../Terminal/Terminal";
 import Preview from "../Preview/Preview";
+import SourceControlPanel from "../Git/SourceControlPanel";
 import ProblemsPanel from "../Output/ProblemsPanel";
 import ResourcesView from "../Resources/ResourcesView";
 import ProjectHealthModal from "../Health/ProjectHealthModal";
@@ -73,6 +74,7 @@ import {
   IconDocker,
   IconAlertTriangle,
   IconActivity,
+  IconGitBranch,
 } from "../common/Icons";
 
 export default function IDE({
@@ -96,8 +98,11 @@ export default function IDE({
   // registry that serves as the save-time source of truth. See M1.
   const liveApiRef = useRef<LiveContentApi | null>(null);
   const [bottomTab, setBottomTab] = useState<
-    "output" | "problems" | "resources" | "terminal" | "preview"
+    "output" | "problems" | "resources" | "terminal" | "preview" | "git"
   >("output");
+  // M51: local Git state, surfaced as a status-bar badge.
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  const [gitInitialized, setGitInitialized] = useState(false);
   const [capabilities, setCapabilities] = useState<any>(null);
   const [stats, setStats] = useState<ContainerStats | null>(null);
   const [showTour, setShowTour] = useState(false);
@@ -251,6 +256,8 @@ export default function IDE({
     setOpenFiles([]);
     setActiveFile(null);
     setReplaceReconcileNotice(null);
+    setGitBranch(null);
+    setGitInitialized(false);
 
     if (!project) {
       if (collabClientRef.current) {
@@ -421,16 +428,20 @@ export default function IDE({
     openFilesRef.current = openFiles;
   }, [openFiles]);
 
-  // M50: after a workspace-wide Replace All writes files on disk, reconcile
-  // any editor buffers currently open for those files. Clean buffers are
-  // refetched and pushed into openFiles state — Editor.tsx's model-management
-  // effect then setValue()s the live Monaco model under its isUpdatingModelRef
-  // guard (active file immediately, background tabs on next switch), so a
-  // later Ctrl+S from a stale model can no longer silently revert the
-  // replacement. Dirty buffers are never touched; the user is told which
-  // files changed underneath their unsaved edits.
-  const handleReplaceApplied = useCallback(
-    async (changedPaths: string[]) => {
+  // M50/M51: after an external operation rewrites workspace files on disk
+  // (workspace-wide Replace All; Git branch checkout), reconcile any editor
+  // buffers currently open for those files. Clean buffers are refetched and
+  // pushed into openFiles state — Editor.tsx's model-management effect then
+  // setValue()s the live Monaco model under its isUpdatingModelRef guard
+  // (active file immediately, background tabs on next switch), so a later
+  // Ctrl+S from a stale model cannot silently revert the change. Dirty
+  // buffers are never touched; the user is told which files changed
+  // underneath their unsaved edits.
+  const reconcileExternalFileChanges = useCallback(
+    async (
+      changedPaths: string[],
+      opts: { noticeLabel: string; authoritative?: boolean },
+    ) => {
       if (!project) return;
       const open = openFilesRef.current;
       const dirtySkipped: string[] = [];
@@ -438,7 +449,11 @@ export default function IDE({
       for (const p of changedPaths) {
         const f = open.find((of) => of.path === p);
         if (!f) continue; // file not open — nothing to reconcile
-        if (f.dirty) dirtySkipped.push(p);
+        // `authoritative` (git checkout): the server already preflight-
+        // rejected the switch if any of these files had genuinely-unsaved
+        // edits, so a dirty flag now can only be a spurious echo of this
+        // operation's own external-mutation sync — safe to refresh + clear.
+        if (f.dirty && !opts.authoritative) dirtySkipped.push(p);
         else toRefresh.push(p);
       }
 
@@ -460,8 +475,8 @@ export default function IDE({
       if (fetched.size > 0) {
         setOpenFiles((prev) =>
           prev.map((f) =>
-            fetched.has(f.path) && !f.dirty
-              ? { ...f, content: fetched.get(f.path)! }
+            fetched.has(f.path) && (opts.authoritative || !f.dirty)
+              ? { ...f, content: fetched.get(f.path)!, dirty: false }
               : f,
           ),
         );
@@ -469,15 +484,34 @@ export default function IDE({
 
       if (dirtySkipped.length > 0) {
         setReplaceReconcileNotice(
-          `Replace All updated ${dirtySkipped.length} open ${
+          `${opts.noticeLabel} updated ${dirtySkipped.length} open ${
             dirtySkipped.length === 1 ? "file" : "files"
           } on disk, but your unsaved changes were left untouched: ${dirtySkipped.join(
             ", ",
-          )}. Save or discard your edits to pick up the replacement.`,
+          )}. Save or discard your edits to pick up the change.`,
         );
       }
+
+      // A branch checkout can add or remove files, not just change contents —
+      // refresh the explorer so it reflects the checked-out tree.
+      if (opts.noticeLabel === "Branch checkout") {
+        void loadTree();
+      }
     },
-    [project],
+    [project, loadTree],
+  );
+
+  const handleReplaceApplied = useCallback(
+    (changedPaths: string[]) =>
+      reconcileExternalFileChanges(changedPaths, {
+        noticeLabel: "Replace All",
+      }),
+    [reconcileExternalFileChanges],
+  );
+
+  const getDirtyOpenPaths = useCallback(
+    () => openFilesRef.current.filter((f) => f.dirty).map((f) => f.path),
+    [],
   );
 
   const followedUser = useMemo(
@@ -1689,6 +1723,30 @@ export default function IDE({
                   <IconMonitor size={12} />
                   <span>Web Preview</span>
                 </button>
+
+                <button
+                  className={`panel-tab ${bottomTab === "git" && !isBottomCollapsed ? "active" : ""}`}
+                  onClick={() => {
+                    setBottomTab("git");
+                    setIsBottomCollapsed(false);
+                  }}
+                  role="tab"
+                >
+                  <IconGitBranch size={12} />
+                  <span>Source Control</span>
+                  {gitInitialized && gitBranch && (
+                    <span
+                      className="glass-badge glass-badge-info"
+                      style={{
+                        fontSize: "9px",
+                        padding: "1px 5px",
+                        marginLeft: "4px",
+                      }}
+                    >
+                      {gitBranch}
+                    </span>
+                  )}
+                </button>
               </div>
 
               <div className="panel-actions">
@@ -1761,6 +1819,18 @@ export default function IDE({
                 )}
                 {bottomTab === "terminal" && <Terminal project={project} />}
                 {bottomTab === "preview" && <Preview project={project} />}
+                {bottomTab === "git" && (
+                  <SourceControlPanel
+                    project={project}
+                    projectRole={projectRole}
+                    getDirtyOpenPaths={getDirtyOpenPaths}
+                    onReconcileBuffers={reconcileExternalFileChanges}
+                    onGitState={(s) => {
+                      setGitInitialized(s.initialized);
+                      setGitBranch(s.branch);
+                    }}
+                  />
+                )}
               </div>
             )}
           </div>
