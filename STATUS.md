@@ -43,7 +43,9 @@ Last updated: 2026-08-27.
   - Milestone 46 (admin backup/restore controls surfaced in the admin dashboard) at `4d2c8fb`.
   - Milestone 47 (encrypted per-project secrets & environment variables) at `91d0120`.
   - Milestone 48 (ambient workspace presence, activity intent & safe follow mode) at `021acfe`.
-  - Milestone 49 (admin platform observability dashboard) in this commit.
+  - Milestone 49 (admin platform observability dashboard) at `0a393ca`.
+  - Milestone 50 (safe workspace-wide Replace All — pre-apply safety snapshot,
+    open-editor buffer reconciliation, per-file selection & diff) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -3675,6 +3677,7 @@ file-tree and tab indicators, proximity warnings, and safe, interruptible Follow
 **Files changed**: `frontend/src/collab/client.ts`, `frontend/src/components/Collab/CollaboratorAvatarStack.tsx`, `frontend/src/components/Editor/Editor.tsx`, `frontend/src/components/Sidebar/Sidebar.tsx`, `frontend/src/components/Toolbar/Toolbar.tsx`, `frontend/src/components/IDE/IDE.tsx`, `frontend/src/styles/editor.css`, `frontend/test/mocks/monaco.ts`, `STATUS.md`.
 
 **Verification**:
+
 - Frontend full test suite: **20/20 test files passed, 143/143 tests passed** (including all 14 new M48 unit and integration tests).
 - Frontend typecheck: `tsc --noEmit` clean (0 errors).
 - Frontend production build: `npm run build` (`tsc --noEmit && vite build`) passed with exit code 0 and clean bundle chunks.
@@ -3688,6 +3691,7 @@ unobtrusive visibility into event-loop latency, database query percentiles, acti
 collaboration room allocations, and container sandbox distributions.
 
 **Real Backend Contract Surfaced (`GET /api/admin/observability`)**:
+
 - `eventLoopLagMs`: `{ minMs, maxMs, meanMs, p50Ms, p95Ms, p99Ms }` (measured via Node's `node:perf_hooks` `monitorEventLoopDelay`).
 - `dbCalls`: overall and per-operation latency snapshots `{ count, minMs, maxMs, meanMs, p50Ms, p95Ms, p99Ms }` (instrumented via `instrumentDb`).
 - `activeWsConnections`: live WebSocket connection count across all active users.
@@ -3699,6 +3703,7 @@ collaboration room allocations, and container sandbox distributions.
 - `gc`: recorded GC pause statistics by kind (`minor`, `major`, `incremental`, `weakcb`).
 
 **Locked Semantics Implemented**:
+
 - **Admin Tab Integration**: Added `"observability"` tab with `IconActivity` to `AdminDashboard.tsx` subnav and main content container.
 - **Metric Grouping & Visual Language**:
   - Primary KPI Grid: 4 liquid-glass cards displaying Event Loop Lag (p95), Database Query Latency (p95), Active WebSockets & Rooms, and Active Sandboxes & RSS.
@@ -3719,11 +3724,72 @@ collaboration room allocations, and container sandbox distributions.
 **Backend files modified**: **NONE** (backend was 100% untouched).
 
 **Verification**:
+
 - Frontend test suite: **21/21 test files passed, 163/163 tests passed** (including all 20 new tests in `AdminObservabilityPanel.test.tsx`).
 - Frontend typecheck: `tsc --noEmit` clean (0 errors).
 - Frontend production build: `npm run build` passed with exit code 0.
 - Live API QA: Verified against live backend on port 3000 with real admin session; verified 401 unauthorized rejection for unauthenticated/demo clients.
 - Pre-existing backend baseline failures unchanged (`m16-optimization.test.ts`, `pipeline.test.ts`).
+
+## Milestone 50 — Safe workspace-wide Replace All
+
+**Original silent-revert data-loss bug (M26 `POST /:id/search/replace`, discovered in the M50 discovery pass, then reproduced with a regression test before any fix):** Replace All wrote new bytes to disk and called `collaborationManager.notifyExternalFileMutation`, which is a **no-op when no collaboration room exists** (`collab/manager.ts` — `this.rooms.get(projectId)` returns undefined in solo use). Nothing updated `IDE.tsx`'s `openFiles` React state, so `Editor.tsx`'s external-content-sync path (`!collabClient && model.getValue() !== activeFileData.content && !dirty`) never fired and the open Monaco model kept its pre-replace content. A subsequent Ctrl+S — which M1's truthful-save primitive correctly sources from the live Monaco model — then wrote the stale bytes back over the replacement. No error, no warning: a workspace-wide refactor silently reverted itself for every file the user had open. `WorkspaceSearchModal` had no callback to `IDE.tsx` at all; the whole class of automated M50 tests (14/14) fails against pre-fix code.
+
+**Root cause:** the write path had no channel back to the editor layer in solo mode, and no rollback point despite `createSnapshot` already being wired into the AI apply-patch flow and surfaced in the Output > Snapshots tab.
+
+### Safety-snapshot checkpoint (`backend/src/projects/routes.ts` only)
+
+- New optional `createSafetySnapshot` body field on `POST /:id/search/replace`. When `dryRun` is `false` and `createSafetySnapshot === true`, exactly **one** project snapshot is taken via the existing `createSnapshot` + `withProjectSnapshotLock` **before the first workspace write** — one snapshot per apply, never per file. Its id is returned as `snapshotId` in the applied response; the user restores it from the existing Snapshots tab (no new restore surface).
+- **Fail-closed, mirroring `ai/routes.ts`:** if the snapshot cannot be created the request fails with **zero file writes** — `ApiError` (e.g. quota `413`) propagates as-is; an unexpected error becomes `500 snapshot_failed`.
+- **Owner-only:** snapshots are an owner capability (`createSnapshot` → `requireOwnedProject`). A non-owner editor requesting `createSafetySnapshot` gets `403 snapshot_requires_owner` before any write; an editor can still Replace All _without_ a snapshot exactly as before. The frontend defaults the toggle on for owners and disables it (unchecked) for editors/viewers.
+- No second lock, no new checkpoint mechanism, `dryRun` still defaults to `true`, and a dry run never creates a snapshot.
+
+### Server-side file selection (`backend/src/projects/routes.ts` only)
+
+- The existing `files: string[]` filter is now **validated**: every selected path must be present in the freshly computed match set for _this_ request, and must not contain `..` or a leading `/`/`\`. An unknown, unmatched, or traversal path is rejected with `400 invalid_file_selection` instead of being silently ignored. Selection can only ever **narrow** the server-computed set; it can never add an unmatched file or override a `newContent === null` (truncated/oversized) skip.
+- Client-supplied `newContent`, match counts, and offsets remain non-authoritative (they were never sent by the client and still aren't).
+- **Per-match selection was assessed and deliberately deferred:** the engine computes a single whole-file `content.replace(regex, replacement)` and exposes no stable per-match identity the server could validate. Adding it would require a position-based splice path and a new match-identity contract in `search.ts` — out of M50's "no search-engine redesign" scope. File-level selection only. `backend/src/projects/search.ts` was **not touched**.
+
+### Preserved exactly (verified by regression tests)
+
+Binary exclusion + NUL-byte sniff, truncation gating (`newContent: null`), 5 MB per-file cap, `maxResults`, catastrophic-backtracking worker kill-switch, literal `$`-escaping vs regex `$1`/`$&`, UTF-8-only, line-ending passthrough, ignored directories, `editor`-role authorization, and the **per-file best-effort write loop** (`replaced` / `skipped` / `error` per file; one file's write failure never rolls back the batch — the safety snapshot is the rollback unit; a partial application is reported honestly with the snapshot retained).
+
+### Open editor buffer reconciliation (`frontend/src/components/IDE/IDE.tsx`, `frontend/src/components/Search/WorkspaceSearchModal.tsx`)
+
+- `WorkspaceSearchModal` gained an `onReplaceApplied(changedPaths)` prop, called after a successful apply with exactly the paths the server reported `status: "replaced"` (never called when nothing was replaced).
+- `IDE.tsx`'s `handleReplaceApplied`: for each replaced path currently in `openFiles` —
+  - **clean buffer** → re-fetch authoritative content via the existing `GET /:id/file` and update `openFiles[].content`. `Editor.tsx`'s model-management effect then `setValue()`s the live Monaco model **under its `isUpdatingModelRef` guard** (active file immediately, background tabs on next switch), so the reconciliation never marks the file dirty and never triggers a save. No direct `setValue`/`applyLiveContent` call is made (that path _does_ mark dirty).
+  - **dirty buffer** → **never touched.** The path is collected and a single non-blocking, dismissible warning banner names the files: _"Replace All updated N open files on disk, but your unsaved changes were left untouched…"_. The on-disk replacement still happened; the frontend only refuses to overwrite unsaved local state. No automatic merge.
+  - **not open** → nothing to do.
+- The banner is cleared on project switch (alongside the existing M28 `openFiles`/`activeFile` reset).
+
+### Frontend Replace UX (`WorkspaceSearchModal.tsx`)
+
+Per-file checkbox + "Select all / Deselect all"; button reads "Replace All (n)" or "Replace Selected (n)" over the selected-match count; per-file collapsible `-` old / `+` new diff (rendered only for files with changes, lazily on expand, bounded by the existing result cap — no workspace-wide diff computed at open); safety-snapshot toggle (default on for owners) with the copy _"Creates a snapshot before changes so you can restore them from the Snapshots tab"_; confirm dialog now reads _"…write the changes to disk. A safety snapshot is taken first — you can restore it from the Snapshots tab."_ (the old _"cannot be undone from here"_ wording is gone); apply summary shows replaced / skipped / error counts and the snapshot-created state.
+
+### Collaboration interaction (empirically characterized, not redesigned)
+
+With a live collaboration room, `notifyExternalFileMutation` still flows the replaced content into the room's `Y.Text` exactly as M26 shipped it — **M50 does not change this path.** Browser QA of an actively-edited (dirty) file in a room: the server computes the replacement from **disk** (the user's un-flushed edit is not seen), writes it, and notifies the room; the client's pending edit and the replacement then **merge via Yjs CRDT** — both survive, but the merge position is CRDT-determined (observed: an end-of-line comment landed adjacent to the replaced token on the following line). This is pre-existing M26 + Yjs behavior; M50's contribution is the new warning banner that tells the user their open file changed underneath them. Not data loss, not corruption; documented here rather than "fixed" because touching it means redesigning the collaboration/Yjs sync contract, explicitly out of scope.
+
+**Files changed:**
+
+- Production: `backend/src/projects/routes.ts` (replace route: `createSafetySnapshot` + snapshot-before-write + `files[]` validation + `snapshotId` in response), `frontend/src/components/Search/WorkspaceSearchModal.tsx`, `frontend/src/components/IDE/IDE.tsx`.
+- Tests: `backend/test/search-replace.test.ts` (+11 M50 cases), `frontend/test/WorkspaceSearchReplace.test.tsx` (new, 14 cases: selection request shape, snapshot default-on/off by role, `-`/`+` diff, collapse/expand, snapshot-created summary, `onReplaceApplied` exact-paths / never-when-nothing-replaced, and a `<Harness>` mirroring `IDE.tsx`'s reconciliation slice — clean active buffer reconciles, clean background buffer reconciles, dirty buffer untouched + warned, not-open file no-op).
+- `backend/src/projects/search.ts` **not touched**. No new dependency. No migration.
+
+**Verification:**
+
+- New M50 backend suite (`search-replace.test.ts` M50 block): **11/11 passed** — snapshot created before first write & id returned; restoring it returns every changed file to pre-replace bytes; per-snapshot-size-limit and project-quota failures each abort with **zero writes**; dry run creates no snapshot; `createSafetySnapshot` omitted preserves the exact pre-M50 no-snapshot path; `files[]` narrows correctly; unknown / unmatched / `../` selection → `400 invalid_file_selection`; non-owner editor + `createSafetySnapshot` → `403` with zero writes (and editor can still replace without one); binary skip + snapshot; truncated file stays `skipped` even when explicitly selected.
+- Frontend `WorkspaceSearchReplace.test.tsx`: **14/14 passed**; the whole file **fails 14/14 against pre-fix code** (`git stash` of the two production frontend files) — the silent-revert regression is represented, not just helper internals.
+- Full frontend suite: **22 files / 177 tests passed** (163 pre-existing + 14 new), 0 regressions. `tsc --noEmit` clean. `vite build` clean (same pre-existing >500 kB Monaco/xterm chunk warning). `eslint` on changed files: 0 issues (`IDE.tsx` carries only its 5 pre-existing `exhaustive-deps` warnings — `handleReplaceApplied` adds none).
+- Full backend suite: **610 passed / 2 failed / 9 skipped (52 files)**. The 2 failures — `lifecycle.test.ts` ("rebuilds port mappings on startup") and `pipeline.test.ts` ("async Docker checks") — reproduce **identically on clean `0a393ca` with the M50 changes stashed** (verified) and are the Docker-available variant of the documented M16 lazy-port-mapping baseline issue. `m16-optimization.test.ts` passes in this Docker-available environment. Zero new backend failures. `tsc --noEmit` clean.
+- Browser QA (real Chrome + Docker, live `:3000` backend hot-reloaded to the M50 code, fresh `:5173` vite):
+  - **Silent-revert repro & fix:** opened `beta.py`, ran Replace All `TOKEN`→`SECRET` — the open Monaco model reconciled to `SECRET` (pre-fix it stayed `TOKEN`); then edited the buffer and Ctrl+S — disk kept `SECRET` + the edit. **No revert.**
+  - **Selective:** deselected `beta.py`, applied — `beta.py` left byte-for-byte on disk, `alpha.py`/`gamma.py` replaced.
+  - **Snapshot:** "Before Replace All: …" snapshot created and listed; restoring it via the Snapshots tab returned all files to their pre-replace content (verified on disk via the file API).
+  - **Diff:** per-file `-`/`+` diff rendered for every match.
+  - **Dirty buffer:** made `gamma.py` dirty, ran Replace All — warning banner named `gamma.py`; M50's own reconciliation skipped it; the Dismiss button clears the banner. (The Yjs merge behavior above is the pre-existing M26 path.)
+  - Fixture project deleted after QA.
 
 ## Current active work
 
@@ -3753,9 +3819,33 @@ lifecycle (Toolbar's Stop button getting permanently stuck if the user switches 
 tab mid-run) — a full static sweep of all 9 dispatch/listener event pairs in the frontend found no
 other real or latent instance of either bug class, closing that scope; M46 closes the last
 consistently-flagged backend-only gap from every discovery pass since M35 — the admin backup/restore
-API now has a frontend surface, matching every other admin capability.
+API now has a frontend surface, matching every other admin capability. M47 added
+encrypted per-project secrets; M48 added ambient collaboration presence/follow;
+M49 surfaced the observability telemetry in the admin dashboard; **M50 closed a
+confirmed silent data-loss bug in M26's Replace All** (an open editor buffer
+stayed stale after a workspace-wide replace and a later save reverted it) and
+made the operation reviewable — pre-apply safety snapshot, per-file selection +
+diff, and clean open-buffer reconciliation. M50 was fully browser-verified
+end-to-end.
 
 ## Next recommended milestone
+
+0. **M51 is not chosen.** M50 completed the M50-discovery selection; a fresh
+   read-only discovery pass should run before M51 rather than pulling from the
+   stale candidate list below. Genuinely open items surfaced by the M50
+   discovery, in rough order: (a) real AI provider behind the existing
+   verified-patch pipeline — **product-decision-required** (cost, API keys,
+   project-data egress, prompt-injection trust boundary, demo-account policy);
+   (b) local-only Git repository support — **product-decision-required**
+   (local-only vs remotes, `.git` persistence/export, collaborator ownership);
+   (c) shared execution output / summon-terminal for collaborators
+   (`ws/execution.ts` has no room broadcast today); (d) native workspace-backup
+   scheduler + admin "backup all now" (`deploy/README.md` explicitly defers it);
+   (e) the pre-existing `ProblemsPanel.onSelectDiagnostic` "doesn't open a closed
+   file before reveal" bug (M26 fixed the twin for workspace search, this one is
+   still open); (f) `deploy/README.md` §"Workspace & Snapshot Backups" is stale —
+   it still says workspace/snapshot restore "is not yet automated" though M32/M46
+   automated it.
 
 1. Audit-log retention/pruning remains explicitly deferred — the trail is complete and no longer
    self-destructs on project deletion (M33), and its health is now at least indirectly observable

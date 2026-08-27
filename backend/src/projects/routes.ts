@@ -826,7 +826,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // never mutates the workspace by default.
   router.post("/:id/search/replace", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
+      const { project, role } = requireProjectAccess(
         db,
         userOf(req).id,
         req.params.id,
@@ -844,6 +844,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         excludePattern,
         files,
         dryRun = true,
+        // M50: opt-in pre-apply project snapshot so a workspace-wide replace
+        // can be rolled back from the existing Snapshots tab. Owner-only
+        // (snapshots are an owner capability); ignored during a dry run.
+        createSafetySnapshot = false,
       } = body;
 
       if (typeof query !== "string" || query.trim().length === 0) {
@@ -887,6 +891,29 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           excludePattern,
         });
 
+        // M50: client file selection is a convenience filter over the
+        // server-computed match set, never an authority. Every selected path
+        // must correspond to a file that actually matched in THIS request;
+        // an unknown/unmatched/traversal path is rejected rather than
+        // silently ignored, and selection can only ever narrow the set.
+        if (files) {
+          const matchedPaths = new Set(result.groups.map((g) => g.filePath));
+          for (const f of files as string[]) {
+            if (
+              f.includes("..") ||
+              f.startsWith("/") ||
+              f.startsWith("\\") ||
+              !matchedPaths.has(f)
+            ) {
+              throw new ApiError(
+                400,
+                `selected file '${f}' is not in the current match set — re-run the search and try again`,
+                "invalid_file_selection",
+              );
+            }
+          }
+        }
+
         const scoped = files
           ? result.groups.filter((g) =>
               (files as string[]).includes(g.filePath),
@@ -908,6 +935,41 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
             applied: false,
           });
           return;
+        }
+
+        // M50: take one project snapshot BEFORE the first workspace write so
+        // the whole batch has a single rollback point (restorable from the
+        // existing Snapshots tab). Fail the request here — before any file is
+        // touched — if the snapshot cannot be made, exactly like the AI
+        // apply-patch flow does. One snapshot per apply, never per file.
+        let safetySnapshotId: string | null = null;
+        if (createSafetySnapshot === true) {
+          if (!(role === "owner" && project.owner_id === userOf(req).id)) {
+            throw new ApiError(
+              403,
+              "a safety snapshot can only be created by the project owner",
+              "snapshot_requires_owner",
+            );
+          }
+          try {
+            const snap = await createSnapshot(
+              cfg,
+              db,
+              userOf(req).id,
+              project.id,
+              `Before Replace All: ${String(query)}`.slice(0, 64),
+            );
+            safetySnapshotId = snap.id;
+          } catch (err) {
+            if (err instanceof ApiError) throw err;
+            throw new ApiError(
+              500,
+              `Could not create the safety snapshot before replacing: ${
+                (err as any)?.message || "unknown error"
+              }`,
+              "snapshot_failed",
+            );
+          }
         }
 
         const results: Array<{
@@ -969,6 +1031,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           filesChanged,
           matchesReplaced,
           truncated: result.truncated,
+          snapshotId: safetySnapshotId,
           results,
         });
       } finally {

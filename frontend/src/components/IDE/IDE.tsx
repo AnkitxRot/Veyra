@@ -154,6 +154,11 @@ export default function IDE({
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  // M50: shown when a Replace All changed files on disk that were open with
+  // unsaved edits (those buffers are deliberately left untouched).
+  const [replaceReconcileNotice, setReplaceReconcileNotice] = useState<
+    string | null
+  >(null);
 
   // M4: Real-Time Multiplayer Collaboration States
   const [collabClient, setCollabClient] = useState<CollaborationClient | null>(
@@ -245,6 +250,7 @@ export default function IDE({
     // the source, duplicated a source file's content on disk.
     setOpenFiles([]);
     setActiveFile(null);
+    setReplaceReconcileNotice(null);
 
     if (!project) {
       if (collabClientRef.current) {
@@ -415,6 +421,65 @@ export default function IDE({
     openFilesRef.current = openFiles;
   }, [openFiles]);
 
+  // M50: after a workspace-wide Replace All writes files on disk, reconcile
+  // any editor buffers currently open for those files. Clean buffers are
+  // refetched and pushed into openFiles state — Editor.tsx's model-management
+  // effect then setValue()s the live Monaco model under its isUpdatingModelRef
+  // guard (active file immediately, background tabs on next switch), so a
+  // later Ctrl+S from a stale model can no longer silently revert the
+  // replacement. Dirty buffers are never touched; the user is told which
+  // files changed underneath their unsaved edits.
+  const handleReplaceApplied = useCallback(
+    async (changedPaths: string[]) => {
+      if (!project) return;
+      const open = openFilesRef.current;
+      const dirtySkipped: string[] = [];
+      const toRefresh: string[] = [];
+      for (const p of changedPaths) {
+        const f = open.find((of) => of.path === p);
+        if (!f) continue; // file not open — nothing to reconcile
+        if (f.dirty) dirtySkipped.push(p);
+        else toRefresh.push(p);
+      }
+
+      const fetched = new Map<string, string>();
+      await Promise.all(
+        toRefresh.map(async (p) => {
+          try {
+            const res = await api<{ content: string }>(
+              `/api/projects/${project.id}/file?path=${encodeURIComponent(p)}`,
+            );
+            fetched.set(p, res.content);
+          } catch {
+            // Leave the buffer as-is rather than blank it; reopening the tab
+            // still fetches fresh content.
+          }
+        }),
+      );
+
+      if (fetched.size > 0) {
+        setOpenFiles((prev) =>
+          prev.map((f) =>
+            fetched.has(f.path) && !f.dirty
+              ? { ...f, content: fetched.get(f.path)! }
+              : f,
+          ),
+        );
+      }
+
+      if (dirtySkipped.length > 0) {
+        setReplaceReconcileNotice(
+          `Replace All updated ${dirtySkipped.length} open ${
+            dirtySkipped.length === 1 ? "file" : "files"
+          } on disk, but your unsaved changes were left untouched: ${dirtySkipped.join(
+            ", ",
+          )}. Save or discard your edits to pick up the replacement.`,
+        );
+      }
+    },
+    [project],
+  );
+
   const followedUser = useMemo(
     () =>
       followedUserId
@@ -495,27 +560,24 @@ export default function IDE({
     setFollowPauseReason("");
   }, []);
 
-  const handleJumpToCollaborator = useCallback(
-    (c: CollaboratorPresence) => {
-      if (c.activeFile) {
-        handleOpenFile(c.activeFile);
-        if (c.cursor) {
-          setTimeout(() => {
-            document.dispatchEvent(
-              new CustomEvent("ide-reveal-location", {
-                detail: {
-                  filePath: c.activeFile,
-                  line: c.cursor?.line,
-                  column: c.cursor?.column,
-                },
-              }),
-            );
-          }, 100);
-        }
+  const handleJumpToCollaborator = useCallback((c: CollaboratorPresence) => {
+    if (c.activeFile) {
+      handleOpenFile(c.activeFile);
+      if (c.cursor) {
+        setTimeout(() => {
+          document.dispatchEvent(
+            new CustomEvent("ide-reveal-location", {
+              detail: {
+                filePath: c.activeFile,
+                line: c.cursor?.line,
+                column: c.cursor?.column,
+              },
+            }),
+          );
+        }, 100);
       }
-    },
-    [],
-  );
+    }
+  }, []);
 
   const handleToggleDnd = useCallback((dnd: boolean) => {
     setIsDnd(dnd);
@@ -1704,6 +1766,45 @@ export default function IDE({
           </div>
         </div>
 
+        {/* M50: Replace All dirty-buffer reconciliation notice */}
+        {replaceReconcileNotice && (
+          <div
+            role="status"
+            style={{
+              position: "fixed",
+              bottom: "40px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 9000,
+              maxWidth: "620px",
+              width: "calc(100% - 48px)",
+              background: "var(--glass-surface, rgba(30,30,46,0.96))",
+              border: "1px solid #fab387",
+              borderRadius: "var(--radius-sm, 8px)",
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "10px",
+              fontSize: "12px",
+              color: "var(--fg-primary)",
+              boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+            }}
+          >
+            <IconAlertTriangle size={14} color="#fab387" />
+            <span style={{ flex: 1, lineHeight: 1.4 }}>
+              {replaceReconcileNotice}
+            </span>
+            <button
+              type="button"
+              className="glass-btn glass-btn-ghost"
+              style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
+              onClick={() => setReplaceReconcileNotice(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* AI Verification Outcome Banner / Notification */}
         {aiVerification && (
           <div
@@ -1822,6 +1923,8 @@ export default function IDE({
         isOpen={isWorkspaceSearchOpen}
         onClose={() => setIsWorkspaceSearchOpen(false)}
         project={project}
+        projectRole={projectRole}
+        onReplaceApplied={handleReplaceApplied}
         onSelectResult={async (filePath, line, column, matchLength) => {
           // A result's target file may not already be an open tab — unlike
           // setActiveFile (which only switches among already-open tabs),

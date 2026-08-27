@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { promises as fs } from "node:fs";
 import { replaceProjectContent } from "../src/projects/search.js";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
-import type { AppConfig } from "../src/config.js";
+import type { AppConfig, ConfigOverrides } from "../src/config.js";
 import type { Db } from "../src/db.js";
 import {
   createProject,
@@ -19,6 +19,7 @@ import {
   addProjectCollaborator,
 } from "../src/projects/service.js";
 import { readProjectFile } from "../src/files/service.js";
+import { listSnapshots, restoreSnapshot } from "../src/projects/snapshots.js";
 
 describe("Milestone 26 — Workspace-wide Search & Replace: engine", () => {
   let tempDir: string;
@@ -392,5 +393,339 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
       // Restore write permission so afterEach's directory cleanup can succeed.
       await fs.chmod(join(cwd, "app.py"), 0o666);
     }
+  });
+});
+
+describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection)", () => {
+  interface Ctx {
+    cfg: AppConfig;
+    db: Db;
+    api: TestApi;
+    ownerId: number;
+    ownerToken: string;
+    editorToken: string;
+    projectId: string;
+    cwd: string;
+  }
+
+  const active: Ctx[] = [];
+
+  async function setup(overrides: ConfigOverrides = {}): Promise<Ctx> {
+    const cfg = makeTestConfig(overrides);
+    const api = await startTestApi(cfg);
+    const db = api.db;
+
+    const owner = await api.request("POST", "/api/auth/register", {
+      body: { username: "m50owner", password: "password123" },
+    });
+    const editor = await api.request("POST", "/api/auth/register", {
+      body: { username: "m50editor", password: "password123" },
+    });
+
+    const proj = await createProject(cfg, db, owner.data.user.id, {
+      name: "m50-replace-project",
+      language: "python",
+    });
+    const cwd = await workspacePath(cfg, proj.id);
+    addProjectCollaborator(db, proj.id, editor.data.user.id, "editor");
+
+    await fs.mkdir(cwd, { recursive: true });
+    await fs.writeFile(
+      join(cwd, "app.py"),
+      "print('hello world')\nprint('hello again')\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      join(cwd, "util.py"),
+      "def greet():\n    return 'hello team'\n",
+      "utf8",
+    );
+
+    const ctx: Ctx = {
+      cfg,
+      db,
+      api,
+      ownerId: owner.data.user.id,
+      ownerToken: owner.data.token,
+      editorToken: editor.data.token,
+      projectId: proj.id,
+      cwd,
+    };
+    active.push(ctx);
+    return ctx;
+  }
+
+  afterEach(async () => {
+    while (active.length) {
+      const ctx = active.pop()!;
+      await ctx.api.close();
+      try {
+        await fs.rm(ctx.cfg.dataDir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
+  const replaceUrl = (id: string) => `/api/projects/${id}/search/replace`;
+
+  it("creates exactly one snapshot before the first write and returns its id", async () => {
+    const c = await setup();
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        createSafetySnapshot: true,
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.data.applied).toBe(true);
+    expect(typeof res.data.snapshotId).toBe("string");
+    expect(res.data.snapshotId.length).toBeGreaterThan(0);
+
+    const snaps = listSnapshots(c.db, c.ownerId, c.projectId);
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0].id).toBe(res.data.snapshotId);
+    expect(snaps[0].name).toContain("Before Replace All");
+
+    // disk really changed
+    expect((await readProjectFile(c.cwd, "app.py")).content).toBe(
+      "print('hi world')\nprint('hi again')\n",
+    );
+  });
+
+  it("restoring the returned snapshot returns every changed file to its pre-replace bytes", async () => {
+    const c = await setup();
+    const appBefore = (await readProjectFile(c.cwd, "app.py")).content;
+    const utilBefore = (await readProjectFile(c.cwd, "util.py")).content;
+
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        createSafetySnapshot: true,
+      },
+    });
+    expect(res.data.filesChanged).toBe(2);
+    expect((await readProjectFile(c.cwd, "app.py")).content).not.toBe(
+      appBefore,
+    );
+
+    await restoreSnapshot(
+      c.cfg,
+      c.db,
+      c.ownerId,
+      c.projectId,
+      res.data.snapshotId,
+    );
+
+    expect((await readProjectFile(c.cwd, "app.py")).content).toBe(appBefore);
+    expect((await readProjectFile(c.cwd, "util.py")).content).toBe(utilBefore);
+  });
+
+  it("does not create a snapshot on a dry run", async () => {
+    const c = await setup();
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: { query: "hello", replacement: "hi", createSafetySnapshot: true },
+    });
+    expect(res.status).toBe(200);
+    expect(res.data.applied).toBe(false);
+    expect(res.data.snapshotId).toBeUndefined();
+    expect(listSnapshots(c.db, c.ownerId, c.projectId)).toHaveLength(0);
+  });
+
+  it("preserves the pre-M50 no-snapshot behavior when createSafetySnapshot is omitted / false", async () => {
+    const c = await setup();
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: { query: "hello", replacement: "hi", dryRun: false },
+    });
+    expect(res.status).toBe(200);
+    expect(res.data.applied).toBe(true);
+    expect(res.data.snapshotId).toBeNull();
+    expect(listSnapshots(c.db, c.ownerId, c.projectId)).toHaveLength(0);
+  });
+
+  it("fails the request with zero writes when the safety snapshot exceeds the per-snapshot size limit", async () => {
+    const c = await setup({ maxSnapshotSizeBytes: 1 });
+    const before = (await readProjectFile(c.cwd, "app.py")).content;
+
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        createSafetySnapshot: true,
+      },
+    });
+    expect(res.status).toBe(413);
+    expect((await readProjectFile(c.cwd, "app.py")).content).toBe(before);
+    expect(listSnapshots(c.db, c.ownerId, c.projectId)).toHaveLength(0);
+  });
+
+  it("fails the request with zero writes when the project snapshot storage quota is exceeded", async () => {
+    const c = await setup({ maxSnapshotBytesPerProject: 1 });
+    const before = (await readProjectFile(c.cwd, "app.py")).content;
+
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        createSafetySnapshot: true,
+      },
+    });
+    expect(res.status).toBe(413);
+    expect((await readProjectFile(c.cwd, "app.py")).content).toBe(before);
+  });
+
+  it("rejects createSafetySnapshot from a non-owner editor before any write", async () => {
+    const c = await setup();
+    const before = (await readProjectFile(c.cwd, "app.py")).content;
+
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.editorToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        createSafetySnapshot: true,
+      },
+    });
+    expect(res.status).toBe(403);
+    expect(res.data.error?.code).toBe("snapshot_requires_owner");
+    expect((await readProjectFile(c.cwd, "app.py")).content).toBe(before);
+
+    // an editor CAN still replace without a snapshot (unchanged behavior)
+    const ok = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.editorToken,
+      body: { query: "hello", replacement: "hi", dryRun: false },
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.data.applied).toBe(true);
+  });
+
+  it("narrows the apply to the selected files and rejects an unmatched selected file", async () => {
+    const c = await setup();
+
+    // valid narrowing: only app.py, leave util.py untouched
+    const scoped = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        files: ["app.py"],
+      },
+    });
+    expect(scoped.status).toBe(200);
+    expect(scoped.data.results.map((r: any) => r.filePath)).toEqual(["app.py"]);
+    expect((await readProjectFile(c.cwd, "util.py")).content).toBe(
+      "def greet():\n    return 'hello team'\n",
+    );
+
+    // util.py exists but has no "zzz" match — selecting it must be rejected
+    const unmatched = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "zzz",
+        replacement: "hi",
+        dryRun: false,
+        files: ["util.py"],
+      },
+    });
+    expect(unmatched.status).toBe(400);
+    expect(unmatched.data.error?.code).toBe("invalid_file_selection");
+  });
+
+  it("rejects an unknown file and a path-traversal entry in the selection", async () => {
+    const c = await setup();
+
+    const unknown = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        files: ["does-not-exist.py"],
+      },
+    });
+    expect(unknown.status).toBe(400);
+    expect(unknown.data.error?.code).toBe("invalid_file_selection");
+
+    const traversal = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        files: ["../../../etc/passwd"],
+      },
+    });
+    expect(traversal.status).toBe(400);
+    expect(traversal.data.error?.code).toBe("invalid_file_selection");
+  });
+
+  it("still skips a binary file and still returns partial results on a per-file write failure (with a snapshot taken)", async () => {
+    const c = await setup();
+    // binary fixture with a NUL byte + a literal 'hello'
+    await fs.writeFile(
+      join(c.cwd, "blob.bin"),
+      Buffer.from("hello\x00\x01\x02world", "binary"),
+    );
+
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        createSafetySnapshot: true,
+      },
+    });
+    expect(res.status).toBe(200);
+    // blob.bin never appears as a match group
+    expect(res.data.results.map((r: any) => r.filePath).sort()).toEqual([
+      "app.py",
+      "util.py",
+    ]);
+    expect(typeof res.data.snapshotId).toBe("string");
+    // binary byte-for-byte unchanged
+    const bin = await fs.readFile(join(c.cwd, "blob.bin"));
+    expect(bin).toEqual(Buffer.from("hello\x00\x01\x02world", "binary"));
+  });
+
+  it("keeps newContent===null (truncated scan) files skipped even when explicitly selected", async () => {
+    const c = await setup();
+    // >500 matches (the engine's default cap) in one file forces its scan to
+    // truncate, so the engine returns newContent: null for it.
+    const bigBody = Array.from(
+      { length: 600 },
+      (_, i) => `x = 'hello ${i}'`,
+    ).join("\n");
+    await fs.writeFile(join(c.cwd, "big.py"), bigBody + "\n", "utf8");
+
+    const res = await c.api.request("POST", replaceUrl(c.projectId), {
+      token: c.ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        files: ["big.py"],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.data.truncated).toBe(true);
+    const big = res.data.results.find((r: any) => r.filePath === "big.py");
+    expect(big.status).toBe("skipped");
+    // the oversized/truncated file is left byte-for-byte unchanged
+    expect((await readProjectFile(c.cwd, "big.py")).content).toBe(
+      bigBody + "\n",
+    );
   });
 });

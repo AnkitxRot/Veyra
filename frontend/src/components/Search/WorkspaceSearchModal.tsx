@@ -39,6 +39,7 @@ interface ReplaceApplyResult {
   filesChanged: number;
   matchesReplaced: number;
   truncated: boolean;
+  snapshotId?: string | null;
   results: Array<{
     filePath: string;
     status: "replaced" | "skipped" | "error";
@@ -51,20 +52,33 @@ export interface WorkspaceSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   project: Project | null;
+  /** Access role for the current user on this project. Only the owner can
+   *  create the pre-replace safety snapshot (snapshots are an owner-only
+   *  capability), so the toggle defaults on for owners and is unavailable
+   *  otherwise. */
+  projectRole?: "owner" | "editor" | "viewer";
   onSelectResult: (
     filePath: string,
     line: number,
     column: number,
     matchLength: number,
   ) => void;
+  /** Called after a successful Replace All apply with the workspace-relative
+   *  paths that were actually written. IDE.tsx uses this to reconcile any
+   *  already-open editor buffers so a later save cannot silently revert the
+   *  replacement (M50). */
+  onReplaceApplied?: (changedPaths: string[]) => void;
 }
 
 export default function WorkspaceSearchModal({
   isOpen,
   onClose,
   project,
+  projectRole = "owner",
   onSelectResult,
+  onReplaceApplied,
 }: WorkspaceSearchModalProps) {
+  const isOwner = projectRole === "owner";
   const [query, setQuery] = useState("");
   const [isCaseSensitive, setIsCaseSensitive] = useState(false);
   const [isWholeWord, setIsWholeWord] = useState(false);
@@ -79,11 +93,23 @@ export default function WorkspaceSearchModal({
   const [applyResult, setApplyResult] = useState<ReplaceApplyResult | null>(
     null,
   );
+  // M50: take a rollback snapshot before writing. Owner-only; default on for
+  // owners.
+  const [createSnapshot, setCreateSnapshot] = useState(isOwner);
+  // M50: files the user has explicitly excluded from Replace All. Empty means
+  // "every matched file is selected". Reset whenever a fresh preview lands.
+  const [deselectedFiles, setDeselectedFiles] = useState<Set<string>>(
+    new Set(),
+  );
 
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setCreateSnapshot(isOwner);
+  }, [isOwner]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -137,6 +163,9 @@ export default function WorkspaceSearchModal({
           },
         );
         setResults(res);
+        // A fresh preview supersedes any previous per-file selection — start
+        // again with every matched file selected.
+        setDeselectedFiles(new Set());
       } catch (err: any) {
         setError(err.message || "Search failed");
         setResults(null);
@@ -189,8 +218,43 @@ export default function WorkspaceSearchModal({
     executeSearch,
   ]);
 
+  // Files currently selected for Replace All (all matched files minus any the
+  // user explicitly unchecked).
+  const selectedFilePaths = (results?.groups ?? [])
+    .map((g) => g.filePath)
+    .filter((p) => !deselectedFiles.has(p));
+  const selectedMatchCount = (results?.groups ?? [])
+    .filter((g) => !deselectedFiles.has(g.filePath))
+    .reduce((n, g) => n + g.matches.length, 0);
+  const allSelected =
+    !!results && deselectedFiles.size === 0 && results.groups.length > 0;
+
+  const toggleFileSelected = (filePath: string) => {
+    setDeselectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(filePath)) next.delete(filePath);
+      else next.add(filePath);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!results) return;
+    setDeselectedFiles((prev) =>
+      prev.size === 0
+        ? new Set(results.groups.map((g) => g.filePath))
+        : new Set(),
+    );
+  };
+
   const handleReplaceAll = async () => {
-    if (!project || !query.trim() || !results || results.totalMatches === 0)
+    if (
+      !project ||
+      !query.trim() ||
+      !results ||
+      results.totalMatches === 0 ||
+      selectedFilePaths.length === 0
+    )
       return;
     setConfirmReplaceOpen(false);
     setApplying(true);
@@ -209,10 +273,21 @@ export default function WorkspaceSearchModal({
             includePattern: includePattern.trim() || undefined,
             excludePattern: excludePattern.trim() || undefined,
             dryRun: false,
+            // Only constrain the server when the user actually narrowed the
+            // set; otherwise let it act on the fresh match set it computes.
+            files: deselectedFiles.size > 0 ? selectedFilePaths : undefined,
+            createSafetySnapshot: isOwner && createSnapshot,
           }),
         },
       );
       setApplyResult(res);
+      // M50: hand the actually-written paths to IDE.tsx so any open editor
+      // buffer for those files is refreshed — without this a later save from
+      // a stale Monaco model silently reverts the replacement.
+      const changed = res.results
+        .filter((r) => r.status === "replaced")
+        .map((r) => r.filePath);
+      if (changed.length > 0) onReplaceApplied?.(changed);
       // Re-run the preview so the list reflects what (if anything) remains —
       // e.g. files skipped for being truncated/oversized still show matches.
       await executeSearch(query);
@@ -370,39 +445,87 @@ export default function WorkspaceSearchModal({
             {/* Replace Input Row */}
             {showReplace && (
               <div
-                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }}
               >
-                <div style={{ width: "30px", flexShrink: 0 }} />
-                <input
-                  type="text"
-                  className="command-palette-input"
-                  placeholder="Replace with... (leave empty to delete matches)"
-                  value={replaceText}
-                  onChange={(e) => setReplaceText(e.target.value)}
-                  style={{ fontSize: "14px" }}
-                />
-                <button
-                  type="button"
-                  className="glass-btn glass-btn-primary"
-                  disabled={
-                    !query.trim() ||
-                    !results ||
-                    results.totalMatches === 0 ||
-                    applying
-                  }
-                  onClick={() => setConfirmReplaceOpen(true)}
+                <div
                   style={{
-                    fontSize: "11px",
-                    padding: "5px 10px",
-                    flexShrink: 0,
-                    whiteSpace: "nowrap",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
                   }}
-                  title="Replace all matches across the workspace"
                 >
-                  {applying
-                    ? "Replacing..."
-                    : `Replace All${results ? ` (${results.totalMatches})` : ""}`}
-                </button>
+                  <div style={{ width: "30px", flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    className="command-palette-input"
+                    placeholder="Replace with... (leave empty to delete matches)"
+                    value={replaceText}
+                    onChange={(e) => setReplaceText(e.target.value)}
+                    style={{ fontSize: "14px" }}
+                  />
+                  <button
+                    type="button"
+                    className="glass-btn glass-btn-primary"
+                    disabled={
+                      !query.trim() ||
+                      !results ||
+                      results.totalMatches === 0 ||
+                      selectedFilePaths.length === 0 ||
+                      applying
+                    }
+                    onClick={() => setConfirmReplaceOpen(true)}
+                    style={{
+                      fontSize: "11px",
+                      padding: "5px 10px",
+                      flexShrink: 0,
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Replace matches in the selected files"
+                  >
+                    {applying
+                      ? "Replacing..."
+                      : `Replace ${
+                          results && deselectedFiles.size > 0
+                            ? "Selected"
+                            : "All"
+                        }${results ? ` (${selectedMatchCount})` : ""}`}
+                  </button>
+                </div>
+
+                {/* M50: safety-snapshot toggle */}
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    fontSize: "11px",
+                    color: isOwner ? "var(--fg-secondary)" : "var(--fg-muted)",
+                    paddingLeft: "40px",
+                    cursor: isOwner ? "pointer" : "default",
+                  }}
+                  title={
+                    isOwner
+                      ? "Creates a snapshot before changes so you can restore them from the Snapshots tab"
+                      : "Only the project owner can create a safety snapshot"
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={isOwner && createSnapshot}
+                    disabled={!isOwner}
+                    onChange={(e) => setCreateSnapshot(e.target.checked)}
+                  />
+                  <span>
+                    Create a safety snapshot first
+                    {isOwner
+                      ? " — restore anytime from the Snapshots tab"
+                      : " (owner only)"}
+                  </span>
+                </label>
               </div>
             )}
 
@@ -422,6 +545,13 @@ export default function WorkspaceSearchModal({
                 {applyResult.matchesReplaced === 1 ? "match" : "matches"} across{" "}
                 {applyResult.filesChanged}{" "}
                 {applyResult.filesChanged === 1 ? "file" : "files"}.
+                {applyResult.snapshotId && (
+                  <span style={{ color: "var(--fg-muted)" }}>
+                    {" "}
+                    A safety snapshot was created — restore it anytime from the
+                    Snapshots tab.
+                  </span>
+                )}
                 {applyResult.results.some((r) => r.status === "skipped") && (
                   <span style={{ color: "#fab387" }}>
                     {" "}
@@ -494,12 +624,29 @@ export default function WorkspaceSearchModal({
                 color: "var(--fg-muted)",
               }}
             >
-              <span>
-                {results.totalMatches}{" "}
-                {results.totalMatches === 1 ? "match" : "matches"} in{" "}
-                {results.groups.length}{" "}
-                {results.groups.length === 1 ? "file" : "files"} (searched{" "}
-                {results.filesSearched} files in {results.durationMs}ms)
+              <span
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
+                {showReplace && results.groups.length > 0 && (
+                  <button
+                    type="button"
+                    className="glass-btn glass-btn-ghost"
+                    onClick={toggleSelectAll}
+                    style={{ fontSize: "10px", padding: "2px 6px" }}
+                    title="Toggle every file in this result set"
+                  >
+                    {allSelected ? "Deselect all" : "Select all"}
+                  </button>
+                )}
+                <span>
+                  {showReplace
+                    ? `${selectedMatchCount} of ${results.totalMatches}`
+                    : results.totalMatches}{" "}
+                  {results.totalMatches === 1 ? "match" : "matches"}
+                  {showReplace ? " selected" : ""} in {results.groups.length}{" "}
+                  {results.groups.length === 1 ? "file" : "files"} (searched{" "}
+                  {results.filesSearched} files in {results.durationMs}ms)
+                </span>
               </span>
               {results.truncated && (
                 <span style={{ color: "#fab387", fontWeight: 600 }}>
@@ -553,47 +700,66 @@ export default function WorkspaceSearchModal({
                     }}
                   >
                     {/* File Header */}
-                    <button
-                      type="button"
-                      onClick={() => toggleFile(group.filePath)}
+                    <div
                       style={{
-                        width: "100%",
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "6px 10px",
                         background: "rgba(255, 255, 255, 0.03)",
-                        border: "none",
-                        color: "var(--fg-primary)",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        textAlign: "left",
                       }}
                     >
-                      <div
+                      {showReplace && (
+                        <input
+                          type="checkbox"
+                          checked={!deselectedFiles.has(group.filePath)}
+                          onChange={() => toggleFileSelected(group.filePath)}
+                          title="Include this file in Replace All"
+                          aria-label={`Include ${group.filePath} in Replace All`}
+                          style={{ margin: "0 2px 0 10px", flexShrink: 0 }}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleFile(group.filePath)}
                         style={{
+                          flex: 1,
+                          minWidth: 0,
                           display: "flex",
                           alignItems: "center",
-                          gap: "6px",
+                          justifyContent: "space-between",
+                          padding: "6px 10px",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--fg-primary)",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          textAlign: "left",
                         }}
                       >
-                        {isCollapsed ? (
-                          <IconChevronRight size={12} />
-                        ) : (
-                          <IconChevronDown size={12} />
-                        )}
-                        <IconCode size={13} color="var(--accent)" />
-                        <span>{group.filePath}</span>
-                      </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          {isCollapsed ? (
+                            <IconChevronRight size={12} />
+                          ) : (
+                            <IconChevronDown size={12} />
+                          )}
+                          <IconCode size={13} color="var(--accent)" />
+                          <span>{group.filePath}</span>
+                        </div>
 
-                      <span
-                        className="glass-badge glass-badge-info"
-                        style={{ fontSize: "10px", padding: "1px 6px" }}
-                      >
-                        {group.matches.length}
-                      </span>
-                    </button>
+                        <span
+                          className="glass-badge glass-badge-info"
+                          style={{ fontSize: "10px", padding: "1px 6px" }}
+                        >
+                          {group.matches.length}
+                        </span>
+                      </button>
+                    </div>
 
                     {/* Matches In File */}
                     {!isCollapsed && (
@@ -647,33 +813,53 @@ export default function WorkspaceSearchModal({
                             <span
                               style={{
                                 overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
                                 flex: 1,
                                 color: "var(--fg-primary)",
+                                minWidth: 0,
                               }}
                             >
                               {showReplace &&
                               m.replacedLineContent !== undefined ? (
-                                <>
+                                <span
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "1px",
+                                  }}
+                                  data-testid="replace-diff"
+                                >
                                   <span
                                     style={{
                                       color: "#f38ba8",
-                                      textDecoration: "line-through",
+                                      whiteSpace: "pre-wrap",
+                                      wordBreak: "break-all",
                                     }}
                                   >
+                                    {"- "}
                                     {m.lineContent}
                                   </span>
-                                  <span style={{ color: "var(--fg-muted)" }}>
-                                    {" "}
-                                    →{" "}
-                                  </span>
-                                  <span style={{ color: "#a6e3a1" }}>
+                                  <span
+                                    style={{
+                                      color: "#a6e3a1",
+                                      whiteSpace: "pre-wrap",
+                                      wordBreak: "break-all",
+                                    }}
+                                  >
+                                    {"+ "}
                                     {m.replacedLineContent}
                                   </span>
-                                </>
+                                </span>
                               ) : (
-                                m.lineContent
+                                <span
+                                  style={{
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    display: "block",
+                                  }}
+                                >
+                                  {m.lineContent}
+                                </span>
                               )}
                             </span>
                           </button>
@@ -706,9 +892,17 @@ export default function WorkspaceSearchModal({
 
       <ConfirmModal
         isOpen={confirmReplaceOpen}
-        title="Replace All Matches"
-        message={`Replace ${results?.totalMatches ?? 0} ${results?.totalMatches === 1 ? "match" : "matches"} across ${results?.groups.length ?? 0} ${results?.groups.length === 1 ? "file" : "files"}? This writes to disk and cannot be undone from here.`}
-        confirmLabel="Replace All"
+        title="Replace in selected files"
+        message={`Replace ${selectedMatchCount} ${
+          selectedMatchCount === 1 ? "match" : "matches"
+        } across ${selectedFilePaths.length} ${
+          selectedFilePaths.length === 1 ? "file" : "files"
+        } and write the changes to disk. ${
+          isOwner && createSnapshot
+            ? "A safety snapshot is taken first — you can restore it from the Snapshots tab."
+            : "No safety snapshot will be created."
+        }`}
+        confirmLabel="Replace files"
         isDestructive={true}
         onConfirm={handleReplaceAll}
         onCancel={() => setConfirmReplaceOpen(false)}
