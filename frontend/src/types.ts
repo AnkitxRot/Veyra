@@ -248,3 +248,50 @@ export interface AdminUserDetails {
   activeSandboxes: AdminSandboxData[];
   recentAuditLogs: AdminAuditRecord[];
 }
+
+export interface LatencySnapshot {
+  count: number;
+  minMs: number;
+  maxMs: number;
+  meanMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+export interface GcKindStats {
+  count: number;
+  totalDurationMs: number;
+}
+
+export interface AdminObservabilityData {
+  timestamp: string;
+  eventLoopLagMs: {
+    minMs: number;
+    maxMs: number;
+    meanMs: number;
+    p50Ms: number;
+    p95Ms: number;
+    p99Ms: number;
+  } | null;
+  dbCalls: {
+    overall: LatencySnapshot;
+    byOperation: Record<string, LatencySnapshot>;
+  };
+  activeWsConnections: number;
+  activeCollabRooms: number;
+  activeSandboxes: number;
+  totalCollabBroadcastSends: number;
+  memory: {
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+    externalBytes: number;
+    arrayBuffersBytes: number;
+  };
+  cpuUsageMicros: {
+    userMicros: number;
+    systemMicros: number;
+  };
+  gc: Record<string, GcKindStats>;
+}

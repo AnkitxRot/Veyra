@@ -40,10 +40,10 @@ Last updated: 2026-08-27.
   - Milestone 30 (automated database restore & disaster-recovery verification) at `bc8261e`.
   - Milestone 31 (automated per-project workspace & snapshot-body backup) at `a1077e1`.
   - Milestone 32 (per-project workspace & snapshot restore) at `9f5c130`.
-  - Milestone 33 (audit trail coverage & deletion integrity) at `31f00e6`.
   - Milestone 46 (admin backup/restore controls surfaced in the admin dashboard) at `4d2c8fb`.
   - Milestone 47 (encrypted per-project secrets & environment variables) at `91d0120`.
-  - Milestone 48 (ambient workspace presence, activity intent & safe follow mode) in this commit.
+  - Milestone 48 (ambient workspace presence, activity intent & safe follow mode) at `021acfe`.
+  - Milestone 49 (admin platform observability dashboard) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -3679,6 +3679,51 @@ file-tree and tab indicators, proximity warnings, and safe, interruptible Follow
 - Frontend typecheck: `tsc --noEmit` clean (0 errors).
 - Frontend production build: `npm run build` (`tsc --noEmit && vite build`) passed with exit code 0 and clean bundle chunks.
 - Backend test suite: 50/52 test files passed, 599/610 tests passed (only 2 pre-existing Docker-gated baseline failures).
+
+## Milestone 49 — Admin Platform Observability Dashboard
+
+**Objective**: surface Veyra's existing `/api/admin/observability` operational telemetry in `AdminDashboard.tsx` via
+a dedicated, real-time `AdminObservabilityPanel.tsx` component. Provides platform administrators with live,
+unobtrusive visibility into event-loop latency, database query percentiles, active WebSocket connections, CRDT
+collaboration room allocations, and container sandbox distributions.
+
+**Real Backend Contract Surfaced (`GET /api/admin/observability`)**:
+- `eventLoopLagMs`: `{ minMs, maxMs, meanMs, p50Ms, p95Ms, p99Ms }` (measured via Node's `node:perf_hooks` `monitorEventLoopDelay`).
+- `dbCalls`: overall and per-operation latency snapshots `{ count, minMs, maxMs, meanMs, p50Ms, p95Ms, p99Ms }` (instrumented via `instrumentDb`).
+- `activeWsConnections`: live WebSocket connection count across all active users.
+- `activeCollabRooms`: currently allocated in-memory `CollaborationRoom` CRDT instances.
+- `activeSandboxes`: currently active Docker runner sandboxes.
+- `totalCollabBroadcastSends`: physical WebSocket broadcast count across all rooms (M6 coalescing evidence).
+- `memory`: `{ rssBytes, heapUsedBytes, heapTotalBytes, externalBytes, arrayBuffersBytes }`.
+- `cpuUsageMicros`: `{ userMicros, systemMicros }`.
+- `gc`: recorded GC pause statistics by kind (`minor`, `major`, `incremental`, `weakcb`).
+
+**Locked Semantics Implemented**:
+- **Admin Tab Integration**: Added `"observability"` tab with `IconActivity` to `AdminDashboard.tsx` subnav and main content container.
+- **Metric Grouping & Visual Language**:
+  - Primary KPI Grid: 4 liquid-glass cards displaying Event Loop Lag (p95), Database Query Latency (p95), Active WebSockets & Rooms, and Active Sandboxes & RSS.
+  - Event-Loop Latency Distribution: 6-metric distribution grid (Min, Mean, p50, p95, p99, Max) and cumulative user/system CPU runtime.
+  - Process Memory & GC Diagnostics: RSS, Heap used/total, external buffer allocation, and GC collection counts/durations.
+  - Database Query Latency Breakdown: Overall query statistics and sortable per-operation latency table (`SELECT users`, `INSERT audit_logs`, `DELETE sessions`, etc.).
+- **Live Polling & Visibility Optimization**:
+  - 5-second automatic HTTP polling with strict in-flight request deduplication (skips overlapping ticks).
+  - Page Visibility API optimization: when `document.hidden === true`, automatic polling immediately pauses and displays `"Updates paused while tab is hidden"`. Upon returning to the tab, an immediate fresh fetch is triggered and 5-second polling resumes.
+- **Manual Refresh & Data Freshness**:
+  - Manual Refresh button with active spinner; disabled while any fetch is in flight.
+  - Relative timestamp ticker (`"Updated just now"`, `"Updated 4s ago"`).
+  - Transient network failure preservation: if a poll fails, the last known good metrics remain visible with a non-destructive warning banner rather than wiping the view.
+- **Neutral Presentation**: No arbitrary or fake red/green health thresholds; all values rendered with human-readable, context-appropriate numerical precision.
+
+**Files added**: `frontend/src/components/Admin/AdminObservabilityPanel.tsx`, `frontend/test/AdminObservabilityPanel.test.tsx` (20 tests).
+**Files changed**: `frontend/src/types.ts` (`AdminObservabilityData`, `LatencySnapshot`, `GcKindStats`), `frontend/src/components/Admin/AdminDashboard.tsx`, `STATUS.md`.
+**Backend files modified**: **NONE** (backend was 100% untouched).
+
+**Verification**:
+- Frontend test suite: **21/21 test files passed, 163/163 tests passed** (including all 20 new tests in `AdminObservabilityPanel.test.tsx`).
+- Frontend typecheck: `tsc --noEmit` clean (0 errors).
+- Frontend production build: `npm run build` passed with exit code 0.
+- Live API QA: Verified against live backend on port 3000 with real admin session; verified 401 unauthorized rejection for unauthenticated/demo clients.
+- Pre-existing backend baseline failures unchanged (`m16-optimization.test.ts`, `pipeline.test.ts`).
 
 ## Current active work
 

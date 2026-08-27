@@ -37,6 +37,7 @@ import {
 } from "../common/Icons";
 import AdminResourceAnalytics from "./AdminResourceAnalytics";
 import AdminBackupsPanel from "./AdminBackupsPanel";
+import AdminObservabilityPanel from "./AdminObservabilityPanel";
 
 export default function AdminDashboard({
   user: _user,
@@ -52,6 +53,7 @@ export default function AdminDashboard({
     | "sandboxes"
     | "executions"
     | "resources"
+    | "observability"
     | "tenants"
     | "audit"
     | "backups"
@@ -646,6 +648,16 @@ export default function AdminDashboard({
         >
           <IconCpu size={14} />
           <span>Resource Analytics</span>
+        </button>
+
+        <button
+          className={`admin-nav-tab ${activeTab === "observability" ? "active" : ""}`}
+          onClick={() => setActiveTab("observability")}
+          role="tab"
+          aria-selected={activeTab === "observability"}
+        >
+          <IconActivity size={14} />
+          <span>Observability</span>
         </button>
 
         <button
@@ -1795,6 +1807,7 @@ export default function AdminDashboard({
           </div>
         )}
 
+        {activeTab === "observability" && <AdminObservabilityPanel />}
         {activeTab === "backups" && <AdminBackupsPanel projects={projects} />}
       </main>
 
