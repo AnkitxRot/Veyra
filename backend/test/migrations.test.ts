@@ -18,7 +18,7 @@ describe("Database Schema & Migrations", () => {
     const db = openDb(":memory:");
     const version = getSchemaVersion(db);
     expect(version).toBeGreaterThanOrEqual(BASELINE_SCHEMA_VERSION);
-    expect(version).toBe(9);
+    expect(version).toBe(10);
 
     // Verify tables exist
     const tables = db
@@ -54,14 +54,14 @@ describe("Database Schema & Migrations", () => {
 
   it("handles existing databases gracefully and records migrations idempotently", () => {
     const db = openDb(":memory:");
-    expect(getSchemaVersion(db)).toBe(9);
+    expect(getSchemaVersion(db)).toBe(10);
 
     // Re-opening or querying should remain consistent
     const rows = db
       .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
       .all() as Array<{ version: number }>;
-    expect(rows.length).toBe(9);
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(rows.length).toBe(10);
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   // Milestone 33 — audit_logs.project_id changed from ON DELETE CASCADE to
@@ -186,12 +186,12 @@ describe("Database Schema & Migrations", () => {
         // actually applying the migration on app restart looks like.
         const migrated = openDb(dbPath);
 
-        expect(getSchemaVersion(migrated)).toBe(9);
+        expect(getSchemaVersion(migrated)).toBe(10);
         const migrationRows = migrated
           .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
           .all() as Array<{ version: number }>;
         expect(migrationRows.map((r) => r.version)).toEqual([
-          1, 2, 3, 4, 5, 6, 7, 8, 9,
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
         ]);
 
         // All pre-existing data survived the table recreate.
@@ -258,12 +258,12 @@ describe("Database Schema & Migrations", () => {
         // Reopen a second time -- idempotency: no duplicate migration
         // application, no error, no duplicate schema_migrations rows.
         const reopened = openDb(dbPath);
-        expect(getSchemaVersion(reopened)).toBe(9);
+        expect(getSchemaVersion(reopened)).toBe(10);
         const reopenedMigrationRows = reopened
           .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
           .all() as Array<{ version: number }>;
         expect(reopenedMigrationRows.map((r) => r.version)).toEqual([
-          1, 2, 3, 4, 5, 6, 7, 8, 9,
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
         ]);
         const finalCount = (
           reopened.prepare("SELECT COUNT(*) as c FROM audit_logs").get() as {

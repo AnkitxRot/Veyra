@@ -10,6 +10,12 @@ import {
 } from "../tools.js";
 import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
 import { RunGate } from "./runGate.js";
+import {
+  renderSecretsEnvFile,
+  secretsExecPrefix,
+  writeContainerSecretsFile,
+  type ContainerSecretsFile,
+} from "../projectsecrets/inject.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,6 +36,11 @@ export interface SandboxOptions {
   args: string[];
   cwd: string;
   env?: Record<string, string>;
+  /** M47: project secrets to inject as environment variables. Delivered via
+   *  a 0600 file streamed into the container's /run tmpfs (never on the host
+   *  argv), then sourced by the target process. Omitted for install and for
+   *  ai/verify runs. */
+  secretEnv?: Record<string, string>;
   stdin?: string;
   onStdout?: (data: string) => void;
   onStderr?: (data: string) => void;
@@ -345,8 +356,7 @@ export class SandboxManager {
       isRunnerImageAvailableAsync(),
       this.ensureProjectNetwork(projectId),
     ]);
-    if (!dockerRunning)
-      throw new Error("Docker daemon is not running");
+    if (!dockerRunning) throw new Error("Docker daemon is not running");
     if (!runnerAvailable)
       throw new Error("cloudeeeide-runner:latest is not available");
 
@@ -945,7 +955,52 @@ export async function sandboxRun(
       execArgs.push("-e", `${k}=${v}`);
     }
   }
-  execArgs.push(containerId, opts.command, ...opts.args);
+
+  // M47: stage project secrets into the container as a 0600 file (never on
+  // the host argv), then have the target process source it. Values are not
+  // passed via `docker exec -e`.
+  let secretsFile: ContainerSecretsFile | null = null;
+  if (opts.secretEnv && Object.keys(opts.secretEnv).length > 0) {
+    const content = renderSecretsEnvFile(opts.secretEnv);
+    if (content.length > 0) {
+      try {
+        secretsFile = await writeContainerSecretsFile(containerId, content);
+      } catch (err: any) {
+        return {
+          stdout: "",
+          stderr: `[sandbox] failed to prepare project secrets: ${err?.message ?? err}`,
+          exitCode: null,
+          signal: null,
+          timedOut: false,
+          oom: false,
+          durationMs: Date.now() - start,
+        };
+      }
+    }
+  }
+
+  if (secretsFile) {
+    // `sh -c '<script>' sh <command> <args...>` — $0 is the label "sh",
+    // "$@" is <command> <args...>. The command and its args stay as
+    // separate, non-secret argv entries; only the file path (a UUID) is
+    // interpolated.
+    execArgs.push(
+      containerId,
+      ...secretsExecPrefix(secretsFile.path),
+      opts.command,
+      ...opts.args,
+    );
+  } else {
+    execArgs.push(containerId, opts.command, ...opts.args);
+  }
+
+  const cleanupSecrets = async () => {
+    if (secretsFile) {
+      const f = secretsFile;
+      secretsFile = null;
+      await f.cleanup();
+    }
+  };
 
   const child = spawn("docker", execArgs, {
     stdio: ["pipe", "pipe", "pipe"],
@@ -1002,6 +1057,7 @@ export async function sandboxRun(
   });
 
   clearTimeout(watchdog);
+  await cleanupSecrets();
 
   if (spawnError) {
     stderr =

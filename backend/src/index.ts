@@ -9,6 +9,7 @@ import { cleanupExpiredDemoAccounts } from "./auth/demoGc.js";
 import { hashPassword } from "./auth/passwords.js";
 import { ensureAdminUser } from "./db.js";
 import { collaborationManager } from "./collab/manager.js";
+import { verifySecretsKeyOnStartup } from "./projectsecrets/store.js";
 import { instrumentDb, startEventLoopMonitor } from "./observability.js";
 import type { WebSocketServer } from "ws";
 import type { Server as HttpServer } from "node:http";
@@ -176,6 +177,7 @@ async function start(): Promise<void> {
   const app = createApp(config, db);
 
   await bootstrapAdmin(config, db);
+  verifySecretsKeyOnStartup(config, db);
 
   // Startup hardening: drop expired sessions, purge expired demo accounts,
   // then reconcile Docker state (removes orphaned containers, rebuilds preview

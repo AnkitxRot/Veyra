@@ -50,6 +50,7 @@ import type {
   CollabConnectionStatus,
 } from "../../collab/client";
 import ProjectSharingModal from "../Collab/ProjectSharingModal";
+import ProjectSecretsModal from "../ProjectSecrets/ProjectSecretsModal";
 import { CommandRegistry, Command } from "../../utils/commands";
 import { buildFileIndex, IndexedFile } from "../../utils/fileIndex";
 import {
@@ -164,6 +165,7 @@ export default function IDE({
   const [collabStatus, setCollabStatus] =
     useState<CollabConnectionStatus>("disconnected");
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isSecretsModalOpen, setIsSecretsModalOpen] = useState(false);
   const [projectRole, setProjectRole] = useState<"owner" | "editor" | "viewer">(
     "owner",
   );
@@ -1037,6 +1039,15 @@ export default function IDE({
         handler: () => setIsShareModalOpen(true),
       },
       {
+        id: "workbench.action.manageSecrets",
+        title: "Manage Environment Variables & Secrets",
+        description:
+          "Owner-only: add encrypted project secrets injected into runs and terminals",
+        category: "Collaboration",
+        available: () => !!project && projectRole === "owner",
+        handler: () => setIsSecretsModalOpen(true),
+      },
+      {
         id: "workbench.action.openTour",
         title: "Guided Evaluator Walkthrough Tour",
         description:
@@ -1286,6 +1297,11 @@ export default function IDE({
           collaborators={collaborators}
           collabStatus={collabStatus}
           onOpenShareModal={() => setIsShareModalOpen(true)}
+          onOpenSecretsModal={
+            projectRole === "owner"
+              ? () => setIsSecretsModalOpen(true)
+              : undefined
+          }
           onFollowCollaborator={(c) => {
             if (c.activeFile) {
               handleOpenFile(c.activeFile);
@@ -1666,6 +1682,16 @@ export default function IDE({
           isOpen={isShareModalOpen}
           onClose={() => setIsShareModalOpen(false)}
           currentUserRole={projectRole}
+        />
+      )}
+
+      {/* Project Environment Variables & Secrets Modal (owner only) */}
+      {project && projectRole === "owner" && (
+        <ProjectSecretsModal
+          projectId={project.id}
+          projectName={project.name}
+          isOpen={isSecretsModalOpen}
+          onClose={() => setIsSecretsModalOpen(false)}
         />
       )}
 

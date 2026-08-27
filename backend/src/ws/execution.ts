@@ -7,6 +7,10 @@ import { workspacePath } from "../projects/service.js";
 import type { SandboxController } from "../execution/sandbox.js";
 import { runGate } from "../execution/runGate.js";
 import { telemetryHistorian } from "../execution/historian.js";
+import {
+  resolveSecretsForInjection,
+  toGenericSecretError,
+} from "../projectsecrets/store.js";
 
 export async function handleExecutionConnection(
   ws: WebSocket,
@@ -79,10 +83,23 @@ export async function handleExecutionConnection(
         activeCleanup = finish;
 
         try {
+          let secretEnv: Record<string, string> | undefined;
+          if (db) {
+            try {
+              const resolved = resolveSecretsForInjection(db, cfg, projectId, {
+                userId,
+                context: "run",
+              });
+              if (Object.keys(resolved).length > 0) secretEnv = resolved;
+            } catch (err) {
+              throw toGenericSecretError(err);
+            }
+          }
           const result = await runProject(cfg, projectId, cwd, {
             language: parsed.language,
             activeFile: parsed.activeFile,
             userId,
+            secretEnv,
             onStdout: (data) => {
               if (ws.readyState === ws.OPEN)
                 ws.send(JSON.stringify({ type: "stdout", data }));

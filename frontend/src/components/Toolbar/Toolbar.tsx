@@ -32,6 +32,7 @@ interface ToolbarProps {
   collabStatus?: CollabConnectionStatus;
   onFollowCollaborator?: (c: CollaboratorPresence) => void;
   onOpenShareModal?: () => void;
+  onOpenSecretsModal?: () => void;
 }
 
 export default function Toolbar({
@@ -48,6 +49,7 @@ export default function Toolbar({
   collabStatus = "disconnected",
   onFollowCollaborator,
   onOpenShareModal,
+  onOpenSecretsModal,
 }: ToolbarProps) {
   const [isRunning, setIsRunning] = React.useState(false);
   // M43: mirrors the isRunning/run-started/run-stopped pattern above.
@@ -349,6 +351,28 @@ export default function Toolbar({
           onFollowCollaborator={onFollowCollaborator}
           onOpenShareModal={onOpenShareModal}
         />
+      )}
+
+      {/* Project Secrets & Environment Variables Trigger (owner only) */}
+      {onOpenSecretsModal && (
+        <button
+          className="glass-btn"
+          onClick={onOpenSecretsModal}
+          style={{
+            padding: "5px 10px",
+            fontSize: "11px",
+            background: "rgba(203, 166, 247, 0.1)",
+            color: "#cba6f7",
+            border: "1px solid rgba(203, 166, 247, 0.3)",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+          }}
+          title="Manage environment variables & secrets"
+        >
+          <IconShield size={12} />
+          <span>Secrets</span>
+        </button>
       )}
 
       {/* Project Health Center Trigger */}

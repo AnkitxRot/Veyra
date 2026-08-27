@@ -140,6 +140,33 @@ export function openDb(dbPath: string): Db {
       render_whitespace  TEXT NOT NULL DEFAULT 'selection',
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS secrets (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope        TEXT NOT NULL,
+      scope_id     TEXT NOT NULL,
+      environment  TEXT,
+      name         TEXT NOT NULL,
+      ciphertext   BLOB NOT NULL,
+      nonce        BLOB NOT NULL,
+      key_version  INTEGER NOT NULL DEFAULT 1,
+      is_secret    INTEGER NOT NULL DEFAULT 1,
+      fingerprint  TEXT,
+      created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      UNIQUE(scope, scope_id, environment, name),
+      FOREIGN KEY (scope_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    -- SQLite treats NULLs as distinct in a UNIQUE constraint, so the table
+    -- constraint above does not stop two rows with the same name and a NULL
+    -- environment. This functional index closes that for the common
+    -- no-environment case.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_identity
+      ON secrets(scope, scope_id, COALESCE(environment, ''), name);
+    CREATE INDEX IF NOT EXISTS idx_secrets_scope ON secrets(scope, scope_id);
   `);
   runMigrations(db);
   return db;
@@ -388,6 +415,40 @@ const MIGRATIONS: Migration[] = [
 
         CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_logs(project_id);
         CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+      `);
+    },
+  },
+  {
+    version: 10,
+    description:
+      "Create secrets table for M47 encrypted per-project secrets & environment variables",
+    up(db: Db) {
+      // Mirrors the inline schema in openDb(); `IF NOT EXISTS` makes this a
+      // no-op on a fresh database (which already ran the inline CREATE) and
+      // the real create on an upgraded one.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS secrets (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          scope        TEXT NOT NULL,
+          scope_id     TEXT NOT NULL,
+          environment  TEXT,
+          name         TEXT NOT NULL,
+          ciphertext   BLOB NOT NULL,
+          nonce        BLOB NOT NULL,
+          key_version  INTEGER NOT NULL DEFAULT 1,
+          is_secret    INTEGER NOT NULL DEFAULT 1,
+          fingerprint  TEXT,
+          created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          UNIQUE(scope, scope_id, environment, name),
+          FOREIGN KEY (scope_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_identity
+          ON secrets(scope, scope_id, COALESCE(environment, ''), name);
+        CREATE INDEX IF NOT EXISTS idx_secrets_scope ON secrets(scope, scope_id);
       `);
     },
   },

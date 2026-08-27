@@ -42,6 +42,10 @@ import {
   importNewProjectZip,
 } from "./archive.js";
 import { forkProject } from "./fork.js";
+import {
+  resolveSecretsForInjection,
+  toGenericSecretError,
+} from "../projectsecrets/store.js";
 import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { telemetryHistorian } from "../execution/historian.js";
@@ -1026,10 +1030,22 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       }
       try {
         const cwd = await workspacePath(cfg, project.id);
+        let secretEnv: Record<string, string> | undefined;
+        try {
+          const resolved = resolveSecretsForInjection(db, cfg, project.id, {
+            userId,
+            context: "run",
+            ipAddress: req.ip,
+          });
+          if (Object.keys(resolved).length > 0) secretEnv = resolved;
+        } catch (err) {
+          throw toGenericSecretError(err);
+        }
         const result = await runProject(cfg, project.id, cwd, {
           language,
           stdin,
           userId,
+          secretEnv,
         });
         res.json(result);
       } finally {

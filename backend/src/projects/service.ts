@@ -6,6 +6,7 @@ import type { AppConfig } from "../config.js";
 import { IS_WINDOWS } from "../config.js";
 import { ApiError } from "../errors.js";
 import { recordAuditLog } from "../audit.js";
+import { deleteAllProjectSecrets } from "../projectsecrets/store.js";
 
 export interface ProjectRow {
   id: string;
@@ -281,6 +282,14 @@ export async function deleteProject(
     });
   } catch {
     // Best-effort: snapshot directory may not exist
+  }
+  // M47: hard-delete encrypted secret rows. The FK is ON DELETE CASCADE, but
+  // do it explicitly first so the intent is visible and independent of
+  // PRAGMA foreign_keys state.
+  try {
+    deleteAllProjectSecrets(db, project.id);
+  } catch {
+    // Best-effort: the cascade below still covers it
   }
   db.prepare("DELETE FROM projects WHERE id = ?").run(id);
 

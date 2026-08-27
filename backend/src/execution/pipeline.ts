@@ -41,6 +41,9 @@ interface RunSpec {
   isCancelled?: () => boolean;
   /** Charged against the per-owner sandbox quota — see SandboxOptions.userId. */
   userId: number;
+  /** M47: decrypted project secrets to inject into the RUN phase (not
+   *  compile). Resolved + SECRET_ACCESSED-audited by the caller. */
+  secretEnv?: Record<string, string>;
 }
 
 export async function runProject(
@@ -190,6 +193,7 @@ export async function runProject(
     command: lang.run.cmd(ctx),
     args: lang.run.args(ctx),
     cwd: workspaceDir,
+    secretEnv: spec.secretEnv,
     stdin: spec.stdin,
     onStdout: spec.onStdout,
     onStderr: spec.onStderr,

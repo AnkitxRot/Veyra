@@ -375,10 +375,12 @@ export function setupWebSocketServer(
             console.error("[ws] terminal socket error:", err);
             unregisterConnection(row.id, ws);
           });
-          handleTerminalConnection(ws, projectId, cfg, row.id).catch((err) => {
-            console.error("[ws] terminal connection error:", err);
-            ws.close();
-          });
+          handleTerminalConnection(ws, projectId, cfg, row.id, db).catch(
+            (err) => {
+              console.error("[ws] terminal connection error:", err);
+              ws.close();
+            },
+          );
         });
       } else if (pathname === "/ws/execute") {
         wss.handleUpgrade(req, socket, head, (ws) => {

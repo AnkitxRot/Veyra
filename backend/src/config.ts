@@ -83,6 +83,12 @@ export interface AppConfig {
   collabAwarenessCoalesceMs: number;
   collabHighWatermarkBytes: number;
   collabLowWatermarkBytes: number;
+  /** M47: operator-supplied master key for project-secret encryption.
+   *  Raw value exactly as configured (base64- or hex-encoded 32 bytes); the
+   *  secrets crypto module validates/normalizes it. `undefined` when unset —
+   *  the server still starts, but any operation that must decrypt an existing
+   *  secret fails closed. NEVER logged, backed up, or returned by the API. */
+  secretsMasterKey: string | undefined;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -325,5 +331,12 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     backupHealthCriticalAgeMs:
       overrides.backupHealthCriticalAgeMs ??
       Number(process.env.BACKUP_HEALTH_CRITICAL_AGE_MS ?? 48 * 60 * 60 * 1000),
+    // Deliberately NOT given a default: a silently auto-generated key would
+    // become undecryptable across restarts and would defeat the "operator
+    // must supply and safeguard the key" contract (see backend/src/secrets/
+    // crypto.ts and deploy/README.md). Absent => secret-dependent operations
+    // fail closed.
+    secretsMasterKey:
+      overrides.secretsMasterKey ?? process.env.SECRETS_MASTER_KEY ?? undefined,
   };
 }

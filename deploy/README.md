@@ -87,9 +87,66 @@ will refuse to start without it. Everything else is optional and has a safe defa
 | `PROJECT_QUOTA`           | `20`         | Max projects per user.                                                                                                                                                                             |
 | `MAX_CONCURRENT_RUNS`     | `3`          | Max concurrent executions per user.                                                                                                                                                                |
 | `SANDBOX_IDLE_TIMEOUT_MS` | `1800000`    | Idle time before a sandbox is reaped.                                                                                                                                                              |
+| `SECRETS_MASTER_KEY`      | _(unset)_    | Master key for **project secrets & environment variables** (M47). 32 bytes, encoded as base64 or 64 hex characters. Required only if any project uses the Secrets feature — see the section below. |
 
 Set in production (not in `.env`): `NODE_ENV=production` (already set in the image),
 and any secrets your reverse proxy needs.
+
+## Project secrets & environment variables (M47)
+
+Owners can attach encrypted per-project environment variables (marked as
+secrets or as plain config). They are injected into **runs and terminal
+sessions** — never into `install` — via a `0600` file staged inside the
+sandbox container's tmpfs (values are never placed on a `docker` command
+line). Secret values are write-only: no API or UI path returns a stored
+secret value once written; the list view shows metadata plus an optional
+last-4 fingerprint only.
+
+### `SECRETS_MASTER_KEY`
+
+- **Source of truth is this one operator-supplied variable.** The server
+  never generates a key and never reads one from a file or the database.
+- Generate one: `openssl rand -base64 32` (or `openssl rand -hex 32`).
+- Malformed material (wrong length, not base64/hex) is rejected.
+- The key is **never** written to SQLite, the workspace, a backup artifact,
+  a log line, or an API response.
+
+### Fail-closed behaviour
+
+- The server **starts without the key** as long as no encrypted secret
+  exists yet. Once secrets exist, startup logs a clear `[secrets]` warning if
+  the key is missing/invalid, and every secret-dependent operation (CRUD,
+  run/terminal injection) fails with a generic 5xx — it never runs with a
+  partial or empty secret set and never returns partial plaintext.
+
+### Backup / restore interaction
+
+- **Database backups** contain the `secrets` table as **ciphertext only**.
+  The master key is not in the backup.
+- Restoring a database backup **under the same `SECRETS_MASTER_KEY`** recovers
+  all secrets. Restoring under a **missing or different** key leaves those
+  rows permanently undecryptable — this is intentional, not a bug. Keep the
+  key backed up separately from the database, with equivalent care.
+- **Workspace backups** and **workspace ZIP exports** never contain
+  platform-managed secret values (they are DB rows, not workspace files). An
+  ordinary `.env` file a user placed in the workspace is unaffected and keeps
+  its existing include/exclude behaviour.
+
+### Key rotation
+
+- Rows store a `key_version` (currently always `1`). Rotation to a new key
+  version is a future addition and does not require a destructive schema
+  migration. There is no automated re-encryption today: rotating
+  `SECRETS_MASTER_KEY` in place makes existing secrets undecryptable, so
+  re-enter them after a deliberate rotation.
+
+### Limitations (no KMS)
+
+This is application-level AES-256-GCM with a locally-configured key on a
+single node. It protects secrets at rest in the database and in database
+backup files. It is **not** equivalent to a KMS/HSM and does not defend
+against an attacker with code execution or root on the live host (the key is
+resident in process memory while the server runs).
 
 ## Persistent volume paths
 

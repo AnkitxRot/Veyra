@@ -1,9 +1,16 @@
 import type { WebSocket } from "ws";
 import * as pty from "node-pty";
 import type { AppConfig } from "../config.js";
+import type { Db } from "../db.js";
 import { workspacePath } from "../projects/service.js";
 import { sandboxManager } from "../execution/sandbox.js";
 import { RunGate } from "../execution/runGate.js";
+import { resolveSecretsForInjection } from "../projectsecrets/store.js";
+import {
+  writeContainerSecretsFile,
+  renderSecretsEnvFile,
+  type ContainerSecretsFile,
+} from "../projectsecrets/inject.js";
 
 /**
  * Per-user concurrent terminal PTY count. Separate resource class from
@@ -18,6 +25,7 @@ export async function handleTerminalConnection(
   projectId: string,
   cfg: AppConfig,
   userId: number,
+  db?: Db,
 ): Promise<void> {
   if (!terminalGate.acquire(userId, cfg.maxTerminalsPerUser)) {
     if (ws.readyState === ws.OPEN) {
@@ -67,17 +75,57 @@ export async function handleTerminalConnection(
     return;
   }
 
+  // M47: resolve + stage project secrets before the shell starts. Access
+  // authorization is already enforced upstream (ws/index.ts requires the
+  // 'editor' role for /ws/terminal, so viewers never reach here). Fail
+  // closed: if secrets exist but cannot be prepared, do not open a shell
+  // without them.
+  let secretsFile: ContainerSecretsFile | null = null;
+  try {
+    const env = db
+      ? resolveSecretsForInjection(db, cfg, projectId, {
+          userId,
+          context: "terminal",
+        })
+      : {};
+    const content = renderSecretsEnvFile(env);
+    if (content.length > 0) {
+      secretsFile = await writeContainerSecretsFile(containerId, content);
+    }
+  } catch (err: any) {
+    releasePermit();
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "data",
+          data: `[terminal] project secrets are unavailable: ${
+            err?.code === "secrets_key_unavailable"
+              ? "encryption is not configured on this server"
+              : "could not prepare secrets"
+          }\r\n`,
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
+
   // The client may have disconnected while the awaits above were pending; the
   // ws 'close' listener below is registered too late to ever see that event, so
   // spawning here would leak an orphaned `docker exec` shell nobody kills.
   if (ws.readyState !== ws.OPEN) {
     releasePermit();
+    if (secretsFile) void secretsFile.cleanup();
     return;
   }
 
+  const bashArgs = secretsFile
+    ? ["bash", "-c", `set -a; . '${secretsFile.path}'; set +a; exec bash`]
+    : ["bash"];
+
   const ptyProcess = pty.spawn(
     "docker",
-    ["exec", "-it", "-e", "TERM=xterm-256color", containerId, "bash"],
+    ["exec", "-it", "-e", "TERM=xterm-256color", containerId, ...bashArgs],
     {
       name: "xterm-color",
       cols: 80,
@@ -119,6 +167,11 @@ export async function handleTerminalConnection(
     torndown = true;
     releasePermit();
     ptyProcess.kill();
+    if (secretsFile) {
+      const f = secretsFile;
+      secretsFile = null;
+      void f.cleanup();
+    }
   };
   ws.on("close", teardown);
   ws.on("error", teardown);

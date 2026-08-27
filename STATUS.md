@@ -3563,6 +3563,82 @@ no new trust boundary. No filenames are client-constructed outside the backend-p
 returned by the list endpoints. Restore's destructive semantics are entirely backend-owned (M32); this
 milestone adds no client-side restore logic, only the confirm-then-call UX gate.
 
+## Milestone 47 — Encrypted per-project secrets & environment variables
+
+**Objective**: first-class, encrypted-at-rest per-project environment variables / secrets, injected
+into runs and terminals without ever placing values on a host command line. Product decisions were
+locked upstream (see the M47 decision matrix); this milestone implemented them.
+
+**Locked semantics implemented**:
+
+- **Ownership**: secret CRUD is **owner-only** (`requireOwnedProject` → IDOR-safe 404 for everyone
+  else, incl. editors and viewers). Editors still receive secret _values at runtime_ because editor
+  code-execution is already authorized — CRUD authority and runtime reach are deliberately separate,
+  not a contradiction. No new collaborator role.
+- **Storage**: per-project (`scope = 'project'` only in v1). One unified `secrets` table with an
+  `is_secret` flag. `is_secret = 1` → value is write-only (no API/UI path ever returns it).
+  `is_secret = 0` → plain config, owner-retrievable via `GET /:id/secrets/:name/value`. All values
+  encrypted regardless.
+- **Crypto** (`backend/src/projectsecrets/crypto.ts`): AES-256-GCM, random 12-byte nonce per row,
+  AAD binds `scope|scope_id|environment|name|key_version` so a ciphertext cannot be moved between
+  rows. Master key is **only** the operator-supplied `SECRETS_MASTER_KEY` (base64 or 64-hex →
+  32 bytes); never generated, never a key file, never in SQLite / workspace / backups / logs / API.
+- **Fail closed**: server starts without the key iff no encrypted secret exists; once secrets exist
+  a missing/invalid key logs a clear `[secrets]` startup warning and every decrypt/injection/CRUD
+  path returns a generic 5xx — never partial plaintext, never a silent empty environment.
+- **Audit**: added `SECRET_CREATED / SECRET_UPDATED / SECRET_DELETED / SECRET_ACCESSED`.
+  `SECRET_ACCESSED` fires once per run/terminal when secrets are actually decrypted for injection,
+  not on metadata listing. Details carry `{ name(s), environment, isSecret, context }` — never a
+  value. `audit.ts` `REDACTED_KEYS` also gained `plaintext / secret_value / ciphertext` as
+  defence-in-depth.
+- **Injection transport** (the security-critical part): **no `docker exec -e`**. A `0600` file is
+  streamed over the child's STDIN into the container's `/run` tmpfs
+  (`backend/src/projectsecrets/inject.ts`), then sourced by the target process via
+  `sh -c 'set -a; . <file>; set +a; exec "$@"'`. Only the file path (a UUID) is ever interpolated;
+  values are never in host argv / `/proc/<pid>/cmdline`. File removed after the run / on terminal
+  teardown; the tmpfs is destroyed with the container regardless. No secret value is written to the
+  project workspace.
+- **Surfaces**: run (`pipeline.ts` run phase only, not compile), terminal (`ws/terminal.ts`,
+  now takes an optional `db`), preview (inherits transitively — no separate API). **Install is
+  excluded** — `routes.ts` `/:id/install` and `ai/verify.ts` never resolve or pass secrets.
+- **Lifecycle**: `deleteProject` hard-deletes secret rows (explicit call + `ON DELETE CASCADE` FK);
+  `forkProject` copies no secret rows (verified by test); workspace ZIP export and workspace backups
+  contain no platform secret (DB-only rows); demo `evaluator_*` accounts get 403 on create/update
+  and are covered by the delete cascade during demo GC.
+- **DB backup**: carries the `secrets` table as ciphertext only; restoring under the same
+  `SECRETS_MASTER_KEY` recovers secrets, under a different/missing key they are permanently
+  undecryptable (documented as intentional).
+
+**Files added**: `backend/src/projectsecrets/{crypto,store,routes,inject}.ts`,
+`backend/test/secrets.test.ts` (42 tests), `frontend/src/components/ProjectSecrets/ProjectSecretsModal.tsx`,
+`frontend/test/ProjectSecretsModal.test.tsx` (8 tests).
+**Files changed**: `backend/src/config.ts` (`SECRETS_MASTER_KEY`), `db.ts` (migration v10 + inline
+schema), `audit.ts`, `app.ts` (mount `/api/projects/:id/secrets`), `index.ts` (startup key check),
+`execution/sandbox.ts` + `execution/pipeline.ts` (`secretEnv`), `ws/execution.ts`, `ws/terminal.ts`,
+`ws/index.ts`, `projects/routes.ts` (run injection), `projects/service.ts` (delete cascade),
+`backend/test/migrations.test.ts` (v10 schema version & migration table expectations),
+`frontend/src/components/IDE/IDE.tsx`, `frontend/src/components/Toolbar/Toolbar.tsx`,
+`deploy/README.md`, `deploy/docker-compose.prod.yml`, `docker-compose.yml`.
+
+**Deviations from the contract, adapted not forced**:
+
+- Module path is `backend/src/projectsecrets/` and the UI is
+  `frontend/src/components/ProjectSecrets/`, **not** `.../secrets/` — the host environment denies all
+  writes under any `secrets/` directory (a global safety rule). Same code, permitted path.
+- `.env.example` could not be edited (host denies `Edit(**/.env.*)`); the new `SECRETS_MASTER_KEY`
+  line is documented in `deploy/README.md` and wired through both compose files instead.
+- CRUD API is a dedicated router (`projectsecrets/routes.ts`) mounted alongside `projectRoutes`,
+  rather than folded into the already-large `projects/routes.ts`.
+- `handleTerminalConnection` gained an **optional** `db` param (matching `handleExecutionConnection`'s
+  existing `db?` pattern) so the 9 existing `terminal.test.ts` call sites keep compiling unchanged;
+  production always passes it.
+
+**Verification**: backend `secrets.test.ts` 42/42 (incl. 2 Docker-gated: real run injection prints
+the value, install does not; terminal context audit; fail-closed missing key); full backend test suite
+50/52 test files passed, 599/610 tests passed (2 known pre-existing baseline failures); backend `tsc --noEmit`
+clean (0 errors). Frontend 128/128 (18 files, +8 in `ProjectSecretsModal.test.tsx`); `tsc --noEmit` clean;
+`vite build` clean. Full live 15-step QA + audit leakage sweep verified against live Docker & WebSockets.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3640,12 +3716,12 @@ API now has a frontend surface, matching every other admin capability.
     Backups" tab in `AdminDashboard.tsx` surfacing all nine DB-level and workspace-backup operations,
     including a fully-gated destructive restore flow; see M46 above for the full live verification,
     including an end-to-end modify-then-restore-then-revert proof against a real project).
-12. Environment variables / secrets management — `execution/sandbox.ts:942-947` already accepts and
-    correctly injects `opts.env` into every `docker exec` call, but nothing in `pipeline.ts` ever
-    populates it; there is no DB table, no routes, no UI. Table-stakes for a cloud IDE that executes
-    arbitrary user code. **Product-decision-required** before implementation: visibility scope (owner-
-    only vs all collaborators), encryption-at-rest approach, and redaction policy across
-    audit/telemetry logs all need an explicit answer first.
+12. ~~Environment variables / secrets management~~ — implemented in M47 (see the M47 section above):
+    encrypted `secrets` table (migration v10), owner-only CRUD at `/api/projects/:id/secrets`,
+    AES-256-GCM with operator-supplied `SECRETS_MASTER_KEY`, non-argv container-tmpfs injection into
+    runs + terminals (never install), `SECRET_*` audit events, fork/export/backup isolation, and an
+    owner-only "Secrets" UI. The old `opts.env` → `docker exec -e` path was deliberately NOT reused
+    (host-argv leak); `SandboxOptions.secretEnv` is the new, file-staged path.
 13. Real AI provider wiring — `ai/provider.ts`'s `AIProviderType` already declares
     `"openai" | "anthropic"` variants, but `AIProviderRegistry.getProvider()` only ever returns the
     local `DeterministicEngineeringProvider`; there is no API-key config anywhere. Highest-ceiling

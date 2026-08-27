@@ -34,6 +34,10 @@ export type AuditEventType =
   | "WORKSPACE_BACKUP_DOWNLOADED"
   | "WORKSPACE_BACKUP_DELETED"
   | "WORKSPACE_BACKUP_RESTORED"
+  | "SECRET_CREATED"
+  | "SECRET_UPDATED"
+  | "SECRET_DELETED"
+  | "SECRET_ACCESSED"
   | "ADMIN_ACTION";
 
 export interface AuditRecord {
@@ -58,6 +62,13 @@ const REDACTED_KEYS = new Set([
   "cookie",
   "session_token",
   "newpassword",
+  // M47 defence-in-depth: secret values must never be passed into audit
+  // details in the first place, but redact these key names too in case a
+  // future caller slips.
+  "plaintext",
+  "secret_value",
+  "secretvalue",
+  "ciphertext",
 ]);
 
 function sanitizeDetails(details: any): any {
