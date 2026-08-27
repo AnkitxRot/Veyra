@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-27.
+Last updated: 2026-08-28.
 
 ## Current state
 
@@ -57,7 +57,14 @@ Last updated: 2026-08-27.
     status now live in an always-mounted `ExecutionSessionProvider`, not the
     `<Output>` component, so switching the bottom panel / collapsing it / tab
     changes no longer kill a running program; also fixes the M48 `"running"`
-    activity event-name mismatch) in this commit.
+    activity event-name mismatch) at `85f5a21`.
+  - Milestone 54 (collaborative run awareness — status + safe metadata only;
+    the real server execution lifecycle in `ws/execution.ts` publishes
+    `running` / `success` / `failed` / `stopped` for a project into an
+    ephemeral, in-memory per-room registry that broadcasts to collaborators;
+    server-authenticated identity, server `executionId` / `startedAt`; NO
+    stdout/stderr/terminal/command/env/secret is ever broadcast; the browser
+    never authors a run-status message) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -4034,7 +4041,134 @@ streaming to collaborators, no server-side reconnect grace, no new REST
 endpoint — all explicitly out of scope. Collaborative run _awareness_ (surface
 "who is running what" to collaborators via the collab room, now that the M48
 `"running"` activity fires and a stable session exists) is the natural
-follow-up.
+follow-up. _(Implemented in M54, below.)_
+
+## Milestone 54 — Collaborative run awareness (status + safe metadata)
+
+**Objective:** every authorized collaborator in a project sees who is running,
+which workspace file, the language, live elapsed time, and whether the run
+succeeded / failed / was stopped — WITHOUT any stdout/stderr/terminal I/O /
+command text / environment variables / secrets, and without any shared run
+control. The status is derived from the **real server-owned execution
+lifecycle**, never asserted by a browser.
+
+**Architecture (server-authoritative, ephemeral).**
+
+```
+real execution (backend/src/ws/execution.ts)
+  → collaborationManager.notifyRunStatus(projectId, entry)   [server-built entry]
+  → CollaborationRoom.runStatus  Map<executionId, RunStatusEntry>   (in-memory)
+  → broadcast MESSAGE_CUSTOM {type:"run_status", …} to that room's clients
+  → frontend CollaborationClient.runStatuses  (RECEIVE-only)
+```
+
+- `ws/execution.ts`: on run start (right after the server's
+  `executionId = randomUUID()`) publishes `state:"running"` with the
+  authenticated `userId` / `username` (from the WS-upgrade session, threaded
+  through as a new `handleExecutionConnection` param), a server `startedAt`,
+  and a **validated** file/language hint (`sanitizeRunFile` rejects
+  absolute / `..` / oversize → null; `sanitizeRunLanguage` is a bounded
+  allowlist). On completion or throw, a once-guarded `publishTerminal()` maps
+  the authoritative `RunResult` (+ `disconnected` / `stopRequested` flags) via
+  `deriveRunState()` to `success` / `failed` / `stopped`, using
+  `result.mainFile` / `result.language` / `result.exitCode`. No `result`
+  spread, no `stdout`/`stderr`, no `secretEnv` at either call site.
+- `collab/manager.ts`: `CollaborationRoom` gains a `runStatus` Map +
+  `handleRunStatus()` (broadcast; terminal states linger 10 s then a
+  `{state:"cleared"}` frame drops them; a 60 s self-cancelling sweep drops
+  `running` entries older than 30 min). `addClient()` sends a snapshot of
+  current entries so a mid-run joiner sees the run immediately. `dispose()`
+  clears the map + all timers; `handleRunStatus` has an `if (this.disposed)`
+  guard (M41 pattern). New `CollaborationManager.notifyRunStatus` — **its only
+  caller is `ws/execution.ts`**; the inbound client `MESSAGE_CUSTOM` handler
+  is unchanged (still only `file_open`), so a client sending `run_status` is
+  silently ignored.
+- `collab/client.ts`: RECEIVE-only `run_status` case → shape-guarded
+  `runStatuses` Map + `run_status_change` event; cleared on
+  `resetLocalCollabState` / `dispose`. **The client never sends a
+  `run_status` frame.**
+- UI: `CollaboratorAvatarStack` popover shows
+  `Running <file> · <language> · m:ss` (elapsed ticked by a local 1 s
+  interval, never broadcast) then `<file> exited 0` / `failed` / `stopped`
+  during the linger; a `▶` avatar glyph while running. `Sidebar` shows a `▶`
+  file-tree badge on the file of `running` entries only (never terminal;
+  aggregates multiple runners). Self entries are filtered out. No toast, no
+  notification; DND does not suppress it.
+
+**Payload — exactly:** `{ executionId, userId, username, state, file,
+language, startedAt, endedAt, exitCode }` (+ `type`). No SQLite, no migration,
+no new REST endpoint, no polling, no Redis/pubsub, no durable record.
+
+**Visibility:** all project collaborators (owner / editor / viewer) — a
+viewer already receives every M48 awareness field and can read file
+contents; run status (a filename + language + a small int) discloses nothing
+new. A viewer still cannot execute (`/ws/execute` requires `editor`), so
+cannot produce a run status.
+
+**Verification.**
+
+- `backend/test/m54-run-status.test.ts` (**17**): broadcast to all clients;
+  `notifyRunStatus` no-op with no room; **project isolation** (A never
+  reaches B); terminal linger → `cleared`; **mid-run join snapshot**; two
+  concurrent runs stay independent; `dispose()` clears map + timers + sweep;
+  orphan sweep drops a 40-min-old `running` entry and self-cancels;
+  **fake-client `run_status` is ignored — no fabricated entry, no broadcast**;
+  no SQLite write; `sanitizeRunFile` / `sanitizeRunLanguage` /
+  `deriveRunState` matrices. Plus a mocked-pipeline integration block (real
+  `handleExecutionConnection` + real room, no Docker): running→success/failed
+  broadcast carries the **server** `executionId` + `startedAt` (not any
+  client value) and `result.mainFile`; explicit stop → `stopped`; and the
+  **secret-regression** — a `RunResult` whose `stdout` contains
+  `SUPER_SECRET_M54_TEST=…` produces run-status frames with only the 10
+  whitelisted keys and none of the secret / stdout / command text.
+- `frontend/test/collab.runStatus.test.ts` (**6**): receive-only upsert;
+  terminal updates in place (no dupe); `cleared` removes; malformed frame
+  ignored (no entry, no emit); `dispose()` clears; **the client never
+  transmits a `run_status` frame**.
+- `frontend/test/collab.runStatus.render.test.tsx` (**6**): avatar
+  `Running app.py · python` + `▶`; elapsed ticks locally under fake timers;
+  terminal text (`exited 0` / `failed` / `stopped`); self-filtered; Sidebar
+  `▶` badge for `running` only; DND doesn't hide + no `role="alert"`.
+- Full frontend suite **229 passed** (27 files). Full backend suite
+  **674 passed / 2 failed / 9 skipped** — the 2 are the documented
+  `lifecycle.test.ts` + `pipeline.test.ts` baseline failures; zero new
+  failures. `tsc --noEmit` clean both packages; `vite build` clean (same
+  pre-existing Monaco chunk-size warning). `git diff --check` clean.
+- Security (root read-only audit — the security subagent did not complete):
+  identity is server-authenticated at every call site; `handleRunStatus`'s
+  only caller chain is `ws/execution.ts → notifyRunStatus → handleRunStatus`
+  (grep-confirmed, no client path); `executionId`/`startedAt` server-generated;
+  `file`/`language` validated and, critically, **never used for a filesystem
+  operation** anywhere (store + broadcast + display only) and overwritten by
+  the authoritative `result.mainFile` at terminal; no `stdout`/`stderr`/
+  `secretEnv`/argv in either `notifyRunStatus` call; cross-project isolation
+  inherent (per-room Map + per-room broadcast); entry creation is gated by the
+  real `/ws/execute` + `runGate` per-user cap, so it cannot be driven
+  unboundedly; timers `unref`'d, one linger per executionId, one
+  self-cancelling sweep per room, all cleared on `dispose()`; the frontend
+  receiver type-guards and React-escapes on render (no `dangerouslySetInnerHTML`).
+  One non-blocking note: `sanitizeRunFile` permits odd-but-harmless strings
+  (e.g. `"....//"`, embedded control chars) as `file` — purely cosmetic in the
+  initiator's own run display, never resolved, never a traversal.
+- Live e2e (`.qa-m54/e2e.mjs`, untracked — real Docker python run, real
+  backend with `SECRETS_MASTER_KEY` set, real `/ws/collab` + `/ws/execute`
+  WebSockets; Chrome extension not available this environment, so this
+  substitutes for the Phase-15 browser pass — **BROWSER_QA | SUBSTITUTED**):
+  **PASS**. An owner runs `main.py` (which prints a real project secret and
+  sleeps 3 s); a pre-connected editor collaborator sees `state:"running"`
+  live; a second collaborator joining mid-run receives the running entry via
+  the `addClient` snapshot; the broadcast `executionId` equals the server's
+  `exit.executionId` and `startedAt` is server-set; terminal state is
+  `success` (exitCode 0); after the 10 s linger a `cleared` frame arrives; all
+  frames carry only the 10 whitelisted keys; no secret value / `os.environ` /
+  stdout text appears in any frame.
+
+**Not done / deferred (explicitly out of scope):** no stdout/stderr / output
+streaming, no shared terminal, no shared Stop / run control, no server-side
+reconnect grace, no durable run-status persistence, no general
+server-authoritative-awareness-identity rework (the awareness `user` field
+remains client-asserted, as in M48 — M54 does not rely on it; run-status
+identity is server-stamped).
 
 ## Current active work
 

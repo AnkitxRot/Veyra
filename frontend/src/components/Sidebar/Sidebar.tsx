@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { User, Project, TreeNode } from "../../types";
+import { User, Project, TreeNode, RunStatusEntry } from "../../types";
 import { api } from "../../api";
 import {
   IconFolder,
@@ -39,6 +39,7 @@ interface SidebarProps {
   onOpenTour?: () => void;
   onOpenSettings?: () => void;
   collaborators?: CollaboratorPresence[];
+  runStatuses?: RunStatusEntry[];
   currentUserId?: number;
 }
 
@@ -57,6 +58,7 @@ export default function Sidebar({
   onOpenTour,
   onOpenSettings,
   collaborators,
+  runStatuses,
   currentUserId,
 }: SidebarProps) {
   const [showProjectsAccordion, setShowProjectsAccordion] = useState(true);
@@ -93,6 +95,23 @@ export default function Sidebar({
     }
     return map;
   }, [collaborators, currentUserId]);
+
+  // M54: workspace-relative paths another collaborator is actively RUNNING
+  // (terminal states get no tree badge). Only recomputes on real state
+  // transitions — no elapsed-clock dependency, so the tree never re-renders
+  // on a tick.
+  const runningByPath = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!runStatuses) return map;
+    for (const r of runStatuses) {
+      if (r.state === "running" && r.file && r.userId !== currentUserId) {
+        const list = map.get(r.file) || [];
+        list.push(r.username || "collaborator");
+        map.set(r.file, list);
+      }
+    }
+    return map;
+  }, [runStatuses, currentUserId]);
 
   const handleCreateProject = async (opts: {
     templateId: string | null;
@@ -698,6 +717,7 @@ export default function Sidebar({
                 onSelect={onOpenFile}
                 selected={activeFile}
                 collaboratorsByPath={collaboratorsByPath}
+                runningByPath={runningByPath}
                 onAction={(action: any, node?: any) => {
                   if (
                     action === "new_file" ||
@@ -820,6 +840,7 @@ function FileTree({
   selected,
   onAction,
   collaboratorsByPath,
+  runningByPath,
 }: any) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -912,6 +933,7 @@ function FileTree({
           selected={selected}
           onContextNode={handleContextNode}
           collaboratorsByPath={collaboratorsByPath}
+          runningByPath={runningByPath}
         />
       )}
 
@@ -1000,6 +1022,7 @@ function FileTreeNodes({
   selected,
   onContextNode,
   collaboratorsByPath,
+  runningByPath,
 }: any) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -1037,6 +1060,9 @@ function FileTreeNodes({
         const isCollapsed = collapsed[n.path];
         const nodeCollaborators = !isDir
           ? collaboratorsByPath?.get(n.path) || []
+          : [];
+        const nodeRunners: string[] = !isDir
+          ? runningByPath?.get(n.path) || []
           : [];
 
         return (
@@ -1078,11 +1104,33 @@ function FileTreeNodes({
                 )}
               </span>
               <span className="tree-node-name">{n.name}</span>
+              {nodeRunners.length > 0 && (
+                <span
+                  className="tree-node-running-badge"
+                  title={
+                    nodeRunners.length === 1
+                      ? `${nodeRunners[0]} is running this file`
+                      : `${nodeRunners.length} collaborators running this file`
+                  }
+                  aria-label={`${nodeRunners.length} collaborator(s) running this file`}
+                  style={{
+                    marginLeft: "4px",
+                    fontSize: "9px",
+                    lineHeight: 1,
+                    color: "#a6e3a1",
+                  }}
+                >
+                  ▶{nodeRunners.length > 1 ? ` ${nodeRunners.length}` : ""}
+                </span>
+              )}
               {nodeCollaborators.length > 0 && (
                 <span
                   className="tree-node-collab-badge"
                   title={nodeCollaborators
-                    .map((c: any) => `${c.name} (${c.activity?.type || "viewing"})`)
+                    .map(
+                      (c: any) =>
+                        `${c.name} (${c.activity?.type || "viewing"})`,
+                    )
                     .join(", ")}
                   aria-label={`${nodeCollaborators.length} active collaborator(s)`}
                 >
@@ -1109,6 +1157,7 @@ function FileTreeNodes({
                   selected={selected}
                   onContextNode={onContextNode}
                   collaboratorsByPath={collaboratorsByPath}
+                  runningByPath={runningByPath}
                 />
               </div>
             )}

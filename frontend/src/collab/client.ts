@@ -5,7 +5,7 @@ import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { MonacoBinding } from "y-monaco";
 import { monaco } from "../monacoSetup";
-import { User } from "../types";
+import { User, RunStatusEntry } from "../types";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -81,6 +81,11 @@ export class CollaborationClient {
   // that file from disk into its Y.Text, so the server content is now
   // authoritative and it is safe to construct the y-monaco binding.
   private readyFiles = new Set<string>();
+
+  // M54: collaborative run awareness. RECEIVE-ONLY — populated exclusively
+  // from the server's `run_status` broadcasts (which the server derives from
+  // the real, authenticated execution lifecycle). Keyed by server executionId.
+  private runStatuses = new Map<string, RunStatusEntry>();
 
   // M52: a y-monaco bind that is waiting for `file_ready` (or the fallback
   // timer). Only ever holds the single most-recent deferred bind; a newer
@@ -376,6 +381,12 @@ export class CollaborationClient {
     // rebind below would bind immediately to an empty Y.Text and briefly
     // show a blank editor as authoritative.
     this.readyFiles.clear();
+    // M54: the disposed room's run-status registry is gone; the fresh room's
+    // addClient snapshot will re-populate any genuinely-active runs.
+    if (this.runStatuses.size > 0) {
+      this.runStatuses.clear();
+      this.emit("run_status_change", this.getRunStatuses());
+    }
 
     this.initDocAndAwareness();
 
@@ -508,8 +519,9 @@ export class CollaborationClient {
         }
 
         case MESSAGE_CUSTOM: {
-          // M52: the server's readiness signal. Until now the client never
-          // handled MESSAGE_CUSTOM at all (it only ever sends them).
+          // M52: the server's readiness signal. M54: the server's run-status
+          // broadcasts. Both are RECEIVE-only — the client never authors a
+          // run_status message, so a peer cannot fabricate a run.
           const jsonStr = decoding.readVarString(decoder);
           try {
             const parsed = JSON.parse(jsonStr);
@@ -519,6 +531,12 @@ export class CollaborationClient {
               typeof parsed.path === "string"
             ) {
               this.handleFileReady(parsed.path);
+            } else if (
+              parsed &&
+              parsed.type === "run_status" &&
+              typeof parsed.executionId === "string"
+            ) {
+              this.handleRunStatusMessage(parsed);
             }
           } catch {}
           break;
@@ -654,6 +672,43 @@ export class CollaborationClient {
     if (this.pendingBind && this.pendingBind.filePath === path) {
       this.completeDeferredBind(path);
     }
+  }
+
+  // M54: apply one server run-status broadcast. "cleared" removes the entry;
+  // any other state upserts it. All fields are already server-authoritative;
+  // this only shape-guards against a corrupt frame.
+  private handleRunStatusMessage(msg: any): void {
+    if (this.isDisposed) return;
+    const id: string = msg.executionId;
+    if (msg.state === "cleared") {
+      this.runStatuses.delete(id);
+    } else if (
+      (msg.state === "running" ||
+        msg.state === "success" ||
+        msg.state === "failed" ||
+        msg.state === "stopped") &&
+      typeof msg.userId === "number" &&
+      typeof msg.startedAt === "number"
+    ) {
+      this.runStatuses.set(id, {
+        executionId: id,
+        userId: msg.userId,
+        username: typeof msg.username === "string" ? msg.username : "",
+        state: msg.state,
+        file: typeof msg.file === "string" ? msg.file : null,
+        language: typeof msg.language === "string" ? msg.language : null,
+        startedAt: msg.startedAt,
+        endedAt: typeof msg.endedAt === "number" ? msg.endedAt : null,
+        exitCode: typeof msg.exitCode === "number" ? msg.exitCode : null,
+      });
+    } else {
+      return;
+    }
+    this.emit("run_status_change", this.getRunStatuses());
+  }
+
+  public getRunStatuses(): RunStatusEntry[] {
+    return Array.from(this.runStatuses.values());
   }
 
   private clearPendingBind(): void {
@@ -904,6 +959,7 @@ export class CollaborationClient {
     }
     this.removeActivityListeners();
     this.clearPendingBind();
+    this.runStatuses.clear();
     this.unbindCurrentModel();
     if (this.ws) {
       try {

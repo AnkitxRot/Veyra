@@ -2,20 +2,63 @@ import type { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
-import { runProject } from "../execution/pipeline.js";
+import { runProject, type RunResult } from "../execution/pipeline.js";
 import { workspacePath } from "../projects/service.js";
 import type { SandboxController } from "../execution/sandbox.js";
 import { runGate } from "../execution/runGate.js";
 import { telemetryHistorian } from "../execution/historian.js";
+import { collaborationManager } from "../collab/manager.js";
 import {
   resolveSecretsForInjection,
   toGenericSecretError,
 } from "../projectsecrets/store.js";
 
+// --- M54: collaborative run awareness — safe metadata derivation ------------
+//
+// The run-status broadcast is driven entirely from this authenticated
+// execution socket. The client's start message contributes only two hint
+// fields (active file, language) which are validated here before use; every
+// other field (identity, executionId, timestamps, state, exitCode) is
+// server-owned. Nothing sensitive (stdout/stderr/env/secrets/command/absolute
+// paths) is ever passed to the collaboration room.
+
+/** Workspace-relative path hint or null. Rejects absolute / traversal / oversized. */
+export function sanitizeRunFile(v: unknown): string | null {
+  if (typeof v !== "string" || v.length === 0 || v.length > 260) return null;
+  const n = v.replace(/\\/g, "/");
+  if (n.startsWith("/") || /^[a-zA-Z]:/.test(n)) return null;
+  if (n.split("/").some((s) => s === "..")) return null;
+  return n;
+}
+
+/** Bounded language identifier or null. */
+export function sanitizeRunLanguage(v: unknown): string | null {
+  if (typeof v !== "string" || !/^[a-z0-9+#._-]{1,32}$/i.test(v)) return null;
+  return v;
+}
+
+/** Maps the authoritative run outcome to a collaborator-visible state. */
+export function deriveRunState(o: {
+  threw: boolean;
+  disconnected: boolean;
+  stopRequested: boolean;
+  result?: RunResult;
+}): "success" | "failed" | "stopped" {
+  if (o.stopRequested || o.disconnected) return "stopped";
+  if (o.threw || !o.result) return "failed";
+  const r = o.result;
+  if (r.timedOut || r.oom) return "failed";
+  if (r.type !== "success") return "failed";
+  if (r.exitCode === 0) return "success";
+  if (r.exitCode === null) return "stopped";
+  return "failed";
+}
+
 export async function handleExecutionConnection(
   ws: WebSocket,
   projectId: string,
   userId: number,
+  username: string,
   cfg: AppConfig,
   db?: Db,
 ): Promise<void> {
@@ -38,6 +81,9 @@ export async function handleExecutionConnection(
   let controller: SandboxController | null = null;
   let running = false;
   let activeCleanup: (() => void) | null = null;
+  // M54: set when the client explicitly requests a stop, so the terminal
+  // run-status is reported as "stopped" rather than "failed".
+  let stopRequested = false;
   // Latched on ws close: `controller` is only set once the sandboxed process
   // actually exists, so a disconnect during container startup has nothing to
   // kill. sandboxRun polls this before spawning anything.
@@ -70,6 +116,49 @@ export async function handleExecutionConnection(
         const executionId = randomUUID();
         telemetryHistorian.trackExecutionStart(projectId, executionId);
 
+        // M54: publish "running" to the project's collaboration room using
+        // only server-owned identity + a validated file/language hint.
+        const startedAt = Date.now();
+        const runFileHint = sanitizeRunFile(parsed.activeFile);
+        const runLangHint = sanitizeRunLanguage(parsed.language);
+        collaborationManager.notifyRunStatus(projectId, {
+          executionId,
+          userId,
+          username,
+          state: "running",
+          file: runFileHint,
+          language: runLangHint,
+          startedAt,
+          endedAt: null,
+          exitCode: null,
+        });
+
+        let terminalPublished = false;
+        const publishTerminal = (
+          result: RunResult | undefined,
+          threw: boolean,
+        ) => {
+          if (terminalPublished) return;
+          terminalPublished = true;
+          const state = deriveRunState({
+            threw,
+            disconnected,
+            stopRequested,
+            result,
+          });
+          collaborationManager.notifyRunStatus(projectId, {
+            executionId,
+            userId,
+            username,
+            state,
+            file: result?.mainFile ?? runFileHint,
+            language: result?.language ?? runLangHint,
+            startedAt,
+            endedAt: Date.now(),
+            exitCode: result?.exitCode ?? null,
+          });
+        };
+
         let finished = false;
         const finish = () => {
           if (finished) return;
@@ -82,6 +171,7 @@ export async function handleExecutionConnection(
         };
         activeCleanup = finish;
 
+        let result: RunResult | undefined;
         try {
           let secretEnv: Record<string, string> | undefined;
           if (db) {
@@ -95,7 +185,7 @@ export async function handleExecutionConnection(
               throw toGenericSecretError(err);
             }
           }
-          const result = await runProject(cfg, projectId, cwd, {
+          result = await runProject(cfg, projectId, cwd, {
             language: parsed.language,
             activeFile: parsed.activeFile,
             userId,
@@ -178,6 +268,8 @@ export async function handleExecutionConnection(
               }),
             );
           }
+          // M54: authoritative terminal run status from the real outcome.
+          publishTerminal(result, false);
         } catch (err) {
           if (ws.readyState === ws.OPEN) {
             ws.send(
@@ -187,6 +279,7 @@ export async function handleExecutionConnection(
               }),
             );
           }
+          publishTerminal(result, true);
         } finally {
           finish();
         }
@@ -195,6 +288,7 @@ export async function handleExecutionConnection(
           controller.writeStdin(parsed.data);
         }
       } else if (parsed.type === "stop") {
+        stopRequested = true;
         if (controller) {
           controller.kill();
         }

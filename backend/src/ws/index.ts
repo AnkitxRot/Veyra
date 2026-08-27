@@ -394,12 +394,17 @@ export function setupWebSocketServer(
             console.error("[ws] execution socket error:", err);
             unregisterConnection(row.id, ws);
           });
-          handleExecutionConnection(ws, projectId, row.id, cfg, db).catch(
-            (err) => {
-              console.error("[ws] execution connection error:", err);
-              ws.close();
-            },
-          );
+          handleExecutionConnection(
+            ws,
+            projectId,
+            row.id,
+            row.username,
+            cfg,
+            db,
+          ).catch((err) => {
+            console.error("[ws] execution connection error:", err);
+            ws.close();
+          });
         });
       } else {
         socket.write("HTTP/1.1 404 Not Found\r\n\r\n");

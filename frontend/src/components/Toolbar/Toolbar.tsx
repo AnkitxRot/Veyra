@@ -11,7 +11,7 @@ import {
   IconDownload,
 } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
-import { Project, ContainerStats, User } from "../../types";
+import { Project, ContainerStats, User, RunStatusEntry } from "../../types";
 import CollaboratorAvatarStack from "../Collab/CollaboratorAvatarStack";
 import type {
   CollaboratorPresence,
@@ -29,6 +29,7 @@ interface ToolbarProps {
   onOpenCommandPalette?: () => void;
   onOpenHealthModal?: () => void;
   collaborators?: CollaboratorPresence[];
+  runStatuses?: RunStatusEntry[];
   collabStatus?: CollabConnectionStatus;
   isDnd?: boolean;
   followingUserId?: number | null;
@@ -50,6 +51,7 @@ export default function Toolbar({
   onOpenCommandPalette: _onOpenCommandPalette,
   onOpenHealthModal,
   collaborators = [],
+  runStatuses = [],
   collabStatus = "disconnected",
   isDnd = false,
   followingUserId = null,
@@ -354,6 +356,7 @@ export default function Toolbar({
       {project && user && (
         <CollaboratorAvatarStack
           collaborators={collaborators}
+          runStatuses={runStatuses}
           status={collabStatus}
           currentUserId={user.id}
           isDnd={isDnd}

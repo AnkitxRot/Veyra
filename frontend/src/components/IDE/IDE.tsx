@@ -13,6 +13,7 @@ import {
   TreeNode,
   ContainerStats,
   UserPreferences,
+  RunStatusEntry,
 } from "../../types";
 import {
   api,
@@ -174,6 +175,8 @@ export default function IDE({
   const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>(
     [],
   );
+  // M54: collaborative run awareness — server-authoritative, ephemeral.
+  const [runStatuses, setRunStatuses] = useState<RunStatusEntry[]>([]);
   const [collabStatus, setCollabStatus] =
     useState<CollabConnectionStatus>("disconnected");
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -267,6 +270,7 @@ export default function IDE({
         setCollabClient(null);
       }
       setCollaborators([]);
+      setRunStatuses([]);
       setCollabStatus("disconnected");
       return;
     }
@@ -274,6 +278,7 @@ export default function IDE({
     let cancelled = false;
     let client: CollaborationClient | null = null;
     let unsubAwareness: (() => void) | undefined;
+    let unsubRunStatus: (() => void) | undefined;
     let unsubConnection: (() => void) | undefined;
     let throttledSetCollaborators: ReturnType<
       typeof throttleLatest<CollaboratorPresence[]>
@@ -299,6 +304,13 @@ export default function IDE({
       );
       unsubAwareness = client.on("awareness_change", throttledSetCollaborators);
 
+      // M54: run-status transitions are rare (start/end per run) — no throttle
+      // needed, and the elapsed clock ticks locally in the UI, not here.
+      unsubRunStatus = client.on(
+        "run_status_change",
+        (entries: RunStatusEntry[]) => setRunStatuses(entries),
+      );
+
       unsubConnection = client.on(
         "connection_change",
         (status: CollabConnectionStatus) => {
@@ -319,12 +331,14 @@ export default function IDE({
     return () => {
       cancelled = true;
       unsubAwareness?.();
+      unsubRunStatus?.();
       unsubConnection?.();
       client?.dispose();
       if (collabClientRef.current === client) {
         collabClientRef.current = null;
       }
       throttledSetCollaborators?.cancel();
+      setRunStatuses([]);
     };
     // project is tracked by id only to avoid reconnect churn when the object
     // reference changes without the id changing; collabClient is read via
@@ -1522,6 +1536,7 @@ export default function IDE({
           onOpenTour={() => setShowTour(true)}
           onOpenSettings={() => setShowSettings(true)}
           collaborators={collaborators}
+          runStatuses={runStatuses}
           currentUserId={user.id}
         />
       )}
@@ -1554,6 +1569,7 @@ export default function IDE({
           }}
           onOpenHealthModal={() => setIsHealthModalOpen(true)}
           collaborators={collaborators}
+          runStatuses={runStatuses}
           collabStatus={collabStatus}
           isDnd={isDnd}
           followingUserId={followedUserId}

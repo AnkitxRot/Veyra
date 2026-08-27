@@ -30,6 +30,29 @@ export const DEFAULT_HIGH_WATERMARK_BYTES = 1_000_000;
 export const DEFAULT_LOW_WATERMARK_BYTES = 200_000;
 const SLOW_CLIENT_RECHECK_MS = 500;
 
+// M54: Collaborative Run Awareness. Ephemeral, in-memory only — no
+// durable/SQLite state, no client->server path. A terminal run status
+// lingers briefly so late/paused clients still observe the outcome, then
+// is cleared. A stuck "running" entry (execution socket died without a
+// terminal publish) is swept after a hard age cap.
+const RUN_STATUS_LINGER_MS = 10_000;
+const RUN_STATUS_MAX_AGE_MS = 30 * 60 * 1000;
+const RUN_STATUS_SWEEP_MS = 60_000;
+
+export type RunState = "running" | "success" | "failed" | "stopped";
+
+export interface RunStatusEntry {
+  executionId: string;
+  userId: number;
+  username: string;
+  state: RunState;
+  file: string | null;
+  language: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  exitCode: number | null;
+}
+
 export interface CollaborationRoomOptions {
   yjsCoalesceMs?: number;
   awarenessCoalesceMs?: number;
@@ -121,6 +144,13 @@ export class CollaborationRoom {
    *  safe: nothing is ever permanently lost, only deferred. */
   private readonly slowClients: Set<WebSocket> = new Set();
   private slowClientRecheckTimer: NodeJS.Timeout | null = null;
+
+  // M54: ephemeral run-status registry, keyed by executionId. Populated
+  // exclusively by the real server-side execution lifecycle via
+  // CollaborationManager.notifyRunStatus — never from a client message.
+  private readonly runStatus = new Map<string, RunStatusEntry>();
+  private readonly runStatusLingerTimers = new Map<string, NodeJS.Timeout>();
+  private runStatusSweepTimer: NodeJS.Timeout | null = null;
 
   /** Set at the start of dispose(). awareness.destroy() below internally
    *  calls setLocalState(null), which fires this room's own
@@ -454,6 +484,93 @@ export class CollaborationRoom {
     return this.broadcastSendCount;
   }
 
+  // --- M54: collaborative run awareness -----------------------------------
+
+  /**
+   * Records and broadcasts a run-status transition. The only caller is
+   * CollaborationManager.notifyRunStatus, driven by the authenticated
+   * execution WebSocket lifecycle in ws/execution.ts. Nothing a client
+   * sends can reach here.
+   */
+  public handleRunStatus(input: RunStatusEntry): void {
+    if (this.disposed) return;
+
+    this.runStatus.set(input.executionId, input);
+    this.broadcastRunStatus({ type: "run_status", ...input });
+
+    const existingLinger = this.runStatusLingerTimers.get(input.executionId);
+    if (existingLinger) {
+      clearTimeout(existingLinger);
+      this.runStatusLingerTimers.delete(input.executionId);
+    }
+
+    if (input.state === "running") {
+      this.ensureRunStatusSweep();
+      return;
+    }
+
+    // Terminal state: keep it visible briefly, then clear.
+    const timer = setTimeout(() => {
+      this.runStatusLingerTimers.delete(input.executionId);
+      this.runStatus.delete(input.executionId);
+      this.broadcastRunStatus({
+        type: "run_status",
+        executionId: input.executionId,
+        userId: input.userId,
+        state: "cleared",
+      });
+    }, RUN_STATUS_LINGER_MS);
+    timer.unref?.();
+    this.runStatusLingerTimers.set(input.executionId, timer);
+  }
+
+  private broadcastRunStatus(obj: unknown): void {
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, MESSAGE_CUSTOM);
+    encoding.writeVarString(enc, JSON.stringify(obj));
+    const frame = encoding.toUint8Array(enc);
+    for (const [client] of this.clients.entries()) {
+      if (client.readyState !== 1 /* OPEN */) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  private ensureRunStatusSweep(): void {
+    if (this.runStatusSweepTimer) return;
+    this.runStatusSweepTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [id, entry] of Array.from(this.runStatus.entries())) {
+        if (
+          entry.state === "running" &&
+          now - entry.startedAt > RUN_STATUS_MAX_AGE_MS
+        ) {
+          this.runStatus.delete(id);
+          const linger = this.runStatusLingerTimers.get(id);
+          if (linger) {
+            clearTimeout(linger);
+            this.runStatusLingerTimers.delete(id);
+          }
+          this.broadcastRunStatus({
+            type: "run_status",
+            executionId: id,
+            userId: entry.userId,
+            state: "cleared",
+          });
+        }
+      }
+      const stillRunning = Array.from(this.runStatus.values()).some(
+        (e) => e.state === "running",
+      );
+      if (!stillRunning && this.runStatusSweepTimer) {
+        clearInterval(this.runStatusSweepTimer);
+        this.runStatusSweepTimer = null;
+      }
+    }, RUN_STATUS_SWEEP_MS);
+    this.runStatusSweepTimer.unref?.();
+  }
+
   /**
    * Initializes a file's collaborative Y.Text from the workspace filesystem if not already loaded.
    *
@@ -579,6 +696,22 @@ export class CollaborationRoom {
         ),
       );
       ws.send(encoding.toUint8Array(awarenessEncoder));
+    }
+
+    // 3. M54: snapshot of any active/lingering run statuses so a client that
+    // joins mid-run sees it immediately without waiting for a fresh event.
+    if (this.runStatus.size > 0) {
+      for (const entry of this.runStatus.values()) {
+        const enc = encoding.createEncoder();
+        encoding.writeVarUint(enc, MESSAGE_CUSTOM);
+        encoding.writeVarString(
+          enc,
+          JSON.stringify({ type: "run_status", ...entry }),
+        );
+        try {
+          ws.send(encoding.toUint8Array(enc));
+        } catch {}
+      }
     }
   }
 
@@ -1006,6 +1139,14 @@ export class CollaborationRoom {
     if (this.yjsCoalesceTimer) clearTimeout(this.yjsCoalesceTimer);
     if (this.awarenessCoalesceTimer) clearTimeout(this.awarenessCoalesceTimer);
     if (this.slowClientRecheckTimer) clearInterval(this.slowClientRecheckTimer);
+    // M54: run-status registry teardown.
+    for (const t of this.runStatusLingerTimers.values()) clearTimeout(t);
+    this.runStatusLingerTimers.clear();
+    if (this.runStatusSweepTimer) {
+      clearInterval(this.runStatusSweepTimer);
+      this.runStatusSweepTimer = null;
+    }
+    this.runStatus.clear();
     this.yjsCoalesceTimer = null;
     this.awarenessCoalesceTimer = null;
     this.slowClientRecheckTimer = null;
@@ -1072,6 +1213,17 @@ export class CollaborationManager {
 
   public getRoom(projectId: string): CollaborationRoom | undefined {
     return this.rooms.get(projectId);
+  }
+
+  /**
+   * M54: publish a run-status transition into a project's collaboration room.
+   * The sole caller is the authenticated execution WebSocket lifecycle
+   * (ws/execution.ts). If no room exists for the project, this is a no-op —
+   * there are no collaborators to notify. `input` is fully built from
+   * server-authenticated state; nothing here originates from a client message.
+   */
+  public notifyRunStatus(projectId: string, input: RunStatusEntry): void {
+    this.rooms.get(projectId)?.handleRunStatus(input);
   }
 
   public async notifyExternalFileMutation(

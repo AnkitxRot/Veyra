@@ -85,6 +85,23 @@ export interface RunRecord {
   project_name?: string;
 }
 
+// M54: Collaborative Run Awareness. Server-authoritative, ephemeral — the
+// browser only ever RECEIVES these (via the collaboration room), never sends
+// them. Carries no stdout/stderr/command/env/secret content.
+export type RunState = "running" | "success" | "failed" | "stopped";
+
+export interface RunStatusEntry {
+  executionId: string;
+  userId: number;
+  username: string;
+  state: RunState;
+  file: string | null;
+  language: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  exitCode: number | null;
+}
+
 export interface SnapshotRecord {
   id: string;
   project_id: string;

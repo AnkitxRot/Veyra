@@ -96,6 +96,7 @@ async function startRun(db: Db, result: Record<string, unknown>) {
     ws as any,
     PROJECT_ID,
     USER_ID,
+    "test-user",
     makeTestConfig(),
     db,
   );

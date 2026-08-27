@@ -4,10 +4,12 @@ import type {
   CollabConnectionStatus,
   AvailabilityStatus,
 } from "../../collab/client";
+import type { RunStatusEntry } from "../../types";
 import { IconUsers, IconSparkles } from "../common/Icons";
 
 export interface CollaboratorAvatarStackProps {
   collaborators: CollaboratorPresence[];
+  runStatuses?: RunStatusEntry[];
   status: CollabConnectionStatus;
   currentUserId: number;
   isDnd?: boolean;
@@ -18,8 +20,43 @@ export interface CollaboratorAvatarStackProps {
   onOpenShareModal?: () => void;
 }
 
+// M54: a collaborator's most relevant run — an active run wins over a
+// lingering terminal one; among terminal ones the most recent.
+function pickRunForUser(
+  entries: RunStatusEntry[],
+  userId: number,
+): RunStatusEntry | null {
+  const mine = entries.filter((e) => e.userId === userId);
+  if (mine.length === 0) return null;
+  const running = mine.find((e) => e.state === "running");
+  if (running) return running;
+  return mine.reduce((a, b) =>
+    (b.endedAt ?? b.startedAt) > (a.endedAt ?? a.startedAt) ? b : a,
+  );
+}
+
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function formatRunText(entry: RunStatusEntry, now: number): string {
+  const base = entry.file ? entry.file.split("/").pop() : null;
+  if (entry.state === "running") {
+    return `Running ${base ?? "code"}${entry.language ? ` · ${entry.language}` : ""} · ${formatElapsed(now - entry.startedAt)}`;
+  }
+  const label = base ?? "run";
+  if (entry.state === "success")
+    return `${label} exited ${entry.exitCode ?? 0}`;
+  if (entry.state === "failed") return `${label} failed`;
+  return `${label} stopped`;
+}
+
 export default function CollaboratorAvatarStack({
   collaborators,
+  runStatuses = [],
   status,
   currentUserId,
   isDnd = false,
@@ -29,6 +66,14 @@ export default function CollaboratorAvatarStack({
   onJumpToCollaborator,
   onOpenShareModal,
 }: CollaboratorAvatarStackProps) {
+  // M54: local 1s tick for the elapsed clock — only while some run is active.
+  const [now, setNow] = useState(() => Date.now());
+  const anyRunning = runStatuses.some((e) => e.state === "running");
+  useEffect(() => {
+    if (!anyRunning) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [anyRunning]);
   const [selectedCollaborator, setSelectedCollaborator] =
     useState<CollaboratorPresence | null>(null);
   const [isSelfMenuOpen, setIsSelfMenuOpen] = useState(false);
@@ -120,26 +165,43 @@ export default function CollaboratorAvatarStack({
   const renderStatusDot = (availability: AvailabilityStatus) => {
     switch (availability) {
       case "online":
-        return <span className="collab-avatar-status online" title="Online & Active" />;
+        return (
+          <span
+            className="collab-avatar-status online"
+            title="Online & Active"
+          />
+        );
       case "idle":
-        return <span className="collab-avatar-status idle" title="Idle (Away)" />;
+        return (
+          <span className="collab-avatar-status idle" title="Idle (Away)" />
+        );
       case "dnd":
-        return <span className="collab-avatar-status dnd" title="Do Not Disturb" />;
+        return (
+          <span className="collab-avatar-status dnd" title="Do Not Disturb" />
+        );
       default:
         return null;
     }
   };
 
   const formatActivityText = (c: CollaboratorPresence): string => {
+    // M54: a real server-owned run status supersedes the coarse M48 activity.
+    const run = pickRunForUser(runStatuses, c.userId);
+    if (run) return formatRunText(run, now);
+
     const act = c.activity?.type || "viewing";
     const file = c.activeFile ? c.activeFile.split("/").pop() : null;
     const line = c.cursor?.line;
 
     switch (act) {
       case "editing":
-        return file ? `Editing ${file}${line ? ` · L${line}` : ""}` : "Editing code";
+        return file
+          ? `Editing ${file}${line ? ` · L${line}` : ""}`
+          : "Editing code";
       case "viewing":
-        return file ? `Viewing ${file}${line ? ` · L${line}` : ""}` : "Viewing project";
+        return file
+          ? `Viewing ${file}${line ? ` · L${line}` : ""}`
+          : "Viewing project";
       case "running":
         return "Running code / execution";
       case "terminal":
@@ -180,9 +242,15 @@ export default function CollaboratorAvatarStack({
             const initials = c.name.slice(0, 2).toUpperCase();
             const isFollowing = followingUserId === c.userId;
             const activitySummary = formatActivityText(c);
+            const isRunningNow = runStatuses.some(
+              (e) => e.userId === c.userId && e.state === "running",
+            );
 
             return (
-              <div key={c.clientId} style={{ position: "relative", marginLeft: "-6px" }}>
+              <div
+                key={c.clientId}
+                style={{ position: "relative", marginLeft: "-6px" }}
+              >
                 <button
                   onClick={() => {
                     setIsSelfMenuOpen(false);
@@ -212,7 +280,8 @@ export default function CollaboratorAvatarStack({
                       : "0 2px 6px rgba(0,0,0,0.3)",
                   }}
                   onMouseEnter={(e) =>
-                    (e.currentTarget.style.transform = "translateY(-2px) scale(1.1)")
+                    (e.currentTarget.style.transform =
+                      "translateY(-2px) scale(1.1)")
                   }
                   onMouseLeave={(e) =>
                     (e.currentTarget.style.transform = "translateY(0) scale(1)")
@@ -223,6 +292,23 @@ export default function CollaboratorAvatarStack({
                   {initials}
                 </button>
                 {renderStatusDot(c.status)}
+                {isRunningNow && (
+                  <span
+                    aria-hidden="true"
+                    title={`${c.name} — ${activitySummary}`}
+                    style={{
+                      position: "absolute",
+                      bottom: "-2px",
+                      left: "-4px",
+                      fontSize: "9px",
+                      lineHeight: 1,
+                      color: "#a6e3a1",
+                      textShadow: "0 0 3px rgba(0,0,0,0.8)",
+                    }}
+                  >
+                    ▶
+                  </span>
+                )}
               </div>
             );
           })}
@@ -250,7 +336,14 @@ export default function CollaboratorAvatarStack({
           role="dialog"
           aria-label={`Collaborator Details: ${selectedCollaborator.name}`}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "8px",
+            }}
+          >
             <div
               style={{
                 width: "32px",
@@ -269,8 +362,18 @@ export default function CollaboratorAvatarStack({
               {selectedCollaborator.name.slice(0, 2).toUpperCase()}
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ fontWeight: 600, fontSize: "12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "6px" }}
+              >
+                <span
+                  style={{
+                    fontWeight: 600,
+                    fontSize: "12px",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
                   {selectedCollaborator.name}
                 </span>
                 <span
@@ -287,7 +390,16 @@ export default function CollaboratorAvatarStack({
                   {selectedCollaborator.role || "collaborator"}
                 </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10.5px", color: "var(--fg-muted, #a6adc8)", marginTop: "2px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  fontSize: "10.5px",
+                  color: "var(--fg-muted, #a6adc8)",
+                  marginTop: "2px",
+                }}
+              >
                 <span
                   style={{
                     width: "6px",
@@ -301,7 +413,9 @@ export default function CollaboratorAvatarStack({
                           : "#cba6f7",
                   }}
                 />
-                <span style={{ textTransform: "capitalize" }}>{selectedCollaborator.status}</span>
+                <span style={{ textTransform: "capitalize" }}>
+                  {selectedCollaborator.status}
+                </span>
               </div>
             </div>
           </div>
@@ -316,14 +430,47 @@ export default function CollaboratorAvatarStack({
               border: "1px solid rgba(255, 255, 255, 0.05)",
             }}
           >
-            <div style={{ color: "var(--fg-muted, #a6adc8)", fontSize: "10px", marginBottom: "2px" }}>
+            <div
+              style={{
+                color: "var(--fg-muted, #a6adc8)",
+                fontSize: "10px",
+                marginBottom: "2px",
+              }}
+            >
               CURRENT ACTIVITY
             </div>
-            <div style={{ color: "#89b4fa", fontWeight: 500 }}>
-              {formatActivityText(selectedCollaborator)}
-            </div>
+            {(() => {
+              const run = pickRunForUser(
+                runStatuses,
+                selectedCollaborator.userId,
+              );
+              const runColor = !run
+                ? "#89b4fa"
+                : run.state === "success"
+                  ? "#a6e3a1"
+                  : run.state === "failed"
+                    ? "#f38ba8"
+                    : run.state === "stopped"
+                      ? "#a6adc8"
+                      : "#a6e3a1";
+              return (
+                <div style={{ color: runColor, fontWeight: 500 }}>
+                  {run ? "▶ " : ""}
+                  {formatActivityText(selectedCollaborator)}
+                </div>
+              );
+            })()}
             {selectedCollaborator.activeFile && (
-              <div style={{ color: "var(--fg-muted, #a6adc8)", fontSize: "10px", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div
+                style={{
+                  color: "var(--fg-muted, #a6adc8)",
+                  fontSize: "10px",
+                  marginTop: "2px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 {selectedCollaborator.activeFile}
               </div>
             )}
@@ -332,19 +479,31 @@ export default function CollaboratorAvatarStack({
           <div style={{ display: "flex", gap: "6px" }}>
             <button
               className="glass-btn glass-btn-primary"
-              style={{ flex: 1, padding: "5px", fontSize: "11px", justifyContent: "center" }}
+              style={{
+                flex: 1,
+                padding: "5px",
+                fontSize: "11px",
+                justifyContent: "center",
+              }}
               onClick={() => {
                 onFollowCollaborator?.(selectedCollaborator);
                 setSelectedCollaborator(null);
               }}
               title={`Follow ${selectedCollaborator.name}'s editor and navigation`}
             >
-              {followingUserId === selectedCollaborator.userId ? "Unfollow" : "Follow"}
+              {followingUserId === selectedCollaborator.userId
+                ? "Unfollow"
+                : "Follow"}
             </button>
             {selectedCollaborator.activeFile && onJumpToCollaborator && (
               <button
                 className="glass-btn"
-                style={{ flex: 1, padding: "5px", fontSize: "11px", justifyContent: "center" }}
+                style={{
+                  flex: 1,
+                  padding: "5px",
+                  fontSize: "11px",
+                  justifyContent: "center",
+                }}
                 onClick={() => {
                   onJumpToCollaborator(selectedCollaborator);
                   setSelectedCollaborator(null);
@@ -366,15 +525,25 @@ export default function CollaboratorAvatarStack({
           style={{
             padding: "4px 8px",
             fontSize: "11px",
-            background: isDnd ? "rgba(203, 166, 247, 0.15)" : "rgba(255, 255, 255, 0.04)",
+            background: isDnd
+              ? "rgba(203, 166, 247, 0.15)"
+              : "rgba(255, 255, 255, 0.04)",
             color: isDnd ? "#cba6f7" : "var(--fg-muted, #a6adc8)",
-            border: isDnd ? "1px solid rgba(203, 166, 247, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
+            border: isDnd
+              ? "1px solid rgba(203, 166, 247, 0.4)"
+              : "1px solid rgba(255, 255, 255, 0.08)",
             display: "flex",
             alignItems: "center",
             gap: "5px",
           }}
-          title={isDnd ? "Do Not Disturb active (Click to disable)" : "Set Do Not Disturb"}
-          aria-label={isDnd ? "Disable Do Not Disturb" : "Enable Do Not Disturb"}
+          title={
+            isDnd
+              ? "Do Not Disturb active (Click to disable)"
+              : "Set Do Not Disturb"
+          }
+          aria-label={
+            isDnd ? "Disable Do Not Disturb" : "Enable Do Not Disturb"
+          }
           aria-pressed={isDnd}
         >
           <span
