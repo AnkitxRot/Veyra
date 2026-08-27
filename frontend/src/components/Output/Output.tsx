@@ -6,10 +6,20 @@ import React, {
   Suspense,
 } from "react";
 import { getWebSocketUrl, api } from "../../api";
-import { IconTrash, IconCheck, IconClose, IconRefresh } from "../common/Icons";
+import {
+  IconTrash,
+  IconCheck,
+  IconClose,
+  IconRefresh,
+  IconDownload,
+} from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import { RunRecord, SnapshotRecord } from "../../types";
 import { PromptModal, ConfirmModal } from "../common/Modal";
+import {
+  detectMissingDependency,
+  MissingDependencyMatch,
+} from "../../utils/missingDependency";
 const ExecutionTelemetryModal = React.lazy(
   () => import("./ExecutionTelemetryModal"),
 );
@@ -45,6 +55,16 @@ export default function Output({ project, onRefreshTree }: any) {
     text: "Idle",
     type: "idle",
   });
+  // M44: set only from the just-finished run's own exit handler, cleared at
+  // the start of every new run and the moment an install begins — belongs
+  // exclusively to "the current run's own failure", never carried over.
+  const [missingDependencyHint, setMissingDependencyHint] =
+    useState<MissingDependencyMatch | null>(null);
+  // M44: drives the inline hint's own disabled state. Set directly by the
+  // M43 install effect below (not derived from the install-started/-stopped
+  // document events it itself dispatches, to avoid listening for its own
+  // broadcast).
+  const [isInstalling, setIsInstalling] = useState(false);
 
   // History state
   const [runs, setRuns] = useState<RunRecord[]>([]);
@@ -117,6 +137,9 @@ export default function Output({ project, onRefreshTree }: any) {
           time,
         },
       ]);
+      // M44: a new run starts with a clean slate — any missing-dependency
+      // hint belongs to the run that produced it, never to this new one.
+      setMissingDependencyHint(null);
       setIsRunning(true);
       setStatusBadge({ text: "Running", type: "running" });
       document.dispatchEvent(new Event("run-started"));
@@ -208,6 +231,13 @@ export default function Output({ project, onRefreshTree }: any) {
               text: exitCode === 0 ? "Exited (0)" : `Exited (${exitCode})`,
               type: exitCode === 0 ? "success" : "error",
             });
+            // M44: only a failing run's own stderr is ever inspected — a
+            // successful run (exitCode 0) can't be a missing-dependency
+            // failure, so detection is skipped entirely rather than relying
+            // on the pattern simply not matching clean output.
+            setMissingDependencyHint(
+              exitCode !== 0 ? detectMissingDependency(accStderr) : null,
+            );
             document.dispatchEvent(new Event("run-stopped"));
 
             // Dispatch execution result for diagnostics / problems parser
@@ -347,6 +377,12 @@ export default function Output({ project, onRefreshTree }: any) {
           time: new Date().toLocaleTimeString(),
         },
       ]);
+      // M44: an install starting — whether from Toolbar's button or the
+      // inline missing-dependency hint dispatching the same ide-install
+      // event — means any hint from a prior run's failure no longer
+      // applies to what's on screen now.
+      setMissingDependencyHint(null);
+      setIsInstalling(true);
       setStatusBadge({ text: "Installing", type: "running" });
       document.dispatchEvent(new Event("install-started"));
 
@@ -425,6 +461,7 @@ export default function Output({ project, onRefreshTree }: any) {
         installReader = null;
         installInFlight = false;
         if (!isUnmounted) {
+          setIsInstalling(false);
           document.dispatchEvent(new Event("install-stopped"));
         }
       }
@@ -454,6 +491,17 @@ export default function Output({ project, onRefreshTree }: any) {
       }
     };
   }, [project]);
+
+  // M44: the inline missing-dependency hint dispatches the exact same event
+  // Toolbar's own Install button does — Output's M43 install effect above
+  // is the single owner of everything that happens next (fetch, stream,
+  // state); this never duplicates any part of that pipeline. Its own
+  // `installInFlight`/isRunningRef guards make an extra dispatch here a
+  // harmless no-op in any state where it shouldn't start, so no additional
+  // guard is needed beyond the `disabled={isInstalling}` on the button.
+  const handleInstallHintClick = () => {
+    document.dispatchEvent(new Event("ide-install"));
+  };
 
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -638,6 +686,28 @@ export default function Output({ project, onRefreshTree }: any) {
                   {log.text}
                 </span>
               ))
+            )}
+            {/* M44: inline missing-dependency hint — appears directly
+                beneath the failing run's own output, never replaces or
+                alters it. Reuses the exact M43 ide-install event; Output's
+                own install effect owns everything after the click. */}
+            {missingDependencyHint && (
+              <div
+                className="output-missing-dependency-hint"
+                style={{ padding: "6px 0 2px" }}
+              >
+                <button
+                  type="button"
+                  className="glass-btn glass-btn-primary"
+                  onClick={handleInstallHintClick}
+                  disabled={isInstalling}
+                  style={{ fontSize: "11px", padding: "4px 10px" }}
+                  title={`Missing ${missingDependencyHint.kind === "python" ? "Python package" : "Node module"}: ${missingDependencyHint.moduleName}`}
+                >
+                  <IconDownload size={12} />
+                  <span>Install Dependencies</span>
+                </button>
+              </div>
             )}
             <div ref={logsEndRef} />
           </div>

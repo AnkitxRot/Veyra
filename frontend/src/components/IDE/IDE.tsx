@@ -6,6 +6,7 @@ import React, {
   useRef,
   Suspense,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   User,
   Project,
@@ -634,17 +635,25 @@ export default function IDE({
     return () => document.removeEventListener("ide-run", handleRunRequest);
   }, [project, openFiles, resolveLiveFileContent]);
 
-  // M43: Output (which owns the actual install request/stream) only exists
-  // in the DOM while bottomTab === "output" and the panel isn't collapsed —
-  // the same reason ide-run above must switch to that tab before its
-  // *-confirmed event fires, or the listener that would handle it won't be
-  // mounted yet. Install has no async dirty-file-save gate like Run does,
-  // so this handler is a synchronous, minimal echo of that same fix.
+  // M43/M44: Output (which owns the actual install request/stream) only
+  // exists in the DOM while bottomTab === "output" and the panel isn't
+  // collapsed. M44's live browser verification proved that plain
+  // setBottomTab("output") followed by an immediate dispatch is NOT
+  // sufficient to guarantee this: React 18 batches that state update, so
+  // when Output wasn't already mounted (e.g. the user is on the Problems
+  // tab, which every failing run with diagnostics auto-switches to —
+  // exactly the case M44's own "Install Dependencies" action fires from),
+  // ide-install-confirmed fired into a DOM where nothing was listening yet
+  // and the install silently never started. flushSync forces the tab
+  // switch (and Output's mount + its ide-install-confirmed listener
+  // registration) to commit synchronously before the dispatch below runs.
   useEffect(() => {
     const handleInstallRequest = () => {
       if (!project) return;
-      setBottomTab("output");
-      setIsBottomCollapsed(false);
+      flushSync(() => {
+        setBottomTab("output");
+        setIsBottomCollapsed(false);
+      });
       document.dispatchEvent(new Event("ide-install-confirmed"));
     };
 
@@ -1478,6 +1487,14 @@ export default function IDE({
                         path: diag.filePath,
                         diagnostics: [diag],
                       });
+                    }}
+                    onInstallDependency={() => {
+                      // M44: identical to Toolbar's own Install button — the
+                      // existing ide-install listener just above (added in
+                      // M43) switches bottomTab back to "output" and hands
+                      // off to Output's install effect, which owns the
+                      // actual request from here.
+                      document.dispatchEvent(new Event("ide-install"));
                     }}
                   />
                 )}

@@ -3266,6 +3266,102 @@ authenticated, ownership-checked, run-gated endpoint a `curl` from an authentica
 already call. No secrets or credentials pass through the new code path beyond the existing session
 cookie/bearer token `fetch` already sends via `credentials: "include"`.
 
+**Addendum — POST_INSTALL_RUN closed**: a follow-up verification pass (Docker Desktop + the Chrome
+extension were both available in that session, unlike the pass above) completed the one item left
+`PARTIAL` above. Docker was started, `cloudeeeide-runner:latest` was already built; a real Chrome
+click-through drove Install → real streamed `pip` output (`Collecting six==1.16.0` →
+`Successfully installed six-1.16.0`) → Run → `M43_VERIFY_OK six=1.16.0`, exit code 0 — proving the
+installed dependency is actually importable and usable, not just that the endpoint responds. A rapid
+double-click on Install was also verified live to still produce exactly one install cycle. No defect
+found, no code changed in that pass.
+
+## Milestone 44 — Detect missing-dependency run failures and offer an inline install action
+
+**Problem**: a developer commonly clicks Run before Install (the more habitual action). Python fails
+with `ModuleNotFoundError: No module named 'X'`; Node fails with `Error: Cannot find module 'X'`. The
+user sees a traceback with no indication that M43's own Install button is the fix.
+
+**Detector** (`frontend/src/utils/missingDependency.ts`, new file): a small, deliberately narrow pure
+function, `detectMissingDependency(output)`, matching exactly two literal patterns —
+`ModuleNotFoundError:\s*No module named ['"]([^'"]+)['"]` (Python) and
+`Cannot find module ['"]([^'"]+)['"]` (Node) — and nothing else. Explicitly does not match a generic
+`ImportError`, `npm ERR!` package-manager output, syntax errors, or any other runtime exception; a
+false positive here would misleadingly tell a user that Install fixes an unrelated failure. Returns
+at most one match even if the pattern repeats in a traceback. 9 focused unit tests
+(`frontend/test/missingDependency.test.ts`).
+
+**Real-world placement — a genuine mid-implementation discovery, not the original design**: the
+initial implementation (per the issued contract) put the inline "Install Dependencies" affordance
+directly in `Output.tsx`'s console, set from the run's own WS `'exit'` handler and cleared at the
+start of every new run or install. This works correctly in isolation (10 tests,
+`frontend/test/output.missingDependencyHint.test.ts`) — but live browser verification caught that it
+is **effectively unreachable in real usage**: `IDE.tsx`'s pre-existing `ide-execution-result` handler
+already auto-switches `bottomTab` to `"problems"` whenever a failing run produces any diagnostics, and
+both diagnostics.ts's Python and Node parsers reliably produce a diagnostic for exactly this class of
+failure (confirmed live: a `ModuleNotFoundError` traceback parsed into a Problems-panel entry before
+M44 touched anything). `Output` only exists in the DOM while `bottomTab === "output"`; the auto-switch
+unmounts it — and with it, the just-set `missingDependencyHint` React state — before a real user ever
+sees the hint. The Output-side implementation was kept (harmless, still correct for the narrower case
+where the user is already on/returns to the Output tab), and the actual primary, reliably-visible
+surface was added where users actually land: `ProblemsPanel.tsx` already had a per-diagnostic
+"AI Quick Actions" row (`Explain`/`Fix`, wired to the deterministic AI feature) — a third conditional
+action, `Install Dependencies`, was added there, gated on
+`onInstallDependency && detectMissingDependency(diag.message)`, reusing the _exact_ M43 `ide-install`
+event dispatch (`IDE.tsx` wires `onInstallDependency={() => document.dispatchEvent(new
+Event("ide-install"))}`, identical to Toolbar's own button) — no new install pipeline, no fork of
+M43's state machine. 5 focused tests (`frontend/test/ProblemsPanel.installAction.test.tsx`).
+
+**Second genuine defect found via the same live pass — a pre-existing M43 bug, not new to M44**:
+clicking Install from the Problems tab (via the new action) silently did nothing beyond switching the
+bottom tab back to `"output"` — no install ever started. Root cause: `IDE.tsx`'s `ide-install` handler
+(added in M43) does `setBottomTab("output")` then immediately `document.dispatchEvent(new
+Event("ide-install-confirmed"))` in the same synchronous call. React 18 batches that `setState`, so
+when `Output` was not already mounted — exactly the Problems-tab case M44's own action fires from —
+the confirmed event dispatched into a DOM with nothing listening yet, and `Output`'s later mount never
+retroactively receives it. **This is a live regression in M43's own Toolbar Install button too**,
+confirmed directly: clicking Toolbar's Install while on the Problems tab reproduced the identical
+silent-no-op. It was masked in M43's original verification because that pass only ever exercised
+Install from the Output tab (already mounted by default), and it is partially masked for `ide-run`'s
+matching pattern by an incidental `await` in its dirty-file-save loop when there are unsaved changes
+— but the identical unguarded race exists there too whenever the active file has no unsaved changes
+and the user is on a non-output tab; **not fixed here** (out of M44's scope — `ide-run`'s protocol was
+explicitly off-limits — flagged below as a recommended follow-up). Fixed for `ide-install` with
+`flushSync` (from `react-dom`) wrapping the `setBottomTab`/`setIsBottomCollapsed` calls, forcing
+`Output`'s mount and its own `ide-install-confirmed` listener registration to commit synchronously
+before the dispatch. 2 regression tests (`frontend/test/ideInstallMediation.test.tsx`) reproduce the
+exact mechanism with a minimal harness (not the full `IDE` tree) — one proving the pre-fix shape
+genuinely drops the request, one proving `flushSync` closes it — confirming this wasn't a fluke of the
+live environment.
+
+**Tests**: 26 new (9 detector + 10 Output hint + 5 ProblemsPanel action + 2 mediation regression),
+66 pre-existing (M1-M43), 92 total, 0 modified, 0 removed. Full frontend suite: 92/92 passed.
+`tsc --noEmit` clean. `vite build` clean (same pre-existing >500kB Monaco/xterm
+chunk-size warning, unrelated). `git diff --check` clean. No backend file changed.
+
+**Live verification** (Chrome + Docker, both available this session — `cloudeeeide-runner:latest`
+already built): created a Python project with `requirements.txt` (`requests==2.31.0`) and a
+`main.py` importing it; clicked Run before Install — confirmed the traceback and `Install
+Dependencies` action appeared in the Problems panel (not the Output console, which auto-switched
+away); clicked it — confirmed (post-`flushSync`-fix) the tab switched to Output and the real M43
+install stream started, with live `pip` output (`Collecting requests==2.31.0` →
+`Downloading requests-2.31.0-py3-none-any.whl` → `Install Complete`); clicked Run again — confirmed
+`M44_VERIFY_OK requests=2.31.0`, exit code 0. Confirmed a successful run clears diagnostics entirely
+(no lingering Problems badge, matching pre-existing `IDE.tsx` behavior). Node-specific detection was
+not separately live-verified (time-bounded per this pass's own instruction not to spend excessive
+effort) — covered instead by the unit tests' exact-pattern-match coverage, which is language-agnostic
+to the `flushSync` fix itself.
+
+Security/data review: no backend changes; reuses the exact M43 `ide-install` event and its existing
+authenticated/ownership-checked/run-gated endpoint; no new trust boundary. The detector only ever
+reads already-buffered run stderr already visible to the user in plaintext — no new data exposure.
+
+**Recommended follow-up (not fixed here, out of M44's scope)**: `ide-run`'s handler in `IDE.tsx` has
+the identical unguarded `setBottomTab`/dispatch race M44 just fixed for `ide-install`, incidentally
+masked by an `await` that only exists when there are dirty files to save. A user with no unsaved
+changes, on a non-Output bottom tab, pressing Ctrl+Enter or clicking Run, would hit the same silent
+no-op. Worth its own small, focused milestone (`flushSync` around the same two `setState` calls in
+`handleRunRequest`) rather than folding into a future unrelated change.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
@@ -3274,17 +3370,22 @@ M34 at `61c9cb2`), plus the post-M34 browser QA pass, the lifecycle regression a
 Project Templates UI), M36 (viewport-level modal portal fix), M37 (collaboration ghost-file
 resurrection fix), M38 (collaboration deletion race fix), M39 (collaboration import-replacement
 race fix), M40 (frontend collaboration-reconnect state reset), M41 (disposed-room stale-flush
-guards), M42 (tree-cache stale-write-after-invalidate fix), and M43 (dependency-install pipeline
-surfaced in the IDE UI, above; commit noted at top of file once pushed).
+guards), M42 (tree-cache stale-write-after-invalidate fix), M43 (dependency-install pipeline
+surfaced in the IDE UI), and M44 (missing-dependency run-failure detection + inline install action,
+above; commit noted at top of file once pushed).
 Manual QA execution for M1 (`scripts/qa/save-truthfulness.md`) remains outstanding and un-gated,
 unchanged from before. M26/M28/M29/M34 UI are now all browser-verified (see above); M27 and M30–M33
-were backend-only and remain unverified by browser (nothing to verify — no frontend surface); M43 was
-verified live against the real dev server at the HTTP/stream level, not via an actual Chrome
-click-through (Chrome was not running in this environment — see M43 above). The M25–M32 backup/
-restore arc is fully closed; M33 closed the audit-trail coverage/integrity gap; M34 closed the
-resulting observability blind spot and, as of that pass, is surfaced in the admin UI rather than only
-reachable via raw API; M43 closes the equivalent frontend-surfacing gap for the dependency-install
-endpoint.
+were backend-only and remain unverified by browser (nothing to verify — no frontend surface); M43's
+POST_INSTALL_RUN gap was closed by its own live-Chrome addendum; M44 was fully browser-verified live
+(Python path) with Node-specific detection covered by unit tests only (see M44 above). The M25–M32
+backup/restore arc is fully closed; M33 closed the audit-trail coverage/integrity gap; M34 closed the
+resulting observability blind spot and is surfaced in the admin UI rather than only reachable via raw
+API; M43 closed the equivalent frontend-surfacing gap for the dependency-install endpoint; M44 closes
+the discoverability gap for that same endpoint (a user who runs before installing now has a direct
+path back to the fix) and, along the way, fixed a real latent defect in M43's own `ide-install`
+mediation (see M44 above) — an equivalent latent defect in `ide-run`'s mediation remains open,
+flagged as a recommended follow-up in M44's own section, not fixed here (out of that milestone's
+scope).
 
 ## Next recommended milestone
 
@@ -3360,3 +3461,15 @@ endpoint.
     nothing-leaves-the-server — "AI" context-building path were all re-checked and found already
     sound). Re-evaluate if items 12 or 13 above are ever actioned, since each introduces a genuinely
     new trust boundary that doesn't exist yet.
+16. ~~Detect missing-dependency Run failures and offer an inline Install action~~ — fixed in M44
+    (`frontend/src/utils/missingDependency.ts` + `ProblemsPanel.tsx`, see above). Items 11–14 above
+    remain open and unchanged.
+17. New from M44: `IDE.tsx`'s `ide-run` handler has the identical unguarded
+    `setBottomTab`/dispatch-timing race M44 fixed for `ide-install` (fixed there with `flushSync`) —
+    incidentally masked for Run by an `await` in its dirty-file-save loop that only executes when
+    there are actual unsaved changes. A user with no dirty files, on a non-Output bottom tab (e.g.
+    just landed on Problems after a prior failing run), pressing Ctrl+Enter or clicking Run, would
+    hit the same silent no-op M44 found and fixed for Install. Small, well-understood, bounded fix
+    (wrap the same two `setBottomTab`/`setIsBottomCollapsed` calls in `flushSync`) — good candidate
+    for the next session to pick up directly, though M44's own contract explicitly kept `ide-run`
+    out of scope so it is not fixed here.
