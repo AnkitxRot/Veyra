@@ -2121,7 +2121,9 @@ export default function IDE({
                   <ResourcesView project={project} />
                 )}
                 {bottomTab === "terminal" && <Terminal project={project} />}
-                {bottomTab === "preview" && <Preview project={project} />}
+                {bottomTab === "preview" && project && (
+                  <Preview key={project.id} project={project} />
+                )}
                 {bottomTab === "git" && (
                   <SourceControlPanel
                     project={project}

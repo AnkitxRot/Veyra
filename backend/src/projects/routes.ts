@@ -28,6 +28,7 @@ import {
 import { runProject } from "../execution/pipeline.js";
 import { resolveProxyEntry } from "./proxyTargets.js";
 import { sandboxManager, sandboxRun } from "../execution/sandbox.js";
+import { detectPreviewPorts } from "../execution/previewProbe.js";
 import { runGate, searchGate } from "../execution/runGate.js";
 import { STARTER_TEMPLATES, applyTemplate } from "./templates.js";
 import {
@@ -275,6 +276,19 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       );
       const stats = await sandboxManager.getContainerStats(project.id);
       res.json({ stats });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Auto-detect running web-preview servers. Owner-only, exactly like the
+  // preview proxy itself (resolveProxyEntry -> requireOwnedProject). Probes
+  // only the fixed ALLOWED_PREVIEW_PORTS of THIS project's sandbox — never a
+  // client-supplied host or port. See execution/previewProbe.ts.
+  router.get("/:id/preview/ports", async (req, res, next) => {
+    try {
+      const project = requireOwnedProject(db, userOf(req).id, req.params.id);
+      res.json(await detectPreviewPorts(project.id, cfg));
     } catch (err) {
       next(err);
     }

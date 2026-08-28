@@ -5,8 +5,14 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { IS_WINDOWS } from "../src/config";
 import { isDockerRunning } from "../src/tools.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
 import { collaborationManager } from "../src/collab/manager.js";
+import { sandboxManager } from "../src/execution/sandbox.js";
+
+const execFileAsync = promisify(execFile);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Mirrors backend/src/ai/routes.ts's computeRevision() so tests can compute
 // the expected baseRevision for known content without importing internals.
@@ -489,6 +495,214 @@ describe("IDOR & Authorization Security", () => {
     expect(r.status).toBe(404);
   });
 });
+
+describe("Preview server detection (no Docker required)", () => {
+  // Fresh projects that never boot a sandbox, so `sandbox` is deterministically
+  // false regardless of what other (docker) tests in this file did.
+  let detOwnProjectId: string;
+  let detOtherToken: string;
+  let detOtherProjectId: string;
+
+  beforeAll(async () => {
+    detOwnProjectId = (
+      await api.request("POST", "/api/projects", {
+        token,
+        body: { name: "detect-own-nosandbox" },
+      })
+    ).data.project.id;
+    detOtherToken = (
+      await api.request("POST", "/api/auth/register", {
+        body: { username: "prevdetect2", password: "secret123" },
+      })
+    ).data.token;
+    detOtherProjectId = (
+      await api.request("POST", "/api/projects", {
+        token: detOtherToken,
+        body: { name: "detect-other" },
+      })
+    ).data.project.id;
+  });
+
+  it("requires authentication", async () => {
+    const r = await api.request(
+      "GET",
+      `/api/projects/${detOwnProjectId}/preview/ports`,
+    );
+    expect(r.status).toBe(401);
+  });
+
+  it("is owner-only: a non-owner gets an IDOR-safe 404, never a port list", async () => {
+    const r = await api.request(
+      "GET",
+      `/api/projects/${detOwnProjectId}/preview/ports`,
+      { token: detOtherToken },
+    );
+    expect(r.status).toBe(404);
+    expect(r.data.ports).toBeUndefined();
+  });
+
+  it("project A's owner cannot detect project B's preview via A's endpoint (and vice versa)", async () => {
+    const own = await api.request(
+      "GET",
+      `/api/projects/${detOwnProjectId}/preview/ports`,
+      { token },
+    );
+    expect(own.status).toBe(200);
+    expect(own.data).toEqual({ ports: [], sandbox: false });
+    const cross = await api.request(
+      "GET",
+      `/api/projects/${detOtherProjectId}/preview/ports`,
+      { token },
+    );
+    expect(cross.status).toBe(404);
+  });
+
+  it("no running sandbox => { ports: [], sandbox: false } (nothing is probed)", async () => {
+    const r = await api.request(
+      "GET",
+      `/api/projects/${detOwnProjectId}/preview/ports`,
+      { token },
+    );
+    expect(r.status).toBe(200);
+    expect(r.data).toEqual({ ports: [], sandbox: false });
+  });
+
+  it("the request body / query cannot influence which host or port is probed", async () => {
+    // Attempts to smuggle a destination are simply ignored — the response
+    // shape is identical and no field echoes user input.
+    const r = await api.request(
+      "GET",
+      `/api/projects/${detOwnProjectId}/preview/ports?host=169.254.169.254&port=22&target=http://evil`,
+      { token },
+    );
+    expect(r.status).toBe(200);
+    expect(r.data).toEqual({ ports: [], sandbox: false });
+  });
+});
+
+describe.skipIf(!isDockerRunning())(
+  "Preview server detection (docker end-to-end)",
+  () => {
+    let e2eApi: TestApi;
+    let e2eCfg: ReturnType<typeof makeTestConfig>;
+    let e2eToken: string;
+    let e2ePid: string;
+    let containerId: string;
+
+    const ports = (path: string, tok = e2eToken) =>
+      e2eApi.request("GET", path, { token: tok });
+
+    beforeAll(async () => {
+      // Many earlier docker tests in this file leave sandboxes running; free
+      // the global pool so this block's own `/run` can always get a slot.
+      // Nothing after this block needs a live sandbox.
+      await sandboxManager.cleanupAllSandboxes().catch(() => {});
+      e2eCfg = makeTestConfig();
+      e2eApi = await startTestApi(e2eCfg);
+      e2eToken = (
+        await e2eApi.request("POST", "/api/auth/register", {
+          body: { username: "prevdetecte2e", password: "secret123" },
+        })
+      ).data.token;
+      e2ePid = (
+        await e2eApi.request("POST", "/api/projects", {
+          token: e2eToken,
+          body: { name: "prevdetect" },
+        })
+      ).data.project.id;
+      await e2eApi.request("POST", `/api/projects/${e2ePid}/file`, {
+        token: e2eToken,
+        body: { path: "main.py", content: "print('boot')\n" },
+      });
+      // boot the sandbox
+      const run = await e2eApi.request("POST", `/api/projects/${e2ePid}/run`, {
+        token: e2eToken,
+        body: { language: "python" },
+      });
+      expect(run.status).toBe(200);
+      containerId = `ide-sandbox-${e2ePid}`;
+    }, 180_000);
+
+    // Start a self-terminating HTTP server inside the sandbox on `port`,
+    // living `ttlSec` seconds (coreutils `timeout` — no `pkill`/`procps`
+    // needed in the slim runner image).
+    const startServer = (port: number, ttlSec: number) =>
+      execFileAsync("docker", [
+        "exec",
+        "-d",
+        containerId,
+        "sh",
+        "-c",
+        `cd /workspace && timeout ${ttlSec} python3 -m http.server ${port}`,
+      ]);
+
+    afterAll(async () => {
+      try {
+        const { sandboxManager } = await import("../src/execution/sandbox.js");
+        await sandboxManager.stopProjectSandbox(e2ePid);
+      } catch {
+        /* ignore */
+      }
+      await e2eApi?.close();
+    }, 60_000);
+
+    it("with no dev server running: sandbox true, no ports", async () => {
+      const r = await ports(`/api/projects/${e2ePid}/preview/ports`);
+      expect(r.status).toBe(200);
+      expect(r.data.sandbox).toBe(true);
+      expect(r.data.ports).toEqual([]);
+    }, 30_000);
+
+    it("detects a real HTTP server on an allowed port, ignores one on a disallowed port, and the proxy still serves it", async () => {
+      await startServer(8000, 40); // allowed
+      await startServer(9001, 40); // NOT in ALLOWED_PREVIEW_PORTS
+      await sleep(2500); // boot + detection cache TTL
+
+      const r = await ports(`/api/projects/${e2ePid}/preview/ports`);
+      expect(r.status).toBe(200);
+      expect(r.data.sandbox).toBe(true);
+      expect(r.data.ports).toContain(8000);
+      expect(r.data.ports).not.toContain(9001);
+      expect(
+        r.data.ports.every((p: number) =>
+          [3000, 4173, 5173, 8000, 8080].includes(p),
+        ),
+      ).toBe(true);
+
+      // the manual proxy path to the detected port still works
+      const proxied = await e2eApi.request(
+        "GET",
+        `/api/projects/${e2ePid}/proxy/8000/`,
+        { token: e2eToken },
+      );
+      expect(proxied.status).not.toBe(401);
+      expect(proxied.status).not.toBe(404);
+    }, 60_000);
+
+    it("a stopped server disappears from detection while the sandbox stays up (no stale healthy state)", async () => {
+      await startServer(3000, 6); // short-lived
+      await sleep(2500);
+      const up = await ports(`/api/projects/${e2ePid}/preview/ports`);
+      expect(up.data.ports).toContain(3000);
+
+      await sleep(7000); // server self-terminates + detection cache TTL
+      const down = await ports(`/api/projects/${e2ePid}/preview/ports`);
+      expect(down.status).toBe(200);
+      expect(down.data.sandbox).toBe(true); // sandbox still alive...
+      expect(down.data.ports).not.toContain(3000); // ...server gone
+    }, 60_000);
+
+    it("another user cannot detect this project's preview", async () => {
+      const other = (
+        await e2eApi.request("POST", "/api/auth/register", {
+          body: { username: "prevdetecte2e_other", password: "secret123" },
+        })
+      ).data.token;
+      const r = await ports(`/api/projects/${e2ePid}/preview/ports`, other);
+      expect(r.status).toBe(404);
+    }, 30_000);
+  },
+);
 
 describe.skipIf(!isDockerRunning())("Preview Proxy Security", () => {
   let user2Token: string;

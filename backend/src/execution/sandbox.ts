@@ -526,6 +526,12 @@ export class SandboxManager {
     return info?.ports[internalPort] ?? null;
   }
 
+  /** True when this project has a live sandbox container this process is
+   *  tracking. Cheap, synchronous — no Docker round trip. */
+  hasActiveSandbox(projectId: string): boolean {
+    return this.projectContainers.has(projectId);
+  }
+
   private appContainerId: string | undefined;
   private connectedNetworks = new Set<string>();
 
