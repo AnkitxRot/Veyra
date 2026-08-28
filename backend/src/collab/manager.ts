@@ -117,6 +117,23 @@ export interface ExternalMutationNotice {
 }
 
 /**
+ * Outcome of an external file mutation (REST save, snapshot restore, template,
+ * Replace-All, Git checkout, AI apply-patch) against a live collaboration room.
+ *
+ * - `applied: true,  conflict: false` — the room now reflects `newContent`
+ *   (or already did / the file is not tracked).
+ * - `applied: false, conflict: true`  — the room holds unpersisted collaborator
+ *   edits that `newContent` would have destroyed. The live Y.Text was left
+ *   untouched and the file stays dirty so the room re-persists the
+ *   authoritative live content over the caller's (now stale) disk write. The
+ *   caller MUST surface this rather than report success.
+ */
+export interface ExternalMutationResult {
+  applied: boolean;
+  conflict: boolean;
+}
+
+/**
  * Safe, route-facing view of a collaborator's relationship to a file. Contains
  * no WebSocket, Y.Doc, or Y.Text reference and no file content. `dirty` is
  * `"unknown"` when the collaborator's client has not reported an
@@ -732,8 +749,9 @@ export class CollaborationRoom {
   }
 
   /**
-   * External Mutation Safety: updates Y.Text when workspace file is modified externally
-   * (e.g. via REST file save, snapshot restore, starter templates).
+   * External Mutation Safety: updates Y.Text when a workspace file is modified
+   * externally (REST file save, snapshot restore, starter templates, Replace
+   * All, Git checkout, AI apply-patch).
    *
    * `doc.getText(filePath)` materializes `filePath` as a key in `doc.share` as
    * a side effect, even for a path this room never tracked. The /move and
@@ -744,26 +762,54 @@ export class CollaborationRoom {
    * files" fallback would then write back to disk, resurrecting the just
    * deleted/renamed-away file. A path that isn't already tracked and has
    * nothing (empty content) to apply needs no Y.Doc access at all.
+   *
+   * CONFLICT GATE (data-loss fix): when the live Y.Text differs from
+   * `newContent` AND the file carries collaborator edits that are not yet
+   * persisted to disk (`dirtyFiles`), a blind full-buffer replace here would
+   * silently destroy unrecoverable in-flight work. In that case this refuses
+   * the replace, leaves the Y.Text untouched, keeps the file dirty so the
+   * next flush re-persists the authoritative live content over the caller's
+   * (now stale) disk write, and returns `{ applied: false, conflict: true }`
+   * for the caller to surface.
+   *
+   * The whole method body is synchronous — the read, the dirty check and the
+   * Y.Doc transaction all run in one event-loop turn, so a concurrent inbound
+   * client edit (a separate turn) can never interleave between them.
+   *
+   * `newContent === ""` is exempt from the gate: that is the move/delete
+   * signal (the file is going away, not being replaced) and keeps its
+   * existing semantics — see test 16 and the M37 ghost-file guards.
    */
   public async handleExternalFileMutation(
     filePath: string,
     newContent: string,
-  ): Promise<void> {
+  ): Promise<ExternalMutationResult> {
     if (newContent === "" && !this.doc.share.has(filePath)) {
-      return;
+      return { applied: true, conflict: false };
     }
 
     const yText = this.doc.getText(filePath);
     const currentContent = yText.toString();
 
-    if (currentContent !== newContent) {
-      this.doc.transact(() => {
-        yText.delete(0, yText.length);
-        yText.insert(0, newContent);
-      }, "external_mutation");
+    if (currentContent === newContent) {
+      this.dirtyFiles.delete(filePath);
+      return { applied: true, conflict: false };
     }
 
+    if (newContent !== "" && this.dirtyFiles.has(filePath)) {
+      // Ensure the authoritative live content is re-persisted: the caller
+      // already wrote `newContent` to disk before notifying us.
+      this.scheduleDebouncedPersistence();
+      return { applied: false, conflict: true };
+    }
+
+    this.doc.transact(() => {
+      yText.delete(0, yText.length);
+      yText.insert(0, newContent);
+    }, "external_mutation");
+
     this.dirtyFiles.delete(filePath);
+    return { applied: true, conflict: false };
   }
 
   /**
@@ -1791,15 +1837,23 @@ export class CollaborationManager {
     this.rooms.get(projectId)?.handleRunStatus(input);
   }
 
+  /**
+   * Push an external file mutation into a project's live room. Returns the
+   * per-file {@link ExternalMutationResult}; when there is no room, the
+   * mutation is trivially "applied" (nothing to converge, nothing to lose).
+   * A `conflict: true` result means the room preserved unpersisted
+   * collaborator edits and the caller MUST NOT report the write as applied.
+   */
   public async notifyExternalFileMutation(
     projectId: string,
     filePath: string,
     newContent: string,
-  ): Promise<void> {
+  ): Promise<ExternalMutationResult> {
     const room = this.rooms.get(projectId);
     if (room) {
-      await room.handleExternalFileMutation(filePath, newContent);
+      return room.handleExternalFileMutation(filePath, newContent);
     }
+    return { applied: true, conflict: false };
   }
 
   /**

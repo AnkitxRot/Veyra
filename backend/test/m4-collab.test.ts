@@ -222,27 +222,41 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     );
   });
 
-  it("3. External file mutation safety: REST file save updates active Y.Doc without divergence", async () => {
+  it("3. External file mutation safety: converges the Y.Doc when safe, refuses to clobber an unpersisted collaborator edit", async () => {
     db.prepare(
       "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
     ).run("owner_u", "h", "user");
     const project = await createProject(cfg, db, 1, { name: "ExternalProj" });
-    const filePath = "app.js";
-
     const room = collaborationManager.getOrCreateRoom(project.id);
-    const yText = await room.ensureFileLoaded(filePath);
-    yText.insert(0, "const port = 3000;");
 
-    // Simulate an external snapshot restore or REST write
+    // (a) Safe case — a file with no unpersisted collaborator edits converges
+    // to the external content (a genuine on-disk change flowing into the room).
+    const calm = "calm.js";
+    await room.ensureFileLoaded(calm);
     const externalContent =
-      'const port = 8080;\nconsole.log("Restored snapshot");';
-    await collaborationManager.notifyExternalFileMutation(
+      'const port = 8080;\nconsole.log("external change");';
+    const applied = await collaborationManager.notifyExternalFileMutation(
       project.id,
-      filePath,
+      calm,
       externalContent,
     );
+    expect(applied).toEqual({ applied: true, conflict: false });
+    expect(room.doc.getText(calm).toString()).toBe(externalContent);
 
-    expect(yText.toString()).toBe(externalContent);
+    // (b) Conflict case — a file the collaborator has edited but not yet
+    // flushed is NOT overwritten by a divergent external write. Pre-fix this
+    // blindly replaced the Y.Text and the "3000" edit was silently lost.
+    const hot = "hot.js";
+    const hotText = await room.ensureFileLoaded(hot);
+    hotText.insert(0, "const port = 3000;");
+    room.markFileDirty(hot);
+    const refused = await collaborationManager.notifyExternalFileMutation(
+      project.id,
+      hot,
+      'const port = 8080;\nconsole.log("stale");',
+    );
+    expect(refused).toEqual({ applied: false, conflict: true });
+    expect(room.doc.getText(hot).toString()).toBe("const port = 3000;");
   });
 
   it("4. Multi-Tenant access authorization & RBAC permissions", async () => {
@@ -501,7 +515,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     expect(collaborationManager.getRoom(project.id)).toBeUndefined();
   });
 
-  it("10. Snapshot restore keeps an active CollaborationRoom's Y.Doc in sync (does not get silently reverted by the next flush)", async () => {
+  it("10. Snapshot restore does not silently revert a collaborator's unsaved edit; disk reconverges to the live content", async () => {
     db.prepare(
       "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
     ).run("owner_u", "h", "user"); // id 1
@@ -518,7 +532,8 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // Disk drifts after the snapshot was taken.
     await fs.writeFile(workspaceFile, "print('v2')");
 
-    // A collaborator has the file open with further, uncommitted local edits.
+    // A collaborator has the file open with further, uncommitted local edits
+    // that live only in the Y.Doc (not yet flushed to disk).
     const room = collaborationManager.getOrCreateRoom(project.id);
     const yText = await room.ensureFileLoaded(filePath);
     expect(yText.toString()).toBe("print('v2')");
@@ -527,14 +542,21 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     await restoreSnapshot(cfg, db, 1, project.id, snapshot.id);
 
-    // Disk must reflect the restored snapshot content.
-    const diskContent = await fs.readFile(workspaceFile, "utf-8");
-    expect(diskContent).toBe("print('v1')");
+    // The restore wrote the snapshot content to disk...
+    expect(await fs.readFile(workspaceFile, "utf-8")).toBe("print('v1')");
 
-    // The room's live Y.Doc must be updated to match — not left on the
-    // collaborator's stale local edit, which would otherwise get flushed
-    // back to disk shortly after, silently undoing the restore.
-    expect(yText.toString()).toBe("print('v1')");
+    // ...but the collaborator's UNPERSISTED edit is not discarded. Pre-fix
+    // the restore blindly replaced the Y.Text (delete-all + insert) and the
+    // edit was silently lost; now the room detects the conflict and keeps
+    // the authoritative live content.
+    expect(yText.toString()).toBe("print('v3, unsaved local edit')");
+
+    // Because the live content is authoritative, the next flush reconverges
+    // disk to it rather than leaving the half-applied restore in place.
+    await room.flushToDisk();
+    expect(await fs.readFile(workspaceFile, "utf-8")).toBe(
+      "print('v3, unsaved local edit')",
+    );
   });
 
   it("11. Role downgrade takes effect on a live connection: a demoted editor immediately loses write access", async () => {
@@ -2386,6 +2408,244 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     expect(await fs.readFile(diskPath, "utf-8")).toBe("SAME");
 
     clientDoc.destroy();
+    room.dispose();
+  });
+
+  // --- External-mutation conflict safety (data-loss regression) -----------
+  //
+  // handleExternalFileMutation() historically did an unconditional
+  //   yText.delete(0, yText.length); yText.insert(0, newContent)
+  // whenever the live content differed from the external content. If a
+  // collaborator had an in-flight CRDT edit that was not yet flushed to
+  // disk (still only in the Y.Doc), a stale external mutation — a REST
+  // save / snapshot restore / template / Replace-All computed against the
+  // pre-edit file — silently obliterated it.
+  //
+  // Invariant established here: an external mutation whose incoming
+  // content is NOT what the live Y.Text currently holds is only applied
+  // when the file has no unpersisted collaborator edits (not in
+  // dirtyFiles). Otherwise it is a CONFLICT: the Y.Text is left untouched,
+  // the file stays dirty so the room re-persists the authoritative live
+  // content, and the call reports `{ applied: false, conflict: true }`.
+
+  async function seedLoadedFile(
+    room: CollaborationRoom,
+    filePath: string,
+    content: string,
+  ): Promise<string> {
+    const diskPath = join(projectDir((room as any).cfg, (room as any).projectId), filePath);
+    await fs.writeFile(diskPath, content, "utf-8");
+    await room.ensureFileLoaded(filePath);
+    return diskPath;
+  }
+
+  it("37. External mutation does not discard a concurrent unpersisted collaborator edit", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("nate", "h", "user"); // id 1
+    const project = await createProject(cfg, db, 1, { name: "ExtConflictA" });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const filePath = "app.py";
+    const diskPath = await seedLoadedFile(room, filePath, "print(1)\n");
+
+    // A collaborator appends a line via the real sync path -> lands in
+    // dirtyFiles, NOT yet flushed to disk.
+    const ws = makeMockWs();
+    const clientDoc = new Y.Doc();
+    wireClientToRoom(room, ws, clientDoc);
+    await room.addClient(ws, { userId: 1, username: "nate", role: "editor" });
+    Y.applyUpdate(clientDoc, Y.encodeStateAsUpdate(room.doc));
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => {
+        const t = clientDoc.getText(filePath);
+        t.insert(t.length, "print(2)\n");
+      }),
+    );
+    expect(room.doc.getText(filePath).toString()).toBe("print(1)\nprint(2)\n");
+    expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+
+    // A stale external mutation carrying only the pre-edit content arrives
+    // (e.g. a snapshot restore, or a REST save computed before the append).
+    const result = await room.handleExternalFileMutation(filePath, "print(1)\n");
+
+    // The collaborator's unpersisted line must survive, untouched.
+    expect(room.doc.getText(filePath).toString()).toBe("print(1)\nprint(2)\n");
+    expect(result).toEqual({ applied: false, conflict: true });
+    expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+
+    // Disk reconverges to the authoritative live content, not the stale bytes.
+    await room.flushToDisk();
+    expect(await fs.readFile(diskPath, "utf-8")).toBe("print(1)\nprint(2)\n");
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("38. External mutation with no concurrent collaborator edit applies cleanly", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("olive", "h", "user"); // id 1
+    const project = await createProject(cfg, db, 1, { name: "ExtConflictB" });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const filePath = "config.json";
+    const diskPath = await seedLoadedFile(room, filePath, '{"v":1}\n');
+
+    // A real caller writes the new bytes to disk first, then notifies the room.
+    await fs.writeFile(diskPath, '{"v":2}\n', "utf-8");
+    const result = await room.handleExternalFileMutation(filePath, '{"v":2}\n');
+
+    expect(result).toEqual({ applied: true, conflict: false });
+    expect(room.doc.getText(filePath).toString()).toBe('{"v":2}\n');
+    // External-origin content already matches disk, so it is never queued
+    // for a redundant write-back.
+    expect((room as any).dirtyFiles.has(filePath)).toBe(false);
+
+    await room.flushToDisk();
+    expect(await fs.readFile(diskPath, "utf-8")).toBe('{"v":2}\n');
+
+    room.dispose();
+  });
+
+  it("39. A collaborator edit AFTER an external mutation still syncs and persists normally", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("pat", "h", "user"); // id 1
+    const project = await createProject(cfg, db, 1, { name: "ExtConflictC" });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const filePath = "notes.md";
+    const diskPath = await seedLoadedFile(room, filePath, "# Notes\n");
+
+    await fs.writeFile(diskPath, "# Notes\n\n- imported line\n", "utf-8");
+    const ext = await room.handleExternalFileMutation(
+      filePath,
+      "# Notes\n\n- imported line\n",
+    );
+    expect(ext).toEqual({ applied: true, conflict: false });
+
+    // Normal collaboration resumes: a real sync-path edit lands, tracks
+    // dirty, and flushes.
+    const ws = makeMockWs();
+    const clientDoc = new Y.Doc();
+    wireClientToRoom(room, ws, clientDoc);
+    await room.addClient(ws, { userId: 1, username: "pat", role: "editor" });
+    Y.applyUpdate(clientDoc, Y.encodeStateAsUpdate(room.doc));
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => {
+        const t = clientDoc.getText(filePath);
+        t.insert(t.length, "- my own line\n");
+      }),
+    );
+
+    expect(room.doc.getText(filePath).toString()).toBe(
+      "# Notes\n\n- imported line\n- my own line\n",
+    );
+    expect((room as any).dirtyFiles.has(filePath)).toBe(true);
+
+    await room.flushToDisk();
+    expect(await fs.readFile(diskPath, "utf-8")).toBe(
+      "# Notes\n\n- imported line\n- my own line\n",
+    );
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("40. Sequential external mutations converge to the latest; a later stale one over a live edit is a conflict", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("quinn2", "h", "user"); // id 1
+    const project = await createProject(cfg, db, 1, { name: "ExtConflictD" });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const filePath = "seq.txt";
+    await seedLoadedFile(room, filePath, "v0\n");
+
+    const r1 = await room.handleExternalFileMutation(filePath, "v1\n");
+    expect(r1).toEqual({ applied: true, conflict: false });
+    const r2 = await room.handleExternalFileMutation(filePath, "v2\n");
+    expect(r2).toEqual({ applied: true, conflict: false });
+    expect(room.doc.getText(filePath).toString()).toBe("v2\n");
+    // External-origin applies are never queued for write-back, so a later
+    // flush can't resurrect a superseded version.
+    expect((room as any).dirtyFiles.has(filePath)).toBe(false);
+
+    // A collaborator now edits (unpersisted), then a stale external mutation
+    // replays "v2" — it must not clobber the live edit.
+    const ws = makeMockWs();
+    const clientDoc = new Y.Doc();
+    wireClientToRoom(room, ws, clientDoc);
+    await room.addClient(ws, { userId: 1, username: "quinn2", role: "editor" });
+    Y.applyUpdate(clientDoc, Y.encodeStateAsUpdate(room.doc));
+    room.handleMessage(
+      ws,
+      buildSyncUpdateFrame(clientDoc, () => {
+        const t = clientDoc.getText(filePath);
+        t.insert(t.length, "v3-live\n");
+      }),
+    );
+    expect(room.doc.getText(filePath).toString()).toBe("v2\nv3-live\n");
+
+    const stale = await room.handleExternalFileMutation(filePath, "v2\n");
+    expect(stale).toEqual({ applied: false, conflict: true });
+    expect(room.doc.getText(filePath).toString()).toBe("v2\nv3-live\n");
+
+    clientDoc.destroy();
+    room.dispose();
+  });
+
+  it("41. A conflicting external mutation does not suppress the M56 external_mutation_notice", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("rae", "h", "user"); // id 1
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("sam", "h", "user"); // id 2
+    const project = await createProject(cfg, db, 1, { name: "ExtConflictE" });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+    const filePath = "shared.py";
+    await seedLoadedFile(room, filePath, "shared = 0\n");
+
+    const samWs = makeMockWs();
+    const samFrames: Uint8Array[] = [];
+    samWs.send = (m: Uint8Array) => samFrames.push(m);
+    await room.addClient(samWs, { userId: 2, username: "sam", role: "editor" });
+    room.handleMessage(samWs, buildFileOpenFrame(filePath));
+
+    // Sam has an unpersisted edit in that file.
+    const samDoc = new Y.Doc();
+    Y.applyUpdate(samDoc, Y.encodeStateAsUpdate(room.doc));
+    room.handleMessage(
+      samWs,
+      buildSyncUpdateFrame(samDoc, () => {
+        const t = samDoc.getText(filePath);
+        t.insert(t.length, "shared = sam_edit\n");
+      }),
+    );
+    samFrames.length = 0;
+
+    // Alice (userId 1) triggers a stale external replace -> conflict.
+    const res = await room.handleExternalFileMutation(filePath, "shared = 0\n");
+    expect(res).toEqual({ applied: false, conflict: true });
+
+    // The independent M56 notice pipeline still fans out to Sam.
+    room.sendExternalMutationNotice({
+      paths: [filePath],
+      mutationType: "replace",
+      actor: { userId: 1, username: "rae" },
+    });
+    const notices = decodeCustomFrames(samFrames).filter(
+      (n) => n.type === "external_mutation_notice",
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      type: "external_mutation_notice",
+      path: filePath,
+      mutationType: "replace",
+      actor: { userId: 1, username: "rae" },
+    });
+
+    samDoc.destroy();
     room.dispose();
   });
 });

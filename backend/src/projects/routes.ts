@@ -562,12 +562,22 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         throw new ApiError(400, "content is required", "invalid_content");
       const cwd = await workspacePath(cfg, project.id);
       await writeProjectFile(cwd, path, content);
-      await collaborationManager.notifyExternalFileMutation(
+      const mutation = await collaborationManager.notifyExternalFileMutation(
         project.id,
         path,
         content,
       );
       touchProject(db, project.id);
+      if (mutation.conflict) {
+        // A collaborator has unsaved edits in this file in the live session.
+        // Their content was preserved and will be re-persisted over this
+        // write; report the conflict rather than a misleading success.
+        throw new ApiError(
+          409,
+          "This file has unsaved changes from another collaborator in the live session. Your save was not applied over their edits.",
+          "collab_external_conflict",
+        );
+      }
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -1033,11 +1043,25 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           }
           try {
             await writeProjectFile(cwd, group.filePath, group.newContent);
-            await collaborationManager.notifyExternalFileMutation(
-              project.id,
-              group.filePath,
-              group.newContent,
-            );
+            const mutation =
+              await collaborationManager.notifyExternalFileMutation(
+                project.id,
+                group.filePath,
+                group.newContent,
+              );
+            if (mutation.conflict) {
+              // A collaborator has unsaved edits in this file in the live
+              // session. Their content was preserved and reconverges disk;
+              // report this file as skipped rather than a false "replaced".
+              results.push({
+                filePath: group.filePath,
+                status: "skipped",
+                matchCount: group.matches.length,
+                reason:
+                  "another collaborator has unsaved changes in this file in the live session",
+              });
+              continue;
+            }
             filesChanged++;
             matchesReplaced += group.matches.length;
             results.push({

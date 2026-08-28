@@ -223,6 +223,54 @@ describe("projects and files", () => {
     const newText = await room.ensureFileLoaded("new.js");
     expect(newText.toString()).toBe('console.log("v1")');
   });
+
+  it("POST /file returns 409 collab_external_conflict when a live collaborator has an unflushed edit, and preserves that edit", async () => {
+    const proj = await api.request("POST", "/api/projects", {
+      token,
+      body: { name: "collab-save-conflict" },
+    });
+    const pid = proj.data.project.id;
+    await api.request("POST", `/api/projects/${pid}/file`, {
+      token,
+      body: { path: "app.js", content: 'console.log("v1")\n' },
+    });
+
+    // A live collaborator has the file open with an edit that only exists in
+    // the Y.Doc (not flushed to disk).
+    const room = collaborationManager.getOrCreateRoom(pid);
+    const yText = await room.ensureFileLoaded("app.js");
+    room.doc.transact(() => {
+      yText.insert(yText.length, 'console.log("collab unsaved")\n');
+    });
+    expect((room as any).dirtyFiles.has("app.js")).toBe(true);
+
+    try {
+      // A stale REST save (its content predates the collaborator's line).
+      const res = await api.request("POST", `/api/projects/${pid}/file`, {
+        token,
+        body: { path: "app.js", content: 'console.log("v2, stale save")\n' },
+      });
+      expect(res.status).toBe(409);
+      expect(res.data.error.code).toBe("collab_external_conflict");
+
+      // The collaborator's unflushed line is untouched...
+      expect(yText.toString()).toBe(
+        'console.log("v1")\nconsole.log("collab unsaved")\n',
+      );
+      // ...and disk reconverges to the live content, not the stale save.
+      await room.flushToDisk();
+      const got = await api.request(
+        "GET",
+        `/api/projects/${pid}/file?path=app.js`,
+        { token },
+      );
+      expect(got.data.content).toBe(
+        'console.log("v1")\nconsole.log("collab unsaved")\n',
+      );
+    } finally {
+      room.dispose();
+    }
+  });
 });
 
 describe("path traversal protection", () => {

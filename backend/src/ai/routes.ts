@@ -207,12 +207,23 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
       const cwd = await workspacePath(cfg, project.id);
       await writeProjectFile(cwd, filePath, content);
 
-      // Notify Yjs CollaborationManager so all active collaborators converge
-      await collaborationManager.notifyExternalFileMutation(
+      // Notify Yjs CollaborationManager so all active collaborators converge.
+      // The revision pre-check above narrows the race but is not atomic with
+      // this call — a collaborator can type in between. If the live room now
+      // holds unpersisted edits this patch would clobber, the mutation is
+      // refused there; surface it as the same stale-patch conflict.
+      const mutation = await collaborationManager.notifyExternalFileMutation(
         project.id,
         filePath,
         content,
       );
+      if (mutation.conflict) {
+        throw new ApiError(
+          409,
+          "This file changed in the live collaboration session while the patch was being applied. Re-run the AI action to get an updated patch.",
+          "stale_patch",
+        );
+      }
 
       res.json({ ok: true, snapshotId });
     } catch (err) {
