@@ -101,6 +101,11 @@ describe.skipIf(!isDockerRunning())("sandbox lifecycle", () => {
     const managerA = new SandboxManager();
     await managerA.ensureProjectSandbox(projectId, cfg, workspace, 1);
     await waitUntilRunning(`ide-sandbox-${projectId}`);
+    // Since M12, provisionContainer returns an empty port map — the host
+    // port bindings are resolved lazily on first proxy use, not eagerly at
+    // creation. Drive that real resolution path before reading the port
+    // back (this is exactly what a preview request would do).
+    await managerA.getProxyTarget(projectId, 3000, false);
     const originalPort = managerA.getMappedPort(projectId, 3000);
     expect(originalPort).not.toBeNull();
 

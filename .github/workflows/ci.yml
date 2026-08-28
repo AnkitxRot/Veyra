@@ -7,7 +7,7 @@ on:
 
 jobs:
   verify:
-    name: Typecheck, tests, build
+    name: Lint, typecheck, tests, build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -29,6 +29,12 @@ jobs:
       - name: Whitespace check
         run: git diff --check
 
+      - name: Backend lint
+        run: npm run lint -w @cloud-ide/backend
+
+      - name: Frontend lint
+        run: npm run lint -w @cloud-ide/frontend
+
       - name: Backend typecheck
         run: npm run typecheck -w @cloud-ide/backend
 
@@ -47,6 +53,11 @@ jobs:
         run: npm run build -w @cloud-ide/frontend
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Frontend tests
+        run: npm test -w @cloud-ide/frontend
+        env:
+          CI: "true"
 
       # The runner image is required for the Docker-dependent backend tests.
       - name: Build sandbox runner image

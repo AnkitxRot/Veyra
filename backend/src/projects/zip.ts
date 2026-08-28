@@ -128,7 +128,7 @@ export function sanitizeArchivePath(entryPath: string, rootDir: string): string 
   }
 
   // Normalize slashes
-  let clean = entryPath.replace(/\\/g, "/");
+  const clean = entryPath.replace(/\\/g, "/");
 
   // Reject absolute paths (Unix or Windows)
   if (clean.startsWith("/") || /^[a-zA-Z]:/.test(clean) || clean.startsWith("//")) {

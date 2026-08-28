@@ -24,7 +24,7 @@ import { createSnapshot, restoreSnapshot } from "../src/projects/snapshots.js";
 import { importProjectZip } from "../src/projects/archive.js";
 import { createZipArchive } from "../src/projects/zip.js";
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
 
@@ -2275,7 +2275,21 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     await room.addClient(ws, { userId: 1, username: "pete", role: "editor" });
     frames.length = 0;
 
-    const evil = "../../../etc/passwd";
+    // Point the escape at a real, WRITABLE location that is genuinely
+    // outside the workspace and cannot pre-exist — a uniquely-named probe
+    // file in the (separate) data dir. If the path guard ever regressed and
+    // the server wrote the key, this file would appear; if the guard holds,
+    // reading it fails with ENOENT on every platform. (The prior
+    // "../../../etc/passwd" target silently passed on Windows and FAILED on
+    // Linux, where /etc/passwd always exists regardless of the server.)
+    const escapeAbs = join(
+      cfg.dataDir,
+      `collab-escape-probe-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`,
+    );
+    const evil = relative(projectDir(cfg, project.id), escapeAbs)
+      .split(sep)
+      .join("/");
+
     expect(() =>
       room.handleMessage(ws, buildFileOpenFrame(evil)),
     ).not.toThrow();
@@ -2288,9 +2302,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     // Nothing is written for the bad key on a flush.
     await room.flushToDisk();
-    await expect(
-      fs.readFile(join(projectDir(cfg, project.id), evil), "utf-8"),
-    ).rejects.toThrow();
+    await expect(fs.readFile(escapeAbs, "utf-8")).rejects.toThrow();
 
     room.dispose();
   });

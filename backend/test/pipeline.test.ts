@@ -207,11 +207,18 @@ describe("M5a: execution hot path uses async Docker checks, not blocking execSyn
     }
   });
 
-  it("returns missing_toolchain (not a thrown error) when isDockerRunningAsync resolves false, and never reaches the runner-image check", async () => {
+  it("returns missing_toolchain (not a thrown error) when isDockerRunningAsync resolves false", async () => {
+    // pipeline.ts intentionally runs the docker + runner-image probes
+    // concurrently (Promise.all — the M5a latency optimization; the sibling
+    // test above locks in that both are always invoked). So the runner-image
+    // check *is* called here; the contract under test is only that a
+    // Docker-down result is a graceful `missing_toolchain`, never a throw.
+    const runnerCheckCalls: number[] = [];
     vi.doMock("../src/tools.js", () => ({
       isDockerRunningAsync: async () => false,
       isRunnerImageAvailableAsync: async () => {
-        throw new Error("must not be called when Docker itself is unavailable");
+        runnerCheckCalls.push(Date.now());
+        return false;
       },
     }));
 
@@ -223,6 +230,12 @@ describe("M5a: execution hot path uses async Docker checks, not blocking execSyn
       const result = await runProject(cfg, "test-project", ws, { userId: 1 });
       expect(result.type).toBe("missing_toolchain");
       expect(result.stderr).toContain("Docker Sandbox unavailable");
+      // Docker-down wins the branch regardless of the (concurrent) runner
+      // probe's outcome — and it must NOT surface as a thrown error.
+      expect(result.stderr).not.toContain("Runner Image unavailable");
+      // The runner probe is still dispatched (Promise.all); its result is
+      // simply not what the Docker-down branch keys on.
+      expect(runnerCheckCalls.length).toBeGreaterThan(0);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

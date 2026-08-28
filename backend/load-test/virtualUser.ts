@@ -138,16 +138,15 @@ export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
     // on the single shared AbortSignal, none of which are ever invoked
     // again after they fire once, but all of which stay reachable (and
     // retain their closure scope) until the signal itself is released.
-    let t: NodeJS.Timeout;
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
     const onAbort = () => {
       clearTimeout(t);
       signal.removeEventListener("abort", onAbort);
       resolve();
     };
-    t = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
     signal.addEventListener("abort", onAbort);
   });
 }

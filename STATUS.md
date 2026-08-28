@@ -4465,6 +4465,86 @@ subsystem, no Git-remote policy change, no deployment/AI, no Redis/pubsub
 or distributed infra, no awareness persistence, no broad collaboration
 redesign, no arbitrary dirty-path list, no M47 secret-architecture change.
 
+## CI repair — pre-existing stale test/build assumptions
+
+GitHub Actions (`.github/workflows/ci.yml`, "Typecheck, tests, build") had
+been RED on every push since ~M47. The M55 run (`ef01f2f`,
+`33128476377`) and the M56 run (`bd33d6e`, `33161471324`) failed on the
+**exact same 3 tests** — proving the failures pre-date M56 by many
+releases and were never M56 regressions. Root causes, all stale
+assumptions surfaced only because CI's native Linux Docker actually runs
+the Docker-gated suite (local Windows Docker often skips it):
+
+1. **`backend/test/lifecycle.test.ts` "rebuilds port mappings"** — since
+   M12 (`b990c46`), `provisionContainer` returns an **empty** port map;
+   host bindings are resolved lazily on first proxy use, not eagerly at
+   creation. `getMappedPort()` immediately after `ensureProjectSandbox()`
+   is now legitimately `null`. Fix: drive the real lazy path
+   (`await managerA.getProxyTarget(projectId, 3000, false)`) before
+   reading the port — exactly what a preview request does, and what
+   `reconcile()` itself uses. No assertion weakened.
+2. **`backend/test/m4-collab.test.ts` #34** — the path-escape probe
+   targeted `../../../etc/passwd`, which **exists on Linux**, so
+   `fs.readFile(...).rejects.toThrow()` failed there while passing on
+   Windows. Fix: probe a uniquely-named file under `cfg.dataDir` (a real,
+   writable location genuinely outside the workspace that cannot
+   pre-exist) — meaningful and sensitive on every platform. All three
+   security assertions (`doc.share` miss, `dirtyFiles` empty, no disk
+   write) preserved.
+3. **`backend/test/pipeline.test.ts` M5a** — the test made
+   `isRunnerImageAvailableAsync` **throw** and asserted it was "never
+   reached". But `pipeline.ts` runs both probes concurrently
+   (`Promise.all` — the M5a latency optimization; the sibling test locks
+   in that both are always invoked). Fix: the mock returns a value; the
+   test still asserts the real contract (Docker-down ⇒ `missing_toolchain`,
+   never a thrown error, runner failure not surfaced) and now also asserts
+   the runner probe *is* dispatched. The false "never reached" claim was
+   removed, not the behavioural contract.
+4. **`backend/tsconfig.build.json`** — lacked `allowJs` (only
+   `backend/tsconfig.json`, used by `typecheck`, got it when `shared.js`
+   landed at M25). So `npm run build -w @cloud-ide/backend` — run by
+   `docker/Dockerfile.app`'s build stage, i.e. CI's final "Build
+   application image" step — failed on `import … from "./shared.js"`
+   (TS7016). Hidden until now because that step never ran (backend tests
+   always failed first). Fix: `allowJs: true`, `checkJs: false`;
+   `dist/backup/shared.js` is now emitted for the runtime image.
+
+No tests skipped, no assertions weakened, no `continue-on-error`. Prior
+STATUS notes calling these "2 documented baseline failures"
+(`lifecycle.test.ts`, `pipeline.test.ts`) were incomplete — it was 3
+tests, all repairable, and none a real product defect.
+
+### Green Baseline Lock (committed as `ci: lock green baseline`)
+
+The four fixes above were committed together with the CI-coverage and
+lint-config gaps the same baseline audit surfaced, so this class of
+regression cannot silently return:
+
+- **`.github/workflows/ci.yml`** now also runs `npm run lint` for both
+  workspaces and the frontend Vitest suite (`npm test -w @cloud-ide/frontend`,
+  237 tests). Previously CI ran neither lint nor any frontend test, so a
+  frontend logic regression or a lint break passed CI unnoticed.
+- **`backend/eslint.config.js`** configures Node globals through flat-config
+  `languageOptions` (mirroring `frontend/eslint.config.js`) and treats
+  `**/*.cjs` as CommonJS. This cleared 19 `no-undef` errors with no rule
+  suppression and no `eslint-disable` comments. Two genuine pre-existing
+  `prefer-const` errors (`src/projects/zip.ts`, `load-test/virtualUser.ts`)
+  were fixed (`let` → `const`; the variables are never reassigned). 29
+  `warn`-level `no-unused-vars` remain as pre-existing debt — they do not
+  fail lint and were out of scope for this pass.
+
+`backend/src/collab/manager.ts` `handleExternalFileMutation()` was
+deliberately left untouched — its full-Y.Text replacement on
+REST/snapshot/template/Replace-All mutations can clobber a concurrent
+collaborator's edits, and that is a separate product-correctness milestone.
+
+Final local verification on the committed tree, `cloudeeeide-runner:latest`
+built: backend typecheck PASS · backend build PASS (`dist/backup/shared.js`
+emitted) · frontend typecheck + build PASS · backend lint PASS (0 errors) ·
+frontend lint PASS (0 errors) · frontend suite **237 / 237** · full backend
+suite **730 passed / 0 failed / 9 skipped** (739 total, 185 suites) ·
+`git diff --check` clean. GitHub Actions remains the authoritative check.
+
 ## Current active work
 
 Milestones 1–34 are committed (M25 at `941b545`, M26 at `ed8deb7`, M27 at `96a20bd`, M28 at
