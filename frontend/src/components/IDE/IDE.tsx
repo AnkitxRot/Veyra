@@ -69,6 +69,13 @@ import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import { throttleLatest } from "../../utils/throttleLatest";
 import { handleSaveError } from "../../utils/collabConflict";
 import {
+  readProjectSession,
+  writeProjectSession,
+  getLastProjectId,
+  setLastProjectId,
+  resolveProjectSelection,
+} from "../../utils/sessionStore";
+import {
   IconTerminal,
   IconMonitor,
   IconCode,
@@ -106,13 +113,34 @@ export default function IDE({
   user,
   onLogout,
   onSwitchToAdmin,
+  routeProjectId = null,
+  onNavigateProject,
 }: {
   user: User;
   onLogout: () => void;
   onSwitchToAdmin?: () => void;
+  /** project id from the `/p/:id` deep link, or null */
+  routeProjectId?: string | null;
+  /** push `/p/:id` (or `/` for none) into history without a reload */
+  onNavigateProject?: (id: string | null) => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
+  // Session restore: guards a per-project one-shot tab restore AND scopes the
+  // persistence effect so a mid-switch render never writes project A's tabs
+  // into project B's session.
+  const sessionOwnerRef = useRef<string | null>(null);
+  const didInitialResolveRef = useRef(false);
+  const treeLoadedForRef = useRef<string | null>(null);
+  const restoreInFlightRef = useRef<string | null>(null);
+  // Read the current deep-link inside loadProjects without making it a
+  // dependency (which would re-run the loader when we reset the URL after a
+  // bad link, silently opening projects[0]).
+  const routeProjectIdRef = useRef(routeProjectId);
+  routeProjectIdRef.current = routeProjectId;
+  const [invalidRouteNotice, setInvalidRouteNotice] = useState<string | null>(
+    null,
+  );
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<
@@ -420,11 +448,46 @@ export default function IDE({
     try {
       const res = await api<{ projects: Project[] }>("/api/projects");
       setProjects(res.projects);
+
+      if (!didInitialResolveRef.current) {
+        // First load after mount / hard reload: honour a `/p/:id` deep link,
+        // else the last opened project, else the historical default.
+        didInitialResolveRef.current = true;
+        const { projectId, invalidRoute } = resolveProjectSelection({
+          routeProjectId: routeProjectIdRef.current ?? null,
+          lastProjectId: getLastProjectId(),
+          projectIds: res.projects.map((p) => p.id),
+        });
+        if (invalidRoute) {
+          // Explicit link to a project that isn't ours / doesn't exist — do
+          // NOT open a different one and do NOT show an "opened" state.
+          setInvalidRouteNotice(
+            "That project link isn't available. It may have been deleted, or you may not have access. Pick a project to continue.",
+          );
+          onNavigateProject?.(null);
+        } else if (projectId) {
+          const target = res.projects.find((p) => p.id === projectId)!;
+          setProject(target);
+          addRecentProject(target);
+          setLastProjectId(target.id);
+          onNavigateProject?.(target.id);
+        }
+        return;
+      }
+
+      // Later refreshes (post create / import / fork): keep the historical
+      // "auto-open the newest project only when nothing is open" behaviour.
       if (res.projects.length > 0 && !project) {
         setProject(res.projects[0]);
         addRecentProject(res.projects[0]);
+        setLastProjectId(res.projects[0].id);
+        onNavigateProject?.(res.projects[0].id);
       }
     } catch {}
+    // routeProjectId is read via routeProjectIdRef; onNavigateProject is a
+    // stable useCallback from App. Keeping deps at [project] preserves the
+    // original loader lifecycle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
   const loadTree = useCallback(async () => {
@@ -434,14 +497,41 @@ export default function IDE({
         `/api/projects/${project.id}/tree`,
       );
       setTree(res.tree);
+      treeLoadedForRef.current = project.id;
     } catch {}
   }, [project]);
 
   // Track Recent Projects on Switch
   const handleSelectProject = (p: Project) => {
+    setInvalidRouteNotice(null);
+    if (p.id === project?.id) return;
     setProject(p);
     addRecentProject(p);
+    setLastProjectId(p.id);
+    onNavigateProject?.(p.id);
   };
+
+  // Browser Back / Forward (and any external `/p/:id` change after the initial
+  // resolve): move the open project to match the URL. The very first resolve
+  // is owned by loadProjects() above.
+  useEffect(() => {
+    if (!didInitialResolveRef.current) return;
+    const rid = routeProjectId ?? null;
+    if (!rid || rid === project?.id) return;
+    const target = projects.find((p) => p.id === rid);
+    if (target) {
+      setProject(target);
+      addRecentProject(target);
+      setLastProjectId(target.id);
+      setInvalidRouteNotice(null);
+    } else if (projects.length > 0) {
+      // navigated (e.g. pasted a link) to a project we can't resolve
+      setInvalidRouteNotice(
+        "That project link isn't available. It may have been deleted, or you may not have access.",
+      );
+      onNavigateProject?.(null);
+    }
+  }, [routeProjectId, projects, project?.id, onNavigateProject]);
 
   // Sync Recent Files on Project Switch
   useEffect(() => {
@@ -454,6 +544,101 @@ export default function IDE({
   const fileIndex: IndexedFile[] = useMemo(() => {
     return buildFileIndex(tree);
   }, [tree]);
+
+  // --- Session restore: reopen this project's tabs / active file / panel ----
+  //
+  // Runs once per project, and only:
+  //   - after its file tree is known (so a persisted path that no longer
+  //     exists is skipped, not opened as an empty ghost tab), and
+  //   - while `openFiles` is empty — either the initial mount, or right after
+  //     the project-switch effect above cleared the previous project's tabs.
+  //     If the user opened a file first, `openFiles` is non-empty and restore
+  //     stands down for good.
+  //
+  // `sessionOwnerRef` records which project currently owns the localStorage
+  // session slot; it is only advanced here, and it gates the persistence
+  // effect below so a mid-switch render can never write project A's working
+  // set into project B's session.
+  useEffect(() => {
+    const pid = project?.id;
+    if (!pid) return;
+    if (sessionOwnerRef.current === pid) return; // already handled this project
+    if (treeLoadedForRef.current !== pid) return; // tree not loaded yet
+    if (openFiles.length > 0) return; // pre-switch tabs not cleared yet / user acted
+
+    // This project now owns its session slot; persistence may write it.
+    sessionOwnerRef.current = pid;
+
+    const sess = readProjectSession(pid);
+    if (!sess) return;
+    if (sess.bottomTab) setBottomTab(sess.bottomTab);
+    if (sess.openTabs.length === 0) return;
+
+    const existing = new Set(fileIndex.map((f) => f.path));
+    const wanted = sess.openTabs.filter((p) => existing.has(p));
+    if (wanted.length === 0) return;
+
+    restoreInFlightRef.current = pid;
+    let cancelled = false;
+    (async () => {
+      const loaded = await Promise.all(
+        wanted.map(async (p) => {
+          try {
+            const r = await api<{ content: string }>(
+              `/api/projects/${pid}/file?path=${encodeURIComponent(p)}`,
+            );
+            return { path: p, content: r.content };
+          } catch {
+            return null; // file vanished between tree read and fetch — skip
+          }
+        }),
+      );
+      if (cancelled) return;
+      const valid = loaded.filter(
+        (x): x is { path: string; content: string } => x !== null,
+      );
+      if (valid.length > 0 && openFilesRef.current.length === 0) {
+        setOpenFiles(valid);
+        setActiveFile(
+          sess.active && valid.some((v) => v.path === sess.active)
+            ? sess.active
+            : valid[valid.length - 1].path,
+        );
+      }
+    })().finally(() => {
+      if (restoreInFlightRef.current === pid) restoreInFlightRef.current = null;
+    });
+
+    return () => {
+      cancelled = true;
+      if (restoreInFlightRef.current === pid) restoreInFlightRef.current = null;
+    };
+    // `openFiles` (not just its length) is intentionally a dep so this re-runs
+    // after the project-switch clear; the sessionOwnerRef guard makes every
+    // post-restore re-run a no-op.
+  }, [project?.id, tree, fileIndex, openFiles]);
+
+  // --- Session persist: mirror the working set into localStorage -----------
+  //
+  // Keyed on a stable joined-paths string, NOT `openFiles` itself, so typing
+  // (which flips a per-file `dirty` bit exactly once) does not trigger writes.
+  // Only meaningful transitions — tab open/close, active switch, bottom-panel
+  // switch — reach here. Never writes editor text, only paths + panel id.
+  const openTabsKey = useMemo(
+    () => openFiles.map((f) => f.path).join("\n"),
+    [openFiles],
+  );
+  useEffect(() => {
+    const pid = project?.id;
+    if (!pid) return;
+    if (sessionOwnerRef.current !== pid) return; // mid-switch / not yet ours
+    if (restoreInFlightRef.current === pid) return; // don't race the restore
+    writeProjectSession(pid, {
+      openTabs: openTabsKey ? openTabsKey.split("\n") : [],
+      active: activeFile,
+      bottomTab,
+    });
+  }, [project?.id, openTabsKey, activeFile, bottomTab]);
 
   // Live Telemetry Polling (Every 2.5s)
   useEffect(() => {
@@ -1953,6 +2138,43 @@ export default function IDE({
             )}
           </div>
         </div>
+
+        {/* Session restore: an explicit /p/:id link could not be opened */}
+        {invalidRouteNotice && (
+          <div
+            role="alert"
+            style={{
+              position: "fixed",
+              bottom: "40px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 9000,
+              maxWidth: "620px",
+              width: "calc(100% - 48px)",
+              background: "var(--glass-surface, rgba(30,30,46,0.96))",
+              border: "1px solid #f38ba8",
+              borderRadius: "var(--radius-sm, 8px)",
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "10px",
+              fontSize: "12px",
+              color: "var(--fg-primary)",
+              boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+            }}
+          >
+            <IconAlertTriangle size={14} color="#f38ba8" />
+            <span style={{ flex: 1, lineHeight: 1.4 }}>{invalidRouteNotice}</span>
+            <button
+              type="button"
+              className="glass-btn glass-btn-ghost"
+              style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
+              onClick={() => setInvalidRouteNotice(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* M50: Replace All dirty-buffer reconciliation notice */}
         {replaceReconcileNotice && (

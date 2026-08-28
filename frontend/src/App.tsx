@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useCallback, useEffect, useState, Suspense } from 'react';
 import Auth from './components/Auth/Auth';
 import IDE from './components/IDE/IDE';
 const AdminDashboard = React.lazy(
@@ -8,6 +8,7 @@ import AdminLogin from './components/Admin/AdminLogin';
 import { api } from './api';
 import { User } from './types';
 import { IconAlertTriangle } from './components/common/Icons';
+import { parseProjectRoute, projectPath } from './utils/sessionStore';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -23,10 +24,21 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigate = (path: string) => {
-    window.history.pushState({}, '', path);
+  // Stable identity: IDE depends on `onNavigateProject` in effects; a fresh
+  // function every render would thrash those.
+  const navigate = useCallback((path: string) => {
+    // No-op when we're already there — avoids a redundant history entry when
+    // e.g. a deep-linked /p/<id> load re-affirms its own URL.
+    if (path !== window.location.pathname) {
+      window.history.pushState({}, '', path);
+    }
     setRoute(path);
-  };
+  }, []);
+
+  const navigateProject = useCallback(
+    (id: string | null) => navigate(id ? projectPath(id) : '/'),
+    [navigate],
+  );
 
   useEffect(() => {
     api<{ user: User }>('/api/auth/me')
@@ -180,6 +192,8 @@ export default function App() {
       user={user}
       onLogout={handleLogout}
       onSwitchToAdmin={() => navigate('/admin')}
+      routeProjectId={parseProjectRoute(route)}
+      onNavigateProject={navigateProject}
     />
   );
 }
