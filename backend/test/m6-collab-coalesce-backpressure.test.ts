@@ -47,11 +47,19 @@ function buildSyncUpdateFrame(clientDoc: Y.Doc, mutate: () => void) {
   return encoding.toUint8Array(encoder);
 }
 
+// M55: the server now rebuilds every inbound awareness state — identity is
+// forced to the authenticated session and unknown top-level fields are
+// dropped — so a test frame must carry its payload in a real, allowlisted
+// ephemeral field (here: `cursor`) rather than smuggling arbitrary keys
+// under `user`. The coalescing behaviour under test is unchanged.
 function buildAwarenessFrame(
   clientAwareness: awarenessProtocol.Awareness,
-  field: Record<string, unknown>,
+  fields: Record<string, unknown>,
 ) {
-  clientAwareness.setLocalStateField("user", field);
+  clientAwareness.setLocalState({
+    ...(clientAwareness.getLocalState() ?? {}),
+    ...fields,
+  });
   const update = awarenessProtocol.encodeAwarenessUpdate(clientAwareness, [
     clientAwareness.clientID,
   ]);
@@ -268,7 +276,9 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       for (let line = 1; line <= 5; line++) {
         room.handleMessage(
           senderWs as any,
-          buildAwarenessFrame(senderAwareness, { cursorLine: line }),
+          buildAwarenessFrame(senderAwareness, {
+            cursor: { line, column: 1 },
+          }),
         );
       }
       expect(observerWs.send).not.toHaveBeenCalled();
@@ -283,7 +293,9 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
         observerAwareness,
       );
       const state = observerAwareness.getStates().get(senderAwareness.clientID);
-      expect((state as any).user.cursorLine).toBe(5); // latest, not first
+      expect((state as any).cursor.line).toBe(5); // latest, not first
+      // M55: identity is server-stamped, never the client's to choose.
+      expect((state as any).user).toMatchObject({ id: 1, name: "sender" });
 
       room.dispose();
     } finally {
@@ -333,7 +345,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       room.handleMessage(
         typerWs as any,
         buildAwarenessFrame(new awarenessProtocol.Awareness(typerDoc), {
-          cursorLine: 1,
+          cursor: { line: 1, column: 1 },
         }),
       );
       await vi.advanceTimersByTimeAsync(DEFAULT_AWARENESS_COALESCE_MS);

@@ -4166,9 +4166,109 @@ cannot produce a run status.
 **Not done / deferred (explicitly out of scope):** no stdout/stderr / output
 streaming, no shared terminal, no shared Stop / run control, no server-side
 reconnect grace, no durable run-status persistence, no general
-server-authoritative-awareness-identity rework (the awareness `user` field
-remains client-asserted, as in M48 — M54 does not rely on it; run-status
-identity is server-stamped).
+server-authoritative-awareness-identity rework _(the awareness `user` field
+was still client-asserted as of M54 — **closed in M55, below**)_.
+
+## Milestone 55 — Server-authoritative collaboration identity & awareness integrity
+
+**Vulnerability.** The M48 collaboration Awareness `user` object
+(`{id, name, role, color}`) was client-asserted: `handleMessage`'s
+`MESSAGE_AWARENESS` branch fed the raw client bytes straight into
+`awarenessProtocol.applyAwarenessUpdate`, which stores each state verbatim
+and `encodeAwarenessUpdate` then rebroadcasts it. A modified browser could
+`setLocalState({ user: { id: <victimId>, name: "<victim>", role: "owner" }})`
+and every peer would render the spoofed identity. A crafted entry for a
+_peer's_ awareness clientID with a large `clock` could additionally
+overwrite / freeze that peer's presence.
+
+**Reproduction.** `backend/test/collab-awareness-security.test.ts` →
+"PRE-FIX PROOF": exercising the pre-M55 verbatim `applyAwarenessUpdate` path
+directly stores `user: {id:1, name:"victim", role:"owner"}` for an
+unauthenticated origin. Reverting only the M55 rebuild call in
+`handleMessage` and re-running the suite fails 15 / 19 tests (identity,
+grief-overwrite, field-validation, DoS, isolation); restoring it → 19 / 19.
+
+**Design — server-authoritative rebuild (no new model, nothing persisted).**
+`CollaborationRoom.sanitizeIncomingAwarenessUpdate(rawUpdate, ws, clientState)`
+decodes the y-protocols awareness frame and re-encodes it before it ever
+reaches `applyAwarenessUpdate`:
+
+- **Identity is forced** to `clientState` — `{ id: userId, name: username,
+role }` from the authenticated WS-upgrade session (`ws/index.ts` passes
+  `row.id` / `row.username` and the project `accessRole` into
+  `room.addClient`). The client's `user.*` is discarded; only a
+  syntactically-valid `user.color` (`#hex`) is carried through.
+- **clientID ownership is enforced.** A connection may only write awareness
+  entries for clientIDs it already owns or newly claims while unowned, under
+  a per-connection cap (`AWARENESS_MAX_CLIENT_IDS_PER_CONNECTION = 8`); an
+  entry for a peer's clientID is dropped. This subsumes the old
+  `attributeAwarenessClients` (disconnect cleanup attribution now happens in
+  the same pass). `removeClient` still removes exactly the owned IDs.
+- **Ephemeral fields are an allowlist rebuild** — `status` ∈
+  {online,idle,dnd}; `activity.type` ∈ the six M48 verbs, `detail` ≤ 200
+  chars, finite `timestamp`; `activeFile` bounded ≤ 512, rejected if
+  absolute / drive-letter / contains a `..` segment / has any C0 control or
+  DEL (metadata only — no filesystem access here); `cursor` / `selection`
+  coordinates must be finite and in `[0, 5_000_000]`; finite `lastActive`.
+  Unknown top-level keys are dropped, so a rogue field cannot smuggle
+  stdout / secret / command / env content.
+- Frame bounds: `> 64` entries → whole frame rejected; malformed
+  varint / non-JSON state / truncation → that entry skipped, never throws,
+  room stays healthy.
+- `client.ts` is unchanged behaviourally (one clarifying comment): it still
+  sets local `user` for its own instant self-render; peers only ever see the
+  server-stamped identity.
+
+**Access control is untouched.** `requireProjectAccess` /
+`requireOwnedProject` / the `/ws/execute` editor gate / viewer read-only
+enforcement in `handleMessage` remain the authority for real access. M55
+only fixes _displayed_ identity; awareness is not and never was a permission
+system.
+
+**Verification.**
+
+- `backend/test/collab-awareness-security.test.ts` (**19**): session
+  identity on each connection; spoofed userId / username / role /
+  fabricated identity all overwritten; peer stored-state unchanged by a
+  spoof; no grief-overwrite of a peer's clientID (clock stays 1); all six
+  activity types + three availability states pass; invalid status /
+  activity / oversized metadata / bad path / bad cursor dropped; activeFile
+  absolute/drive/traversal/NUL rejected, normal relative kept; oversized
+  `detail` dropped but type kept; malformed / huge-count / non-JSON /
+  primitive frames never throw or store junk; per-connection clientID cap;
+  over-cap frame rejected wholesale; identity correct across reconnect +
+  disconnect removes only that connection; room disposal clears + no
+  post-dispose write; 3 users distinct identities + second room isolated;
+  multiple tabs independent; no stdout/secret/command/env passthrough (only
+  `["activity","user"]` survive); PRE-FIX proof + POST-FIX neutralization.
+- `backend/test/m6-collab-coalesce-backpressure.test.ts` updated: its
+  `buildAwarenessFrame` helper carried its test payload as an arbitrary
+  `user` sub-key, which M55 now strips; switched to the real `cursor` field
+  (coalescing behaviour under test is unchanged) + a new assertion that the
+  broadcast identity is server-stamped. 8 / 8.
+- `m4-collab` (43), `m41-dispose-guards` (8) unchanged, green.
+- Full backend suite **<counts in OUTPUT>**; the 2 documented baseline
+  failures (`lifecycle.test.ts`, `pipeline.test.ts`) unchanged.
+- Full frontend suite **229** — all M48 awareness / follow / DND, M52
+  initialization, M53 execution-session, M54 run-status tests unaffected
+  (no frontend behaviour change).
+- `tsc --noEmit` both packages, `vite build`, `git diff --check`: see OUTPUT.
+- Browser QA: Chrome extension unavailable in this environment →
+  **SUBSTITUTED** by the direct-room integration tests above (real
+  `CollaborationRoom` + real y-protocols awareness frames + real
+  `applyAwarenessUpdate` / `encodeAwarenessUpdate`, spoof frames built the
+  way a modified browser would).
+
+**Known cosmetic (accepted, not a security issue):** a client still renders
+its _own_ role from local state (`admin → owner`, else `editor`), so a
+viewer sees itself labelled "editor" in its own avatar; every _peer_ sees
+the correct server `role`. Unchanged from M48; out of scope for M55.
+
+**Not done / deferred (explicitly out of scope):** no shared run output /
+terminal, no comments / reviews / notifications, no conflict
+auto-resolution, no refuse-vs-warn policy for external mutations, no Git /
+secrets / execution-lifecycle / backup changes, no Redis/pubsub, no
+Awareness persistence, no new permission model.
 
 ## Current active work
 

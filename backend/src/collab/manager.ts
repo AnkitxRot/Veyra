@@ -39,6 +39,30 @@ const RUN_STATUS_LINGER_MS = 10_000;
 const RUN_STATUS_MAX_AGE_MS = 30 * 60 * 1000;
 const RUN_STATUS_SWEEP_MS = 60_000;
 
+// M55: server-authoritative awareness identity + bounded ephemeral metadata.
+// The collaboration `user` identity was previously client-asserted and
+// rebroadcast verbatim, so a modified client could advertise another user's
+// id/name/role. Every inbound MESSAGE_AWARENESS update is now rebuilt
+// server-side: identity is forced to the authenticated WS session, only the
+// connection's own awareness clientIDs may be written, and the remaining
+// ephemeral fields are enum/-bounds-checked. Nothing here is persisted.
+const AWARENESS_STATUS_VALUES = new Set(["online", "idle", "dnd"]);
+const AWARENESS_ACTIVITY_VALUES = new Set([
+  "viewing",
+  "editing",
+  "running",
+  "terminal",
+  "searching",
+  "reviewing",
+]);
+const AWARENESS_MAX_ENTRIES_PER_FRAME = 64;
+const AWARENESS_MAX_CLIENT_IDS_PER_CONNECTION = 8;
+const AWARENESS_MAX_PATH_LEN = 512;
+const AWARENESS_MAX_DETAIL_LEN = 200;
+// Generous ceiling for a Monaco line/column — far beyond any real file, but
+// bounded so a peer can't be fed absurd/NaN/Infinity coordinates.
+const AWARENESS_MAX_COORD = 5_000_000;
+
 export type RunState = "running" | "success" | "failed" | "stopped";
 
 export interface RunStatusEntry {
@@ -752,23 +776,25 @@ export class CollaborationRoom {
         }
 
         case MESSAGE_AWARENESS: {
-          const update = decoding.readVarUint8Array(decoder);
-          // Capture the real awareness clientID(s) carried by THIS update so the
-          // connection's presence can be cleaned up precisely on disconnect.
-          const seen: number[] = [];
-          const capture = (
-            { added, updated }: { added: number[]; updated: number[] },
-            origin: any,
-          ) => {
-            if (origin === ws) seen.push(...added, ...updated);
-          };
-          this.awareness.on("update", capture);
-          try {
-            awarenessProtocol.applyAwarenessUpdate(this.awareness, update, ws);
-          } finally {
-            this.awareness.off("update", capture);
+          const rawUpdate = decoding.readVarUint8Array(decoder);
+          // M55: rebuild the update so the identity encoded in every state is
+          // this connection's authenticated session, only this connection's
+          // own awareness clientIDs are written (a peer's entry can't be
+          // hijacked or griefed), and the ephemeral fields are bounded. The
+          // clientID attribution needed for precise disconnect cleanup
+          // happens inside this same pass.
+          const sanitized = this.sanitizeIncomingAwarenessUpdate(
+            rawUpdate,
+            ws,
+            clientState,
+          );
+          if (sanitized) {
+            awarenessProtocol.applyAwarenessUpdate(
+              this.awareness,
+              sanitized,
+              ws,
+            );
           }
-          this.attributeAwarenessClients(ws, clientState, seen);
           break;
         }
 
@@ -869,33 +895,263 @@ export class CollaborationRoom {
     }
   }
 
+  // --- M55: server-authoritative awareness identity ----------------------
+
   /**
-   * Records awareness clientIDs as belonging to a specific connection.
-   * IDs already attributed to another live connection (or to the room's own doc)
-   * are ignored, so a client can never cause removal of someone else's presence.
+   * Rebuilds a raw client MESSAGE_AWARENESS update into a trusted one:
+   *
+   *  - **Identity is forced** to `clientState` (the authenticated WS
+   *    session). Whatever `user.id` / `user.name` / `user.role` the client
+   *    encoded is discarded — a modified browser can never advertise another
+   *    user. Only a syntactically-safe `user.color` is carried through.
+   *  - **clientID ownership is enforced.** A connection may only write
+   *    awareness entries for clientIDs it already owns or can newly claim
+   *    (nobody else holds them, under a per-connection cap). An entry for a
+   *    peer's clientID — the vector for overwriting/greifing someone else's
+   *    presence with a high clock — is dropped. This is also where the
+   *    attribution used for precise disconnect cleanup is recorded.
+   *  - **Ephemeral fields are bounded**: status/activity enums, a
+   *    workspace-relative bounded `activeFile`, finite in-range cursor /
+   *    selection coordinates, finite `lastActive`. Unknown top-level fields
+   *    are dropped entirely, so a rogue field can never smuggle content.
+   *
+   * Returns the re-encoded update, or `null` when nothing survives (the
+   * caller then skips applyAwarenessUpdate). Never throws.
    */
-  private attributeAwarenessClients(
+  private sanitizeIncomingAwarenessUpdate(
+    rawUpdate: Uint8Array,
     ws: WebSocket,
     clientState: CollaboratorClientState,
-    clientIds: number[],
-  ): void {
-    for (const clientId of clientIds) {
-      if (clientId === this.doc.clientID) continue;
-
-      let ownedElsewhere = false;
-      for (const [otherWs, otherState] of this.clients.entries()) {
-        if (otherWs !== ws && otherState.awarenessClientIds?.has(clientId)) {
-          ownedElsewhere = true;
-          break;
-        }
-      }
-      if (ownedElsewhere) continue;
-
-      if (!clientState.awarenessClientIds) {
-        clientState.awarenessClientIds = new Set<number>();
-      }
-      clientState.awarenessClientIds.add(clientId);
+  ): Uint8Array | null {
+    let decoder: decoding.Decoder;
+    let count: number;
+    try {
+      decoder = decoding.createDecoder(rawUpdate);
+      count = decoding.readVarUint(decoder);
+    } catch {
+      return null;
     }
+    if (!Number.isInteger(count) || count < 0) return null;
+    if (count > AWARENESS_MAX_ENTRIES_PER_FRAME) return null;
+
+    const kept: Array<{ clientId: number; clock: number; state: unknown }> = [];
+
+    for (let i = 0; i < count; i++) {
+      let clientId: number;
+      let clock: number;
+      let rawState: string;
+      try {
+        clientId = decoding.readVarUint(decoder);
+        clock = decoding.readVarUint(decoder);
+        rawState = decoding.readVarString(decoder);
+      } catch {
+        // Truncated frame — keep whatever fully-decoded entries we have.
+        break;
+      }
+
+      // The room's own doc.clientID is an internal Yjs detail; never a client.
+      if (clientId === this.doc.clientID) continue;
+      // A peer's awareness entry is off-limits to this connection.
+      if (this.awarenessClientIdOwnedByOther(clientId, ws)) continue;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawState);
+      } catch {
+        continue;
+      }
+
+      const owned = clientState.awarenessClientIds;
+
+      if (parsed === null) {
+        // A client may retire only a clientID it actually owns.
+        if (owned?.has(clientId)) {
+          kept.push({ clientId, clock, state: null });
+        }
+        continue;
+      }
+      if (typeof parsed !== "object") continue;
+
+      // Claim the clientID for this connection (bounded).
+      if (!owned) {
+        clientState.awarenessClientIds = new Set<number>([clientId]);
+      } else if (!owned.has(clientId)) {
+        if (owned.size >= AWARENESS_MAX_CLIENT_IDS_PER_CONNECTION) continue;
+        owned.add(clientId);
+      }
+
+      kept.push({
+        clientId,
+        clock,
+        state: this.buildAuthoritativeAwarenessState(
+          parsed as Record<string, unknown>,
+          clientState,
+        ),
+      });
+    }
+
+    if (kept.length === 0) return null;
+
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, kept.length);
+    for (const entry of kept) {
+      encoding.writeVarUint(encoder, entry.clientId);
+      encoding.writeVarUint(encoder, entry.clock);
+      encoding.writeVarString(encoder, JSON.stringify(entry.state));
+    }
+    return encoding.toUint8Array(encoder);
+  }
+
+  /**
+   * True when `clientId` is already attributed to a DIFFERENT live
+   * connection in this room — that peer's presence must not be writable by
+   * `ws` (identity spoof / high-clock overwrite grief).
+   */
+  private awarenessClientIdOwnedByOther(
+    clientId: number,
+    ws: WebSocket,
+  ): boolean {
+    for (const [otherWs, otherState] of this.clients.entries()) {
+      if (otherWs !== ws && otherState.awarenessClientIds?.has(clientId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Builds the trusted awareness state for one entry: server-authoritative
+   * identity + an allowlist of bounded ephemeral fields. `incoming` is the
+   * untrusted client-decoded object.
+   */
+  private buildAuthoritativeAwarenessState(
+    incoming: Record<string, unknown>,
+    clientState: CollaboratorClientState,
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+
+    // Identity — ALWAYS the authenticated session, never the client's claim.
+    const user: Record<string, unknown> = {
+      id: clientState.userId,
+      name: clientState.username,
+      role: clientState.role,
+    };
+    const incomingUser = incoming.user;
+    if (incomingUser && typeof incomingUser === "object") {
+      const color = (incomingUser as Record<string, unknown>).color;
+      if (typeof color === "string" && /^#[0-9a-fA-F]{3,8}$/.test(color)) {
+        user.color = color;
+      }
+    }
+    out.user = user;
+
+    if (
+      typeof incoming.status === "string" &&
+      AWARENESS_STATUS_VALUES.has(incoming.status)
+    ) {
+      out.status = incoming.status;
+    }
+
+    const activity = incoming.activity;
+    if (
+      activity &&
+      typeof activity === "object" &&
+      typeof (activity as Record<string, unknown>).type === "string" &&
+      AWARENESS_ACTIVITY_VALUES.has(
+        (activity as Record<string, unknown>).type as string,
+      )
+    ) {
+      const a = activity as Record<string, unknown>;
+      const cleaned: Record<string, unknown> = { type: a.type };
+      if (a.detail === null) {
+        cleaned.detail = null;
+      } else if (
+        typeof a.detail === "string" &&
+        a.detail.length <= AWARENESS_MAX_DETAIL_LEN
+      ) {
+        cleaned.detail = a.detail;
+      }
+      if (typeof a.timestamp === "number" && Number.isFinite(a.timestamp)) {
+        cleaned.timestamp = a.timestamp;
+      }
+      out.activity = cleaned;
+    }
+
+    const activeFile = this.sanitizeAwarenessFilePath(incoming.activeFile);
+    if (activeFile !== undefined) out.activeFile = activeFile;
+
+    const cursor = incoming.cursor;
+    if (cursor === null) {
+      out.cursor = null;
+    } else if (cursor && typeof cursor === "object") {
+      const c = cursor as Record<string, unknown>;
+      if (this.isAwarenessCoord(c.line) && this.isAwarenessCoord(c.column)) {
+        out.cursor = { line: c.line, column: c.column };
+      }
+    }
+
+    const selection = incoming.selection;
+    if (selection === null) {
+      out.selection = null;
+    } else if (selection && typeof selection === "object") {
+      const s = selection as Record<string, unknown>;
+      if (
+        this.isAwarenessCoord(s.startLine) &&
+        this.isAwarenessCoord(s.startColumn) &&
+        this.isAwarenessCoord(s.endLine) &&
+        this.isAwarenessCoord(s.endColumn)
+      ) {
+        out.selection = {
+          startLine: s.startLine,
+          startColumn: s.startColumn,
+          endLine: s.endLine,
+          endColumn: s.endColumn,
+        };
+      }
+    }
+
+    if (
+      typeof incoming.lastActive === "number" &&
+      Number.isFinite(incoming.lastActive)
+    ) {
+      out.lastActive = incoming.lastActive;
+    }
+
+    return out;
+  }
+
+  private isAwarenessCoord(n: unknown): n is number {
+    return (
+      typeof n === "number" &&
+      Number.isFinite(n) &&
+      n >= 0 &&
+      n <= AWARENESS_MAX_COORD
+    );
+  }
+
+  /**
+   * `activeFile` is broadcast to every collaborator, so it must look like a
+   * bounded workspace-relative path — never absolute, never traversal, never
+   * a control-char / NUL carrier. This is metadata only: NO filesystem
+   * access happens here (that stays in ensureFileLoaded, with its own
+   * realpath guard). Returns a string to keep, `null` for an explicit
+   * clear, or `undefined` to drop the field.
+   */
+  private sanitizeAwarenessFilePath(value: unknown): string | null | undefined {
+    if (value === null) return null;
+    if (typeof value !== "string") return undefined;
+    if (value.length === 0 || value.length > AWARENESS_MAX_PATH_LEN) {
+      return undefined;
+    }
+    // Reject C0 control characters (incl. NUL) and DEL.
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i);
+      if (code < 0x20 || code === 0x7f) return undefined;
+    }
+    const norm = value.replace(/\\/g, "/");
+    if (norm.startsWith("/") || /^[a-zA-Z]:/.test(norm)) return undefined;
+    if (norm.split("/").some((seg) => seg === "..")) return undefined;
+    return value;
   }
 
   /**

@@ -147,7 +147,13 @@ export class CollaborationClient {
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
 
-    // Configure user awareness with M48 rich presence fields
+    // Configure user awareness with M48 rich presence fields.
+    // M55: the server no longer trusts the identity a client encodes here —
+    // every inbound awareness update is rebuilt server-side so `user.id` /
+    // `user.name` / `user.role` are forced to the authenticated session
+    // before rebroadcast (only `user.color` and the ephemeral fields survive
+    // as sent). This local state is still set for the client's own instant
+    // self-render; peers only ever see the server-stamped identity.
     this.awareness.setLocalStateField("user", {
       id: this.user.id,
       name: this.user.username,
