@@ -230,7 +230,16 @@ export async function restoreWorkspaceBackup(
   filename: string,
   options?: {
     actorUserId?: number;
+    actorUsername?: string;
     ipAddress?: string;
+    /**
+     * M56: proceed even if the live collaboration room's latest in-memory
+     * edits could NOT be flushed to disk within the safety window
+     * (explicitly discarding them). Without this, an un-flushable dirty room
+     * aborts the restore with a 409 `collab_flush_failed` before anything is
+     * touched.
+     */
+    force?: boolean;
     /**
      * Test-only: invoked once, immediately after QUIESCE's pre-swap room
      * dispose and before SWAP begins. Lets `workspace-restore.test.ts`
@@ -266,6 +275,24 @@ export async function restoreWorkspaceBackup(
 
   try {
     return await withProjectSnapshotLock(projectId, async () => {
+      // M56: FLUSH-BEFORE-DESTROY. A live room may hold collaborative edits
+      // that exist only in memory inside the debounce window; disposing it
+      // (below) destroys the Y.Doc and loses them. Persist them FIRST, while
+      // the room is still alive. This runs before any filesystem mutation,
+      // so if the flush cannot complete within the bound we abort here with
+      // the workspace still completely untouched and the room still alive —
+      // no rollback needed. `force` explicitly accepts the loss.
+      const flushResult =
+        await collaborationManager.flushRoomBeforeDestruction(projectId);
+      if (!flushResult.flushed && !options?.force) {
+        throw new ApiError(
+          409,
+          `Restore blocked: ${flushResult.remainingDirty.length} file(s) have unsaved collaborative edits that could not be persisted within the safety window. Retry, or force the restore to discard them.`,
+          "collab_flush_failed",
+          { remainingDirty: flushResult.remainingDirty },
+        );
+      }
+
       // QUIESCE — matches importProjectZip's (M21) teardown sequence.
       collaborationManager.getRoom(projectId)?.dispose();
       if (options?.__testHookAfterQuiesce) {
@@ -446,6 +473,16 @@ export async function restoreWorkspaceBackup(
         collaborationManager.getRoom(projectId)?.dispose();
         invalidateTreeCache(cwd);
         touchProject(db, projectId);
+
+        // M56: record the whole-workspace replacement so any collaborator
+        // who was force-disconnected by the dispose above learns why (and
+        // that their content changed) when they reconnect within the TTL.
+        collaborationManager.registerDestructiveMutation(
+          projectId,
+          "workspace_restore",
+          options?.actorUserId,
+          options?.actorUsername,
+        );
 
         try {
           await fs.rm(rollbackDir, { recursive: true, force: true });

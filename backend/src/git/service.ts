@@ -961,6 +961,7 @@ export async function checkoutBranch(
   projectId: string,
   name: unknown,
   dirtyOpenPaths: unknown,
+  opts?: { preview?: boolean },
 ): Promise<
   | { ok: true; branch: string; changedPaths: string[] }
   | { ok: false; conflict: true; blockingPaths: string[] }
@@ -1031,6 +1032,13 @@ export async function checkoutBranch(
 
   if (blocking.length > 0) {
     return { ok: false, conflict: true, blockingPaths: blocking };
+  }
+
+  // M56: preview mode computes the change set + runs the initiator dirty
+  // check without switching branches, so the route can consult live
+  // collaboration state before committing to the checkout.
+  if (opts?.preview) {
+    return { ok: true, branch: branchName, changedPaths: [...changed].sort() };
   }
 
   await runGit(cfg, projectId, ["checkout", branchName, "--"]);

@@ -157,16 +157,24 @@ describe("CollaborationClient — Ambient Presence, Activity State Machine & Pri
     } as any);
 
     client.setActivity("running", "Running python main.py");
-    expect((client.awareness.getLocalState() as any).activity.type).toBe("running");
+    expect((client.awareness.getLocalState() as any).activity.type).toBe(
+      "running",
+    );
 
     client.restoreActivity();
-    expect((client.awareness.getLocalState() as any).activity.type).toBe("viewing");
+    expect((client.awareness.getLocalState() as any).activity.type).toBe(
+      "viewing",
+    );
 
     client.setActivity("terminal");
-    expect((client.awareness.getLocalState() as any).activity.type).toBe("terminal");
+    expect((client.awareness.getLocalState() as any).activity.type).toBe(
+      "terminal",
+    );
 
     client.restoreActivity();
-    expect((client.awareness.getLocalState() as any).activity.type).toBe("viewing");
+    expect((client.awareness.getLocalState() as any).activity.type).toBe(
+      "viewing",
+    );
 
     client.dispose();
   });
@@ -195,6 +203,68 @@ describe("CollaborationClient — Ambient Presence, Activity State Machine & Pri
       endColumn: 25,
     });
 
+    client.dispose();
+  });
+
+  // --- M56: activeFileDirty bit ---------------------------------------
+
+  it("mirrors setActiveFileDirty() into a single bounded awareness bit, deduping repeats", () => {
+    const client = new CollaborationClient("proj-1", {
+      id: 42,
+      username: "alice",
+    } as any);
+
+    expect(
+      (client.awareness.getLocalState() as any).activeFileDirty,
+    ).toBeUndefined();
+
+    client.setActiveFileDirty(true);
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
+      true,
+    );
+
+    // No arbitrary path list is ever emitted — only the boolean.
+    const st = client.awareness.getLocalState() as any;
+    expect(st.dirtyPaths).toBeUndefined();
+
+    client.setActiveFileDirty(false);
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
+      false,
+    );
+
+    client.dispose();
+  });
+
+  it("clears the dirty bit on file switch (notifyFileOpen)", () => {
+    const client = new CollaborationClient("proj-1", {
+      id: 42,
+      username: "alice",
+    } as any);
+
+    client.notifyFileOpen("a.ts");
+    client.setActiveFileDirty(true);
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
+      true,
+    );
+
+    client.notifyFileOpen("b.ts");
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
+      false,
+    );
+
+    client.dispose();
+  });
+
+  it("never reports another user's dirty state — setActiveFileDirty only touches local state", () => {
+    const client = new CollaborationClient("proj-1", {
+      id: 42,
+      username: "alice",
+    } as any);
+    client.setActiveFileDirty(true);
+    // Only this client's own awareness entry carries the bit.
+    const states = client.awareness.getStates();
+    const own = states.get(client.awareness.clientID) as any;
+    expect(own.activeFileDirty).toBe(true);
     client.dispose();
   });
 });

@@ -1211,12 +1211,20 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
         checkLimit(req);
         const { projectId, filename } = req.params;
         const actorUserId = (req as any).user?.id;
+        const actorUsername = (req as any).user?.username;
         const result = await restoreWorkspaceBackup(
           cfg,
           db,
           projectId,
           filename,
-          { actorUserId, ipAddress: req.ip },
+          {
+            actorUserId,
+            actorUsername,
+            ipAddress: req.ip,
+            // M56: opt-in override when a live collab room's unsaved edits
+            // cannot be flushed within the safety window.
+            force: req.body?.force === true,
+          },
         );
         res.json({ ok: true, restore: result });
       } catch (err) {

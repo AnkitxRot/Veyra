@@ -52,6 +52,8 @@ import type {
   CollaborationClient,
   CollaboratorPresence,
   CollabConnectionStatus,
+  ExternalMutationNotice,
+  MutationType,
 } from "../../collab/client";
 import ProjectSharingModal from "../Collab/ProjectSharingModal";
 import ProjectSecretsModal from "../ProjectSecrets/ProjectSecretsModal";
@@ -78,6 +80,26 @@ import {
   IconActivity,
   IconGitBranch,
 } from "../common/Icons";
+
+// M56: human-readable label for an external-mutation notice.
+function describeMutationType(t: MutationType): string {
+  switch (t) {
+    case "replace":
+      return "Replace All";
+    case "git_checkout":
+      return "Branch checkout";
+    case "workspace_restore":
+      return "restored the workspace";
+    case "workspace_import":
+      return "imported a new workspace";
+    case "snapshot_restore":
+      return "Snapshot restore";
+    case "upload":
+      return "File upload";
+    default:
+      return "External change";
+  }
+}
 
 export default function IDE({
   user,
@@ -166,6 +188,14 @@ export default function IDE({
   const [replaceReconcileNotice, setReplaceReconcileNotice] = useState<
     string | null
   >(null);
+  // M56: dismissible informational banner when another collaborator (or an
+  // admin operation) mutated a file this client currently has open. Metadata
+  // only — Yjs / the M50 reconciler still own the actual content.
+  const [externalMutationNotice, setExternalMutationNotice] = useState<{
+    text: string;
+    key: string;
+  } | null>(null);
+  const externalMutationTimerRef = useRef<number | null>(null);
 
   // M4: Real-Time Multiplayer Collaboration States
   const [collabClient, setCollabClient] = useState<CollaborationClient | null>(
@@ -280,6 +310,7 @@ export default function IDE({
     let unsubAwareness: (() => void) | undefined;
     let unsubRunStatus: (() => void) | undefined;
     let unsubConnection: (() => void) | undefined;
+    let unsubExternalMutation: (() => void) | undefined;
     let throttledSetCollaborators: ReturnType<
       typeof throttleLatest<CollaboratorPresence[]>
     > | null = null;
@@ -317,6 +348,38 @@ export default function IDE({
           setCollabStatus(status);
         },
       );
+
+      // M56: informational notice that an external mutation touched a file.
+      // For a whole-workspace replacement (path === null) always show it; for
+      // a single path, only if that file is currently open here.
+      unsubExternalMutation = client.on(
+        "external_mutation_notice",
+        (n: ExternalMutationNotice) => {
+          const openHere =
+            n.path === null ||
+            openFilesRef.current.some((f) => f.path === n.path);
+          if (!openHere) return;
+          const label = describeMutationType(n.mutationType);
+          const text =
+            n.path === null
+              ? `${n.actor.username} ${label}`
+              : `${n.actor.username} changed ${n.path.split("/").pop()} externally` +
+                ` · ${label}` +
+                (typeof n.matchCount === "number"
+                  ? ` · ${n.matchCount} ${n.matchCount === 1 ? "match" : "matches"}`
+                  : "");
+          const key = `${n.actor.userId}:${n.path ?? "*"}:${n.mutationType}`;
+          setExternalMutationNotice({ text, key });
+          if (externalMutationTimerRef.current) {
+            window.clearTimeout(externalMutationTimerRef.current);
+          }
+          externalMutationTimerRef.current = window.setTimeout(() => {
+            setExternalMutationNotice((cur) =>
+              cur && cur.key === key ? null : cur,
+            );
+          }, 8000);
+        },
+      );
     })();
 
     // Fetch project access role
@@ -333,6 +396,11 @@ export default function IDE({
       unsubAwareness?.();
       unsubRunStatus?.();
       unsubConnection?.();
+      unsubExternalMutation?.();
+      if (externalMutationTimerRef.current) {
+        window.clearTimeout(externalMutationTimerRef.current);
+      }
+      setExternalMutationNotice(null);
       client?.dispose();
       if (collabClientRef.current === client) {
         collabClientRef.current = null;
@@ -414,6 +482,16 @@ export default function IDE({
       loadTree();
     }
   }, [project, loadTree]);
+
+  // M56: mirror the active editor tab's unsaved state into collaboration
+  // awareness (a single bounded `activeFileDirty` bit) so another
+  // collaborator's destructive operation can warn before overwriting it.
+  useEffect(() => {
+    const client = collabClientRef.current;
+    if (!client) return;
+    const cur = openFiles.find((f) => f.path === activeFile);
+    client.setActiveFileDirty(!!cur?.dirty);
+  }, [activeFile, openFiles, collabClient]);
 
   const handleOpenFile = async (path: string) => {
     if (!project) return;
@@ -1890,6 +1968,34 @@ export default function IDE({
               className="glass-btn glass-btn-ghost"
               style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
               onClick={() => setReplaceReconcileNotice(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* M56: external-mutation informational notice */}
+        {externalMutationNotice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="external-mutation-banner"
+            style={{
+              position: "fixed",
+              bottom: "40px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 9000,
+              maxWidth: "560px",
+              width: "calc(100% - 48px)",
+            }}
+          >
+            <span className="emb-text">{externalMutationNotice.text}</span>
+            <button
+              type="button"
+              className="glass-btn glass-btn-ghost emb-dismiss"
+              style={{ fontSize: "11px", padding: "2px 8px" }}
+              onClick={() => setExternalMutationNotice(null)}
             >
               Dismiss
             </button>

@@ -20,6 +20,10 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     const message = data?.error?.message ?? `request failed (${res.status})`;
     const err = new Error(message);
     (err as any).code = data?.error?.code;
+    (err as any).status = res.status;
+    // Full response body — lets callers read structured 409 details such as
+    // M56's `collaboratorImpacts` / `remainingDirty`.
+    (err as any).body = data;
     throw err;
   }
   return data;

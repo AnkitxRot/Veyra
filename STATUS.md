@@ -64,7 +64,20 @@ Last updated: 2026-08-28.
     ephemeral, in-memory per-room registry that broadcasts to collaborators;
     server-authenticated identity, server `executionId` / `startedAt`; NO
     stdout/stderr/terminal/command/env/secret is ever broadcast; the browser
-    never authors a run-status message) in this commit.
+    never authors a run-status message) at `1c9c916`.
+  - Milestone 55 (server-authoritative collaboration identity & awareness
+    integrity — every inbound `MESSAGE_AWARENESS` frame is rebuilt server
+    side; identity forced to the authenticated session, peer clientIDs
+    protected, ephemeral fields allowlisted, unknown keys dropped) at
+    `ef01f2f`.
+  - Milestone 56 (collaboration-safe destructive operations — flush a live
+    Yjs room to disk before full restore/replace-import destroys it
+    (`flushBeforeDestructiveDispose`, timeout-bounded, `409
+collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
+    awareness bit; `getCollaboratorFileState` preflight for Git checkout &
+    Replace All with a `collaborator_dirty_conflict` gate; server-built
+    `external_mutation_notice` metadata frames with a strict 6-value
+    mutation-type enum) in this commit.
 - **Current uncommitted work:** none.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
@@ -4269,6 +4282,188 @@ terminal, no comments / reviews / notifications, no conflict
 auto-resolution, no refuse-vs-warn policy for external mutations, no Git /
 secrets / execution-lifecycle / backup changes, no Redis/pubsub, no
 Awareness persistence, no new permission model.
+
+## Milestone 56 — Collaboration-safe destructive operations
+
+**Bug (confirmed, silent data loss).** Full-workspace restore
+(`backup/workspaceRestore.ts`) and replace-import (`projects/archive.ts`)
+both call `CollaborationRoom.dispose()` — which destroys the Y.Doc — with
+NO `flushToDisk()` in the call chain. A collaborator's edit that is still
+only in the room's in-memory Y.Text inside the 2 s debounce / 10 s
+max-flush window is destroyed with the doc. `flushToDisk()` deliberately
+cannot be reused here: its first line is `if (this.disposed) return;` (the
+load-bearing M41 guard), and by dispose time it is too late anyway.
+
+**Reproduction.** `backend/test/m56-collaboration-safe-mutations.test.ts`
+case 1 builds a real `CollaborationRoom`, applies an in-memory Y.Text edit
+that is never flushed, and shows the new primitive persists it; case 12
+(replace-import) fails when the D2 flush call is reverted (pre-fix proof).
+
+**Flush-before-destroy contract.**
+`CollaborationRoom.flushBeforeDestructiveDispose({ timeoutMs? })` →
+`{ flushed: boolean; remainingDirty: string[] }`:
+
+- separate method — does NOT relax `flushToDisk()`'s disposed guard, is NOT
+  wired into `dispose()`. Called only BEFORE dispose, while the room is
+  still alive, from the two destructive-replacement callsites.
+- best-effort, `withTimeout(..., 5000 ms)` (reuses the existing module
+  `withTimeout` / `PER_ROOM_FLUSH_TIMEOUT_MS` plumbing).
+- no double flush: a concurrent second caller awaits the same in-flight
+  promise.
+- `flushed: true` ⇒ every dirty file written, destruction is safe.
+  `flushed: false` ⇒ `remainingDirty` could not be persisted in the bound.
+- disposed room ⇒ `{ flushed: false, remainingDirty: [] }`, no write.
+  Manager wrapper `flushRoomBeforeDestruction(projectId)` → `{ flushed:true }`
+  when no room exists (nothing to lose).
+
+**Timeout semantics / failure behaviour.** `restoreWorkspaceBackup` and
+`importProjectZip` gained a `force?: boolean`. Inside the existing
+`withProjectSnapshotLock`, BEFORE the QUIESCE dispose and before ANY
+filesystem mutation: flush; if `!flushed && !force` → throw
+`ApiError(409, …, "collab_flush_failed", { remainingDirty })`. Aborting
+there is free — the workspace is untouched, the room is still alive, no
+rollback path is entered. `force: true` (admin restore route `req.body`,
+import route `?force=`/`body.force`) proceeds and explicitly discards the
+un-flushable edits.
+
+**Destructive-operation ordering (unchanged except the two inserts).**
+Restore: PREPARE → lock → **flush (abort 409 if needed)** → QUIESCE
+dispose → stopSandbox → telemetry → SWAP → VERIFY → RECONNECT dispose →
+**`registerDestructiveMutation("workspace_restore", actor)`** → audit.
+Import: identical with `fs.rm(cwd)` in place of SWAP. All existing
+rollback / quarantine / DB-snapshot / VERIFY / v1-v2-manifest machinery is
+untouched.
+
+**Restore stays authoritative after the flush.** The flush writes into the
+OLD workspace dir, which SWAP then renames wholesale into rollback staging
+(restore) or `fs.rm`s (import); the room is disposed immediately after and
+the next `getOrCreateRoom` + `ensureFileLoaded` reads only the NEW on-disk
+content. There is no merge path — a pre-restore edit cannot resurrect
+(m56 cases 9 / 12 assert the restore/import target content wins).
+
+**Collaborator-impact detection — editing ≠ dirty.**
+`CollaborationRoom.getCollaboratorFileState(paths, excludeUserId?)` →
+`{ userId, username, role, path, open, editing, dirty: boolean|"unknown" }[]`
+(plain data only — never a WebSocket / Y.Doc / Y.Text). `editing` is the
+existing awareness `activity.type === "editing"`. `dirty` is `"unknown"`
+unless the collaborator's own client reported an `activeFileDirty` bit —
+`"unknown"` is rendered as "editing this file", NEVER "unsaved changes".
+
+**Dirty awareness — one bounded bit.** The M55 allowlist builder
+`buildAuthoritativeAwarenessState` gains exactly one line:
+`if (typeof incoming.activeFileDirty === "boolean") out.activeFileDirty = …`.
+`out` is still rebuilt from scratch and never spreads `incoming`, so a
+client-supplied `dirtyPaths` list (or any other key) is structurally
+dropped — no path list, no content, no filesystem access, nothing
+persisted. A connection can only ever report its OWN bit for its OWN
+active file (peer-clientID ownership from M55 still enforced). Frontend
+(`collab/client.ts`): `setActiveFileDirty(bool)` mirrors the active
+editor tab's dirty flag; cleared on file switch (`notifyFileOpen`), on
+save, and on `resetLocalCollabState` (reconnect / explicit disposal /
+project switch).
+
+**Gating.**
+
+- Git checkout (`git/routes.ts`, inside the existing `locked()`): a new
+  `checkoutBranch(..., { preview: true })` computes the change set + runs
+  the initiator dirty check without switching; the route then consults
+  `getCollaboratorFileState`; a `dirty === true` collaborator on a file the
+  checkout would overwrite → `409 collaborator_dirty_conflict` (with
+  `collaboratorImpacts`) unless `body.force`. "editing" alone never blocks.
+- Replace All (`projects/routes.ts`): the dry-run response carries
+  `collaboratorImpacts`; the apply path throws the same 409 before the
+  safety snapshot when a selected file has a known-dirty collaborator and
+  `body.force !== true`.
+- Both are best-effort server-side final guards (evaluated as late as
+  practical inside the same project lock as the mutation). A warning is
+  NOT a perfect lock — a collaborator can go dirty in the microtask gap;
+  no atomic multi-user conflict resolution is claimed.
+
+**Mutation-notice design (server-authoritative, metadata only).** New
+`MESSAGE_CUSTOM` sub-type `external_mutation_notice`, frame
+`{ type, path: string|null, mutationType, actor:{userId,username},
+timestamp, matchCount? }`, built entirely server-side.
+`MUTATION_TYPES = replace | git_checkout | workspace_restore |
+workspace_import | snapshot_restore | upload` (every value maps to an
+operation that actually exists). `CollaborationManager.emitExternalMutationNotice`
+fans out one frame per affected non-initiating collaborator whose CURRENT
+active file is one of the mutated paths (bounded by room-member count,
+deduped within 1000 ms, bounded dedup map). Wired into Replace All apply,
+git checkout success, snapshot restore, and upload — alongside the
+existing `notifyExternalFileMutation` Y.Doc convergence, never replacing
+it. For the whole-workspace destructive types the room is (about to be)
+gone, so `registerDestructiveMutation` records a TTL-60 s / cap-200 entry
+that `addClient` replays (once, `path: null`) to a reconnecting non-actor.
+Client side is RECEIVE-only (like `file_ready` / `run_status`) — a peer
+cannot fabricate it. Frontend surfaces: `CollaboratorImpactNotice.tsx`
+(Git checkout + Replace All confirmations), a dismissible
+`external-mutation-banner` in `IDE.tsx` (auto-dismiss 8 s, replace-not-
+stack on same actor+path), and a "Force restore (discard unsaved edits)"
+path in `AdminBackupsPanel.tsx` on `collab_flush_failed`.
+
+**Privacy invariant.** No notice or awareness field ever carries file
+contents, diffs, selected text, commands, stdout/stderr, environment, or
+secrets — only a workspace-relative path, an enum, server-stamped actor
+identity, a server timestamp, and an optional match count.
+`errors.ts` `ApiError` gained an optional `details` bag used only to carry
+`collaboratorImpacts` (username + path + editing/dirty flags, all within
+the same already-shared project) / `remainingDirty` (path list).
+
+**Verification.**
+
+- `backend/test/m56-collaboration-safe-mutations.test.ts` — **31**:
+  flushBeforeDestructiveDispose (dirty flush / clean no-write / idempotent
+  / disposed no-op / concurrent single flush / timeout-bounded / multi-file
+  / M41 guard intact / multi-room isolation); restore+import (flush wired &
+  target authoritative, 409 `collab_flush_failed` with workspace untouched
+  & room alive, `force` bypass, rollback still restores original, destructive
+  record replayed to reconnecting non-actor / not to actor, disposal still
+  closes clients); getCollaboratorFileState (clean / editing-only never a
+  false dirty claim / explicitly-dirty / excludeUserId / unrelated file /
+  viewer role / project isolation / disconnect removes); emitExternalMutationNotice
+  (non-initiator receives / initiator does not / different file none / no
+  file none / invalid enum no-op / dedup / destructive-record TTL / unknown
+  actor ignored).
+- `backend/test/collab-awareness-security.test.ts` — **23** (was 19):
+  +activeFileDirty accepted & attributed, non-boolean dropped, a
+  client-supplied `dirtyPaths: ["../other-project/secret.env"]` list is
+  discarded entirely with NO filesystem op, peer cannot claim another
+  collaborator's dirty state.
+- `frontend/test/CollaboratorImpactNotice.test.tsx` — **5**: empty list
+  renders nothing; "viewing" / "editing" (never "unsaved" when dirty
+  unknown) / "unsaved changes" only when `dirty === true`; no content
+  leakage.
+- `frontend/test/collab.awareness.test.ts` — +3: `setActiveFileDirty`
+  mirrors one bounded bit & dedups; cleared on file switch; only touches
+  local state.
+- Full backend suite: **699 passed / 38 skipped**; **2 failed —
+  `pipeline.test.ts` and `m16-optimization.test.ts`**, both pre-existing
+  and Docker-environment-only (confirmed identical on clean `ef01f2f` via
+  `git stash`; Docker is down in this environment — `lifecycle.test.ts`
+  skips for the same reason). Not modified.
+- Full frontend suite: **237 passed** (was 229). M48 / M50 / M51 / M52 /
+  M53 / M54 tests all unaffected.
+- `tsc --noEmit` both packages: PASS. `vite build`: PASS.
+  `git diff --check`: clean.
+- Browser QA: Chrome extension unavailable in this environment →
+  **SUBSTITUTED** by the real-`CollaborationRoom` + real y-protocols
+  awareness-frame integration tests above (`BROWSER_QA | SUBSTITUTED`).
+  Live Docker end-to-end (restore/checkout/replace with real containers)
+  also substituted — Docker daemon is not running here.
+
+**Explicitly documented limits.** Editing does NOT equal dirty. Only a
+collaborator's own client can report its own `activeFileDirty` bit — the
+server never accepts "user X is dirty on user Y's file". No file content
+enters any notice or awareness field. After the safety flush the requested
+restore/import remains fully destructive and authoritative. No atomic
+multi-user conflict resolution is claimed — the pre-flight collaborator
+check is a best-effort warning, not a lock.
+
+**Not done / out of scope:** no AST/semantic conflict detection, no shared
+stdout/stderr or terminal, no comments/reviews, no notifications
+subsystem, no Git-remote policy change, no deployment/AI, no Redis/pubsub
+or distributed infra, no awareness persistence, no broad collaboration
+redesign, no arbitrary dirty-path list, no M47 secret-architecture change.
 
 ## Current active work
 

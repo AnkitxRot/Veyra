@@ -270,6 +270,7 @@ export async function uploadProjectFiles(
   touchProject(db, project.id);
 
   // Sync open collab buffers if text
+  const mutatedRelPaths: string[] = [];
   for (const item of normalizedItems) {
     try {
       const isLikelyText = !item.buffer.includes(0);
@@ -278,6 +279,20 @@ export async function uploadProjectFiles(
         await collaborationManager.notifyExternalFileMutation(project.id, item.relDest, textContent);
       }
     } catch {}
+    mutatedRelPaths.push(item.relDest);
+  }
+
+  // M56: metadata-only external-mutation notice to affected collaborators.
+  const uploadActor = db
+    .prepare('SELECT username FROM users WHERE id = ?')
+    .get(userId) as { username: string } | undefined;
+  if (uploadActor && mutatedRelPaths.length > 0) {
+    collaborationManager.emitExternalMutationNotice(project.id, {
+      paths: mutatedRelPaths,
+      mutationType: 'upload',
+      actorUserId: userId,
+      actorUsername: uploadActor.username,
+    });
   }
 
   // 8. Record audit log

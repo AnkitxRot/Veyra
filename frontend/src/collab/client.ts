@@ -51,6 +51,31 @@ export interface CollaboratorPresence {
   cursor?: { line: number; column: number } | null;
   selection?: SelectionRange | null;
   lastActive: number;
+  /**
+   * M56: whether this collaborator's client has UNSAVED local buffer edits
+   * in its active file. `undefined` means the client did not report a bit —
+   * that is NOT the same as "clean" and must never be shown as "unsaved".
+   * A client only ever reports its OWN bit for its OWN active file.
+   */
+  activeFileDirty?: boolean;
+}
+
+/** M56: bounded metadata-only notice that an external mutation touched a file. */
+export type MutationType =
+  | "replace"
+  | "git_checkout"
+  | "workspace_restore"
+  | "workspace_import"
+  | "snapshot_restore"
+  | "upload";
+
+export interface ExternalMutationNotice {
+  type: "external_mutation_notice";
+  path: string | null;
+  mutationType: MutationType;
+  actor: { userId: number; username: string };
+  timestamp: number;
+  matchCount?: number;
 }
 
 // M52: how long a deferred y-monaco bind waits for the server's
@@ -75,6 +100,11 @@ export class CollaborationClient {
   private boundModel: monaco.editor.ITextModel | null = null;
   private boundEditor: monaco.editor.IStandaloneCodeEditor | null = null;
   private activeFilePath: string | null = null;
+
+  // M56: the client's own "active file has unsaved local edits" bit, mirrored
+  // into awareness. Tracked here so redundant setLocalStateField calls (one
+  // per keystroke) are suppressed. Cleared on file switch / save / reset.
+  private localActiveFileDirty = false;
 
   // M52: per-path readiness. A path enters this set when the server sends
   // `{type:"file_ready"}` for it — meaning the room has finished loading
@@ -341,6 +371,18 @@ export class CollaborationClient {
     this.setActivity("viewing", this.activeFilePath);
   }
 
+  /**
+   * M56: report whether THIS client's active file has unsaved local buffer
+   * edits. Driven by the active editor tab's dirty flag. A no-op when the
+   * value is unchanged so a per-keystroke caller is cheap.
+   */
+  public setActiveFileDirty(dirty: boolean): void {
+    if (this.isDisposed) return;
+    if (this.localActiveFileDirty === dirty) return;
+    this.localActiveFileDirty = dirty;
+    this.awareness.setLocalStateField("activeFileDirty", dirty);
+  }
+
   public updateSelection(selection: SelectionRange | null): void {
     if (this.isDisposed) return;
     if (this.selectionTimer) clearTimeout(this.selectionTimer);
@@ -387,6 +429,9 @@ export class CollaborationClient {
     // rebind below would bind immediately to an empty Y.Text and briefly
     // show a blank editor as authoritative.
     this.readyFiles.clear();
+    // M56: the fresh awareness lineage has no dirty bit; reset the tracker so
+    // the next setActiveFileDirty() re-emits it.
+    this.localActiveFileDirty = false;
     // M54: the disposed room's run-status registry is gone; the fresh room's
     // addClient snapshot will re-populate any genuinely-active runs.
     if (this.runStatuses.size > 0) {
@@ -543,6 +588,20 @@ export class CollaborationClient {
               typeof parsed.executionId === "string"
             ) {
               this.handleRunStatusMessage(parsed);
+            } else if (
+              parsed &&
+              parsed.type === "external_mutation_notice" &&
+              (typeof parsed.path === "string" || parsed.path === null) &&
+              typeof parsed.mutationType === "string" &&
+              parsed.actor &&
+              typeof parsed.actor.username === "string"
+            ) {
+              // M56: RECEIVE-only, exactly like file_ready / run_status —
+              // the client never authors this, so a peer cannot fabricate it.
+              this.emit(
+                "external_mutation_notice",
+                parsed as ExternalMutationNotice,
+              );
             }
           } catch {}
           break;
@@ -556,6 +615,10 @@ export class CollaborationClient {
   public notifyFileOpen(filePath: string): void {
     this.activeFilePath = filePath;
     this.awareness.setLocalStateField("activeFile", filePath);
+    // M56: switching files clears the dirty bit; the new file's dirty state
+    // is pushed separately by the editor once the tab is active.
+    this.localActiveFileDirty = false;
+    this.awareness.setLocalStateField("activeFileDirty", false);
     this.setActivity("viewing", filePath);
 
     // Send custom message to server
@@ -880,6 +943,10 @@ export class CollaborationClient {
           activity,
           activeFile:
             typeof state.activeFile === "string" ? state.activeFile : null,
+          activeFileDirty:
+            typeof state.activeFileDirty === "boolean"
+              ? state.activeFileDirty
+              : undefined,
           cursor:
             state.cursor &&
             typeof state.cursor.line === "number" &&

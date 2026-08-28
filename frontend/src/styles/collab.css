@@ -1,0 +1,114 @@
+/* ==========================================================================
+   M56 — Collaboration-safe destructive operations
+   CollaboratorImpactNotice + external-mutation banner
+   ========================================================================== */
+
+.collab-impact-notice {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-xs);
+  background: var(--accent-subtle);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+
+.collab-impact-notice.has-dirty {
+  border-left-color: var(--warning);
+  background: var(--warning-subtle);
+}
+
+.collab-impact-heading {
+  margin-bottom: 6px;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.collab-impact-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.collab-impact-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.collab-impact-avatar {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--fg-inverse);
+  background: var(--fg-muted);
+  border: 1px solid var(--fg-muted);
+}
+
+.collab-impact-name {
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+
+.collab-impact-sep {
+  color: var(--fg-subtle);
+}
+
+.collab-impact-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-secondary);
+}
+
+.collab-impact-state {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+}
+
+.collab-impact-state.unsaved {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* --- external mutation banner (dismissible, informational) --------------- */
+
+.external-mutation-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xs);
+  background: var(--glass-surface-3);
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+
+.external-mutation-banner .emb-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-mutation-banner .emb-meta {
+  color: var(--fg-muted);
+}
+
+.external-mutation-banner .emb-dismiss {
+  margin-left: auto;
+  flex: 0 0 auto;
+}

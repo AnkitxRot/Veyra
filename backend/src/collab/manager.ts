@@ -63,6 +63,81 @@ const AWARENESS_MAX_DETAIL_LEN = 200;
 // bounded so a peer can't be fed absurd/NaN/Infinity coordinates.
 const AWARENESS_MAX_COORD = 5_000_000;
 
+// M56: Collaboration-Safe Destructive Operations.
+//  - `flushBeforeDestructiveDispose()` persists a live room's latest
+//    in-memory Y.Doc state to disk BEFORE a destructive workspace
+//    replacement (full restore / replace-import) disposes it, closing the
+//    silent data-loss window. Timeout-bounded, best-effort, no double flush.
+//  - `activeFileDirty` is the single bounded awareness bit that lets a
+//    destructive operation know another collaborator has UNSAVED local
+//    buffer changes in an affected file (distinct from merely "editing").
+//    Server-attributed, never persisted, no arbitrary path list.
+//  - `emitExternalMutationNotice()` sends bounded, metadata-only notices to
+//    non-initiating collaborators whose active file was mutated externally.
+const FLUSH_BEFORE_DISPOSE_TIMEOUT_MS = 5000;
+const EXTERNAL_MUTATION_NOTICE_DEDUP_MS = 1000;
+const EXTERNAL_MUTATION_NOTICE_DEDUP_MAX_ENTRIES = 500;
+const DESTRUCTIVE_MUTATION_TTL_MS = 60_000;
+const DESTRUCTIVE_MUTATION_MAX_ENTRIES = 200;
+
+/**
+ * The closed set of workspace mutations that can produce an external-mutation
+ * notice. Every value maps to an operation that actually exists in the
+ * codebase today — no free-form types.
+ */
+export const MUTATION_TYPES = [
+  "replace",
+  "git_checkout",
+  "workspace_restore",
+  "workspace_import",
+  "snapshot_restore",
+  "upload",
+] as const;
+export type MutationType = (typeof MUTATION_TYPES)[number];
+
+function isMutationType(v: unknown): v is MutationType {
+  return (
+    typeof v === "string" && (MUTATION_TYPES as readonly string[]).includes(v)
+  );
+}
+
+/**
+ * Metadata-only frame delivered to an affected non-initiating collaborator.
+ * NEVER carries file contents, diffs, selected text, commands, stdout/stderr,
+ * environment, or secrets. Every field is server-authoritative.
+ */
+export interface ExternalMutationNotice {
+  type: "external_mutation_notice";
+  /** Workspace-relative path, or null for a whole-workspace replacement. */
+  path: string | null;
+  mutationType: MutationType;
+  actor: { userId: number; username: string };
+  timestamp: number;
+  matchCount?: number;
+}
+
+/**
+ * Safe, route-facing view of a collaborator's relationship to a file. Contains
+ * no WebSocket, Y.Doc, or Y.Text reference and no file content. `dirty` is
+ * `"unknown"` when the collaborator's client has not reported an
+ * `activeFileDirty` bit — it must NEVER be rendered as "unsaved" in that case.
+ */
+export interface CollaboratorFileState {
+  userId: number;
+  username: string;
+  role: "owner" | "editor" | "viewer";
+  path: string;
+  open: boolean;
+  editing: boolean;
+  dirty: boolean | "unknown";
+}
+
+interface DestructiveMutationRecord {
+  mutationType: MutationType;
+  actor: { userId: number; username: string };
+  timestamp: number;
+}
+
 export type RunState = "running" | "success" | "failed" | "stopped";
 
 export interface RunStatusEntry {
@@ -182,6 +257,14 @@ export class CollaborationRoom {
    *  awarenessCoalesceTimer via queueAwarenessUpdate() *after* dispose()'s
    *  timer-clearing block already ran, leaking one timer per disposal. */
   private disposed = false;
+
+  /** M56: in-flight `flushBeforeDestructiveDispose()` promise. Reused by a
+   *  concurrent caller so a destructive replacement can never trigger two
+   *  overlapping pre-dispose flushes of the same room. */
+  private flushBeforeDisposePromise: Promise<{
+    flushed: boolean;
+    remainingDirty: string[];
+  }> | null = null;
 
   /** Observability-only: count of physical ws.send() calls this room has
    *  actually issued for broadcasts (Yjs + awareness + catch-up combined),
@@ -737,6 +820,18 @@ export class CollaborationRoom {
         } catch {}
       }
     }
+
+    // 4. M56: if this project's workspace was recently replaced wholesale
+    // (full restore / replace-import) the old room was disposed and every
+    // collaborator was force-disconnected. A non-actor reconnecting within
+    // the TTL window gets a one-off notice explaining why their session
+    // dropped and their content changed.
+    const destructive = collaborationManager.getRecentDestructiveMutation(
+      this.projectId,
+    );
+    if (destructive && destructive.actor.userId !== clientState.userId) {
+      this.sendDestructiveMutationNotice(destructive);
+    }
   }
 
   /**
@@ -1117,6 +1212,14 @@ export class CollaborationRoom {
       out.lastActive = incoming.lastActive;
     }
 
+    // M56: the single bounded "my active file has unsaved local edits" bit.
+    // A client may only report its OWN dirty state for its OWN active file.
+    // Any `dirtyPaths`-style list or other extra key is structurally dropped
+    // here because `out` is rebuilt from scratch and never spreads `incoming`.
+    if (typeof incoming.activeFileDirty === "boolean") {
+      out.activeFileDirty = incoming.activeFileDirty;
+    }
+
     return out;
   }
 
@@ -1327,6 +1430,212 @@ export class CollaborationRoom {
     this.lastFlushTime = Date.now();
   }
 
+  /**
+   * M56: persist the room's latest in-memory collaborative state to disk
+   * immediately before a DESTRUCTIVE workspace replacement (full restore /
+   * replace-import) disposes it. This is the fix for the confirmed silent
+   * data-loss window: today those paths call `dispose()` (which destroys the
+   * Y.Doc) with dirty edits still only in memory inside the debounce window.
+   *
+   * Contract:
+   *  - Best-effort and TIMEOUT-BOUNDED (`timeoutMs`, default 5s) — a wedged
+   *    disk write must never let a restore/import hang indefinitely.
+   *  - Idempotent under concurrency: a second caller awaits the same
+   *    in-flight flush, never a second overlapping one.
+   *  - `flushed: true`  => every dirty file was written; destruction is safe.
+   *  - `flushed: false` => some content could NOT be persisted within the
+   *    bound (`remainingDirty` lists it). The caller MUST NOT silently
+   *    proceed with the destructive operation — that would recreate exactly
+   *    the data-loss class this method exists to eliminate.
+   *
+   * Called ONLY from destructive workspace-replacement paths, BEFORE
+   * `dispose()`, while the room is still alive (so `flushToDisk()`'s
+   * `disposed` guard does not short-circuit it). It does NOT relax that
+   * guard and it is NOT wired into `dispose()` itself — idle/reconnect/
+   * rollback disposal keep their existing semantics untouched.
+   */
+  public flushBeforeDestructiveDispose(opts?: {
+    timeoutMs?: number;
+  }): Promise<{ flushed: boolean; remainingDirty: string[] }> {
+    if (this.disposed) {
+      return Promise.resolve({ flushed: false, remainingDirty: [] });
+    }
+    if (this.flushBeforeDisposePromise) return this.flushBeforeDisposePromise;
+
+    const timeoutMs = opts?.timeoutMs ?? FLUSH_BEFORE_DISPOSE_TIMEOUT_MS;
+    this.flushBeforeDisposePromise = (async () => {
+      try {
+        await withTimeout(
+          this.flushToDisk(),
+          timeoutMs,
+          `room ${this.projectId} flushBeforeDestructiveDispose`,
+        );
+      } catch (err) {
+        // Timeout or an unexpected plumbing throw. flushToDisk() already
+        // handles per-file write errors and leaves those files dirty, so
+        // `remainingDirty` below is the authoritative signal either way.
+        console.error(
+          `[CollabRoom:${this.projectId}] flushBeforeDestructiveDispose did not complete cleanly:`,
+          err,
+        );
+      }
+      const remainingDirty = Array.from(this.dirtyFiles);
+      return { flushed: remainingDirty.length === 0, remainingDirty };
+    })();
+
+    return this.flushBeforeDisposePromise.finally(() => {
+      this.flushBeforeDisposePromise = null;
+    });
+  }
+
+  /**
+   * M56: deliver a bounded, metadata-only external-mutation notice to every
+   * room member (except the actor) whose CURRENT active file is one of the
+   * mutated paths. At most one frame per collaborator per call; rapid
+   * repeats for the same recipient+path are de-duplicated. The frame is
+   * built entirely here from server-authoritative inputs.
+   */
+  public sendExternalMutationNotice(input: {
+    paths: string[];
+    mutationType: MutationType;
+    actor: { userId: number; username: string };
+    matchCounts?: Record<string, number>;
+  }): void {
+    if (this.disposed) return;
+    const pathSet = new Set(input.paths.map((p) => this.normalizeRelPath(p)));
+    const now = Date.now();
+    this.pruneExternalMutationDedup(now);
+
+    for (const [ws, cs] of this.clients.entries()) {
+      if (cs.userId === input.actor.userId) continue;
+      if (ws.readyState !== 1 /* OPEN */) continue;
+      const active = cs.activeFile
+        ? this.normalizeRelPath(cs.activeFile)
+        : null;
+      if (!active || !pathSet.has(active)) continue;
+
+      const dedupKey = `${cs.userId}:${active}`;
+      const last = this.externalMutationDedup.get(dedupKey);
+      if (
+        last !== undefined &&
+        now - last < EXTERNAL_MUTATION_NOTICE_DEDUP_MS
+      ) {
+        continue;
+      }
+      this.externalMutationDedup.set(dedupKey, now);
+
+      const notice: ExternalMutationNotice = {
+        type: "external_mutation_notice",
+        path: active,
+        mutationType: input.mutationType,
+        actor: input.actor,
+        timestamp: now,
+      };
+      const mc = input.matchCounts?.[active];
+      if (typeof mc === "number" && Number.isFinite(mc)) notice.matchCount = mc;
+
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, MESSAGE_CUSTOM);
+      encoding.writeVarString(enc, JSON.stringify(notice));
+      try {
+        ws.send(encoding.toUint8Array(enc));
+      } catch {}
+    }
+  }
+
+  /** M56: send a whole-workspace destructive-mutation notice to one joiner. */
+  public sendDestructiveMutationNotice(rec: DestructiveMutationRecord): void {
+    if (this.disposed) return;
+    const notice: ExternalMutationNotice = {
+      type: "external_mutation_notice",
+      path: null,
+      mutationType: rec.mutationType,
+      actor: rec.actor,
+      timestamp: rec.timestamp,
+    };
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, MESSAGE_CUSTOM);
+    encoding.writeVarString(enc, JSON.stringify(notice));
+    for (const [ws, cs] of this.clients.entries()) {
+      if (cs.userId === rec.actor.userId) continue;
+      if (ws.readyState !== 1) continue;
+      try {
+        ws.send(encoding.toUint8Array(enc));
+      } catch {}
+    }
+  }
+
+  private readonly externalMutationDedup = new Map<string, number>();
+
+  private pruneExternalMutationDedup(now: number): void {
+    for (const [k, ts] of this.externalMutationDedup) {
+      if (now - ts > 5 * EXTERNAL_MUTATION_NOTICE_DEDUP_MS) {
+        this.externalMutationDedup.delete(k);
+      }
+    }
+    if (
+      this.externalMutationDedup.size >
+      EXTERNAL_MUTATION_NOTICE_DEDUP_MAX_ENTRIES
+    ) {
+      this.externalMutationDedup.clear();
+    }
+  }
+
+  private normalizeRelPath(p: string): string {
+    return p.replace(/\\/g, "/").replace(/^\.\//, "");
+  }
+
+  /**
+   * M56: safe, route-facing snapshot of which collaborators have any of
+   * `paths` open, whether they are actively editing, and their reported
+   * unsaved (`activeFileDirty`) state. Returns plain data only — never a
+   * WebSocket, Y.Doc, or Y.Text.
+   */
+  public getCollaboratorFileState(
+    paths: string[],
+    excludeUserId?: number,
+  ): CollaboratorFileState[] {
+    const wanted = new Set(paths.map((p) => this.normalizeRelPath(p)));
+    const states = this.awareness.getStates();
+    const seen = new Set<string>();
+    const out: CollaboratorFileState[] = [];
+
+    for (const cs of this.clients.values()) {
+      if (excludeUserId !== undefined && cs.userId === excludeUserId) continue;
+      if (!cs.activeFile) continue;
+      const active = this.normalizeRelPath(cs.activeFile);
+      if (!wanted.has(active)) continue;
+      const dedup = `${cs.userId}:${active}`;
+      if (seen.has(dedup)) continue;
+      seen.add(dedup);
+
+      let editing = false;
+      let dirty: boolean | "unknown" = "unknown";
+      for (const cid of cs.awarenessClientIds ?? []) {
+        const st = states.get(cid) as Record<string, unknown> | undefined;
+        if (!st) continue;
+        const activity = st.activity as Record<string, unknown> | undefined;
+        if (activity && activity.type === "editing") editing = true;
+        if (typeof st.activeFileDirty === "boolean") {
+          // Any owned awareness entry reporting dirty wins.
+          if (st.activeFileDirty === true) dirty = true;
+          else if (dirty !== true) dirty = false;
+        }
+      }
+
+      out.push({
+        userId: cs.userId,
+        username: cs.username,
+        role: cs.role,
+        path: active,
+        open: true,
+        editing,
+        dirty,
+      });
+    }
+    return out;
+  }
+
   private static readonly IDLE_DISPOSE_BASE_MS = 10000;
   private static readonly IDLE_DISPOSE_RETRY_CAP_MS = 5 * 60 * 1000;
 
@@ -1490,6 +1799,119 @@ export class CollaborationManager {
     const room = this.rooms.get(projectId);
     if (room) {
       await room.handleExternalFileMutation(filePath, newContent);
+    }
+  }
+
+  /**
+   * M56: persist a live room's latest collaborative state before a
+   * destructive workspace replacement disposes it. No room => nothing to
+   * lose => `flushed: true`. See
+   * {@link CollaborationRoom.flushBeforeDestructiveDispose}.
+   */
+  public flushRoomBeforeDestruction(
+    projectId: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<{ flushed: boolean; remainingDirty: string[] }> {
+    const room = this.rooms.get(projectId);
+    if (!room) return Promise.resolve({ flushed: true, remainingDirty: [] });
+    return room.flushBeforeDestructiveDispose(opts);
+  }
+
+  /**
+   * M56: safe collaborator/file state for a destructive-operation preflight
+   * (Git checkout, Replace All, restore/import). Empty array when no room.
+   */
+  public getCollaboratorFileState(
+    projectId: string,
+    paths: string[],
+    excludeUserId?: number,
+  ): CollaboratorFileState[] {
+    return (
+      this.rooms
+        .get(projectId)
+        ?.getCollaboratorFileState(paths, excludeUserId) ?? []
+    );
+  }
+
+  /**
+   * M56: deliver bounded metadata-only external-mutation notices to affected
+   * non-initiating collaborators. For a live room this fans out immediately;
+   * for the whole-workspace destructive types the room is (about to be)
+   * gone, so the notice is recorded and replayed to reconnecting members —
+   * use {@link registerDestructiveMutation} for those.
+   */
+  public emitExternalMutationNotice(
+    projectId: string,
+    input: {
+      paths: string[];
+      mutationType: MutationType;
+      actorUserId: number;
+      actorUsername: string;
+      matchCounts?: Record<string, number>;
+    },
+  ): void {
+    if (!isMutationType(input.mutationType)) return;
+    const room = this.rooms.get(projectId);
+    if (!room) return;
+    room.sendExternalMutationNotice({
+      paths: input.paths,
+      mutationType: input.mutationType,
+      actor: { userId: input.actorUserId, username: input.actorUsername },
+      matchCounts: input.matchCounts,
+    });
+  }
+
+  // M56: bounded, TTL'd record of the most recent whole-workspace
+  // replacement per project. Replayed to non-actor collaborators when they
+  // reconnect after being force-disconnected by the dispose. Never persisted.
+  private readonly recentDestructiveMutations = new Map<
+    string,
+    DestructiveMutationRecord
+  >();
+
+  public registerDestructiveMutation(
+    projectId: string,
+    mutationType: MutationType,
+    actorUserId: number | undefined,
+    actorUsername: string | undefined,
+  ): void {
+    if (!isMutationType(mutationType)) return;
+    if (typeof actorUserId !== "number" || !actorUsername) return;
+    this.pruneDestructiveMutations();
+    this.recentDestructiveMutations.set(projectId, {
+      mutationType,
+      actor: { userId: actorUserId, username: actorUsername },
+      timestamp: Date.now(),
+    });
+  }
+
+  public getRecentDestructiveMutation(
+    projectId: string,
+  ): DestructiveMutationRecord | undefined {
+    const rec = this.recentDestructiveMutations.get(projectId);
+    if (!rec) return undefined;
+    if (Date.now() - rec.timestamp > DESTRUCTIVE_MUTATION_TTL_MS) {
+      this.recentDestructiveMutations.delete(projectId);
+      return undefined;
+    }
+    return rec;
+  }
+
+  private pruneDestructiveMutations(): void {
+    const now = Date.now();
+    for (const [k, rec] of this.recentDestructiveMutations) {
+      if (now - rec.timestamp > DESTRUCTIVE_MUTATION_TTL_MS) {
+        this.recentDestructiveMutations.delete(k);
+      }
+    }
+    if (
+      this.recentDestructiveMutations.size > DESTRUCTIVE_MUTATION_MAX_ENTRIES
+    ) {
+      // Evict oldest.
+      const oldest = [...this.recentDestructiveMutations.entries()].sort(
+        (a, b) => a[1].timestamp - b[1].timestamp,
+      )[0];
+      if (oldest) this.recentDestructiveMutations.delete(oldest[0]);
     }
   }
 

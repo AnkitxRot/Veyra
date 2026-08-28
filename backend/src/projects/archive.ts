@@ -73,6 +73,11 @@ export async function exportProjectZip(
 
 export interface ImportOptions {
   replace?: boolean;
+  /** M56: proceed even if a live collab room's unsaved edits could not be
+   *  flushed within the safety window (explicitly discarding them). */
+  force?: boolean;
+  /** M56: actor username, for the reconnect notice. */
+  actorUsername?: string;
 }
 
 /**
@@ -118,6 +123,22 @@ export async function importProjectZip(
   // 2. Safely replace workspace under lock
   return withProjectSnapshotLock(projectId, async () => {
     try {
+      // M56: FLUSH-BEFORE-DESTROY. Persist the live room's latest in-memory
+      // collaborative edits before the dispose below destroys the Y.Doc.
+      // Runs before any filesystem mutation, so aborting here on a failed
+      // flush leaves the workspace untouched and the room alive.
+      const flushResult = await collaborationManager.flushRoomBeforeDestruction(
+        project.id,
+      );
+      if (!flushResult.flushed && !options.force) {
+        throw new ApiError(
+          409,
+          `Import blocked: ${flushResult.remainingDirty.length} file(s) have unsaved collaborative edits that could not be persisted within the safety window. Retry, or force the import to discard them.`,
+          "collab_flush_failed",
+          { remainingDirty: flushResult.remainingDirty },
+        );
+      }
+
       // Teardown active project sessions before modifying files on disk
       try {
         collaborationManager.getRoom(project.id)?.dispose();
@@ -168,6 +189,14 @@ export async function importProjectZip(
       try {
         collaborationManager.getRoom(project.id)?.dispose();
       } catch {}
+
+      // M56: record the whole-workspace replacement for the reconnect notice.
+      collaborationManager.registerDestructiveMutation(
+        project.id,
+        "workspace_import",
+        userId,
+        options.actorUsername,
+      );
 
       return { ok: true, fileCount: extractedFiles.length };
     } finally {

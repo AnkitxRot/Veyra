@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -716,6 +716,116 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       id: 8,
       name: "mallory",
       role: "editor",
+    });
+  });
+
+  // --- M56: bounded activeFileDirty awareness bit -----------------------
+
+  describe("M56 — activeFileDirty is the only new awareness field, and it is bounded", () => {
+    it("accepts a boolean activeFileDirty and attributes it to the session", async () => {
+      const room = makeRoom("p1");
+      const ws = makeWs();
+      await room.addClient(ws, {
+        userId: 3,
+        username: "carol",
+        role: "editor",
+      });
+      room.handleMessage(
+        ws,
+        awarenessFrame([
+          {
+            clientId: 33,
+            clock: 1,
+            state: {
+              user: {},
+              activeFile: "src/a.ts",
+              activeFileDirty: true,
+            },
+          },
+        ]),
+      );
+      const st = storedState(room, 33);
+      expect(st.activeFileDirty).toBe(true);
+      expect(st.user).toEqual({ id: 3, name: "carol", role: "editor" });
+    });
+
+    it("drops a non-boolean activeFileDirty", async () => {
+      const room = makeRoom("p1");
+      const ws = makeWs();
+      await room.addClient(ws, {
+        userId: 3,
+        username: "carol",
+        role: "editor",
+      });
+      room.handleMessage(
+        ws,
+        awarenessFrame([
+          {
+            clientId: 33,
+            clock: 1,
+            state: { user: {}, activeFileDirty: "yes" },
+          },
+        ]),
+      );
+      expect(storedState(room, 33).activeFileDirty).toBeUndefined();
+    });
+
+    it("discards a client-supplied dirtyPaths list entirely (no path list ever survives, no FS op)", async () => {
+      const room = makeRoom("p1");
+      const ws = makeWs();
+      const fsMod = await import("node:fs");
+      const statSpy = vi.spyOn(fsMod.promises, "stat");
+      await room.addClient(ws, {
+        userId: 3,
+        username: "carol",
+        role: "editor",
+      });
+      room.handleMessage(
+        ws,
+        awarenessFrame([
+          {
+            clientId: 33,
+            clock: 1,
+            state: {
+              user: {},
+              activeFileDirty: true,
+              dirtyPaths: ["../other-project/secret.env", "/etc/passwd"],
+            },
+          },
+        ]),
+      );
+      const st = storedState(room, 33);
+      expect(st.activeFileDirty).toBe(true);
+      expect(st.dirtyPaths).toBeUndefined();
+      expect(Object.keys(st).sort()).not.toContain("dirtyPaths");
+      expect(statSpy).not.toHaveBeenCalled();
+    });
+
+    it("a client cannot claim another collaborator's dirty state (peer clientID ownership still enforced)", async () => {
+      const room = makeRoom("p1");
+      const wsA = makeWs();
+      const wsB = makeWs();
+      await room.addClient(wsA, { userId: 1, username: "a", role: "editor" });
+      await room.addClient(wsB, { userId: 2, username: "b", role: "editor" });
+      // B claims clientID 500.
+      room.handleMessage(
+        wsB,
+        awarenessFrame([{ clientId: 500, clock: 1, state: { user: {} } }]),
+      );
+      // A tries to write dirty state onto B's clientID 500.
+      room.handleMessage(
+        wsA,
+        awarenessFrame([
+          {
+            clientId: 500,
+            clock: 5,
+            state: { user: {}, activeFileDirty: true },
+          },
+        ]),
+      );
+      const st = storedState(room, 500);
+      expect(st.user).toEqual({ id: 2, name: "b", role: "editor" });
+      expect(st.activeFileDirty).toBeUndefined();
     });
   });
 });

@@ -272,6 +272,7 @@ export async function restoreSnapshot(
     // not yet reached is still whatever it was before this call — either an
     // old file waiting to be superseded, or untouched.
     const snapshotPaths = new Set(payload.files.map((f) => f.path));
+    const mutatedPaths: string[] = [];
     for (const f of payload.files) {
       await writeProjectFile(cwd, f.path, f.content);
       await collaborationManager.notifyExternalFileMutation(
@@ -279,6 +280,7 @@ export async function restoreSnapshot(
         f.path,
         f.content,
       );
+      mutatedPaths.push(f.path);
     }
 
     // Remove any current file that doesn't belong in the restored snapshot.
@@ -292,7 +294,21 @@ export async function restoreSnapshot(
           f,
           "",
         );
+        mutatedPaths.push(f);
       } catch {}
+    }
+
+    // M56: metadata-only notice to affected non-initiating collaborators.
+    const actor = db
+      .prepare("SELECT username FROM users WHERE id = ?")
+      .get(userId) as { username: string } | undefined;
+    if (actor && mutatedPaths.length > 0) {
+      collaborationManager.emitExternalMutationNotice(project.id, {
+        paths: mutatedPaths,
+        mutationType: "snapshot_restore",
+        actorUserId: userId,
+        actorUsername: actor.username,
+      });
     }
 
     recordAuditLog(db, {

@@ -277,17 +277,25 @@ export default function AdminBackupsPanel({
   );
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  // M56: set when the restore was blocked because a live collaboration room
+  // held unsaved edits that could not be flushed within the safety window.
+  const [restoreFlushBlocked, setRestoreFlushBlocked] = useState(false);
 
-  const handleConfirmRestore = async () => {
+  const handleConfirmRestore = async (force = false) => {
     if (!pendingRestore || restoreLoading) return;
     setRestoreLoading(true);
     setRestoreError(null);
+    if (!force) setRestoreFlushBlocked(false);
     try {
       const { backup } = pendingRestore;
       await api(
         `/api/admin/workspace-backups/${backup.projectId}/${backup.filename}/restore`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify(force ? { force: true } : {}),
+        },
       );
+      setRestoreFlushBlocked(false);
       setWsMessage(
         `Restored ${backup.filename} to ${pendingRestore.projectName}.`,
       );
@@ -301,7 +309,17 @@ export default function AdminBackupsPanel({
       // panel's reach and is expected to reload independently.
       await loadWorkspaceBackups(backup.projectId);
     } catch (err: any) {
-      setRestoreError(err.message || "Failed to restore workspace backup");
+      if (err?.code === "collab_flush_failed") {
+        setRestoreFlushBlocked(true);
+        const n = err?.body?.remainingDirty?.length;
+        setRestoreError(
+          `A collaborator has unsaved changes that could not be saved` +
+            (typeof n === "number" ? ` in ${n} file(s)` : "") +
+            `. Retry, or force the restore to discard them.`,
+        );
+      } else {
+        setRestoreError(err.message || "Failed to restore workspace backup");
+      }
     } finally {
       setRestoreLoading(false);
     }
@@ -838,24 +856,46 @@ export default function AdminBackupsPanel({
             >
               <button
                 className="glass-btn glass-btn-ghost"
-                onClick={() => setPendingRestore(null)}
+                onClick={() => {
+                  setPendingRestore(null);
+                  setRestoreFlushBlocked(false);
+                }}
                 disabled={restoreLoading}
               >
                 Cancel
               </button>
-              <button
-                className="glass-btn"
-                onClick={handleConfirmRestore}
-                disabled={restoreLoading}
-                style={{
-                  background: "rgba(249, 226, 175, 0.3)",
-                  color: "#f9e2af",
-                  border: "1px solid rgba(249, 226, 175, 0.4)",
-                  fontWeight: 600,
-                }}
-              >
-                {restoreLoading ? "Restoring…" : "Restore Workspace"}
-              </button>
+              {restoreFlushBlocked ? (
+                <button
+                  className="glass-btn"
+                  onClick={() => handleConfirmRestore(true)}
+                  disabled={restoreLoading}
+                  data-testid="force-restore"
+                  style={{
+                    background: "rgba(243, 139, 168, 0.3)",
+                    color: "#f38ba8",
+                    border: "1px solid rgba(243, 139, 168, 0.4)",
+                    fontWeight: 600,
+                  }}
+                >
+                  {restoreLoading
+                    ? "Restoring…"
+                    : "Force restore (discard unsaved edits)"}
+                </button>
+              ) : (
+                <button
+                  className="glass-btn"
+                  onClick={() => handleConfirmRestore()}
+                  disabled={restoreLoading}
+                  style={{
+                    background: "rgba(249, 226, 175, 0.3)",
+                    color: "#f9e2af",
+                    border: "1px solid rgba(249, 226, 175, 0.4)",
+                    fontWeight: 600,
+                  }}
+                >
+                  {restoreLoading ? "Restoring…" : "Restore Workspace"}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -10,6 +10,9 @@ import {
   IconRefresh,
   IconEdit,
 } from "../common/Icons";
+import CollaboratorImpactNotice, {
+  type CollaboratorImpact,
+} from "../Collab/CollaboratorImpactNotice";
 
 export interface SearchMatch {
   filePath: string;
@@ -32,6 +35,8 @@ export interface SearchResponse {
   filesSearched: number;
   durationMs: number;
   truncated: boolean;
+  /** M56: other collaborators using the matched files (replace preview only). */
+  collaboratorImpacts?: CollaboratorImpact[];
 }
 
 interface ReplaceApplyResult {
@@ -93,6 +98,11 @@ export default function WorkspaceSearchModal({
   const [applyResult, setApplyResult] = useState<ReplaceApplyResult | null>(
     null,
   );
+  // M56: another collaborator has KNOWN-unsaved edits in a selected file.
+  // Holds the impact list until the user confirms "Replace anyway".
+  const [collabConfirm, setCollabConfirm] = useState<
+    CollaboratorImpact[] | null
+  >(null);
   // M50: take a rollback snapshot before writing. Owner-only; default on for
   // owners.
   const [createSnapshot, setCreateSnapshot] = useState(isOwner);
@@ -191,6 +201,7 @@ export default function WorkspaceSearchModal({
     if (!isOpen) return;
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     setApplyResult(null);
+    setCollabConfirm(null);
 
     if (query.trim().length === 0) {
       setResults(null);
@@ -247,7 +258,7 @@ export default function WorkspaceSearchModal({
     );
   };
 
-  const handleReplaceAll = async () => {
+  const handleReplaceAll = async (force = false) => {
     if (
       !project ||
       !query.trim() ||
@@ -259,6 +270,7 @@ export default function WorkspaceSearchModal({
     setConfirmReplaceOpen(false);
     setApplying(true);
     setError(null);
+    if (!force) setCollabConfirm(null);
     try {
       const res = await api<ReplaceApplyResult>(
         `/api/projects/${project.id}/search/replace`,
@@ -277,9 +289,11 @@ export default function WorkspaceSearchModal({
             // set; otherwise let it act on the fresh match set it computes.
             files: deselectedFiles.size > 0 ? selectedFilePaths : undefined,
             createSafetySnapshot: isOwner && createSnapshot,
+            ...(force ? { force: true } : {}),
           }),
         },
       );
+      setCollabConfirm(null);
       setApplyResult(res);
       // M50: hand the actually-written paths to IDE.tsx so any open editor
       // buffer for those files is refreshed — without this a later save from
@@ -292,6 +306,13 @@ export default function WorkspaceSearchModal({
       // e.g. files skipped for being truncated/oversized still show matches.
       await executeSearch(query);
     } catch (err: any) {
+      // M56: another collaborator has known-unsaved edits in a selected file.
+      // Surface who, and let the user explicitly confirm "Replace anyway".
+      if (err?.code === "collaborator_dirty_conflict") {
+        const impacts = err?.body?.collaboratorImpacts;
+        setCollabConfirm(Array.isArray(impacts) ? impacts : []);
+        return;
+      }
       setError(err.message || "Replace failed");
     } finally {
       setApplying(false);
@@ -573,6 +594,57 @@ export default function WorkspaceSearchModal({
                     file(s) failed to write — see server logs.
                   </span>
                 )}
+              </div>
+            )}
+
+            {/* M56: collaborators using the files this replace would change. */}
+            {showReplace &&
+              !collabConfirm &&
+              results?.collaboratorImpacts &&
+              results.collaboratorImpacts.length > 0 && (
+                <CollaboratorImpactNotice
+                  impacts={results.collaboratorImpacts}
+                  heading="Other collaborators are using files in this match set:"
+                />
+              )}
+
+            {/* M56: explicit confirmation when a collaborator has KNOWN
+                unsaved edits in a selected file. */}
+            {collabConfirm && (
+              <div
+                data-testid="search-collab-conflict"
+                style={{
+                  fontSize: 11,
+                  border: "1px solid #fab387",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  color: "var(--fg-primary)",
+                }}
+              >
+                <strong>
+                  Another collaborator has unsaved changes in one of the
+                  selected files.
+                </strong>
+                <CollaboratorImpactNotice impacts={collabConfirm} />
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="glass-btn glass-btn-primary"
+                    style={{ fontSize: 10, padding: "3px 8px" }}
+                    disabled={applying}
+                    onClick={() => handleReplaceAll(true)}
+                  >
+                    Replace anyway
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn glass-btn-ghost"
+                    style={{ fontSize: 10, padding: "3px 8px" }}
+                    onClick={() => setCollabConfirm(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 
@@ -904,7 +976,7 @@ export default function WorkspaceSearchModal({
         }`}
         confirmLabel="Replace files"
         isDestructive={true}
-        onConfirm={handleReplaceAll}
+        onConfirm={() => handleReplaceAll()}
         onCancel={() => setConfirmReplaceOpen(false)}
       />
     </>

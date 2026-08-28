@@ -20,6 +20,9 @@ import {
   IconTrash,
   IconAlertTriangle,
 } from "../common/Icons";
+import CollaboratorImpactNotice, {
+  type CollaboratorImpact,
+} from "../Collab/CollaboratorImpactNotice";
 
 export interface SourceControlPanelProps {
   project: Project | null;
@@ -110,6 +113,12 @@ export default function SourceControlPanel({
     branch: string;
     blockingPaths: string[];
   } | null>(null);
+  // M56: another collaborator has KNOWN-unsaved changes in a file this
+  // checkout would overwrite. Requires explicit confirmation to proceed.
+  const [collabConflict, setCollabConflict] = useState<{
+    branch: string;
+    impacts: CollaboratorImpact[];
+  } | null>(null);
 
   // Project-switch isolation: a stale in-flight refresh must never paint
   // another project's repository state.
@@ -164,6 +173,7 @@ export default function SourceControlPanel({
     setFileDiff(null);
     setCommitMessage("");
     setConflict(null);
+    setCollabConflict(null);
     setError(null);
     setToast(null);
     if (projectId) void refreshAll();
@@ -272,11 +282,12 @@ export default function SourceControlPanel({
     });
 
   const checkout = useCallback(
-    async (name: string) => {
+    async (name: string, force = false) => {
       if (!projectId || busy) return;
       setBusy(true);
       setError(null);
       setConflict(null);
+      if (!force) setCollabConflict(null);
       try {
         const res = await fetch(`/api/projects/${projectId}/git/checkout`, {
           method: "POST",
@@ -285,6 +296,7 @@ export default function SourceControlPanel({
           body: JSON.stringify({
             name,
             dirtyOpenPaths: getDirtyOpenPaths(),
+            ...(force ? { force: true } : {}),
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -292,9 +304,22 @@ export default function SourceControlPanel({
           setConflict({ branch: name, blockingPaths: data.blockingPaths });
           return;
         }
+        if (
+          res.status === 409 &&
+          data?.error?.code === "collaborator_dirty_conflict"
+        ) {
+          setCollabConflict({
+            branch: name,
+            impacts: Array.isArray(data.collaboratorImpacts)
+              ? data.collaboratorImpacts
+              : [],
+          });
+          return;
+        }
         if (!res.ok) {
           throw new Error(data?.error?.message || "Checkout failed");
         }
+        setCollabConflict(null);
         if (Array.isArray(data.changedPaths) && data.changedPaths.length > 0) {
           onReconcileBuffers(data.changedPaths, {
             noticeLabel: "Branch checkout",
@@ -494,6 +519,51 @@ export default function SourceControlPanel({
                 >
                   Dismiss
                 </button>
+              </div>
+            )}
+
+            {collabConflict && (
+              <div
+                data-testid="git-collab-conflict"
+                style={{
+                  fontSize: 11,
+                  border: "1px solid #fab387",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  marginBottom: 10,
+                  color: "var(--fg-primary)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <IconAlertTriangle size={12} color="#fab387" />
+                  <strong>
+                    Another collaborator has unsaved changes on "
+                    {collabConflict.branch}"
+                  </strong>
+                </div>
+                <CollaboratorImpactNotice
+                  impacts={collabConflict.impacts}
+                  heading="Checking out would overwrite files in use:"
+                />
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="glass-btn"
+                    style={{ fontSize: 10, padding: "2px 7px" }}
+                    disabled={busy}
+                    onClick={() => checkout(collabConflict.branch, true)}
+                  >
+                    Check out anyway
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn glass-btn-ghost"
+                    style={{ fontSize: 10, padding: "2px 7px" }}
+                    onClick={() => setCollabConflict(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 

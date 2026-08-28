@@ -470,13 +470,19 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.query.replace === "true" ||
         req.query.replace === "1" ||
         req.body?.replace === true;
+      // M56: opt-in override when a live collab room's unsaved edits cannot
+      // be flushed within the safety window.
+      const force =
+        req.query.force === "true" ||
+        req.query.force === "1" ||
+        req.body?.force === true;
       const result = await importProjectZip(
         cfg,
         db,
         userOf(req).id,
         req.params.id,
         zipBuffer,
-        { replace },
+        { replace, force, actorUsername: userOf(req).username },
       );
       res.json(result);
     } catch (err) {
@@ -920,6 +926,17 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
             )
           : result.groups;
 
+        // M56: which other connected collaborators have any of the affected
+        // files open / are editing / report unsaved edits. Metadata only —
+        // never file content. Used to warn the initiator in the review UI
+        // and (on apply) to gate a replace over a known-dirty buffer.
+        const collaboratorImpacts =
+          collaborationManager.getCollaboratorFileState(
+            project.id,
+            scoped.map((g) => g.filePath),
+            userOf(req).id,
+          );
+
         if (dryRun !== false) {
           // Preview only — never touches disk. newContent is internal
           // (used only by the apply path below), not sent to the client.
@@ -933,8 +950,24 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
             durationMs: result.durationMs,
             truncated: result.truncated,
             applied: false,
+            collaboratorImpacts,
           });
           return;
+        }
+
+        // M56: refuse to overwrite another collaborator's KNOWN-dirty buffer
+        // without an explicit confirmation (`force`). "editing" alone (dirty
+        // state unknown) is informational and does NOT block here.
+        if (
+          collaboratorImpacts.some((i) => i.dirty === true) &&
+          req.body?.force !== true
+        ) {
+          throw new ApiError(
+            409,
+            "Another collaborator has unsaved changes in one or more of the selected files. Confirm to replace anyway.",
+            "collaborator_dirty_conflict",
+            { collaboratorImpacts },
+          );
         }
 
         // M50: take one project snapshot BEFORE the first workspace write so
@@ -1024,6 +1057,23 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
         if (filesChanged > 0) {
           touchProject(db, project.id);
+        }
+
+        // M56: one aggregated external-mutation notice per affected
+        // non-initiating collaborator (routed by their active file). The
+        // Y.Doc convergence above already synced content; this is
+        // informational metadata only.
+        const replacedResults = results.filter((r) => r.status === "replaced");
+        if (replacedResults.length > 0) {
+          collaborationManager.emitExternalMutationNotice(project.id, {
+            paths: replacedResults.map((r) => r.filePath),
+            mutationType: "replace",
+            actorUserId: userOf(req).id,
+            actorUsername: userOf(req).username,
+            matchCounts: Object.fromEntries(
+              replacedResults.map((r) => [r.filePath, r.matchCount]),
+            ),
+          });
         }
 
         res.json({

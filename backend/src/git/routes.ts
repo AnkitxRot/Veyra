@@ -208,14 +208,50 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireWrite(req);
       const user = userOf(req);
-      const result = await locked(req.params.id, () =>
-        git.checkoutBranch(
+      const force = req.body?.force === true;
+      const result = await locked(req.params.id, async () => {
+        // M56: preview the change set + run the initiator dirty check
+        // WITHOUT switching branches, so live collaboration state can be
+        // consulted before the checkout is committed. Both steps run inside
+        // the same project lock as the real checkout below.
+        const preview = await git.checkoutBranch(
           cfg,
           req.params.id,
           req.body?.name,
           req.body?.dirtyOpenPaths,
-        ),
-      );
+          { preview: true },
+        );
+        if (preview.ok === false) return preview;
+
+        // Another collaborator with a KNOWN-dirty buffer in a file this
+        // checkout would overwrite blocks the switch unless `force` is set.
+        // "editing" alone (dirty unknown) is surfaced to the client as
+        // information but does not block here.
+        const collaboratorImpacts =
+          collaborationManager.getCollaboratorFileState(
+            req.params.id,
+            preview.changedPaths,
+            user.id,
+          );
+        if (collaboratorImpacts.some((i) => i.dirty === true) && !force) {
+          throw new ApiError(
+            409,
+            "Another collaborator has unsaved changes in a file this checkout would overwrite. Confirm to check out anyway.",
+            "collaborator_dirty_conflict",
+            { collaboratorImpacts },
+          );
+        }
+
+        const done = await git.checkoutBranch(
+          cfg,
+          req.params.id,
+          req.body?.name,
+          req.body?.dirtyOpenPaths,
+        );
+        return { ...done, collaboratorImpacts } as typeof done & {
+          collaboratorImpacts: typeof collaboratorImpacts;
+        };
+      });
       if (result.ok === false) {
         res.status(409).json({
           error: {
@@ -254,6 +290,14 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
         } catch {
           // Best-effort convergence; the checkout itself already succeeded.
         }
+
+        // M56: metadata-only notice to affected non-initiating collaborators.
+        collaborationManager.emitExternalMutationNotice(req.params.id, {
+          paths: result.changedPaths,
+          mutationType: "git_checkout",
+          actorUserId: user.id,
+          actorUsername: user.username,
+        });
       }
 
       recordAuditLog(db, {

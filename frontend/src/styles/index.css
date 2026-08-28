@@ -13,6 +13,7 @@
 @import "./auth.css";
 @import "./admin.css";
 @import "./command-palette.css";
+@import "./collab.css";
 @import "@xterm/xterm/css/xterm.css";
 
 /* Global Box Sizing & Defaults */
