@@ -47,7 +47,10 @@ interface ReplaceApplyResult {
   snapshotId?: string | null;
   results: Array<{
     filePath: string;
-    status: "replaced" | "skipped" | "error";
+    // "conflict": a live collaborator had unsaved edits, so the replace was
+    // not applied over them (their version was kept) — distinct from
+    // "skipped" (file too large / results truncated).
+    status: "replaced" | "skipped" | "error" | "conflict";
     matchCount: number;
     reason?: string;
   }>;
@@ -582,6 +585,19 @@ export default function WorkspaceSearchModal({
                     }{" "}
                     file(s) skipped (too large or results were truncated) —
                     narrow your search and try again.
+                  </span>
+                )}
+                {applyResult.results.some((r) => r.status === "conflict") && (
+                  <span style={{ color: "#fab387" }}>
+                    {" "}
+                    {
+                      applyResult.results.filter(
+                        (r) => r.status === "conflict",
+                      ).length
+                    }{" "}
+                    file(s) not replaced — a collaborator has unsaved changes
+                    in the live session and their version was kept. Retry once
+                    they save.
                   </span>
                 )}
                 {applyResult.results.some((r) => r.status === "error") && (

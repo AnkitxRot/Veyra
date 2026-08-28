@@ -11,6 +11,7 @@ import {
   addProjectCollaborator,
 } from "../src/projects/service.js";
 import * as git from "../src/git/service.js";
+import { collaborationManager } from "../src/collab/manager.js";
 
 function gitAvailable(): boolean {
   try {
@@ -644,6 +645,64 @@ describe.skipIf(!HAS_GIT)(
       expect(await fs.readFile(join(cwd, "main.py"), "utf8")).toBe(
         "print('dirty')\n",
       );
+    });
+
+    it("checkout reports conflictedPaths for a file held at a live collaborator's unsaved version; the branch switch still stands", async () => {
+      await api.request("POST", g("/init"), { token: ownerToken });
+      await api.request("POST", g("/stage"), {
+        token: ownerToken,
+        body: { all: true },
+      });
+      await api.request("POST", g("/commit"), {
+        token: ownerToken,
+        body: { message: "init" },
+      });
+      await api.request("POST", g("/branches"), {
+        token: ownerToken,
+        body: { name: "feat" },
+      });
+      await api.request("POST", g("/checkout"), {
+        token: ownerToken,
+        body: { name: "feat" },
+      });
+      await fs.writeFile(join(cwd, "main.py"), "print('feat')\n", "utf8");
+      await api.request("POST", g("/stage"), {
+        token: ownerToken,
+        body: { all: true },
+      });
+      await api.request("POST", g("/commit"), {
+        token: ownerToken,
+        body: { message: "feat edit" },
+      });
+      await api.request("POST", g("/checkout"), {
+        token: ownerToken,
+        body: { name: "main" },
+      });
+
+      // A live collaborator has an unsaved edit in main.py (Y.Doc only).
+      const room = collaborationManager.getOrCreateRoom(projectId);
+      const yText = await room.ensureFileLoaded("main.py");
+      room.doc.transact(() => {
+        yText.insert(yText.length, "# collab unsaved\n");
+      });
+
+      try {
+        const res = await api.request("POST", g("/checkout"), {
+          token: ownerToken,
+          body: { name: "feat" },
+        });
+
+        expect(res.status).toBe(200);
+        // The branch switch is real, not rolled back...
+        expect(res.data.branch).toBe("feat");
+        expect(res.data.changedPaths).toContain("main.py");
+        // ...but the conflict is reported, not swallowed.
+        expect(res.data.conflictedPaths).toEqual(["main.py"]);
+        // The collaborator's unsaved edit is intact.
+        expect(yText.toString()).toBe("print('hi')\n# collab unsaved\n");
+      } finally {
+        room.dispose();
+      }
     });
   },
 );

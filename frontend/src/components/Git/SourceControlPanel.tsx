@@ -23,6 +23,7 @@ import {
 import CollaboratorImpactNotice, {
   type CollaboratorImpact,
 } from "../Collab/CollaboratorImpactNotice";
+import { bulkConflictSummary } from "../../utils/collabConflict";
 
 export interface SourceControlPanelProps {
   project: Project | null;
@@ -326,7 +327,11 @@ export default function SourceControlPanel({
             authoritative: true,
           });
         }
-        flashToast(`Switched to "${data.branch}"`);
+        const conflictNote = bulkConflictSummary(
+          Array.isArray(data.conflictedPaths) ? data.conflictedPaths : undefined,
+          "Checkout",
+        );
+        flashToast(conflictNote ?? `Switched to "${data.branch}"`);
         setSelected(null);
         setFileDiff(null);
         await refreshAll();

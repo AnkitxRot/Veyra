@@ -20,6 +20,7 @@ import {
 } from "../src/projects/service.js";
 import { readProjectFile } from "../src/files/service.js";
 import { listSnapshots, restoreSnapshot } from "../src/projects/snapshots.js";
+import { collaborationManager } from "../src/collab/manager.js";
 
 describe("Milestone 26 — Workspace-wide Search & Replace: engine", () => {
   let tempDir: string;
@@ -392,6 +393,58 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
     } finally {
       // Restore write permission so afterEach's directory cleanup can succeed.
       await fs.chmod(join(cwd, "app.py"), 0o666);
+    }
+  });
+
+  it("reports a live-collaborator conflict as a distinct 'conflict' status (not 'replaced', not 'skipped'), and still applies the other files", async () => {
+    await fs.writeFile(join(cwd, "other.py"), "print('hello there')\n", "utf8");
+
+    // A live collaborator has an unsaved edit in app.py (only in the Y.Doc).
+    const room = collaborationManager.getOrCreateRoom(projectId);
+    const yText = await room.ensureFileLoaded("app.py");
+    room.doc.transact(() => {
+      yText.insert(yText.length, "print('collab unsaved')\n");
+    });
+    expect((room as any).dirtyFiles.has("app.py")).toBe(true);
+
+    try {
+      const res = await api.request(
+        "POST",
+        `/api/projects/${projectId}/search/replace`,
+        {
+          token: ownerToken,
+          body: { query: "hello", replacement: "hi", dryRun: false },
+        },
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.data.applied).toBe(true);
+
+      const appResult = res.data.results.find(
+        (r: any) => r.filePath === "app.py",
+      );
+      const otherResult = res.data.results.find(
+        (r: any) => r.filePath === "other.py",
+      );
+      expect(appResult.status).toBe("conflict");
+      expect(appResult.reason).toMatch(/collaborator/i);
+      expect(otherResult.status).toBe("replaced");
+
+      // The conflicted file is not counted as changed and no false "skipped".
+      expect(res.data.filesChanged).toBe(1);
+      expect(
+        res.data.results.some((r: any) => r.status === "skipped"),
+      ).toBe(false);
+
+      // The collaborator's unsaved edit is intact; the other file applied.
+      expect(yText.toString()).toBe(
+        "print('hello world')\nprint('hello again')\nprint('collab unsaved')\n",
+      );
+      expect((await readProjectFile(cwd, "other.py")).content).toBe(
+        "print('hi there')\n",
+      );
+    } finally {
+      room.dispose();
     }
   });
 });

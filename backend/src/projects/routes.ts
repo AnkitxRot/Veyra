@@ -409,7 +409,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   router.post("/:id/snapshots/:snapshotId/restore", async (req, res, next) => {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-      await restoreSnapshot(
+      const { conflictedPaths } = await restoreSnapshot(
         cfg,
         db,
         userOf(req).id,
@@ -417,7 +417,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.snapshotId,
       );
       touchProject(db, project.id);
-      res.json({ ok: true });
+      // `conflictedPaths` is additive: files whose disk was rolled back but
+      // whose live collaborative buffer (with a collaborator's unsaved edits)
+      // was kept and reconverges disk. Empty in the common case.
+      res.json({ ok: true, conflictedPaths });
     } catch (err) {
       next(err);
     }
@@ -1017,7 +1020,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
         const results: Array<{
           filePath: string;
-          status: "replaced" | "skipped" | "error";
+          // "conflict" (M-followup): a live collaborator has unsaved edits in
+          // this file, so the replace was NOT applied over them — distinct
+          // from "skipped" (file too large / results truncated).
+          status: "replaced" | "skipped" | "error" | "conflict";
           matchCount: number;
           reason?: string;
         }> = [];
@@ -1052,13 +1058,14 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
             if (mutation.conflict) {
               // A collaborator has unsaved edits in this file in the live
               // session. Their content was preserved and reconverges disk;
-              // report this file as skipped rather than a false "replaced".
+              // report this file as a distinct "conflict", never a false
+              // "replaced" and never a misleading "skipped (too large)".
               results.push({
                 filePath: group.filePath,
-                status: "skipped",
+                status: "conflict",
                 matchCount: group.matches.length,
                 reason:
-                  "another collaborator has unsaved changes in this file in the live session",
+                  "a collaborator has unsaved changes in this file in the live session — their version was kept",
               });
               continue;
             }

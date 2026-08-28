@@ -270,6 +270,11 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
       // snapshot restore), so an active collaboration room converges instead
       // of silently desyncing. The frontend additionally reconciles clean
       // solo buffers and protects dirty ones from `changedPaths`.
+      //
+      // `conflictedPaths` collects any file the room kept at a collaborator's
+      // unsaved version (and reconverges disk to). Additive response info —
+      // the branch switch itself still stands.
+      const conflictedPaths: string[] = [];
       if (result.changedPaths.length > 0) {
         try {
           const cwd = await workspacePath(cfg, req.params.id);
@@ -280,11 +285,13 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
             } catch {
               // file does not exist on the target branch — treat as removed
             }
-            await collaborationManager.notifyExternalFileMutation(
-              req.params.id,
-              rel,
-              content,
-            );
+            const mutation =
+              await collaborationManager.notifyExternalFileMutation(
+                req.params.id,
+                rel,
+                content,
+              );
+            if (mutation.conflict) conflictedPaths.push(rel);
           }
           invalidateTreeCache(cwd);
         } catch {
@@ -310,6 +317,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
       res.json({
         branch: result.branch,
         changedPaths: result.changedPaths,
+        conflictedPaths,
       });
     } catch (err) {
       next(err);

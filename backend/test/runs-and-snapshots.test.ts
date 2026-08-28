@@ -105,6 +105,9 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
       { token },
     );
     expect(restoreRes.status).toBe(200);
+    expect(restoreRes.data.ok).toBe(true);
+    // Additive field: no live collaborators here, so nothing conflicted.
+    expect(restoreRes.data.conflictedPaths).toEqual([]);
 
     // 6. Verify restored file content
     const fileRes = await api.request(

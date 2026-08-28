@@ -540,7 +540,16 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     yText.delete(0, yText.length);
     yText.insert(0, "print('v3, unsaved local edit')");
 
-    await restoreSnapshot(cfg, db, 1, project.id, snapshot.id);
+    const restoreResult = await restoreSnapshot(
+      cfg,
+      db,
+      1,
+      project.id,
+      snapshot.id,
+    );
+
+    // The conflict is surfaced to the caller (not silently swallowed).
+    expect(restoreResult.conflictedPaths).toEqual([filePath]);
 
     // The restore wrote the snapshot content to disk...
     expect(await fs.readFile(workspaceFile, "utf-8")).toBe("print('v1')");

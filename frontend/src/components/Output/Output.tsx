@@ -17,6 +17,7 @@ import { getLanguageIcon } from "../common/iconUtils";
 import { RunRecord, SnapshotRecord } from "../../types";
 import { PromptModal, ConfirmModal } from "../common/Modal";
 import { useExecutionSession } from "../../hooks/useExecutionSession";
+import { bulkConflictSummary } from "../../utils/collabConflict";
 const ExecutionTelemetryModal = React.lazy(
   () => import("./ExecutionTelemetryModal"),
 );
@@ -144,14 +145,18 @@ export default function Output({ project, onRefreshTree }: any) {
   const handleRestoreSnapshot = async () => {
     if (!project || !modalState.snapshot) return;
     try {
-      await api(
+      const res = await api<{ ok: true; conflictedPaths?: string[] }>(
         `/api/projects/${project.id}/snapshots/${modalState.snapshot.id}/restore`,
         {
           method: "POST",
         },
       );
       if (onRefreshTree) onRefreshTree();
-      alert("Snapshot restored successfully!");
+      const conflictNote = bulkConflictSummary(
+        res.conflictedPaths,
+        "Snapshot restore",
+      );
+      alert(conflictNote ?? "Snapshot restored successfully!");
     } catch (err: any) {
       alert(`Error restoring snapshot: ${err.message}`);
     } finally {

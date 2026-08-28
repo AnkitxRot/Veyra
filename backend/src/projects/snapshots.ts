@@ -239,7 +239,7 @@ export async function restoreSnapshot(
   userId: number,
   projectId: string,
   snapshotId: string,
-): Promise<void> {
+): Promise<{ conflictedPaths: string[] }> {
   return withProjectSnapshotLock(projectId, async () => {
     const project = requireOwnedProject(db, userId, projectId);
     const row = db
@@ -273,13 +273,19 @@ export async function restoreSnapshot(
     // old file waiting to be superseded, or untouched.
     const snapshotPaths = new Set(payload.files.map((f) => f.path));
     const mutatedPaths: string[] = [];
+    // Files whose on-disk content was rolled back but whose LIVE collaborative
+    // buffer was preserved (a collaborator had unsaved edits): the room keeps
+    // their version and reconverges disk to it. Reported so the caller can
+    // tell the user the restore did not fully win for these paths.
+    const conflictedPaths: string[] = [];
     for (const f of payload.files) {
       await writeProjectFile(cwd, f.path, f.content);
-      await collaborationManager.notifyExternalFileMutation(
+      const mutation = await collaborationManager.notifyExternalFileMutation(
         project.id,
         f.path,
         f.content,
       );
+      if (mutation.conflict) conflictedPaths.push(f.path);
       mutatedPaths.push(f.path);
     }
 
@@ -317,6 +323,8 @@ export async function restoreSnapshot(
       eventType: "SNAPSHOT_RESTORED",
       details: { snapshotId, snapshotName: row.name },
     });
+
+    return { conflictedPaths };
   });
 }
 

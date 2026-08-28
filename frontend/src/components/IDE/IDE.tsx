@@ -67,6 +67,7 @@ import {
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import { throttleLatest } from "../../utils/throttleLatest";
+import { handleSaveError } from "../../utils/collabConflict";
 import {
   IconTerminal,
   IconMonitor,
@@ -926,7 +927,25 @@ export default function IDE({
         setSaveToast(`Saved ${path.split("/").pop()}`);
         setTimeout(() => setSaveToast(null), 2000);
       } catch (err: any) {
-        alert(`Save failed: ${err.message}`);
+        handleSaveError(err, path, {
+          // Not a failure: the server safely refused to overwrite a
+          // collaborator's unsaved edits. Surface it as a truthful,
+          // non-blocking conflict notice (reusing the M56 banner) and leave
+          // the buffer dirty so the user can retry once the collaborator saves.
+          onCollabConflict: (message) => {
+            const key = `save-conflict:${path}:${Date.now()}`;
+            setExternalMutationNotice({ text: message, key });
+            if (externalMutationTimerRef.current) {
+              window.clearTimeout(externalMutationTimerRef.current);
+            }
+            externalMutationTimerRef.current = window.setTimeout(() => {
+              setExternalMutationNotice((cur) =>
+                cur && cur.key === key ? null : cur,
+              );
+            }, 8000);
+          },
+          onFailure: (message) => alert(`Save failed: ${message}`),
+        });
       }
     };
 

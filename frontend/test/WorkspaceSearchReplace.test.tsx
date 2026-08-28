@@ -273,6 +273,42 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     ).toBeTruthy();
   });
 
+  it("shows a distinct collaborator-conflict summary (not the 'too large / truncated' skipped copy) when a file was held at a collaborator's version", async () => {
+    installApi((body: any) => ({
+      applied: true,
+      filesChanged: 1,
+      matchesReplaced: 1,
+      truncated: false,
+      snapshotId: body.createSafetySnapshot ? "snap-123" : null,
+      results: [
+        { filePath: "app.py", status: "replaced", matchCount: 1 },
+        {
+          filePath: "util.py",
+          status: "conflict",
+          matchCount: 1,
+          reason:
+            "a collaborator has unsaved changes in this file in the live session — their version was kept",
+        },
+      ],
+    }));
+    await openReplacePreview();
+    fireEvent.click(screen.getByRole("button", { name: /Replace All/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Replace files" }),
+    );
+
+    const summary = await screen.findByText(
+      /a collaborator has unsaved changes in the live session and their version was kept/i,
+    );
+    expect(summary).toBeTruthy();
+    // Must NOT mislabel a conflict as the size/truncation skip reason.
+    expect(
+      screen.queryByText(/too large or results were truncated/i),
+    ).toBeNull();
+    // The replaced file is still reported as replaced.
+    expect(screen.getByText(/Replaced 1 match across 1 file/i)).toBeTruthy();
+  });
+
   it("emits onReplaceApplied with exactly the paths the server reported replaced", async () => {
     installApi(() => ({
       applied: true,
