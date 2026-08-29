@@ -7,9 +7,27 @@ import { IconCheck, IconPlus } from "./Icons";
 interface TemplateModalProps {
   isOpen: boolean;
   isCreating: boolean;
-  onConfirm: (opts: { templateId: string | null; name: string }) => void;
+  onConfirm: (opts: {
+    templateId: string | null;
+    name: string;
+    entryFile: string | null;
+  }) => void;
   onCancel: () => void;
 }
+
+// Languages whose starters are directly runnable the moment the project opens.
+const RUN_READY_LANGUAGES = new Set([
+  "python",
+  "node",
+  "typescript",
+  "c",
+  "cpp",
+  "java",
+]);
+
+// The starter selected by default when the catalog loads — chosen so the
+// user's very first action can be Run.
+const DEFAULT_TEMPLATE_ID = "python";
 
 export function TemplateModal({
   isOpen,
@@ -25,11 +43,16 @@ export function TemplateModal({
   );
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // Once the user clicks any card, stop letting the async catalog load move
+  // the selection out from under them.
+  const userPickedRef = useRef(false);
 
-  // Every open is a fresh flow: default back to Blank Project, regardless of
-  // what was picked last time the modal was open.
+  // Every open is a fresh flow: start from the runnable default, regardless of
+  // what was picked last time the modal was open. If the catalog can't load,
+  // this stays as Blank Project (null) so creation still works.
   useEffect(() => {
     if (!isOpen) return;
+    userPickedRef.current = false;
     setSelectedTemplateId(null);
     setName("");
     setCatalogError(null);
@@ -44,6 +67,13 @@ export function TemplateModal({
       .then((res) => {
         if (cancelled) return;
         setTemplates(res.templates);
+        const preferred = res.templates.find(
+          (t) => t.id === DEFAULT_TEMPLATE_ID,
+        );
+        if (preferred && !userPickedRef.current) {
+          setSelectedTemplateId(preferred.id);
+          setName((cur) => (cur === "" ? preferred.name : cur));
+        }
       })
       .catch((err: any) => {
         if (cancelled) return;
@@ -75,11 +105,13 @@ export function TemplateModal({
   if (typeof document === "undefined") return null;
 
   const selectBlank = () => {
+    userPickedRef.current = true;
     setSelectedTemplateId(null);
     setName("");
   };
 
   const selectTemplate = (tpl: ProjectTemplate) => {
+    userPickedRef.current = true;
     setSelectedTemplateId(tpl.id);
     setName(tpl.name);
   };
@@ -87,7 +119,12 @@ export function TemplateModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || isCreating) return;
-    onConfirm({ templateId: selectedTemplateId, name: name.trim() });
+    const tpl = templates.find((t) => t.id === selectedTemplateId);
+    onConfirm({
+      templateId: selectedTemplateId,
+      name: name.trim(),
+      entryFile: tpl?.entryFile ?? null,
+    });
   };
 
   const cardBaseStyle: React.CSSProperties = {
@@ -152,7 +189,8 @@ export function TemplateModal({
               lineHeight: 1.4,
             }}
           >
-            Start blank or from a starter template.
+            Pick a starter and press Run — every starter works with no setup.
+            Or choose Blank for an empty workspace.
           </p>
         </div>
 
@@ -259,10 +297,19 @@ export function TemplateModal({
                       {tpl.description}
                     </span>
                     <span
-                      className="glass-badge glass-badge-accent"
-                      style={{ alignSelf: "flex-start" }}
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        flexWrap: "wrap",
+                        alignSelf: "flex-start",
+                      }}
                     >
-                      {tpl.language}
+                      <span className="glass-badge glass-badge-accent">
+                        {tpl.language}
+                      </span>
+                      {RUN_READY_LANGUAGES.has(tpl.language) && (
+                        <span className="glass-badge">▶ Runs on create</span>
+                      )}
                     </span>
                   </button>
                 );

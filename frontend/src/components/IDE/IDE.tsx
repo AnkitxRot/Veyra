@@ -74,6 +74,7 @@ import {
   getLastProjectId,
   setLastProjectId,
   resolveProjectSelection,
+  resolvePendingEntryOpen,
 } from "../../utils/sessionStore";
 import {
   IconTerminal,
@@ -133,6 +134,13 @@ export default function IDE({
   const didInitialResolveRef = useRef(false);
   const treeLoadedForRef = useRef<string | null>(null);
   const restoreInFlightRef = useRef<string | null>(null);
+  // One-shot hint from the Sidebar: a project just created from a starter
+  // template should auto-open this runnable entry file so the user's first
+  // action can be Run. Consumed once, only when there is no session to
+  // restore and the user has not already opened a tab.
+  const pendingEntryOpenRef = useRef<{ projectId: string; path: string } | null>(
+    null,
+  );
   // Read the current deep-link inside loadProjects without making it a
   // dependency (which would re-run the loader when we reset the URL after a
   // bad link, silently opening projects[0]).
@@ -706,6 +714,31 @@ export default function IDE({
   useEffect(() => {
     openFilesRef.current = openFiles;
   }, [openFiles]);
+
+  const handleProjectBootstrapped = useCallback(
+    (created: Project, entryFile: string) => {
+      pendingEntryOpenRef.current = { projectId: created.id, path: entryFile };
+    },
+    [],
+  );
+
+  // Auto-open a freshly created starter's entry file once its tree has loaded.
+  // Guard logic lives in resolvePendingEntryOpen (unit-tested); this effect
+  // is just its wiring. The ref-clear makes it a one-shot.
+  useEffect(() => {
+    const pid = project?.id;
+    const path = resolvePendingEntryOpen({
+      projectId: pid,
+      pending: pendingEntryOpenRef.current,
+      treeLoadedFor: treeLoadedForRef.current,
+      openFileCount: openFilesRef.current.length,
+      hasSession: pid ? readProjectSession(pid) !== null : false,
+    });
+    if (!path) return;
+    pendingEntryOpenRef.current = null;
+    void handleOpenFile(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, tree, openFiles]);
 
   // M50/M51: after an external operation rewrites workspace files on disk
   // (workspace-wide Replace All; Git branch checkout), reconcile any editor
@@ -1809,6 +1842,7 @@ export default function IDE({
           project={project}
           onSelectProject={handleSelectProject}
           onCreateProject={loadProjects}
+          onProjectBootstrapped={handleProjectBootstrapped}
           tree={tree}
           onOpenFile={handleOpenFile}
           activeFile={activeFile}

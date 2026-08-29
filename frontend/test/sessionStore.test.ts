@@ -6,6 +6,7 @@ import {
   getLastProjectId,
   setLastProjectId,
   resolveProjectSelection,
+  resolvePendingEntryOpen,
   parseProjectRoute,
   projectPath,
   BOTTOM_PANEL_TABS,
@@ -287,5 +288,55 @@ describe("sessionStore — resolveProjectSelection (pure)", () => {
         projectIds: [],
       }),
     ).toEqual({ projectId: null, invalidRoute: true });
+  });
+});
+
+describe("sessionStore — resolvePendingEntryOpen (pure)", () => {
+  const ready = {
+    projectId: "P" as string | undefined,
+    pending: { projectId: "P", path: "main.py" },
+    treeLoadedFor: "P" as string | null,
+    openFileCount: 0,
+    hasSession: false,
+  };
+
+  it("opens the entry file when the project is active, tree is loaded, nothing open, no session", () => {
+    expect(resolvePendingEntryOpen(ready)).toBe("main.py");
+  });
+
+  it("stands down when there is no pending hint", () => {
+    expect(resolvePendingEntryOpen({ ...ready, pending: null })).toBeNull();
+  });
+
+  it("stands down when the hint targets a different project", () => {
+    expect(
+      resolvePendingEntryOpen({
+        ...ready,
+        pending: { projectId: "OTHER", path: "main.py" },
+      }),
+    ).toBeNull();
+  });
+
+  it("waits until the tree for this project has loaded", () => {
+    expect(
+      resolvePendingEntryOpen({ ...ready, treeLoadedFor: null }),
+    ).toBeNull();
+    expect(
+      resolvePendingEntryOpen({ ...ready, treeLoadedFor: "P-old" }),
+    ).toBeNull();
+  });
+
+  it("stands down once the user has opened a tab of their own", () => {
+    expect(resolvePendingEntryOpen({ ...ready, openFileCount: 1 })).toBeNull();
+  });
+
+  it("never overrides a real restored session", () => {
+    expect(resolvePendingEntryOpen({ ...ready, hasSession: true })).toBeNull();
+  });
+
+  it("stands down when no project is active", () => {
+    expect(
+      resolvePendingEntryOpen({ ...ready, projectId: undefined }),
+    ).toBeNull();
   });
 });

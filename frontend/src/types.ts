@@ -116,6 +116,8 @@ export interface ProjectTemplate {
   name: string;
   description: string;
   language: string;
+  /** Runnable entry file the IDE opens automatically after creation. */
+  entryFile?: string;
 }
 
 // M51 — Local Git version control

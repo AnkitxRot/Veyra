@@ -175,6 +175,29 @@ export function parseProjectRoute(pathname: string): string | null {
   }
 }
 
+/**
+ * Whether the IDE should auto-open a freshly created starter's entry file.
+ * Returns the path to open, or null to stand down. Mirrors the guards of the
+ * one-shot session-restore effect: never over a real restored session, never
+ * once the user has opened a tab, and only for the project the hint targets
+ * once its tree has finished loading.
+ */
+export function resolvePendingEntryOpen(input: {
+  projectId: string | undefined;
+  pending: { projectId: string; path: string } | null;
+  treeLoadedFor: string | null;
+  openFileCount: number;
+  hasSession: boolean;
+}): string | null {
+  const { projectId, pending } = input;
+  if (!projectId || !pending) return null;
+  if (pending.projectId !== projectId) return null;
+  if (input.treeLoadedFor !== projectId) return null;
+  if (input.openFileCount > 0) return null;
+  if (input.hasSession) return null;
+  return pending.path;
+}
+
 export function projectPath(projectId: string): string {
   return `/p/${encodeURIComponent(projectId)}`;
 }

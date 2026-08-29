@@ -30,6 +30,7 @@ interface SidebarProps {
   project: Project | null;
   onSelectProject: (p: Project) => void;
   onCreateProject: () => void;
+  onProjectBootstrapped?: (project: Project, entryFile: string) => void;
   tree: TreeNode[];
   onOpenFile: (path: string) => void;
   activeFile: string | null;
@@ -49,6 +50,7 @@ export default function Sidebar({
   project,
   onSelectProject,
   onCreateProject,
+  onProjectBootstrapped,
   tree,
   onOpenFile,
   activeFile,
@@ -116,6 +118,7 @@ export default function Sidebar({
   const handleCreateProject = async (opts: {
     templateId: string | null;
     name: string;
+    entryFile?: string | null;
   }) => {
     if (!opts.name.trim() || isCreatingProject) return;
     setIsCreatingProject(true);
@@ -134,6 +137,12 @@ export default function Sidebar({
           });
       onCreateProject();
       if (res.project) {
+        // Hand the IDE a one-shot hint to auto-open the starter's runnable
+        // entry file, so the user's first action can be Run. Set before
+        // onSelectProject triggers the project switch.
+        if (opts.entryFile) {
+          onProjectBootstrapped?.(res.project, opts.entryFile);
+        }
         onSelectProject(res.project);
       }
     } catch (err: any) {
