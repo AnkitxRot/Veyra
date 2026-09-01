@@ -5873,6 +5873,164 @@ clamped to 24 h; `TimelineEvent` / `CollabChangeWire` are hand-synced across
 packages (repo convention); persistent comments/threads/mentions/reactions,
 AI summaries, semantic conflict UX remain **M61+**.
 
+## Milestone 61 — Contextual Comments (Track A) + dormant Customization / Identity schema
+
+> **Section authored 2026-09-02 during the stabilization/verification pass**, not
+> by the implementing session (M61 shipped in the working tree with no STATUS.md
+> writeup). It is reconstructed strictly from the committed code, the committed
+> test suites, and fresh Docker-backed verification on branch `stabilize/m57-m61`
+> (`eb1a9d9`). Spec + plan:
+> `docs/superpowers/specs/2026-08-31-m61-contextual-comments-customization-design.md`,
+> `docs/superpowers/plans/2026-08-31-m61-contextual-comments-customization.md`.
+
+**What the design proposed vs. what is actually implemented.** The M61 design
+doc describes three first-class tracks (A contextual comments, B IDE
+customization, C profile identity) delivered as four gated workstreams
+(A → B → C → D-integration). **Only Track A (M61-A) is implemented and wired.**
+Tracks B, C and D are **not implemented**: migration v12 creates their tables,
+but no application code reads or writes them (see "Dormant surface" below).
+
+### M61-A — Contextual Collaboration (IMPLEMENTED)
+
+Persistent, code-anchored discussion on top of the M57–M60 stack. No new
+WebSocket endpoint, no new document-sync mechanism, no second collaborator
+store. Rides existing REST + `MESSAGE_CUSTOM` + a SQLite migration.
+
+**Objective:** cross from M60's *"I can see what happened"* to *"I can discuss
+the exact code, in place, and that discussion persists."*
+
+- **Persistence + REST (`backend/src/comments/{store,routes,validate,timelineSource}.ts`).**
+  Mounted `app.use("/api/projects", requireAuth(db), commentRoutes(cfg, db))`.
+  Eight handlers, **every one** opening with `requireProjectAccess`:
+  - `GET  /:id/comments` (+ project-wide unresolved roll-up) — `viewer`
+  - `POST /:id/comments` (new thread) — `editor`
+  - `POST /:id/comments/:threadId/replies` — `editor`
+  - `PATCH /:id/comments/:commentId` (edit) — `editor`
+  - `DELETE /:id/comments/:commentId` (tombstone) — `editor` **and** author-or-project-owner
+  - `POST /:id/comments/:threadId/resolve` / `.../reopen` — `editor` (idempotent)
+  - `POST/DELETE /:id/comments/:threadId/reactions` — `editor`, fixed emoji set, PK dedupe
+  - `POST /:id/comments/:threadId/anchor-status` — `editor` (advisory)
+- **Resilient Yjs-aware anchors.** Thread rows carry `anchor_rel_start` /
+  `anchor_rel_end` (`Y.RelativePosition` blobs, base64, **stored opaque —
+  the server never decodes or resolves them**), `anchor_start_line` /
+  `anchor_end_line`, and `anchor_prefix` / `anchor_prefix_hash` (a normalised
+  ≤256-char slice + its fingerprint) for fallback. The client
+  (`frontend/src/comments/anchor.ts`) resolves RelativePosition → absolute on
+  load and downgrades to `exact` / `drifted` / `stale` via the hash when the
+  document has moved; `anchor_status` is persisted advisory-only.
+- **"Keep as comment" (`frontend/src/comments/keep.ts`).** Promotes an
+  ephemeral M58 callout to a persistent thread through the normal create path;
+  the callout keeps its own ephemeral lifecycle and is never mutated.
+  Per-callout-id in-memory dedupe (`KeepDeduper`).
+- **Validation / injection discipline (`comments/validate.ts`, mirrors
+  `collab/attention.ts`).** `sanitizeCommentBody` strips C0/DEL (keeps `\n`,`\t`),
+  collapses 3+ newlines, trims, rejects empty or `> COMMENT_MAX_LEN` (4000).
+  `MAX_MENTIONS` 20 (deduped). Fixed `EMOJI_SET` for reactions. Anchor base64
+  capped 4096, slice capped 256. **No server-side Markdown/HTML.** The frontend
+  `Comments/mentionText.tsx` renders bodies literally (never `innerHTML`,
+  verified: `grep dangerouslySetInnerHTML|innerHTML` over `Comments/` +
+  `comments/` is empty).
+- **Transport — OUTBOUND-only, carries no comment content.**
+  `CollaborationRoom.broadcastCommentEvent` → receive-only `MESSAGE_CUSTOM`
+  `comment_event` = a **scoped cache-invalidation ping**
+  `{threadId, filePath, kind, at}`; the client refetches
+  `GET /comments?file=` over the access-gated REST. `sendCommentMentionTo`
+  delivers a `comment_mention` (`{threadId, commentId, filePath, line, author,
+  preview≤120, at}`) **only to the mentioned user's own sockets in that room**.
+  `handleMessage`'s `MESSAGE_CUSTOM` branch accepts only `file_open` and
+  `attention_*` from a client — `comment_event` / `comment_mention` /
+  `profile_event` are never client-authored (`m61-transport.test.ts`).
+- **M60 history integration.** `comments/timelineSource.ts::queryCommentTimeline`
+  contributes `kind:"comment"` events (created / replied / resolved) into the
+  M60 timeline; safe fields only, same `requireProjectAccess("viewer")` gate as
+  the rest of `/collab/timeline`.
+- **Frontend (`frontend/src/comments/{anchor,api,keep,navigation,store}.ts`,
+  `components/Comments/{CommentComposer,CommentGutter,CommentThread,CommentsPanel,
+  mentionText}.tsx`, `hooks/useFocusTrap.ts`).** Gutter affordance in
+  `Editor.tsx`, unresolved-count badge in `Sidebar.tsx` + a per-tab badge in
+  `Editor.tsx`, a Comments bottom-panel in `IDE.tsx`, thread navigation through
+  the canonical `openAndRevealLocation`. A comment-commands registry
+  (`comment.commands.registry.test.ts`).
+
+**Migration v12 (Track A tables).** `comment_threads`, `comments`,
+`comment_mentions`, `comment_reactions` — every child FK `ON DELETE CASCADE`
+(`comments.author_id`, `comment_threads.created_by` → `users` CASCADE;
+`resolved_by` → `users` SET NULL; `*.project_id` / `thread_id` /
+`parent_comment_id` CASCADE). `PRAGMA foreign_keys = ON` is set in `openDb`.
+
+### Dormant surface shipped by v12 (Tracks B & C — NOT implemented)
+
+Migration v12's single `up()` also creates seven tables with **zero application
+readers or writers**:
+
+- **Track B (`user_settings`)** + `copyLegacyPreferencesIntoSettings(db)` (a
+  one-time copy of M22 `user_preferences` rows into `user_settings.data`). No
+  code reads `user_settings`. There is no setting registry, theme layer, or
+  settings UI. `frontend/src/components/Settings/SettingsModal.tsx` and
+  `backend/src/auth/preferences.ts` are the **pre-existing M22** surface, not M61.
+- **Track C (`user_profiles`, `user_custom_status`, `profile_media`,
+  `user_badges`, `user_links`, `user_featured_projects`).** No routes, no store,
+  no UI. `CollaborationRoom.broadcastProfileEvent` (a `{type, userId}`
+  invalidation ping) + a `client.ts` receive handler + a `types.ts` type exist
+  and are unit-tested (`m61-transport.test.ts`), but **nothing in product code
+  calls `broadcastProfileEvent`** (`grep` confirms: only the definition, the
+  manager delegator, and the test).
+
+Consequence for a deployment: applying v12 migrates a production database to a
+schema with 7 unused tables. Landing Track A needs its 4 tables; whether to also
+land the Track B/C tables now or split v12 is a **merge-time decision**, not a
+correctness problem (the tables are simply empty).
+
+### Files (M61, all previously uncommitted — now on `stabilize/m57-m61`)
+
+**New backend:** `src/comments/{routes,store,validate,timelineSource}.ts`;
+`test/{m61-comments,m61-comment-store,m61-comment-timeline,m61-comment-validate,m61-transport}.test.ts`.
+**Changed backend:** `db.ts` (migration **v12** + `M61_SCHEMA_SQL` inline +
+`copyLegacyPreferencesIntoSettings`), `config.ts`, `collab/manager.ts`
+(`broadcastCommentEvent` / `sendCommentMentionTo` / `broadcastProfileEvent` +
+`MESSAGE_CUSTOM` allowlist note), `app.ts` (route mount + `queryCommentTimeline`
+wiring), `test/migrations.test.ts` (v12 cases).
+**New frontend:** `src/comments/{anchor,api,keep,navigation,store}.ts`,
+`src/components/Comments/{CommentComposer,CommentGutter,CommentThread,CommentsPanel,mentionText}.tsx`,
+`src/hooks/useFocusTrap.ts`; tests
+`{CommentComposer,CommentGutter,CommentThread,CommentsPanel,mentionText,Sidebar.commentBadge,Editor.tabBadge}.test.tsx`
+and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.navigation,comment.commands.registry}.test.ts`.
+**Changed frontend:** `collab/client.ts` (`comment_event` / `comment_mention` /
+`profile_event` receive), `types.ts`, `api.ts`, `components/IDE/IDE.tsx`,
+`components/Editor/Editor.tsx`, `components/Sidebar/Sidebar.tsx`,
+`styles/collab.css`.
+
+### Verification (2026-09-02, Docker available)
+
+| Area | Status | Evidence |
+|---|---|---|
+| M61-A backend contract | **PROVEN** | `m61-comments` 8, `m61-comment-store` 6, `m61-comment-timeline` 3, `m61-comment-validate` 4, `m61-transport` 4 — all pass in the full Docker backend run (75 files / 961 passed / 9 Windows-only skips / 0 failed) |
+| M61-A frontend contract | **PROVEN** | `CommentThread` 5, `CommentGutter` 3, `CommentComposer` 3, `CommentsPanel` 2, `mentionText` 2, `Sidebar.commentBadge` 4, `Editor.tabBadge` 4, `collab.comment.client` 4, `comment.anchor` 5, `comment.store` 3, `comment.keep` 5, `comment.navigation` 6, `comment.commands.registry` 3 — all pass in `npm test -w @cloud-ide/frontend` (71 files / 564 passed / 0 failed) |
+| Migration v12 apply (incl. from a pre-v11 DB) | **PROVEN** | `migrations.test.ts` — real v8 DB with data → `openDb()` → schema version 12, rows `[1..12]`, pre-existing data preserved; `m61: v12 creates the comment/settings/profile tables`; `m61: v12 copies pre-existing user_preferences into user_settings.data` |
+| v12 cascade — schema | **PROVEN** | `foreign_key_list(comments)` → `comment_threads` = `CASCADE`; `PRAGMA foreign_keys = ON` in `openDb` |
+| v12 cascade — behavioural (insert thread+comments+mentions → delete project/user → rows gone) | **NOT_PROVEN** | there is **no M61 lifecycle test** (unlike `m60-lifecycle.test.ts`); the FK clauses are asserted structurally only. Reverting the `comment_threads.project_id` / `comments.project_id` cascade would not fail any current test |
+| Transport is outbound-only / no body over WS | **PROVEN** | `m61-transport.test.ts` (`comment_event` carries `{threadId,filePath,kind,at}`; `broadcastProfileEvent` carries `{type,userId}`; room-scoped; cross-project no-op); code inspection of `handleMessage` `MESSAGE_CUSTOM` allowlist |
+| REST authorization | **PROVEN** (contract) | every handler calls `requireProjectAccess`; `m61-comments.test.ts` covers viewer/editor/owner gating and the author-or-owner delete rule |
+| No HTML/Markdown injection | **PROVEN** | `sanitizeCommentBody` server-side; no `innerHTML`/`dangerouslySetInnerHTML` in `Comments/` or `comments/`; `mentionText.test.tsx` |
+| Backend / frontend typecheck · lint · build · app image | **PROVEN** | `tsc --noEmit` 0/0; `eslint` 0 errors both; `vite build` exit 0; `docker build -f docker/Dockerfile.app` exit 0 (runs `tsc -p tsconfig.build.json` + `tsc --noEmit && vite build` + `npm ci`) |
+| Live / two-session browser walkthrough | **NOT_PROVEN** | not exercised in this pass; no implementing-session browser record exists for M61. No claim is made about live anchor drift, mention delivery, resolve/reopen, or the gutter/badge UI in a real browser |
+| Track B / C / D | **N/A — not implemented** | v12 ships their tables dormant; `broadcastProfileEvent` has no product caller |
+
+### Known limitations
+
+- **Tracks B, C, D are not built.** M61 as landed = contextual comments +
+  a forward-declared schema. The "north star" customization / identity product
+  in the design doc is future work.
+- v12 migrates production databases to a schema with 7 unused tables.
+- No behavioural cascade test for the Track-A tables (schema-only).
+- No browser/live verification of M61-A.
+- `CommentTimelineEvent` / comment wire shapes are hand-synced backend↔frontend
+  (repo convention), each pinned by its own test.
+- Comment anchors are best-effort under heavy concurrent restructuring of the
+  anchored region (the `drifted` / `stale` states are the designed fallback,
+  not a guarantee of pixel-accurate re-anchoring).
+
+
 ## Next recommended milestone
 
 0. **No next milestone is chosen — the repository now needs a decision, not
