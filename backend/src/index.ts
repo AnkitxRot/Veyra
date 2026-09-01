@@ -4,6 +4,7 @@ import { openDb, type Db } from "./db.js";
 import { setupWebSocketServer, getHeartbeatController } from "./ws/index.js";
 import { sandboxManager } from "./execution/sandbox.js";
 import { telemetryHistorian } from "./execution/historian.js";
+import { collaborationHistorian } from "./collab/historian.js";
 import { deleteExpiredSessions } from "./auth/middleware.js";
 import { cleanupExpiredDemoAccounts } from "./auth/demoGc.js";
 import { hashPassword } from "./auth/passwords.js";
@@ -113,6 +114,13 @@ export async function performGracefulShutdown(
     telemetryHistorian.stop();
   } catch (err) {
     console.error("[shutdown] telemetry historian stop failed:", err);
+  }
+  try {
+    // M60: close every open edit burst and drain the write queue
+    // synchronously (node:sqlite is synchronous) before the DB is closed.
+    collaborationHistorian.stop();
+  } catch (err) {
+    console.error("[shutdown] collaboration historian stop failed:", err);
   }
 
   // 1. Stop accepting new HTTP requests. Idle keep-alive sockets are closed

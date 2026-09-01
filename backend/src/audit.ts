@@ -43,6 +43,8 @@ export type AuditEventType =
   | "GIT_BRANCH_CREATED"
   | "GIT_BRANCH_DELETED"
   | "GIT_CHECKOUT"
+  | "COMMENT_ADDED"
+  | "COMMENT_RESOLVED"
   | "ADMIN_ACTION";
 
 export interface AuditRecord {

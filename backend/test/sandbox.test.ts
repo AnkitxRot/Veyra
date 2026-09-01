@@ -907,7 +907,12 @@ async function loadSandboxRunWithFakeDocker(): Promise<{
       const child: any = new EventEmitter();
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
-      child.stdin = { write: () => true, end: () => {} };
+      child.stdin = {
+        write: () => true,
+        end: () => {},
+        on: () => {},
+        writable: true,
+      };
       child.kill = () => true;
       setImmediate(() => {
         child.stdout.emit("data", Buffer.from("ran\n"));

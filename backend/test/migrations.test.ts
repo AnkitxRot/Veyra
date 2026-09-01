@@ -18,7 +18,7 @@ describe("Database Schema & Migrations", () => {
     const db = openDb(":memory:");
     const version = getSchemaVersion(db);
     expect(version).toBeGreaterThanOrEqual(BASELINE_SCHEMA_VERSION);
-    expect(version).toBe(10);
+    expect(version).toBe(12);
 
     // Verify tables exist
     const tables = db
@@ -54,14 +54,122 @@ describe("Database Schema & Migrations", () => {
 
   it("handles existing databases gracefully and records migrations idempotently", () => {
     const db = openDb(":memory:");
-    expect(getSchemaVersion(db)).toBe(10);
+    expect(getSchemaVersion(db)).toBe(12);
 
     // Re-opening or querying should remain consistent
     const rows = db
       .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
       .all() as Array<{ version: number }>;
-    expect(rows.length).toBe(10);
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(rows.length).toBe(12);
+    expect(rows.map((r) => r.version)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ]);
+  });
+
+  it("M61: v12 creates the comment, settings and profile tables with cascades", () => {
+    const db = openDb(":memory:");
+    expect(getSchemaVersion(db)).toBe(12);
+    const names = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as { name: string }[]
+    ).map((t) => t.name);
+    for (const t of [
+      "comment_threads",
+      "comments",
+      "comment_mentions",
+      "comment_reactions",
+      "user_settings",
+      "user_profiles",
+      "user_custom_status",
+      "profile_media",
+      "user_badges",
+      "user_links",
+      "user_featured_projects",
+    ])
+      expect(names).toContain(t);
+    const fk = db
+      .prepare("PRAGMA foreign_key_list(comments)")
+      .all() as { table: string; on_delete: string }[];
+    expect(fk.find((r) => r.table === "comment_threads")!.on_delete).toBe(
+      "CASCADE",
+    );
+    const cols = (
+      db.prepare("PRAGMA table_info(comment_threads)").all() as {
+        name: string;
+      }[]
+    ).map((c) => c.name);
+    expect(cols).toContain("anchor_prefix");
+    expect(cols).toContain("anchor_prefix_hash");
+    const pcols = (
+      db.prepare("PRAGMA table_info(user_profiles)").all() as {
+        name: string;
+      }[]
+    ).map((c) => c.name);
+    expect(pcols).toContain("profile_visibility");
+    expect(pcols).toContain("show_location");
+  });
+
+  it("M61: v12 copies pre-existing user_preferences rows into user_settings.data", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cloudide-m61-settings-copy-"));
+    const dbPath = join(dir, "pre-v12.db");
+    try {
+      const raw: Db = new DatabaseSync(dbPath);
+      raw.exec(`
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'user',
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE user_preferences (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          font_size REAL NOT NULL DEFAULT 13.5,
+          tab_size INTEGER NOT NULL DEFAULT 4,
+          word_wrap TEXT NOT NULL DEFAULT 'off',
+          minimap INTEGER NOT NULL DEFAULT 0,
+          line_numbers TEXT NOT NULL DEFAULT 'on',
+          cursor_blinking TEXT NOT NULL DEFAULT 'smooth',
+          render_whitespace TEXT NOT NULL DEFAULT 'selection',
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      for (let v = 1; v <= 11; v++) {
+        raw.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(v);
+      }
+      raw
+        .prepare(
+          "INSERT INTO users (id, username, password_hash) VALUES (1, 'prefs_user', 'hash')",
+        )
+        .run();
+      raw
+        .prepare(
+          "INSERT INTO user_preferences (user_id, font_size, tab_size) VALUES (1, 16, 2)",
+        )
+        .run();
+      raw.close();
+
+      const migrated = openDb(dbPath);
+      expect(getSchemaVersion(migrated)).toBe(12);
+      const row = migrated
+        .prepare("SELECT data FROM user_settings WHERE user_id = 1")
+        .get() as { data: string } | undefined;
+      expect(row).toBeDefined();
+      const data = JSON.parse(row!.data);
+      expect(data["editor.fontSize"]).toBe(16);
+      expect(data["editor.tabSize"]).toBe(2);
+      migrated.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
   });
 
   // Milestone 33 — audit_logs.project_id changed from ON DELETE CASCADE to
@@ -186,12 +294,12 @@ describe("Database Schema & Migrations", () => {
         // actually applying the migration on app restart looks like.
         const migrated = openDb(dbPath);
 
-        expect(getSchemaVersion(migrated)).toBe(10);
+        expect(getSchemaVersion(migrated)).toBe(12);
         const migrationRows = migrated
           .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
           .all() as Array<{ version: number }>;
         expect(migrationRows.map((r) => r.version)).toEqual([
-          1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
         ]);
 
         // All pre-existing data survived the table recreate.
@@ -258,12 +366,12 @@ describe("Database Schema & Migrations", () => {
         // Reopen a second time -- idempotency: no duplicate migration
         // application, no error, no duplicate schema_migrations rows.
         const reopened = openDb(dbPath);
-        expect(getSchemaVersion(reopened)).toBe(10);
+        expect(getSchemaVersion(reopened)).toBe(12);
         const reopenedMigrationRows = reopened
           .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
           .all() as Array<{ version: number }>;
         expect(reopenedMigrationRows.map((r) => r.version)).toEqual([
-          1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
         ]);
         const finalCount = (
           reopened.prepare("SELECT COUNT(*) as c FROM audit_logs").get() as {

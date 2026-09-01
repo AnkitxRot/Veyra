@@ -6,6 +6,38 @@ import * as decoding from "lib0/decoding";
 import { MonacoBinding } from "y-monaco";
 import { monaco } from "../monacoSetup";
 import { User, RunStatusEntry } from "../types";
+import {
+  getUserColor,
+  readPresenceState,
+  deriveWorkingFolder,
+  type CollaboratorPresence,
+  type AvailabilityStatus,
+  type ActivityType,
+  type ActivityState,
+  type SelectionRange,
+} from "./presence";
+import { AttentionStore, type AttentionRange } from "./attention";
+
+// M57: the presence model now lives in ./presence.ts. Re-exported here so the
+// many existing `import { CollaboratorPresence } from "../../collab/client"`
+// call sites keep working.
+export {
+  getUserColor,
+  readPresenceState,
+  deriveWorkingFolder,
+  formatRelativeTime,
+  collaboratorsInFile,
+  collaboratorsInFolder,
+  groupCollaboratorsByFolder,
+} from "./presence";
+export type {
+  CollaboratorPresence,
+  AvailabilityStatus,
+  ActivityType,
+  ActivityState,
+  SelectionRange,
+  CollaboratorIntent,
+} from "./presence";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -20,45 +52,6 @@ export type CollabConnectionStatus =
   | "resynchronizing"
   | "disconnected"
   | "forbidden";
-
-export type AvailabilityStatus = "online" | "idle" | "dnd";
-
-export type ActivityType =
-  "viewing" | "editing" | "running" | "terminal" | "searching" | "reviewing";
-
-export interface ActivityState {
-  type: ActivityType;
-  detail?: string | null;
-  timestamp: number;
-}
-
-export interface SelectionRange {
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  endColumn: number;
-}
-
-export interface CollaboratorPresence {
-  clientId: number;
-  userId: number;
-  name: string;
-  role: "owner" | "editor" | "viewer";
-  color: string;
-  status: AvailabilityStatus;
-  activity: ActivityState;
-  activeFile?: string | null;
-  cursor?: { line: number; column: number } | null;
-  selection?: SelectionRange | null;
-  lastActive: number;
-  /**
-   * M56: whether this collaborator's client has UNSAVED local buffer edits
-   * in its active file. `undefined` means the client did not report a bit —
-   * that is NOT the same as "clean" and must never be shown as "unsaved".
-   * A client only ever reports its OWN bit for its OWN active file.
-   */
-  activeFileDirty?: boolean;
-}
 
 /** M56: bounded metadata-only notice that an external mutation touched a file. */
 export type MutationType =
@@ -88,6 +81,7 @@ const IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const BLUR_IDLE_TIMEOUT_MS = 60 * 1000; // 1 minute
 const EDITING_HYSTERESIS_MS = 5 * 1000; // 5 seconds
 const SELECTION_DEBOUNCE_MS = 50; // 50 milliseconds
+const NAVIGATION_HYSTERESIS_MS = 2500; // M57: "navigating" reverts to "viewing"
 
 export class CollaborationClient {
   public readonly projectId: string;
@@ -106,6 +100,10 @@ export class CollaborationClient {
   // per keystroke) are suppressed. Cleared on file switch / save / reset.
   private localActiveFileDirty = false;
 
+  // M57: the client's own last-emitted intent text, so a repeat setIntent()
+  // with unchanged text is a no-op. Cleared on reset.
+  private localIntentText = "";
+
   // M52: per-path readiness. A path enters this set when the server sends
   // `{type:"file_ready"}` for it — meaning the room has finished loading
   // that file from disk into its Y.Text, so the server content is now
@@ -116,6 +114,13 @@ export class CollaborationClient {
   // from the server's `run_status` broadcasts (which the server derives from
   // the real, authenticated execution lifecycle). Keyed by server executionId.
   private runStatuses = new Map<string, RunStatusEntry>();
+
+  // M58: transient attention events (Point / Callout / targeted "Come look").
+  // RECEIVE-authoritative — the server stamps id/author/createdAt/expiresAt;
+  // this store only renders and locally expires point/callout events. Lives at
+  // the transport level (not per Y.Doc lineage) and is cleared on explicit
+  // disposal reset and on dispose().
+  public readonly attentionStore = new AttentionStore();
 
   // M52: a y-monaco bind that is waiting for `file_ready` (or the fallback
   // timer). Only ever holds the single most-recent deferred bind; a newer
@@ -139,6 +144,12 @@ export class CollaborationClient {
   private isDisposed = false;
   private user: User;
 
+  // M60: epoch ms of the most recent transition to "disconnected", so the
+  // next successful reconnect can emit `reconnected_after_gap` with how long
+  // the client was offline (only the TRIGGER for While-You-Were-Away — the
+  // authoritative content boundary is the server's collab_last_seen).
+  private disconnectedAt: number | null = null;
+
   // Activity & Availability state machine
   private availability: AvailabilityStatus = "online";
   private isManualDnd = false;
@@ -152,6 +163,7 @@ export class CollaborationClient {
   private idleTimer: any = null;
   private blurTimer: any = null;
   private editHysteresisTimer: any = null;
+  private navHysteresisTimer: any = null;
   private selectionTimer: any = null;
   private cursorTimer: number | null = null;
 
@@ -165,6 +177,9 @@ export class CollaborationClient {
     this.user = user;
     this.initDocAndAwareness();
     this.initActivityListeners();
+    this.attentionStore.onChange(() =>
+      this.emit("attention_change", this.attentionStore.list()),
+    );
     this.connect();
   }
 
@@ -193,6 +208,13 @@ export class CollaborationClient {
     this.awareness.setLocalStateField("status", this.availability);
     this.awareness.setLocalStateField("activity", this.currentActivity);
     this.awareness.setLocalStateField("lastActive", Date.now());
+    // M57: a fresh lineage carries no workingFolder/intent — exactly like
+    // `activeFile`, which is also not seeded here. The rebind after an
+    // explicit-disposal reset re-sends `activeFile` via notifyFileOpen(),
+    // which re-derives workingFolder; intent is re-emitted by the next
+    // setIntent() (its tracker is reset alongside).
+    this.awareness.setLocalStateField("workingFolder", null);
+    this.awareness.setLocalStateField("intent", null);
 
     // Notify local listeners when awareness changes
     this.awareness.on("change", () => {
@@ -275,7 +297,7 @@ export class CollaborationClient {
     if (this.isDisposed) return;
     this.resetIdleTimer();
 
-    if (!this.isManualDnd && this.availability === "idle") {
+    if (!this.isManualDnd && (this.availability === "idle" || this.availability === "away")) {
       this.setAvailability("online");
     }
   }
@@ -285,7 +307,9 @@ export class CollaborationClient {
     if (this.blurTimer) clearTimeout(this.blurTimer);
     this.blurTimer = setTimeout(() => {
       if (!this.isDisposed && !this.isManualDnd) {
-        this.setAvailability("idle");
+        // M57: window-blur → "away" (distinct from "idle" = no interaction
+        // while the window is still focused).
+        this.setAvailability("away");
       }
     }, BLUR_IDLE_TIMEOUT_MS);
   }
@@ -296,7 +320,7 @@ export class CollaborationClient {
       clearTimeout(this.blurTimer);
       this.blurTimer = null;
     }
-    if (!this.isManualDnd && this.availability === "idle") {
+    if (!this.isManualDnd && (this.availability === "idle" || this.availability === "away")) {
       this.setAvailability("online");
     }
     this.resetIdleTimer();
@@ -334,15 +358,38 @@ export class CollaborationClient {
       this.editHysteresisTimer = null;
     }
 
+    if (this.navHysteresisTimer) {
+      clearTimeout(this.navHysteresisTimer);
+      this.navHysteresisTimer = null;
+    }
+
     this.currentActivity = {
       type,
       detail:
         detail ??
-        (type === "viewing" || type === "editing" ? this.activeFilePath : null),
+        (type === "viewing" || type === "editing" || type === "navigating"
+          ? this.activeFilePath
+          : null),
       timestamp: Date.now(),
     };
     this.awareness.setLocalStateField("activity", this.currentActivity);
     this.awareness.setLocalStateField("lastActive", Date.now());
+  }
+
+  // M57: observable navigation (file-tree click / tab switch without an edit)
+  // → a short-lived "navigating" activity that reverts to "viewing". Never
+  // overrides an in-flight "editing" state.
+  public recordNavigation(): void {
+    if (this.isDisposed) return;
+    this.handleUserInteraction();
+    if (this.currentActivity.type === "editing") return;
+    this.setActivity("navigating", this.activeFilePath);
+    if (this.navHysteresisTimer) clearTimeout(this.navHysteresisTimer);
+    this.navHysteresisTimer = setTimeout(() => {
+      if (!this.isDisposed && this.currentActivity.type === "navigating") {
+        this.setActivity("viewing", this.activeFilePath);
+      }
+    }, NAVIGATION_HYSTERESIS_MS);
   }
 
   public recordEdit(): void {
@@ -372,6 +419,30 @@ export class CollaborationClient {
   }
 
   /**
+   * M57: set THIS client's user-declared intent — a single human-authored
+   * line. Cleaned + bounded (≤120, control chars stripped, whitespace
+   * collapsed) to mirror the server sanitizer. Empty ⇒ clears the field. A
+   * no-op when the cleaned text is unchanged so a keystroke-driven caller is
+   * cheap. Never auto-generated.
+   */
+  public setIntent(text: string | null): void {
+    if (this.isDisposed) return;
+    let cleaned = "";
+    for (const ch of text ?? "") {
+      const code = ch.charCodeAt(0);
+      cleaned += code < 0x20 || code === 0x7f ? " " : ch;
+    }
+    cleaned = cleaned.replace(/\s+/g, " ").trim().slice(0, 120);
+    if (cleaned === this.localIntentText) return;
+    this.localIntentText = cleaned;
+    this.awareness.setLocalStateField(
+      "intent",
+      cleaned ? { text: cleaned, updatedAt: Date.now() } : null,
+    );
+    this.awareness.setLocalStateField("lastActive", Date.now());
+  }
+
+  /**
    * M56: report whether THIS client's active file has unsaved local buffer
    * edits. Driven by the active editor tab's dirty flag. A no-op when the
    * value is unchanged so a per-keystroke caller is cheap.
@@ -391,6 +462,67 @@ export class CollaborationClient {
         this.awareness.setLocalStateField("selection", selection);
       }
     }, SELECTION_DEBOUNCE_MS);
+  }
+
+  // --- M58: transient attention senders ---------------------------------
+  //
+  // Each builds a MESSAGE_CUSTOM JSON frame exactly like notifyFileOpen. The
+  // server stamps the authoritative id/author/createdAt/expiresAt and (for
+  // point/callout) broadcasts to peers only — the author does not render their
+  // own point/callout. A request is echoed back to the author by the server so
+  // the tray can show "✓ Sent".
+
+  private sendAttentionFrame(obj: Record<string, unknown>): void {
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
+    encoding.writeVarString(encoder, JSON.stringify(obj));
+    this.send(encoding.toUint8Array(encoder));
+  }
+
+  public sendAttentionPoint(file: string, range: AttentionRange): void {
+    if (this.isDisposed) return;
+    this.sendAttentionFrame({ type: "attention_point", file, range });
+  }
+
+  public sendAttentionCallout(
+    file: string,
+    range: AttentionRange,
+    message: string,
+  ): void {
+    if (this.isDisposed) return;
+    this.sendAttentionFrame({
+      type: "attention_callout",
+      file,
+      range,
+      message,
+    });
+  }
+
+  public sendAttentionRequest(
+    targetUserId: number,
+    file: string,
+    range: AttentionRange,
+    message: string,
+  ): void {
+    if (this.isDisposed) return;
+    this.sendAttentionFrame({
+      type: "attention_request",
+      targetUserId,
+      file,
+      range,
+      message,
+    });
+  }
+
+  public dismissAttentionRequest(id: string, acted?: boolean): void {
+    if (this.isDisposed) return;
+    this.sendAttentionFrame({ type: "attention_dismiss", id, acted });
+    // Optimistic local removal — the server confirms with attention_cleared.
+    this.attentionStore.dismissLocal(id);
+  }
+
+  public getAttention() {
+    return this.attentionStore.list();
   }
 
   // M40: called when the server has explicitly torn down this project's
@@ -429,9 +561,20 @@ export class CollaborationClient {
     // rebind below would bind immediately to an empty Y.Text and briefly
     // show a blank editor as authoritative.
     this.readyFiles.clear();
+    // M58: an explicit server disposal discards every transient attention
+    // event — "stale attention does not resurrect". The server's fresh
+    // addClient snapshot re-sends any still-valid request targeted at this user.
+    this.attentionStore.clear();
     // M56: the fresh awareness lineage has no dirty bit; reset the tracker so
     // the next setActiveFileDirty() re-emits it.
     this.localActiveFileDirty = false;
+    // M57: same for the intent tracker — the fresh lineage has no intent, so
+    // the next setIntent() must re-emit even if the text is unchanged.
+    this.localIntentText = "";
+    if (this.navHysteresisTimer) {
+      clearTimeout(this.navHysteresisTimer);
+      this.navHysteresisTimer = null;
+    }
     // M54: the disposed room's run-status registry is gone; the fresh room's
     // addClient snapshot will re-populate any genuinely-active runs.
     if (this.runStatuses.size > 0) {
@@ -474,6 +617,13 @@ export class CollaborationClient {
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
+        // M60: surface a real reconnect-after-gap so IDE.tsx can decide
+        // whether to fetch While-You-Were-Away.
+        if (this.disconnectedAt !== null) {
+          const offlineMs = Date.now() - this.disconnectedAt;
+          this.disconnectedAt = null;
+          this.emit("reconnected_after_gap", { offlineMs });
+        }
         this.setStatus("connected");
 
         // 1. Send Sync Step 1 (Client state vector)
@@ -523,6 +673,12 @@ export class CollaborationClient {
         // (Class B), preserving local edits exactly as before.
         const wasExplicitDisposal =
           event.code === 1001 && this.status === "connected";
+
+        // M60: record the start of an offline window (first close only — a
+        // reconnect that fails again must not reset the clock).
+        if (this.disconnectedAt === null && !this.isDisposed) {
+          this.disconnectedAt = Date.now();
+        }
 
         this.setStatus("disconnected");
 
@@ -602,6 +758,60 @@ export class CollaborationClient {
                 "external_mutation_notice",
                 parsed as ExternalMutationNotice,
               );
+            } else if (
+              parsed &&
+              (parsed.type === "attention_event" ||
+                parsed.type === "attention_cleared")
+            ) {
+              // M58: RECEIVE-only. The store shape-guards and locally expires.
+              this.attentionStore.apply(parsed);
+            } else if (parsed && parsed.type === "attention_rate_limited") {
+              // Transient sender-side "too many pending requests" indication.
+              this.emit("attention_rate_limited", parsed);
+            } else if (
+              parsed &&
+              parsed.type === "collab_change" &&
+              typeof parsed.id === "string" &&
+              parsed.actor &&
+              typeof parsed.actor.userId === "number" &&
+              typeof parsed.filePath === "string" &&
+              (parsed.kind === "edit_burst" || parsed.kind === "callout")
+            ) {
+              // M60: RECEIVE-ONLY collaboration-history event. The client has
+              // no code path that authors this frame — only the server's
+              // CollaborationHistorian broadcaster emits it, so a modified
+              // peer cannot forge history (same guarantee as run_status).
+              this.emit("collab_change", parsed);
+            } else if (
+              parsed &&
+              parsed.type === "comment_event" &&
+              typeof parsed.threadId === "string" &&
+              typeof parsed.filePath === "string" &&
+              typeof parsed.kind === "string"
+            ) {
+              // M61-A: RECEIVE-ONLY comment cache-invalidation ping. Carries no
+              // bodies — the client refetches the affected file over REST. The
+              // client never authors this frame.
+              this.emit("comment_event", parsed);
+            } else if (
+              parsed &&
+              parsed.type === "comment_mention" &&
+              typeof parsed.threadId === "string" &&
+              typeof parsed.commentId === "string" &&
+              typeof parsed.filePath === "string" &&
+              parsed.author &&
+              typeof parsed.author.username === "string"
+            ) {
+              // M61-A: RECEIVE-ONLY targeted mention ping (presentation only —
+              // persistence is the comment_mentions row).
+              this.emit("comment_mention", parsed);
+            } else if (
+              parsed &&
+              parsed.type === "profile_event" &&
+              typeof parsed.userId === "number"
+            ) {
+              // M61-C: RECEIVE-ONLY profile-bundle invalidation ping.
+              this.emit("profile_event", parsed);
             }
           } catch {}
           break;
@@ -615,6 +825,12 @@ export class CollaborationClient {
   public notifyFileOpen(filePath: string): void {
     this.activeFilePath = filePath;
     this.awareness.setLocalStateField("activeFile", filePath);
+    // M57: working folder is derived from the focused editor file only —
+    // dirname(activeFile). Never from Explorer browsing.
+    this.awareness.setLocalStateField(
+      "workingFolder",
+      deriveWorkingFolder(filePath),
+    );
     // M56: switching files clears the dirty bit; the new file's dirty state
     // is pushed separately by the editor once the tab is active.
     this.localActiveFileDirty = false;
@@ -883,86 +1099,12 @@ export class CollaborationClient {
   }
 
   public getOnlineCollaborators(): CollaboratorPresence[] {
-    const states = this.awareness.getStates();
-    const collaborators: CollaboratorPresence[] = [];
-
-    for (const [clientId, state] of states.entries()) {
-      if (state && state.user && typeof state.user === "object") {
-        const rawActivity = state.activity;
-        const activity: ActivityState =
-          rawActivity && typeof rawActivity.type === "string"
-            ? {
-                type: rawActivity.type as ActivityType,
-                detail:
-                  typeof rawActivity.detail === "string"
-                    ? rawActivity.detail
-                    : null,
-                timestamp:
-                  typeof rawActivity.timestamp === "number"
-                    ? rawActivity.timestamp
-                    : Date.now(),
-              }
-            : {
-                type: "viewing",
-                detail: state.activeFile || null,
-                timestamp: Date.now(),
-              };
-
-        const rawSelection = state.selection;
-        const selection: SelectionRange | null =
-          rawSelection &&
-          typeof rawSelection.startLine === "number" &&
-          typeof rawSelection.startColumn === "number" &&
-          typeof rawSelection.endLine === "number" &&
-          typeof rawSelection.endColumn === "number"
-            ? {
-                startLine: rawSelection.startLine,
-                startColumn: rawSelection.startColumn,
-                endLine: rawSelection.endLine,
-                endColumn: rawSelection.endColumn,
-              }
-            : null;
-
-        collaborators.push({
-          clientId,
-          userId: Number(state.user.id) || 0,
-          name:
-            typeof state.user.name === "string" ? state.user.name : "Anonymous",
-          role:
-            state.user.role === "owner" || state.user.role === "viewer"
-              ? state.user.role
-              : "editor",
-          color:
-            typeof state.user.color === "string"
-              ? state.user.color
-              : getUserColor(state.user.id || 0),
-          status:
-            state.status === "idle" || state.status === "dnd"
-              ? state.status
-              : "online",
-          activity,
-          activeFile:
-            typeof state.activeFile === "string" ? state.activeFile : null,
-          activeFileDirty:
-            typeof state.activeFileDirty === "boolean"
-              ? state.activeFileDirty
-              : undefined,
-          cursor:
-            state.cursor &&
-            typeof state.cursor.line === "number" &&
-            typeof state.cursor.column === "number"
-              ? { line: state.cursor.line, column: state.cursor.column }
-              : null,
-          selection,
-          lastActive:
-            typeof state.lastActive === "number"
-              ? state.lastActive
-              : Date.now(),
-        });
-      }
+    const out: CollaboratorPresence[] = [];
+    for (const [clientId, state] of this.awareness.getStates().entries()) {
+      const p = readPresenceState(clientId, state);
+      if (p) out.push(p);
     }
-
-    return collaborators;
+    return out;
   }
 
   public updateCursorPosition(line: number, column: number): void {
@@ -1025,6 +1167,7 @@ export class CollaborationClient {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.blurTimer) clearTimeout(this.blurTimer);
     if (this.editHysteresisTimer) clearTimeout(this.editHysteresisTimer);
+    if (this.navHysteresisTimer) clearTimeout(this.navHysteresisTimer);
     if (this.selectionTimer) clearTimeout(this.selectionTimer);
     if (this.cursorTimer !== null) {
       cancelAnimationFrame(this.cursorTimer);
@@ -1033,6 +1176,7 @@ export class CollaborationClient {
     this.removeActivityListeners();
     this.clearPendingBind();
     this.runStatuses.clear();
+    this.attentionStore.dispose();
     this.unbindCurrentModel();
     if (this.ws) {
       try {
@@ -1046,17 +1190,4 @@ export class CollaborationClient {
   }
 }
 
-const USER_COLORS = [
-  "#89b4fa", // Blue
-  "#a6e3a1", // Green
-  "#fab387", // Peach
-  "#f38ba8", // Red
-  "#cba6f7", // Mauve
-  "#f9e2af", // Yellow
-  "#94e2d5", // Teal
-  "#f5c2e7", // Pink
-];
-
-export function getUserColor(userId: number): string {
-  return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
-}
+// getUserColor + USER_COLORS moved to ./presence.ts (M57), re-exported above.

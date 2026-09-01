@@ -12,6 +12,7 @@ import { extractZipArchive } from "../projects/zip.js";
 import { collaborationManager } from "../collab/manager.js";
 import { sandboxManager } from "../execution/sandbox.js";
 import { telemetryHistorian } from "../execution/historian.js";
+import { collaborationHistorian } from "../collab/historian.js";
 import {
   assertValidProjectId,
   generousArchiveConfig,
@@ -305,6 +306,10 @@ export async function restoreWorkspaceBackup(
         // aborted restore.
       }
       telemetryHistorian.disposeProject(projectId);
+      // M60: a workspace restore replaces disk under the room — close+flush
+      // any open bursts so history reflects the pre-restore work and starts
+      // clean afterwards.
+      collaborationHistorian.disposeProject(projectId);
 
       const cwd = projectDir(cfg, projectId);
       const liveSnapDir = snapshotDir(cfg, projectId);

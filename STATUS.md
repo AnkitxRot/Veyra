@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-28.
+Last updated: 2026-08-30.
 
 ## Current state
 
@@ -78,7 +78,40 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
     Replace All with a `collaborator_dirty_conflict` gate; server-built
     `external_mutation_notice` metadata frames with a strict 6-value
     mutation-type enum) in this commit.
-- **Current uncommitted work:** none.
+  - Post-M56 commits shipped on top of `d203ce9` (the last `STATUS.md`
+    update) and NOT yet written up as full milestone sections — scope +
+    regression tests recorded in the "Repository state reconciliation"
+    section below:
+    - `2f738a4` — collab external-mutation data-loss fix:
+      `CollaborationRoom.handleExternalFileMutation()` refuses a full-buffer
+      `Y.Text` replace (`{applied:false, conflict:true}`) when the file
+      holds unpersisted collaborator edits (`dirtyFiles`); callers return
+      `409 collab_external_conflict` / `409 stale_patch` / per-file
+      `"conflict"`. Closes the M50 CROSS_LAYER / "item 20/21" open finding.
+    - `91f6e08` — frontend surfacing of the above: truthful non-blocking
+      conflict banner, `frontend/src/utils/collabConflict.ts` (new);
+      `backend/src/collab/manager.ts` untouched.
+    - `f7acac4` — workspace session restore: `/p/<projectId>` routes +
+      per-project editor-tab / active-file / bottom-panel restore from
+      `localStorage` (file paths + panel identity only, never buffer text
+      or secrets). Frontend-only.
+    - `8a16363` — preview-server auto-detection:
+      `backend/src/execution/previewProbe.ts` + owner-only
+      `GET /api/projects/:id/preview/ports` (fixed 5-port allowlist, 2s
+      result cache); Preview panel offers one-click "Open :<port>".
+    - `ce2007c` — new projects runnable by default: 9 self-contained starter
+      templates, each with a detector-recognised entry file that auto-opens
+      after creation; `validateTemplates()` module-load fail-fast.
+- **Current uncommitted work:** the "Post-M56 bounded fixes" pass (its own
+  section below) plus this reconciliation — namely the `/ws/execute` stdin
+  `uncaughtException` fix (`backend/src/execution/sandbox.ts` +
+  `backend/test/sandbox-stdin.test.ts`, `backend/test/sandbox.test.ts`), the
+  Problems-panel closed-file navigation fix
+  (`frontend/src/utils/revealLocation.ts` + `frontend/test/revealLocation.test.ts`
+  + `frontend/test/ProblemsPanel.navigation.test.tsx` +
+  `frontend/src/components/IDE/IDE.tsx`), the `m16-optimization.test.ts`
+  skip-without-Docker guard, the `deploy/README.md` restore-claim
+  correction, and this `STATUS.md` update. Not committed.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -4582,24 +4615,1292 @@ made the operation reviewable — pre-apply safety snapshot, per-file selection 
 diff, and clean open-buffer reconciliation. M50 was fully browser-verified
 end-to-end.
 
+## Post-M56 bounded fixes (backlog items (e) + (f), a green-baseline gap, and an execution-stdin crash)
+
+Four small, independent, evidence-backed fixes done together in one pass. No
+new feature, no product decision, no subsystem destabilised.
+
+### 1. Problems-panel closed-file navigation (backlog item (e))
+
+**Bug (confirmed by code, matches the long-standing "Next recommended
+milestone" item (e)).** `IDE.tsx`'s `<ProblemsPanel onSelectDiagnostic>`
+dispatched `ide-reveal-location` directly. The Editor's handler for that event
+calls `setActiveFile`, which only switches among **already-open** tabs — so
+clicking a diagnostic for a file the user had not opened was a silent no-op
+(no tab opened, no navigation). M26's `e127669` fixed the exact twin for
+Workspace Search (`onSelectResult` → `await handleOpenFile` then dispatch) but
+left the Problems-panel path untouched.
+
+**Fix.** New shared primitive
+`frontend/src/utils/revealLocation.ts` → `openAndRevealLocation(openFile,
+target)`: awaits `openFile(target.filePath)` (fetch + open the tab, no-op if
+already open), then dispatches `ide-reveal-location`; if the open rejects the
+reveal is not dispatched. Both `IDE.tsx` call sites now route through it — the
+Problems panel (the fix) and Workspace Search (its inline `await …; dispatch`
+replaced by the shared call so the two paths cannot diverge again). No change
+to the Editor handler, the event shape, the collab follow/jump paths (already
+open-first), or any backend file.
+
+**Tests.**
+- `frontend/test/revealLocation.test.ts` (4) — open-before-reveal ordering,
+  `matchLength` forwarding, no reveal when the open fails, async-open await.
+- `frontend/test/ProblemsPanel.navigation.test.tsx` (1) — renders the real
+  `ProblemsPanel`, clicks a diagnostic for a nested/closed path, asserts
+  `openFile` is called then `ide-reveal-location` fires, in that order, with
+  the right `filePath`/`line`/`column`.
+
+**Verification (local, this working tree).** frontend typecheck PASS ·
+frontend lint PASS (0 errors, pre-existing warnings only) · frontend build
+PASS · frontend Vitest **313 / 313** (was 308; +5) · `git diff --check` clean.
+Not browser-verified (the automated coverage exercises the same wiring the
+already-browser-verified M26 twin uses; a live IDE + Docker + diagnostics
+repro was not run).
+
+### 2. `deploy/README.md` stale disaster-recovery claim (backlog item (f))
+
+`deploy/README.md` §"Workspace & Snapshot Backups (Milestone 31)" still said
+"**Restore is not yet automated for workspaces/snapshots**" and its Admin API
+list omitted the restore route — both stale since **M32** added
+`restoreWorkspaceBackup` +
+`POST /api/admin/workspace-backups/:projectId/:filename/restore` and **M46**
+surfaced it in the admin dashboard (verified: `admin/routes.ts:1207`,
+`AdminBackupsPanel.tsx:292`). An operator reading the doc mid-incident would
+have wrongly concluded manual extraction was the only path. Corrected the
+claim and added the restore route to the documented API list. The
+"### Scheduling — Not implemented in this milestone" paragraph is still
+accurate (no native scheduler exists) and was left as-is. Doc-only change.
+
+### 3. `m16-optimization.test.ts` fails instead of skipping without Docker
+
+`backend/test/m16-optimization.test.ts`'s first test
+("ensureProjectSandbox creates container …") calls
+`sandboxManager.ensureProjectSandbox()`, which throws
+`Error: Docker daemon is not running` when Docker is unavailable — it lacked
+the `skipIf(!isDockerRunning())` guard that every other container-provisioning
+test in the suite (`exec` / `sandbox` / `lifecycle` / `api`) uses, so
+`npm test` was red on any machine without Docker (CI has Docker, which is why
+the "Green Baseline Lock" showed 0 failures). Fixed with `it.skipIf(...)` on
+that one test only; the file's second test (`getProxyTarget` on an inactive
+project) is Docker-free and keeps running. Test-infra only — no product code.
+
+### 4. `/ws/execute` stdin write can crash the whole backend (uncaughtException)
+
+`sandboxRun` (`backend/src/execution/sandbox.ts`) handed the interactive
+execution controller `writeStdin: (data) => child.stdin.write(data)` with **no
+`'error'` listener on `child.stdin`**. `docker exec -i` forwards that stdin to
+the sandboxed process; when the process exits first — an interactive program
+that returns, a `stop` SIGKILL, or a program that never reads stdin — the pipe's
+read end goes away and the next `child.stdin.write()` emits `'error'`
+(`EPIPE` / `write EOF`). A Node stream with zero `'error'` listeners rethrows it
+as an **uncaughtException that terminates the backend process, dropping every
+connected user** — the identical failure class the `/ws/execute` malformed-frame
+fix addressed (`backend/test/ws.test.ts`). The trigger is reachable by any
+authenticated user: the window runs from the moment the sandbox process's pipe
+breaks until the execution socket's `finish()` nulls the controller (after a
+telemetry query, a `runs` INSERT, and — when project secrets are in use — an
+`await`ed `docker exec … rm` round-trip), and a single stdin frame that arrives
+in that window (a late keystroke, buffered client input, or a keystroke racing
+`stop`) is enough.
+
+Fix: a small exported `makeStdinWriter(child)` helper that attaches
+`child.stdin.on('error', () => {})` once (a lost keystroke to an already-exited
+process is expected, not fatal — the run outcome is still owned by
+`child.on('close')`) and returns a writer that also skips writing once
+`child.stdin.writable` is false. `sandboxRun` routes both the controller's
+`writeStdin` and the one-shot `opts.stdin` write through it; the trailing
+`child.stdin.end()` calls are covered by the same listener. Regression test
+`backend/test/sandbox-stdin.test.ts` (Docker-free) drives a real child that
+exits on first input and asserts no `uncaughtException` while a write lands on
+the broken pipe (`child.stdin.errored` confirms the pipe genuinely broke);
+reverting the `.on('error')` line fails it with the captured `write EOF`.
+The fake-`spawn` child in `sandbox.test.ts` gained `on` / `writable` to model a
+real child. Sibling one-shot writers (`projectsecrets/inject.ts`,
+`projects/format.ts`, `git/service.ts`) share the pattern with a far smaller
+window and are **not** changed here (scope containment) — noted as a follow-up.
+
+**Verification (local, this working tree).** backend typecheck PASS · backend
+Vitest **735 passed / 0 failed / 51 skipped** (was 733 / 1 failed / 50 skipped —
+§3 made the m16 Docker test skip instead of fail; §4 added 2 Docker-free tests) ·
+frontend Vitest 313 / 313 · frontend build PASS · backend + frontend lint 0
+errors · `git diff --check` clean. Docker was **not** running locally, so the
+Docker-gated paths (m16 container test; `sandboxRun`'s own Docker execution) are
+verified-skipped / verified-by-construction, not verified-passing — those paths
+are unchanged and still run on CI. The §4 fix's crash path is reproduced and
+regression-locked without Docker via a real `child_process` pipe.
+
+## Repository state reconciliation (2026-08-29 handoff)
+
+A reconciliation pass to make this document trustworthy against `HEAD`
+(`ce2007c`) and the current working tree. **Documentation-only** — no
+production or test code was changed in this pass. A focused
+execution/process-lifecycle audit run alongside it found **no second defect**
+meeting the evidence/reachability/boundedness bar (details under "Backlog"
+class E below).
+
+### Post-M56 commits now recorded
+
+`STATUS.md` was last committed at `d203ce9`. Five commits landed after it and
+were undocumented; all are in `HEAD`, each with its own regression tests:
+
+| Commit | Title | Layer | Regression tests | Runtime proof |
+|---|---|---|---|---|
+| `2f738a4` | prevent collab external mutation data loss | backend `collab/manager.ts` + route callers | `backend/test/m4-collab.test.ts` 37–41 | full backend suite green *with* Docker (commit msg: 736/9); re-confirmed this pass (777/9) |
+| `91f6e08` | surface collaboration mutation conflicts | frontend only (`collabConflict.ts` new) | `frontend/test/collabConflict.test.ts`, `ideSaveConflict.test.tsx` | frontend 313/313 this pass |
+| `f7acac4` | restore cloudide workspace sessions | frontend only (`sessionStore.ts` new, `/p/:id` route) | `frontend/test/sessionStore.test.ts`, `sessionRestore.test.tsx` | frontend 313/313 this pass |
+| `8a16363` | auto-detect preview servers | backend `previewProbe.ts` + `GET …/preview/ports`; `Preview.tsx` | `backend/test/previewProbe.test.ts`, `frontend/test/Preview.test.tsx` | commit msg: real-Docker e2e (756/9); re-confirmed this pass (777/9) |
+| `ce2007c` | make new projects runnable by default | backend `templates.ts` + `TemplateModal`/`Sidebar` | `backend/test/templates.test.ts`, `frontend/test/Sidebar.templates.test.tsx`; `templates.exec`/`templates.preview` (Docker-gated) | Docker-gated exec/preview starters pass this pass (Docker available) |
+
+### Verification status corrected — Docker IS available in this environment
+
+Earlier passes recorded "Docker unavailable locally → 735 passed / 51
+skipped, Docker paths verified-skipped". **That is not true of the current
+environment.** Docker 29.7.2 is running and `cloudeeeide-runner:latest` (1.81
+GB) is built. Fresh full run on the current working tree (2026-08-29):
+
+- **Backend Vitest: 777 passed / 0 failed / 9 skipped** (60 files) — includes
+  the real-Docker suites: `exec` / `sandbox` / `sandbox-stdin` / `api`
+  container provisioning, `templates.exec` (python/node/typescript/c/cpp/java
+  run to exit 0 through the real pipeline), `templates.preview`, and the
+  `previewProbe` path. The 9 remaining skips are all **Windows-host platform**
+  skips (`it.skipIf(IS_WINDOWS)` / `process.platform === "win32"`): symlink-escape
+  rejection (`api.test.ts` ×2, `fork.test.ts` ×2), backup file-permission cases
+  (`backup.test.ts` ×2, `workspace-backup.test.ts` ×1), and non-root-uid
+  enforcement (`sandbox.test.ts` ×2). Not Docker skips — they run on Linux CI.
+- **Frontend Vitest: 313 passed / 0 failed** (35 files).
+- Backend typecheck `tsc --noEmit`: 0 errors. Frontend typecheck: 0 errors.
+- Backend lint: 0 errors / 29 warnings (pre-existing `_`-prefix unused-var
+  warnings in test files). Frontend lint: 0 errors / 19 warnings (same class).
+- `git diff --check`: clean.
+- **Not** run this pass: frontend `vite build` (docs-only change; last
+  recorded green), browser / live-server E2E.
+
+The M56-era "§4 stdin fix" crash path is therefore now also confirmed under
+real Docker execution, not only via the Docker-free `child_process` repro.
+
+### Stale "Next recommended milestone" entries corrected in place
+
+- Items **20 / 21** — `notifyExternalFileMutation` merging into
+  actively-edited collab buffers was marked "remains open" / "same class as
+  item 20, addressed together". **Shipped** in `2f738a4` + `91f6e08`
+  (verified: `collab/manager.ts:783-812` enforces the `dirtyFiles`
+  invariant and returns `{conflict:true}`; `routes.ts:588` / `:1072` and
+  `snapshots.ts:283` surface it).
+- Item **14** — `/api/admin/observability` "still has no frontend caller".
+  **Shipped** in M49 (`0a393ca`): `AdminObservabilityPanel.tsx` fetches it
+  and is wired as the "observability" tab in `AdminDashboard.tsx:1810`.
+- Item **5** — "admin backup/restore action UI, zero frontend callers".
+  Already superseded by item 11 ("fixed in M46"); left as historical
+  context, see item 11.
+
+### Current backlog (post-reconciliation), by decision class
+
+Every item below is either verified-open in code or explicitly a decision.
+Nothing here is "pick the highest old number".
+
+**A. READY — bounded, no product/security/architecture decision**
+- *(none).* Every previously-listed ready backend-only gap has shipped:
+  dependency-install UI (M43), missing-dependency detection (M44),
+  admin backup/restore UI (M46), encrypted secrets (M47), observability
+  dashboard (M49), Replace-All safety (M50), local Git (M51), execution
+  session persistence (M53), preview auto-detect (`8a16363`), runnable
+  starters (`ce2007c`), collab-conflict surfacing (`91f6e08`).
+
+**B. SECURITY REVIEW REQUIRED**
+- Collaborator-visible execution **output** (stdout/stderr) / summon-terminal
+  — M54 deliberately broadcasts run *status only*; run output can contain
+  M47 project secrets, so widening the collab broadcast is a
+  trust-boundary decision, not a bounded task.
+- Any real external AI provider (also class C) — introduces a
+  prompt-injection / project-data-egress boundary that does not exist today.
+
+**C. PRODUCT DECISION REQUIRED**
+- Real AI provider behind the existing deterministic verified-patch pipeline
+  (`ai/provider.ts` already declares `openai|anthropic` variants but only
+  ever returns `DeterministicEngineeringProvider`; no API-key config
+  exists). Cost, key custody, demo/evaluator-account policy, data egress.
+- Whether collaborator execution-output sharing (B) is even desired.
+
+**D. ARCHITECTURE / DESIGN REQUIRED**
+- Native workspace-backup scheduler + "back up all projects now" — no bulk
+  endpoint exists (`/workspace-backups/:projectId` is strictly per-project);
+  `deploy/README.md` explicitly defers the scheduler as a "distinct concern
+  (queue design, shutdown lifecycle, per-project overlap-skipping)". Even
+  the "backup all now" button needs a new bulk endpoint whose overlap /
+  lifecycle semantics are the deferred design question.
+
+**E. DEFERRED / INTENTIONALLY NOT IMPLEMENTED**
+- Audit-log retention/pruning — no growth evidence (item 1).
+- `alert()`-based error surfaces UX-polish pass — non-urgent, spans many
+  files, not a correctness/security issue (item 2).
+- Sibling one-shot stdin writers (`projectsecrets/inject.ts:96`,
+  `projects/format.ts:46`, `git/service.ts:181`) share the M56-§4
+  unhandled-`stdin`-`error` class **but do not meet the bar**:
+  `git/service.ts`'s `opts.input` path has **no caller** (dead code);
+  `projects/format.ts`'s `runFormatterProcess` only runs `if
+  (commandExists(black|clang-format|prettier))` and none of those are in
+  `scripts/setup.sh` or the `docker/Dockerfile.app` runtime image, so it is
+  unreachable in a shipped deployment; `projectsecrets/inject.ts` needs a
+  Docker-runtime `set -e` shell-exit edge. Left as noted follow-ups, not a
+  milestone.
+
+**F. ENVIRONMENT-LIMITED VERIFICATION**
+- Browser / live-IDE E2E: the Problems-panel navigation fix, the preview
+  auto-detect panel, session restore, and the collab-conflict banner are
+  covered by unit/integration tests but were **not** browser-verified this
+  pass.
+- 9 platform-skipped backend tests (Windows host): symlink-escape rejection,
+  backup file-permission cases, non-root-uid enforcement — run on Linux CI only.
+
+## Milestone 57 — Multiplayer Presence, Live Workspace Awareness & Collaborative Editing Foundation
+
+**Objective:** make remote collaborators feel present while coding — see who is
+online / idle / away, what file and folder each person is working in, their
+cursor / selection, a derived activity, and an optional one-line human-authored
+intent — built entirely on the existing Yjs + WebSocket + `y-protocols/awareness`
+stack. Gap-closing, not greenfield: ~75% of the imagined foundation already
+shipped across M4/M6/M37–M42/M48/M52/M54/M55/M56. Spec + plan:
+`docs/superpowers/specs/2026-08-29-m57-multiplayer-presence-design.md`,
+`docs/superpowers/plans/2026-08-29-m57-multiplayer-presence.md`.
+
+**Already existed (reused verbatim, not reimplemented):** real-time collaborative
+editing + concurrent-edit CRDT convergence (Yjs), incremental Monaco sync via
+`y-monaco`, remote cursor/selection rendering, deterministic collaborator colour
+(`getUserColor`), the availability state machine (`online`/`idle`/`dnd`, 2-min
+idle + 1-min blur timers), the activity state machine
+(`viewing`/`editing`/`running`/`terminal`/`searching`, 5-s editing hysteresis),
+rAF cursor throttle + 50-ms selection debounce, the header
+`CollaboratorAvatarStack` + per-avatar quick popover (activity / file / **Follow**
+/ **Jump**), file-tree presence dots + "+N" overflow, tab collaborator dots + the
+within-5-lines proximity warning, **Follow mode** with dirty-state protection +
+`FollowBanner` (M48), execution awareness without raw stdout/stderr (M54),
+authorization isolation + server-authoritative identity + spoofed-clientID
+rejection + malformed-frame hardening (M55), awareness coalescing / backpressure
+(M6), reconnect / disconnect / explicit-disposal cleanup (M40/M41),
+`getCollaboratorFileState` backend query (M56), external-file-mutation conflict
+handling (2f738a4). **None of these were touched.**
+
+**What M57 actually added:**
+
+- **Working-folder awareness (G1).** New `workingFolder` awareness field,
+  **derived only** as `dirname(activeFile)` — Explorer expand/collapse/selection
+  is never a presence signal. Sanitized by the existing `sanitizeAwarenessFilePath`.
+- **User-declared intent (G2).** New `intent` awareness field
+  (`{ text, updatedAt }`), **human-authored only, never AI-generated**, bounded to
+  120 chars, C0/DEL stripped, whitespace collapsed, ephemeral, cleared on project
+  switch / disposal reset. `CollaborationClient.setIntent()`.
+- **Team roster panel (G3) + header count (G4).** New `TeamPanel.tsx` — full
+  roster (self row with an editable intent input + DND, plus every collaborator:
+  colour, availability dot, role, activity — M54 run-status wins — file basename +
+  cursor line, working folder, intent, relative time, Follow / Jump), and a
+  "WORKING IN" folder rollup. Opened from a new collaborator-count chip on the
+  header. **The per-avatar quick popover is preserved** (fast Follow/Jump/DND).
+  Both surfaces render from the single canonical `collaborators` array in
+  `IDE.tsx` — no second collaborator store.
+- **Folder-level tree indicators (G5).** `Sidebar` now shows the same dot + "+N"
+  treatment on **directory** rows for any collaborator working anywhere under
+  the folder, derived in the same `useMemo` as the existing file-level map.
+- **"Who's working here?" selectors (G6).** `collaboratorsInFile` /
+  `collaboratorsInFolder` / `groupCollaboratorsByFolder` in the new
+  `frontend/src/collab/presence.ts`, pure functions over the canonical array.
+- **Same-file collaborator strip (G7).** A persistent strip under the tab bar in
+  `Editor.tsx` naming everyone whose focused file is this file (distinct from the
+  within-5-lines proximity badge, which is unchanged).
+- **Relative-time display (G8).** `formatRelativeTime`; the 1 Hz ticker lives
+  **inside the mounted `TeamPanel` only** and is cleared on unmount — no
+  IDE-wide per-second render.
+- **Activity vocabulary (G9).** Added `navigating` (tab / active-file switch
+  without an edit, 2.5-s hysteresis → `viewing`) and availability `away` (window
+  blur ≥ 1 min, distinct from `idle` = no interaction while focused). `viewing`
+  is kept as the wire term for the resting focused state (existing convention);
+  the pre-existing unused `reviewing` wire value is untouched.
+- **Presence-model consolidation (G10).** Extracted the awareness field
+  allowlist (`buildAuthoritativeAwarenessState` + `sanitizeAwarenessFilePath` +
+  `isAwarenessCoord` + the enum Sets) verbatim from the 2082-line `manager.ts`
+  into `backend/src/collab/presence.ts` (`manager.ts` net −145 lines); the
+  security-critical frame decode + clientID ownership/claim logic
+  (`sanitizeIncomingAwarenessUpdate`) stayed in `manager.ts`. Frontend parse +
+  selectors + `getUserColor` moved into `frontend/src/collab/presence.ts`;
+  `client.ts` re-exports them so existing import sites keep working.
+
+**Deliberately NOT in M57** (future milestones): callouts / "come look here",
+activity history / feed, chat / comments / notifications, any persistent
+presence/cursor/activity storage, **semantic conflict resolution** (M57 relies on
+Yjs CRDT convergence only and claims nothing more), task management beyond the one
+free-text intent line, raw terminal / stdout / stderr sharing, symbol-level
+location ("around `refreshToken()`" — needs a language server that does not
+exist), a new `MESSAGE_CUSTOM` event type, a cross-package shared presence module.
+
+**Files added:** `backend/src/collab/presence.ts`,
+`backend/test/m57-presence.test.ts`, `frontend/src/collab/presence.ts`,
+`frontend/src/components/Collab/TeamPanel.tsx`,
+`frontend/src/components/Collab/runActivity.ts`,
+`frontend/test/collab.presence.test.ts`, `frontend/test/TeamPanel.test.tsx`,
+`frontend/test/CollaboratorAvatarStack.test.tsx`,
+`frontend/test/Sidebar.collab.test.tsx`, `frontend/test/Editor.sameFile.test.tsx`.
+**Files changed:** `backend/src/collab/manager.ts`,
+`frontend/src/collab/client.ts`,
+`frontend/src/components/Collab/CollaboratorAvatarStack.tsx`,
+`frontend/src/components/Toolbar/Toolbar.tsx`,
+`frontend/src/components/IDE/IDE.tsx`,
+`frontend/src/components/Sidebar/Sidebar.tsx`,
+`frontend/src/components/Editor/Editor.tsx`, `frontend/src/styles/collab.css`,
+`frontend/test/collab.awareness.test.ts` (blur → `away`, +9 M57 cases),
+`frontend/test/collab.follow.test.tsx` (proximity assertion made specific now
+that the same-file strip shares `role="status"`).
+
+**Verification (2026-08-29, Docker available):**
+- Backend Vitest: **804 passed / 0 failed / 9 skipped** (777 baseline + 27 in
+  `m57-presence.test.ts`; real Yjs + real `y-protocols/awareness` + real
+  `y-protocols/sync`). `collab-awareness-security.test.ts` (23) passes
+  **unchanged** — the guard that the G10 extraction preserved M55 behavior.
+  Backend `tsc --noEmit` 0 errors; `eslint src/collab/` 0 errors.
+- Frontend Vitest: **366 passed / 0 failed** (313 baseline + 53 new). `tsc
+  --noEmit` 0 errors; `eslint` 0 errors / 19 pre-existing warnings; `vite build`
+  exit 0.
+- `git diff --check` clean.
+- **Live two-session behavioral acceptance:** a headless script drove two real
+  cookie-authenticated WebSocket collab clients against the running dev server
+  (`:3000`) — real transport, real `CollaborationRoom`, real M55 rebuild.
+  **17 / 17** checks: both users visible; A's active file + derived working
+  folder + activity seen by B; cursor + selection propagation; intent set → seen;
+  identity-spoof attempt neutralized (M55 intact); `away` seen; M52 disk-load
+  handshake honored; concurrent edits converge with both edits surviving and the
+  original content not clobbered; disconnect → B stops seeing A; reconnect →
+  exactly one A (no duplicate). Room isolation between projects is covered by
+  `m57-presence.test.ts`.
+- **Chrome visual pass: PARTIAL** — the browser extension was not connected in
+  this environment, so the React rendering of `TeamPanel` / folder tree dots /
+  same-file strip was verified by their component tests (25 render/interaction
+  cases), not a live browser. The behavioral pipeline is fully proven by the
+  live two-session script above.
+
+**Remaining limitations:** activity is coarse (no symbol-level "around
+`refreshToken()`" — cursor line only); `workingFolder` is `dirname(activeFile)`
+and does not model a cross-folder "area"; the two presence modules
+(`backend/src/collab/presence.ts` / `frontend/src/collab/presence.ts`) are
+hand-synced per repo convention, each pinned by its own enum test.
+
+**Next multiplayer milestones (build on M57 presence, not shipped here):**
+collaborator callouts / "come look here" (via the existing `MESSAGE_CUSTOM`
+channel + a server-authoritative builder), a lightweight activity feed, conflict
+*awareness* (nearby-region editing surfaced from presence — not semantic merge),
+and eventually comments — each is a distinct milestone with its own
+security/product scoping.
+
+## Milestone 58 — Live Attention, Callouts & Spatial Collaboration
+
+**Objective:** cross the boundary from M57's *"Rahul is working over there"* to
+*"Rahul can get my attention around the exact code he wants me to see."* Three
+escalating human gestures — **Point** ("👉 look here"), **Callout** ("📣 the
+race is here" + a short message on a range), and targeted **"Come look here"**
+(a dismissible request aimed at one collaborator) — plus **spatial awareness**
+(nearby / overlapping-region editing surfaced from M57 presence). Built entirely
+on the existing `MESSAGE_CUSTOM` transient event channel. No new WebSocket
+endpoint, no new presence store, no new document-sync mechanism, no persistence.
+Spec + plan: `docs/superpowers/specs/2026-08-30-m58-live-attention-callouts-design.md`,
+`docs/superpowers/plans/2026-08-30-m58-live-attention-callouts.md`.
+
+**Already existed (reused verbatim, not reimplemented):** the `MESSAGE_CUSTOM`
+(type 3) channel + the `broadcastRunStatus` / `addClient`-snapshot / linger-timer
+pattern (M54); `CollaborationRoom.clients: Map<WebSocket, CollaboratorClientState>`
+for targeted delivery by `userId`; the `/ws/collab` room gate
+(`requireProjectAccess(…, "viewer")`) and server-authoritative identity (M55);
+`sanitizeAwarenessFilePath` / `isAwarenessCoord` (M55/M57 presence.ts);
+`CollaboratorPresence` + `collaboratorsInFile` + `getUserColor` + the same-file
+strip + `nearbyEditingCollaborators` memo (M57); the `openAndRevealLocation`
+open-then-reveal primitive; `throttleLatest`; Monaco `editor.addAction`. **None
+were mutated.** Yjs document state and `y-protocols/awareness` are untouched
+separate layers — no attention code path opens a `Y.Doc` transaction, calls
+`doc.getText`, or writes awareness (verified: the only `this.awareness` reference
+in the attention methods is a *read* of the author's published `user.color`).
+
+**What M58 added:**
+
+- **Attention transport (4-event vocabulary on `MESSAGE_CUSTOM`).** Client →
+  server (authored): `attention_point {file,range}`,
+  `attention_callout {file,range,message}`,
+  `attention_request {targetUserId,file,range,message}`,
+  `attention_dismiss {id,acted?}`. Server → clients (rebuilt, authoritative):
+  `attention_event {id,kind,author{userId,username,color},file,range,message?,
+  targetUserId?,createdAt,expiresAt}` and `attention_cleared {id,reason}` where
+  `reason ∈ dismissed | expired | acted | author_gone`.
+- **`backend/src/collab/attention.ts` (new, pure domain).** `normalizeRange`
+  (rejects — never swaps — reversed / non-finite ranges; a zero-width cursor is
+  valid), `rangesOverlap` (half-open column intervals: touching boundaries and a
+  cursor at the exclusive end do **not** overlap; any shared interior line
+  does), `sanitizeAttentionMessage` (C0/DEL → space, collapse whitespace, trim,
+  cap 280, empty-after-clean → drop), `newAttentionId` (`crypto.randomBytes(8)`
+  hex — opaque, not derived from any identity), `parseAttentionInput`,
+  `buildAttentionEvent` (author/id/createdAt/expiresAt all server-stamped),
+  `RateLimiter` (bounded sliding window), `AttentionRequestRegistry` (bounded
+  policy: ≤3 outstanding per author — **drops the new** request, never evicts an
+  existing one; room cap 200 with oldest-eviction).
+- **`CollaborationRoom` attention integration.** One `handleAttentionMessage`
+  branch inside the existing `case MESSAGE_CUSTOM` try/catch; per-connection
+  `RateLimiter` (10 events / 10 s); `broadcastAttention` (point/callout to peers,
+  never the author) and `sendAttentionTo(userId, …)` (targeted); the bounded
+  in-memory `AttentionRequestRegistry` + one `setTimeout(unref)` expiry timer per
+  request; a recipient-only join snapshot in `addClient` (still-valid requests
+  `byTarget(thisUser)` only); disconnect cleanup in `removeClient` (author leave
+  → `author_gone` to the target; target leave → silent drop) run after
+  `clients.delete` and before `scheduleIdleDisposal`; timer + registry teardown
+  in `dispose()`.
+- **Targeted-request authorization.** `attention_dismiss` / `acted` require the
+  registry entry to **exist** AND `targetUserId === the authenticated dismisser`;
+  a client-supplied `reason`/`acted` is never proof; a guessed or another user's
+  ID is a silent no-op. `attention_request` targets are validated against
+  currently-connected room membership (`isAttentionRoomMember`); self-target and
+  non-members are silently dropped; cross-project targeting is structurally
+  impossible (per-room registry).
+- **`frontend/src/collab/attention.ts` (new) + `AttentionStore`.** Byte-parity
+  `normalizeRange` / `rangesOverlap`; `parseAttentionEvent` shape guard; the
+  store renders and *locally* expires point (6 s) and callout (45 s default,
+  `touchCallout` may extend but **never past the server's 90 s `expiresAt`**);
+  requests have no local timer (server-driven only); cleared on
+  `resetLocalCollabState()` (explicit disposal — "stale attention does not
+  resurrect") and `dispose()`.
+- **`CollaborationClient` senders/receiver.** `sendAttentionPoint/Callout/
+  Request`, `dismissAttentionRequest(id, acted?)` (optimistic local removal +
+  frame); a receive branch for `attention_event` / `attention_cleared` →
+  `attentionStore` → `emit("attention_change")`; `attention_rate_limited` →
+  `emit` (transient sender-side "too many pending" indication, no persistent
+  error mechanism).
+- **IDE wiring.** One throttled `attention` state (`throttleLatest(…, 200)`, same
+  pattern as `collaborators` — no per-event global re-render);
+  `handleAttentionNavigate` **and** the retrofitted `handleJumpToCollaborator`
+  both route through `openAndRevealLocation(handleOpenFile, …)` (the old Jump
+  used `handleOpenFile` + `setTimeout(dispatch)` which could reveal before a
+  closed file finished opening — that regression class is now pinned by a test).
+- **Editor UX.** Three Monaco context-menu actions (👉 Point here / 📣 Call out
+  selection / 📣 Come look here…), enabled only when collaboration is connected
+  and not read-only, capturing file + range from editor state automatically (no
+  manual entry); a small non-modal `AttentionComposer` (message input + a
+  collaborator picker for "Come look"); incoming point/callout as Monaco
+  decorations + a callout content-widget bubble whose message is set via
+  `textContent` (never `innerHTML`, no Markdown→HTML); the M57
+  `nearbyEditingCollaborators` memo replaced by a **three-tier** spatial model —
+  same file (the M57 strip, unchanged, informational) → **nearby** (editing
+  within 5 lines, not overlapping) → **overlapping** (`rangesOverlap` of the
+  active selections, stronger warn-coloured badge + "View" action). Never locks,
+  never blocks concurrent editing, never claims semantic conflict.
+- **`AttentionTray` (new).** Bottom-right, non-modal stack of incoming targeted-
+  request cards ("📣 Rahul wants your attention", file · L40–52, message,
+  `[Go there]` / `[Dismiss]`), a muted "✓ Sent" confirmation for requests this
+  user authored (derived from the server's author echo, not a separate
+  mechanism), a "+N earlier" collapse beyond 3 cards, and a transient
+  rate-limited banner. Not a generic notification framework.
+- **Collaborator chip badge.** A small count badge on the existing header
+  collaborator-count chip showing **only actionable incoming targeted requests**
+  (never points/callouts); clicking the chip still opens TeamPanel and nudges
+  the tray into view. The per-avatar quick popover and TeamPanel are byte-
+  unchanged.
+
+**Deliberately NOT in M58** (future milestones): change attribution (→ M60),
+activity history / feed, while-you-were-away, persistent comments / threads /
+chat / reactions / mentions, semantic conflict resolution (M58 preserves the
+distinction: Yjs = CRDT convergence, presence = spatial awareness, and neither
+implies incompatible *intent*), raw terminal / stdout / stderr sharing, AI
+collaboration, collaboration analytics, any DB / Git / Yjs / workspace-file
+persistence of attention, a new WebSocket endpoint.
+
+**Files added:** `backend/src/collab/attention.ts`,
+`backend/test/m58-attention.test.ts`, `frontend/src/collab/attention.ts`,
+`frontend/src/components/Collab/AttentionTray.tsx`,
+`frontend/src/components/Editor/AttentionComposer.tsx`,
+`frontend/test/collab.attention.test.ts`,
+`frontend/test/collab.attention.client.test.ts`,
+`frontend/test/AttentionTray.test.tsx`,
+`frontend/test/CollaboratorAvatarStack.attention.test.tsx`,
+`frontend/test/Editor.attention.test.tsx`,
+`frontend/test/Editor.nearby.test.tsx`,
+`frontend/test/IDE.attention.test.tsx`,
+`frontend/test/collab.follow.attention.test.tsx`.
+**Files changed:** `backend/src/collab/manager.ts`,
+`frontend/src/collab/client.ts`,
+`frontend/src/components/IDE/IDE.tsx`,
+`frontend/src/components/Editor/Editor.tsx`,
+`frontend/src/components/Toolbar/Toolbar.tsx`,
+`frontend/src/components/Collab/CollaboratorAvatarStack.tsx`,
+`frontend/src/styles/collab.css`,
+`frontend/test/mocks/monaco.ts` (added decoration / content-widget / selection
+stubs), `frontend/test/collab.follow.test.tsx` (the M57 proximity assertion
+updated to the M58 `.spatial-nearby` tier — behaviour is strictly more
+informative).
+
+**Verification (2026-08-30, Docker available):**
+- Backend Vitest — **`m58-attention.test.ts`: 70 / 70 passed** (pure-domain +
+  real `CollaborationRoom` pipeline: real encoded `MESSAGE_CUSTOM` frames,
+  real registry, real `setTimeout` expiry with fake timers, real multi-client
+  delivery, disconnect / reconnect / dispose, project isolation, no-persistence,
+  concurrent-Yjs-convergence guard). All 7 collaboration test files pass
+  together (**215 / 215**), including `collab-awareness-security.test.ts` (23)
+  and `m57-presence.test.ts` (27) **unchanged**, and `m4-collab.test.ts`
+  concurrent-convergence cases unchanged. Backend `tsc --noEmit` 0 errors;
+  `eslint src/collab/` 0 errors.
+- Full backend Vitest — first clean run: **874 passed / 0 failed / 9 skipped**
+  (804 baseline + 70 M58). A later full run showed **873 passed / 1 failed / 9
+  skipped**: the single failure is `test/python-deps.test.ts` ("installs a real
+  Python package via requirements.txt") timing out at the 60 s cap on a
+  network-bound `pip install` — it passed at 46.7 s in the earlier run, touches
+  zero collaboration code, and is a known environmental/flaky Docker+network
+  test. **All 70 M58 tests and all collaboration regression files pass in every
+  run.**
+- Frontend Vitest — **414 passed / 0 failed** (366 baseline + 48 M58 across
+  `collab.attention.test.ts` (17), `collab.attention.client.test.ts` (5),
+  `AttentionTray.test.tsx` (9), `Editor.attention.test.tsx` (5),
+  `Editor.nearby.test.tsx` (5), `CollaboratorAvatarStack.attention.test.tsx`
+  (3), `IDE.attention.test.tsx` (2), `collab.follow.attention.test.tsx` (2)).
+  `tsc --noEmit` 0 errors; `eslint src/` 0 errors / 19 pre-existing warnings
+  (unchanged count); `vite build` exit 0.
+- `git diff --check` — clean.
+- **Live two-session behavioral acceptance** — a headless script drove two real
+  **cookie-authenticated** `/ws/collab` WebSockets against the running dev
+  server (`:3000`): real WS upgrade + auth, real `CollaborationRoom`, real
+  `MESSAGE_CUSTOM` transport, real `AttentionRequestRegistry` + expiry +
+  disconnect cleanup. **17 / 17** checks: both sessions present; POINT seen by
+  the peer with server-set author + opaque id, not echoed to the author; CALLOUT
+  seen with cleaned message, spoofed `author` ignored, 90 s server ceiling;
+  REQUEST delivered to the target only + echoed to the author; a non-target
+  (including the author) cannot dismiss the target's request; the target's
+  dismiss/act clears it for both; the 4th outstanding request is dropped and
+  only the author is told; the author disconnecting withdraws all 3 outstanding
+  (`author_gone` to the target); a fresh target reconnection replays no stale
+  request; a different project sees no attention; the transport stays healthy
+  through the full lifecycle.
+- **Browser visual verification: NOT_PROVEN.** One Chrome extension is
+  connected, but a faithful two-*authenticated*-session Chrome walkthrough needs
+  two separate cookie jars / profiles and a full manual UI pass — a marathon not
+  run here. The React rendering of the tray, composer, decorations, callout
+  bubble (text-only / XSS-safe), the three spatial tiers, the chip badge, and
+  the open-then-reveal navigation ordering are covered by **48 component /
+  interaction tests** against the jsdom Monaco mock — this is component
+  rendering verification, explicitly distinct from live-browser visual
+  verification.
+
+**Security review (source-inspected, not test-only):** author identity is
+always `clientState` (the authenticated session) — `buildAttentionEvent` builds
+from scratch and never spreads the input; the dispatch and handler sit inside
+the existing `try { JSON.parse } catch {}` and every validator returns
+`null`/drop, never throws; `file` clears `sanitizeAwarenessFilePath` (no
+absolute / drive / `..` / C0-DEL); `message` is cleaned + capped and rendered as
+text only (a `<img onerror>` payload appears literally in both the tray and the
+callout bubble — tested); IDs are `crypto` random and only ever *looked up* for
+a dismiss whose entry must target the dismisser; targeted requests never reach a
+non-member, an offline user, or another project; the request registry is
+bounded (≤3/author dropping the new one, ≤200/room with oldest-eviction), every
+entry has one `unref` timer cleared on expiry / dismiss / author-disconnect /
+target-disconnect / dispose; a malformed or oversized frame creates no registry
+entry, broadcasts nothing, and leaves `doc.share` unchanged; `dispose()` clears
+every timer and the registry. No DB write, no Yjs op, no awareness write on any
+attention path.
+
+**Performance:** one throttled IDE `attention` state (200 ms) — no whole-IDE
+re-render per event; editor decorations diffed by id; one `unref` timer per
+registry request, no sweep interval; registry capped at 200; zero DB / Yjs /
+awareness writes; no IDE-wide per-second timer (point/callout timers are
+per-event and ≤ 90 s).
+
+**Acceptance matrix:**
+
+| Criterion | Verdict | Evidence |
+|---|---|---|
+| Attention transport | **PROVEN** | `MESSAGE_CUSTOM` reused; 70 backend + 48 frontend tests; 17/17 live two-session |
+| Point | **PROVEN** | room-pipeline + store TTL + Editor decoration tests; live: seen by peer, not echoed, opaque id |
+| Callout | **PROVEN** | cleaned message, 90 s server ceiling, `touchCallout` clamp, text-only bubble; live + tests |
+| Targeted "Come look here" | **PROVEN** | delivery-to-target-only + author echo + registry; live 17/17 |
+| Context navigation | **PROVEN** | all gestures + retrofitted Jump go through `openAndRevealLocation`; open-strictly-before-reveal test |
+| Spatial / nearby awareness | **PROVEN** (component-level) | three-tier memo, `rangesOverlap` matrix (both sides), `Editor.nearby.test.tsx`; live-browser visual not run |
+| Target authorization | **PROVEN** | member-check, self-target drop, dismiss-authz (exists AND target), project isolation; backend + live |
+| Input hardening | **PROVEN** | path / range / message / malformed / oversized / control-char / XSS tests, all fail closed |
+| Rate limiting / bounds | **PROVEN** | `RateLimiter` + registry unit tests, burst-of-50, 4th-request drop, room cap, multi-tab; live cap check |
+| Ephemeral lifecycle | **PROVEN** | point 6 s / callout 45 s (90 s hard) / request 120 s server; fake-timer expiry; no persistence tests |
+| Reconnect / disconnect | **PROVEN** | author_gone, target-leave silent drop, recipient-only snapshot, no stale replay; backend + live |
+| Concurrent Yjs editing | **PROVEN** | `m58-attention.test.ts` convergence guard (real `y-protocols/sync`); collab regression files unchanged |
+| Performance | **PROVEN** | throttled state, timer accounting, no DB/Yjs/awareness writes — source-verified + tests |
+| Regression safety | **PROVEN** | full frontend 414/0; collab backend 215/215; M55/M57 suites unchanged; only 1 flaky non-collab Docker test |
+| Browser behavioral verification | **PROVEN** | 17/17 live cookie-authenticated two-session script against the running server |
+| Browser visual verification | **PARTIAL** (was NOT_PROVEN) | 2026-08-30 real two-session Chrome walkthrough live-verified Point/Callout/"Come look" via the context menu, the AttentionTray toast (correct file/line/author/message), and a clean Dismiss with no leftover state — see "M59 UX validation & stabilization pass" in this doc; collision/positioning under multiple simultaneous callouts not exercised |
+
+**Remaining limitations:** spatial overlap is line/column-range based on the
+last reported selection — it does not track sub-symbol edits; the callout bubble
+is a Monaco content widget positioned above the range (no collision handling for
+stacked callouts on adjacent lines); the two `attention.ts` modules are
+hand-synced per repo convention, each pinned by a constants test; live-browser
+*visual* verification was not performed.
+
+**Next multiplayer milestones (build on M58, not shipped here):** M59 —
+Follow + attention integration, shared focus, "come here" workflows (the
+`attention_request` + `AttentionStore` + `openAndRevealLocation` seam is ready);
+M60 — change attribution (the room already sees `doc.on("update", origin=ws)`),
+collaboration history, while-you-were-away, activity feed; M61 — persistent
+comments / threads / mentions / reactions (a callout could gain a "keep" action
+that promotes it to a DB-backed comment without changing the wire event); M62 —
+deep same-region conflict-awareness UX on top of the three-tier spatial model.
+
+## Milestone 59 — Collaborative Focus & Context Handoff
+
+**Objective:** cross from M58's *"Rahul can get my attention around the exact
+code"* to *"I can step into Rahul's context, work alongside him, switch my
+attention to Priya when necessary, and safely return to where I was — without
+losing my place or my work."* An **integration** milestone: it wires M57
+presence + M58 attention + M48 Follow + the `openAndRevealLocation` navigation
+primitive into one coherent "shared focus" experience. **Frontend-only** — no
+new transport, no backend change, no new store, no persistence, no Yjs /
+awareness write. Spec + plan:
+`docs/superpowers/specs/2026-08-31-m59-collaborative-focus-handoff-design.md`,
+`docs/superpowers/plans/2026-08-31-m59-collaborative-focus-handoff.md`.
+
+**Reused (not reimplemented):** M48 Follow — the single `followedUserId`, the
+`followedUser` memo (userId-keyed), the auto-track effect, `FollowBanner`, the
+dirty-buffer pause; M57 `CollaboratorPresence` + the one `collaborators` array
+fed by `awareness_change`; M58 `AttentionStore` + `AttentionTray` + the
+throttled `attention` state + `handleAttentionNavigate` + `openAndRevealLocation`
+(open strictly before reveal); Monaco `editor.saveViewState()` /
+`restoreViewState()`; the `liveApiRef` mount/detach ref-API pattern (mirrored by
+the new `editorViewApiRef`). **None mutated destructively.** No new
+`MESSAGE_CUSTOM` type, no awareness field, no second collaborator array — `grep`
+for `setLocalStateField.*focus` / `MESSAGE_CUSTOM` in the frontend M59 diff is
+empty.
+
+**What M59 added:**
+
+- **`frontend/src/collab/focus.ts` (pure, no store).** `FocusState`
+  (`idle | viewing | focused | following`) and `FocusContext` — a *derived*
+  view over the three existing sources of truth. `deriveFocusState`,
+  `latestAttentionFrom` (newest event from an author, targeted-at-me or
+  broadcast), `buildFocusContext`. `FocusState` is UI-only — never serialized,
+  not exported from any wire/presence module.
+- **`frontend/src/collab/followAnchor.ts` (pure).** `FollowAnchor`
+  (`{ filePath, viewState: unknown, cursor, capturedAt }` — `viewState` is the
+  opaque Monaco token, **never** model content), `anchorFilePresent`,
+  `anchorFileBasename`.
+- **`editorViewApiRef` on `Editor` — model-safe save/restore.** `save()` returns
+  `{ filePath, viewState, cursor }`; `restore(filePath, viewState)` applies only
+  when the active model's normalized path === `filePath` **and** `viewState`
+  is non-null, else returns `false`. An `ide-restore-view-state` listener stores
+  the request in `restorePendingRef` and **never restores synchronously** — a
+  guard (`tryConsumeRestoreRef`, re-run on every model-management pass) applies
+  it once the correct file is active with its model attached, falling back to a
+  plain cursor reveal (`revealPositionInCenter` + `setPosition`) when the exact
+  restore is not safe. No path calls `model.setValue`.
+- **The single `focusOn(userId, { follow })` controller in `IDE.tsx`.** Owns the
+  one `followedUserId`, the one `followAnchorRef`, and the one userId-keyed
+  `followAbsenceTimerRef`. Acting on a *different* collaborator ends the current
+  Follow (anchor **preserved**). `follow: true` captures the anchor **once**
+  (`followAnchorRef.current == null` guard) then sets the target; `follow: false`
+  (Jump / tray "Go there" / callout-point click) navigates without an anchor and
+  without starting Follow.
+- **`handleReturnToMyLocation`.** Clears Follow + timers + notice + anchor, then
+  — if the anchor file is still in `fileIndex ∪ openFiles` — `handleOpenFile` +
+  `ide-restore-view-state` with the saved token; if the file is gone, a
+  lightweight `setReplaceReconcileNotice` toast and return (no open, no throw).
+  Never mutates content.
+- **userId-keyed ~6 s absence grace (`FOLLOW_ABSENCE_GRACE_MS`).** A vanished
+  followed user does **not** drop Follow immediately: a single (null-guarded)
+  timer re-checks `collaborators` by `userId` after the window. A reconnect with
+  a new `clientId` but the same `userId` inside the window resumes Follow
+  seamlessly (the tracking effect kills the pending timer the moment
+  `followedUser` reappears; the timer deliberately survives `collaborators`
+  churn — no effect-cleanup clear). After the window: Follow ends, a
+  `.follow-left-notice` ("Rahul left — [Return to your location] [Stay here]")
+  shows with the anchor **preserved**, and only "Stay here" / the
+  `FOLLOW_LEFT_NOTICE_MS` (~8 s) timeout discards it. No auto-refollow after the
+  grace.
+- **Additive affordances on existing surfaces.** `FollowBanner`
+  `[Return to my location]` (only with an anchor) + `Lines A–B`; `AttentionTray`
+  request-card `[Follow]` (→ navigate + follow author + dismiss-acted);
+  collaborator popover derived focus block (range + latest 📣 message +
+  `.focus-state-*` chip via `buildFocusContext`); Editor callout bubble
+  `[Follow]` button + clickable bubble body / clickable point chip →
+  `ide-attention-activate` / `ide-attention-follow` (buttons `stopPropagation`).
+- **Lifecycle resets.** Project switch / disposal / unmount (collab-effect
+  teardown) and `connection_change === "forbidden"` both run
+  `resetFollowState()` — target + anchor + both timers + notice cleared
+  together.
+
+**14 locked decisions (from the approval message):** (1) exactly one
+`followedUserId`, no multi-follow; (2) acting on another collaborator's
+attention ends the current Follow; (3) the FollowAnchor is preserved on an A→B
+target switch (never recaptured); (4) captured once, only on entering Follow
+from unfollowed (`followAnchorRef.current == null`); (5) one-shot "Go there"
+creates no anchor and no Follow; (6) "Stop following" discards the anchor, stays
+put; (7) "Return to my location" restores then discards the anchor; (8) absence
+grace ≈ 6 s keyed by `userId`; (9) same-`userId` reconnect inside the window
+resumes; (10) reconnect after the window does not auto-refollow; (11) project
+switch / session expiry / disposal / unsafe state clears Follow + anchor +
+timers; (12) existing dirty-state protection preserved (restoration never
+`setValue`s, never reloads a dirty file); (13) M58 attention lifecycle
+preserved (attention TTL expiry never touches Follow — Follow tracks presence);
+(14) M57 presence semantics preserved (`FocusState` is UI-only, never on the
+wire).
+
+**Non-goals (unchanged):** change attribution / authorship (M60), collaboration
+history, while-you-were-away, activity feed, comments / threads / mentions /
+reactions, semantic same-region conflict UX, multi-target Follow, analytics,
+shared terminal / execution output, AI. No new transport / store / DB / Yjs op /
+awareness write.
+
+**Files added:** `frontend/src/collab/focus.ts`,
+`frontend/src/collab/followAnchor.ts`, `frontend/test/collab.focus.test.ts`,
+`frontend/test/Editor.viewstate.test.tsx`,
+`frontend/test/collab.focus.follow.test.tsx`, the two design/plan docs.
+**Files changed (additive):** `Editor.tsx` (`editorViewApiRef` + model-safe
+restore + callout/point click wiring), `IDE.tsx` (the `focusOn` controller +
+anchor + grace + listeners + render wiring), `FollowBanner.tsx`,
+`AttentionTray.tsx`, `CollaboratorAvatarStack.tsx`, `Toolbar.tsx`
+(`attention` prop passthrough), `styles/collab.css`,
+`frontend/test/mocks/monaco.ts` (`saveViewState` / `restoreViewState`),
+`frontend/test/IDE.attention.test.tsx` (widened one source-slice window for the
+new `focusOn` line in `handleJumpToCollaborator`), and extended
+`frontend/test/{collab.follow,AttentionTray,CollaboratorAvatarStack.attention,Editor.attention}.test.tsx`
+with M59 component-render cases.
+
+**Verification (2026-08-30, Docker available):**
+
+| Check | Status | Evidence |
+|---|---|---|
+| Pure focus/anchor logic | **PROVEN** | `collab.focus.test.ts` 12/12 |
+| Editor model-safe view-state restore | **PROVEN** | `Editor.viewstate.test.tsx` 7/7 (defers on wrong model, restores once when attached, cursor fallback, no model mutation) |
+| Focus controller contract (14 decisions + adversarial review) | **PROVEN** | `collab.focus.follow.test.tsx` 40/40 — one `focusOn`; anchor null-guarded + preserved on switch; Stop discards / Return restores-then-discards via `ide-restore-view-state`; grace never clears synchronously, timer null-guarded + userId re-check + no effect-cleanup clear; teardown + `forbidden` reset; Return never mutates content; nav routes through `openAndRevealLocation`; tray/editor attention→focus wiring; no new transport/store/Yjs |
+| New component-render coverage | **PROVEN** | `collab.follow.test.tsx` +2 (FollowBanner `[Return]` gated on anchor, `Lines A–B`), `AttentionTray.test.tsx` +2 (`[Follow]` → `onFollow(e)`, absent without the prop), `CollaboratorAvatarStack.attention.test.tsx` +2 (popover focus block + `.focus-state-focused`, absent when no range/message), `Editor.attention.test.tsx` +3 (callout-body click → `ide-attention-activate`, Follow button → `ide-attention-follow` not activate, point chip → activate) |
+| M48 / M57 / M58 regression | **PROVEN** | `collab.follow.test.tsx` 9/9, `AttentionTray.test.tsx` 11/11, `CollaboratorAvatarStack*.tsx` 8/8, `Editor.attention.test.tsx` 8/8, `Editor.nearby.test.tsx` 5/5, `IDE.attention.test.tsx` 2/2 |
+| Full frontend suite | **PROVEN** | `npx vitest run` → **484 passed / 0 failed** (52 files) — 482 + 2 `Editor.eol.test.tsx` (re-run in the 2026-08-30 closeout pass) |
+| Frontend typecheck / lint / build | **PROVEN** | `tsc --noEmit` 0 errors; `eslint src/` 0 errors / 19 pre-existing warnings; `vite build` exit 0 (re-run in the closeout pass) |
+| Full backend suite | **PROVEN** | `npx vitest run` → **874 passed / 0 failed / 9 skipped** (62 files) — 832 + the uncommitted `m57-presence` / `m58-attention` / `sandbox-stdin` files; re-run in the closeout pass with Docker up |
+| Backend typecheck | **PROVEN** (was RED) | `tsc --noEmit` exit 0 — the closeout pass found `test/m58-attention.test.ts` had 103 pre-existing `TS2345` errors (its `makeWs()` mock cast `as never as {…}` was not assignable to the `ws` `WebSocket` the room API takes); fixed by casting `as unknown as WebSocket & { sent: Uint8Array[] }` + a `import type { WebSocket } from "ws"`. All 70 M58 tests still pass at runtime |
+| `git diff --check` | **PROVEN** | clean (only LF/CRLF advisory warnings) |
+| Browser behavioural verification | **PROVEN** for A/B/C/D/F/G; **PARTIAL** for E | 2026-08-30 walkthrough covered A/B/C/D/F; the 2026-08-30 closeout pass drove **G** (concurrent-edit convergence) live end-to-end — see "M59 final closeout pass" below. **E** (grace-timeout / reconnect transition) was not driven live either pass — blocked by a ghosted third connection in the shared automation browser + no controlled WS-disconnect primitive through the tooling; rests on `collab.focus.follow.test.tsx` 40/40, which covers the grace timer, userId-keyed reconnect, no-auto-refollow, and the exact "old absence timer clears a newer Follow" regression |
+| Browser visual verification | **PROVEN** for A/B/C/D/F/G; **PARTIAL** for E | screenshots captured and inspected for A/B/C/D/F (first pass) and for G's converged buffer (closeout pass); E's grace/"left"-notice transition not visually captured |
+
+**Acceptance matrix:**
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Step into a collaborator's context (file + cursor) | **PROVEN** | `handleFollowCollaborator` → `focusOn(follow:true)` + `handleOpenFile`; tracking effect reveals cursor via `openAndRevealLocation` |
+| Exactly one Follow target ever | **PROVEN** | single `followedUserId`; `focusOn` switch branch clears the old target; contract test asserts no `followedUserIds`/multi array |
+| Switch attention to another collaborator, original anchor kept | **PROVEN** | `focusOn` switch branch never touches `followAnchorRef`; `captureAnchor` null-guarded; contract + `collab.focus.test.ts` |
+| Return to exactly where I was | **PROVEN** | `handleReturnToMyLocation` → `handleOpenFile` + `ide-restore-view-state`(saved token); `Editor.viewstate.test.tsx` proves model-safe apply |
+| Never lose unsaved work | **PROVEN** | Return path contains no `setValue`/`applyLiveContent`/`liveApiRef`; follow-tracking pauses on a dirty local file; M50/M56 dirty-buffer suites still green |
+| Deleted anchor file handled gracefully | **PROVEN** | `anchorFilePresent` check → `setReplaceReconcileNotice` toast, no open, no throw (contract test) |
+| ws blip / reconnect does not drop Follow | **PROVEN** | ~6 s userId-keyed grace; seamless-resume clears the pending timer; contract tests |
+| Reconnect after the grace does not auto-refollow | **PROVEN** | `focusOn` is only invoked from explicit gestures/listeners; no `awareness_change → focusOn` path (contract test) |
+| Attention TTL expiry does not disturb Follow | **PROVEN** | tracking effect deps exclude `attention`; Decision 13 contract test |
+| Project switch / session expiry clears everything | **PROVEN** | collab-effect teardown + `forbidden` both call `resetFollowState` (contract test) |
+| No new transport / store / DB / Yjs / awareness write | **PROVEN** | `focus.ts` pure (no React/store); no `MESSAGE_CUSTOM`/`setLocalStateField.*focus` in the M59 diff (contract test) |
+| Concurrent-edit convergence (Scenario G) | **PROVEN** | 2026-08-30 closeout pass — two real authenticated sessions on a fresh 50-line file: independent-region, adjacent-line, same-line, and interleaved-burst edits from both clients all converged **byte-for-byte** (identical FNV-ish hash on both models AND on disk), 51 lines throughout, no reload, no whole-file clobber, no line-offset corruption — see "M59 final closeout pass" below |
+| EOL / model-initialization correctness | **PROVEN** | red→green verified (revert `Editor.tsx` `setEOL(LF)` → `Editor.eol.test.tsx` fails `expected '\r\n' to be '\n'`; restore → 2/2 pass); grep confirms `createModel` has exactly one collaborative call site and it is immediately followed by the LF pin; `client.ts` / `MonacoBinding` never create a model and `setValue` does not re-detect EOL; live both sessions showed `eol: "\n"` on every checkpoint across ~30 cross-client edits, disk stayed `\n`-only |
+| Browser visual walkthrough | **PROVEN** for Follow jump / FollowBanner / auto-track / dirty-buffer pause / dirty-preserving Return / concurrent-edit convergence; **PARTIAL** for the grace-timeout + "left" notice transition (not driven live — see the E note in the Verification table) |
+
+**Known limitations / M60+ roadmap:** the collaborator-popover focus block shows
+the *latest* callout message only (no history); the "Rahul left" notice is a
+single fixed-position element (no stacking if two followed users leave in quick
+succession — not reachable today since Follow is single-target); anchor
+`viewState` is a point-in-time Monaco token, so a large external edit to the
+anchor file between capture and Return can leave the restored scroll position
+slightly stale (cursor-line fallback still lands correctly); the live
+disconnect-grace / "left"-notice transition (Scenario E) is proven only by the
+`collab.focus.follow.test.tsx` contract suite, not by a browser walkthrough
+(see the closeout pass for why). M60 — change attribution / authorship,
+collaboration history, while-you-were-away, activity feed. M61 — persistent
+comments / threads. M62 — deep same-region conflict-awareness UX.
+
+## M59 UX validation & stabilization pass (2026-08-30)
+
+**Browser environment:** real Chrome via the Claude-in-Chrome extension, two
+independent authenticated sessions in the same browser (cookies are
+per-hostname, no `domain` set by `auth/routes.ts`'s `setCookie`): Session A
+(`rahul`) at `http://localhost:5173`, Session B (`ankit`, project owner) at
+`http://127.0.0.1:5173`, both against the same local backend/Vite dev servers
+(Vite restarted with `--host` to bind `127.0.0.1` too — it defaults to the
+`::1` IPv6 loopback only). A fresh `pairing-demo` project with two
+collaborators, seeded via the real REST API, then driven entirely through the
+rendered UI (login form, sidebar, toolbar, context menu, TeamPanel).
+
+**Scenarios executed:** A (presence — login, avatar/color, collaborator
+popover, TeamPanel), B (live editing — cross-client file open, live
+untyped-reload content sync, cursor/selection propagation), C (M58 attention —
+Point/Callout/"Come look" via the Monaco right-click menu, AttentionTray
+toast, Follow/Go-there/Dismiss), D (M59 Follow — TeamPanel Follow, FollowBanner
+semantics, auto-track on remote file switch), F (dirty-state protection —
+Follow correctly *paused* rather than navigating over an unsaved buffer, then
+"Return to my location" restored the followed user's file with the dirty
+edit fully intact). E (disconnect grace) and G (concurrent-edit convergence)
+were exercised opportunistically (Follow held correctly through the two-file
+switch in D) but not driven to their full multi-minute grace-timeout endgame
+live — the extension's tab-group was lost mid-session (see Limitations) before
+a deliberate kill-and-wait disconnect test could be repeated; M59's own
+`collab.focus.follow.test.tsx` contract suite (40/40) already exercises the
+grace timer, userId-keyed reconnect, and no-auto-refollow paths deterministically
+and is not superseded by this pass.
+
+**Defect found (P0 — correctness / data integrity):** two browser sessions
+opened the *same* collaboratively-edited file and ended up with different
+Monaco `EndOfLineSequence` settings (one LF, one CRLF) even though the backend
+only ever reads/writes/seeds raw `"\n"` content
+(`backend/src/files/service.ts`, `backend/src/collab/manager.ts`). Root cause:
+`Editor.tsx`'s model-management effect calls
+`monaco.editor.createModel(activeFileData.content || "", ...)` — when this
+effect runs before the REST fetch or the collab Y.Text seed has resolved,
+`activeFileData.content` is still `""`, and Monaco's own EOL auto-detection
+has nothing to detect from, so it falls back to a **platform default (CRLF on
+Windows)**, and that choice sticks for the model's lifetime (later content
+arrives via Yjs deltas / `setValue()`, neither of which re-detects EOL). Once
+one client is CRLF, the shared `y-monaco` binding (`frontend/src/collab/client.ts`)
+translates its local Monaco edit deltas into Y.Text character offsets assuming
+2-byte line breaks that do not exist in the actual `\n`-only shared document —
+so a same-line edit from the CRLF client lands at a *different, wrong*
+position on the LF client. Reproduced live twice (once incidentally on
+`fileA.js`, once deliberately on an untouched `fileB.js` before any edit):
+`getModels()` in each tab's console showed `eol: "CRLF"` (Ankit) vs `eol: "LF"`
+(Rahul) for the identical Y.Text-backed document, and a same-line edit on
+`fileA.js` appeared on the LF client one line later than intended, with a
+spurious blank line — i.e. the two buffers had diverged, violating Scenario G's
+"both clients converge" requirement.
+
+**Fix (`frontend/src/components/Editor/Editor.tsx`):** pin
+`model.setEOL(monaco.editor.EndOfLineSequence.LF)` immediately after
+`createModel()`, removing the platform/content-detection race entirely — the
+backend convention (`\n`-only) is now enforced client-side too, regardless of
+timing. Re-verified live after the fix: a fresh file opened in both sessions
+showed `eol: "LF"` on both, and a same-line edit from one client
+(`const y = 2;` appended after `const x = 1;`) appeared byte-identical
+(`LEN=26 HAS_CR=false LINES=3` on both) on the other, with no reload.
+
+**Regression test:** `frontend/test/Editor.eol.test.tsx` (2 new tests) —
+asserts the model is LF both for real initial content and for the exact race
+(empty initial content). `frontend/test/mocks/monaco.ts` extended
+(`FakeModel.setEOL`/`getEOL`, `editor.EndOfLineSequence`, and `createModel`
+now reproduces the platform-default-on-empty-content fallback) so the test is
+a real fail-without-the-fix regression test, not a tautology — verified by
+temporarily reverting the `setEOL()` call and confirming
+`Editor.eol.test.tsx` failed (`expected '\r\n' to be '\n'`) before restoring it.
+
+**Other findings (not fixed — pre-existing, out of scope for this pass):**
+- **P2, pre-existing, not M57–59:** at the automation viewport (1249px wide,
+  a common laptop width), the toolbar's "pairing-demo" project-name breadcrumb
+  and the "Quick Open (Ctrl+P)" button visually overlap into illegible jumbled
+  text. Confirmed pre-existing: the M58/M59 diff to `Toolbar.tsx` is pure prop
+  threading (`onOpenTeamPanel`, `incomingRequestCount`, `attention`), no CSS
+  or layout change. Not fixed — out of the M57–59 collab scope this pass is
+  bounded to.
+- **P3, cosmetic:** clicking "2 collaborators — open team panel" while a
+  collaborator's hover popover is already open leaves both open
+  simultaneously, showing two redundant "Follow ankit" controls at once. Not
+  fixed (tiny visual redundancy, not a functional defect).
+- **P3, cosmetic:** after closing the TeamPanel, the editor briefly kept its
+  previous horizontal scroll offset until the next click forced a Monaco
+  relayout. Self-heals on interaction; not fixed.
+
+**What worked well, verified live (no fix needed):** presence avatars/colors
+were distinct and consistent across both sessions; the collaborator popover
+and TeamPanel both showed correct identity/role/activity/timestamp; live
+content sync had no visible reload, flicker, or clobber; the M58 attention
+context-menu → Callout bubble → AttentionTray toast → Dismiss round-trip was
+clean with no leftover state; TeamPanel "Jump" correctly opened-then-revealed
+the target file/line; Follow's `FollowBanner` answered "who am I following /
+why did I move / is Follow active / where's my return point" in one glance;
+Follow correctly *paused* (not force-navigated) when the follower had a dirty
+buffer, and "Return to my location" restored the followed user's context with
+zero data loss.
+
+**Browser visual verification:** **PROVEN** for Scenarios A, B, C, D, F
+(screenshots captured and inspected live for each); **PARTIAL** for E
+(the grace/reconnect *transition* itself was not captured end-to-end live —
+covered instead by the existing `collab.focus.follow.test.tsx` contract
+suite) and G (convergence was proven via the EOL fix's own live re-test, not
+via a dedicated concurrent-typing session). *(G was subsequently driven to a
+full dedicated session — see the closeout pass immediately below.)*
+
+## M59 final closeout pass (2026-08-30)
+
+A surgical closeout targeting the two remaining acceptance gaps — Scenario E
+(live disconnect grace) and Scenario G (live concurrent-edit convergence) — plus
+a fresh full-verification sweep and a re-audit of the P0 EOL fix. No M56–M59
+design change, no new product feature.
+
+**EOL fix re-audit (Phase 1).** The invariant *shared content → `createModel` →
+EOL pinned to LF → y-monaco binding* holds:
+
+- `grep createModel|createTextModel` over `frontend/src` → the only
+  collaborative call site is `Editor.tsx`'s model-management effect, and
+  `model.setEOL(monaco.editor.EndOfLineSequence.LF)` is the very next
+  statement. The other two hits are in `AIPatchModal.tsx`, which builds
+  throw-away **diff-preview** models on separate URIs that are never Yjs-bound
+  — not part of the shared-document path.
+- `client.ts` never constructs a model; the `MonacoBinding` ctor overwrites the
+  model *content* from the Y.Text but does not touch EOL, and the Phase-7
+  dirty-at-bind `model.setValue(localValue)` likewise does not re-detect EOL.
+- Both new and pre-existing files flow through the same `!model` branch on first
+  materialisation, so both get the pin.
+- **Red→green:** commenting out the `setEOL` line makes
+  `Editor.eol.test.tsx` fail (`expected '\r\n' to be '\n'` on the
+  empty-initial-content race case); restoring it → 2/2 pass. Not broadened into
+  a generic EOL refactor — no second bypassing path was found.
+
+*(Process note: an early step in this pass ran `git checkout` on `Editor.tsx`,
+which discarded the then-unstaged M59 widget wiring + the EOL pin along with it.
+Both were restored verbatim from the file content already captured in-session
+and re-verified: `Editor.attention.test.tsx` 8/8, `Editor.eol.test.tsx` 2/2,
+`Editor.viewstate.test.tsx` 7/7, full frontend 484/0, `tsc` 0, and the
+unstaged `Editor.tsx` diff is byte-identical to its pre-`checkout` shape —
+`96` lines changed, `87` insertions / `9` deletions.)*
+
+**Scenario G — live concurrent editing (Phase 3): PROVEN.** Two real
+authenticated sessions (A = `rahul` at `http://localhost:5173`, B = `ankit`,
+project owner, at `http://127.0.0.1:5173`; cookies are per-hostname) on the
+`pairing-demo` project. A fresh 50-line `closeout.js` (LF, seeded via the REST
+API) opened in both.
+
+- **TEST A (simultaneous open):** both models `eol: "\n"`, `getValueLength()`
+  350, 51 lines — byte-identical. Neither client silently received CRLF.
+- **TEST B (independent regions):** A edits line 42, B edits line 12 within the
+  same second → both edits present on both models, identical hash, identical
+  length 378, 51 lines, LF, no `\r`.
+- **TEST C (adjacent + same-line):** B edits lines 20 & 25, A edits lines 21 &
+  24 (adjacent), then both edit **line 30** concurrently (B prepends `<<ANKIT `,
+  A appends ` RAHUL>>`) → line 30 converges to `<<ANKIT line30 RAHUL>>` on both,
+  a subsequent interleaved 16-edit burst on line 35 also converges; every
+  checkpoint: identical hash on both models, 51 lines (no spurious blank line,
+  no line shift), LF-only.
+- **TEST D (line-ending regression):** across ~30 cross-client edits including
+  the same-line concurrent ones, both models stayed `eol: "\n"`, `getValue()`
+  never contained `\r`, and after a save the **on-disk** file matched both live
+  models byte-for-byte (`len` 432, 51 lines, no `\r`). The original CRLF-vs-LF
+  divergence could not be reproduced — the LF pin removes the race that caused
+  it.
+
+**Scenario E — live disconnect grace (Phase 2): NOT driven live; contract
+suite stands.** Concrete blocker: the shared automation browser carried a
+**ghosted third connection** (a duplicate `ankit` client from an earlier
+detached session — visible as `count 3` / two `ankit` awareness entries with
+different `clientId`s) that could not be cleanly killed, and the browser
+automation tooling exposes **no controlled WebSocket-disconnect primitive**
+(no CDP offline mode; the `CollaborationClient` is not reachable on `window` or
+via a fiber walk; a navigate-away/back reload is too slow to land inside the
+~6 s grace on the Vite+Monaco dev build). Presence between the two live
+sessions was intermittently inconsistent (`count` flapped 1↔3) under this
+ghost, making a clean Follow-then-disconnect observation unreliable.
+
+E's behaviour is fully covered deterministically by
+`collab.focus.follow.test.tsx` (40/40), which exercises: the ~6 s userId-keyed
+grace timer, same-`userId`/new-`clientId` reconnect inside the window resuming
+Follow, reconnect after the window **not** auto-refollowing, and — the exact
+failure shape called out for TEST 4 — an **old absence timer being unable to
+clear a newer Follow/session state** (null-guard + userId re-check + no
+effect-cleanup clear). Per the closeout's own STOP condition ("E … or a
+concrete environment blocker is documented"), this is the documented blocker.
+
+**Backend typecheck fix.** The pass found `tsc --noEmit` **RED** in
+`backend/` — 103 `TS2345` errors, all in the (uncommitted, M58-era)
+`test/m58-attention.test.ts`: its `makeWs()` helper cast the mock socket
+`as never as { readyState; send; close; sent }`, a shape not assignable to the
+`ws` `WebSocket` that `CollaborationRoom.addClient` / `removeClient` take. This
+had never been caught because M58/M59 are frontend milestones and their gates
+ran `vitest` (esbuild, no typecheck) not `tsc` on the backend. Fixed with the
+minimal change — `import type { WebSocket } from "ws"` + cast
+`as unknown as WebSocket & { sent: Uint8Array[] }` (keeps `.sent` reachable for
+the assertion helpers, matches the sibling `m57-presence.test.ts` intent). All
+70 M58 tests still pass at runtime; `tsc` now exits 0.
+
+**Full verification (2026-08-30 closeout, Docker up):**
+
+| Gate | Result |
+|---|---|
+| Frontend `vitest run` | **484 passed / 0 failed** (52 files) |
+| Frontend `tsc --noEmit` | **0 errors** |
+| Frontend `eslint src/` | **0 errors** / 19 pre-existing warnings |
+| Frontend `vite build` | **exit 0** |
+| Backend `vitest run` | **874 passed / 0 failed / 9 skipped** (62 files) |
+| Backend `tsc --noEmit` | **exit 0** (was 103 errors — fixed, see above) |
+| Backend `eslint` | **0 errors** / 29 pre-existing warnings |
+| `git diff --check` | clean (LF/CRLF advisories only) |
+| EOL regression red→green | **verified** (`Editor.eol.test.tsx` fails on revert, 2/2 on restore) |
+
+**Files changed this pass:** `backend/test/m58-attention.test.ts` (the
+`WebSocket` cast + import — fixes the 103 `tsc` errors); `STATUS.md` (this
+section + matrix updates). `frontend/src/components/Editor/Editor.tsx` was
+restored to its pre-pass state (net zero change). No commit.
+
+**Remaining known limitations (still true):** stacked-callout collision
+handling; selection-based rather than semantic-region awareness; the live
+Scenario-E grace transition rests on the contract suite, not a browser
+walkthrough (blocker above); the pre-existing P2 toolbar breadcrumb / Quick-Open
+overlap at ~1249 px (not in M57–59 scope); two P3 cosmetics from the prior UX
+pass (double-open popover + TeamPanel-close scroll offset).
+
+## Milestone 60 — Change Attribution & Collaboration History
+
+**Objective:** cross from M59's *"I can enter Rahul's context and work beside
+him"* to *"I can see **what** Rahul changed, **what** the team did, and **what
+happened while I was away**"* — without turning CloudIDE into surveillance or
+duplicating Git / Yjs / telemetry. Spec + plan:
+`docs/superpowers/specs/2026-08-31-m60-change-attribution-history-design.md`,
+`docs/superpowers/plans/2026-08-31-m60-change-attribution-history.md`.
+
+**Attribution mechanism (the trust boundary).** A **second, isolated**
+`doc.on("afterTransaction")` subscriber in `CollaborationRoom` (kept separate
+from the M6 dirty-tracking listener so its early-returns never interfere) is
+authoritative for *author + file-level change existence*:
+
+```
+inbound MESSAGE_SYNC (role ≠ viewer) → syncProtocol.readSyncMessage(…, doc, ws)
+  → tr.origin === ws  →  clients.get(ws).userId   (authenticated session, M55-forced)
+  → tr.changed → file-path key(s)
+  → historian.recordEdit({ projectId, authorUserId, filePath, at, range?, lines* })
+```
+
+`tr.origin` that is a string (`"initial_disk_load"`, `"external_mutation"`),
+`null`, or an unknown/removed client ⇒ **no event** (never a misattribution —
+only "can't attribute → skip"). `tr.changed.size === 0` (idempotent re-sync on
+reconnect) ⇒ the existing guard returns. Reconnect = new socket / new Yjs
+clientID / **same `userId`** ⇒ same author. Yjs 13.6.32's
+`cleanupTransactions` fires type `.observe()` handlers **before**
+`afterTransaction` in the same synchronous pass (verified in `dist/yjs.cjs`);
+M60 uses that only to let an idempotent per-file `Y.Text.observe` (attached
+once in `ensureFileLoaded`, after the workspace-boundary guard) **stash**
+best-effort range info that `afterTransaction` drains via a
+`WeakMap<Y.Transaction, …>` — never a load-bearing ordering assumption. An
+external / disk-load transaction contaminates any open burst for the touched
+file (exact range can no longer be claimed).
+
+**Burst grouping (pure `changeAttribution.ts` — no db, no Y.\*, no timers).**
+Key = `projectId:authorUserId:filePath`. Extends while same key + idle gap ≤
+`COLLAB_BURST_IDLE_MS` (15 s) + age ≤ `COLLAB_BURST_MAX_MS` (5 min). Closes on:
+idle, max age, **a different author edits the same file** (prior burst →
+contaminated → file-level), flush-to-disk, author disconnect (last socket
+only), room dispose, project dispose, graceful shutdown, `COLLAB_OPEN_BURSTS_MAX`
+cap. Never merges across authors or files; a `COLLAB_BURST_SWEEP_MS` (5 s)
+timer closes a burst with no follow-up edit. **Exact `start_line`/`end_line`
+survives ONLY when** nothing contaminated it AND every folded edit contributed
+a usable contiguous span AND the union is one interval — otherwise `NULL`
+(never `min..max` across disconnected regions).
+
+**Persistence (`CollaborationHistorian`, mirrors `TelemetryHistorian`).**
+In-memory open-burst map + write queue → one batched `BEGIN…COMMIT` every
+`COLLAB_HISTORY_FLUSH_INTERVAL_MS` (5 s) / at ≥ 100 rows / on `stop()`
+(graceful-shutdown step 0, next to `telemetryHistorian.stop()`). **Zero I/O on
+the `afterTransaction` hot path.** Retention: `DELETE … WHERE ended_at < now −
+COLLAB_HISTORY_RETENTION_DAYS` (14) **and** keep newest
+`COLLAB_HISTORY_MAX_PER_PROJECT` (2000) per project, on a 15-min timer + on
+flush. `disposeProject` at both existing `telemetryHistorian.disposeProject`
+call sites (project delete, workspace restore). Migration **v11** —
+`collaboration_changes` + `collab_last_seen`, both `ON DELETE CASCADE`.
+11 config knobs, strict `boundedIntEnv` resolution (NaN / ∞ / negative / 0 →
+default). **`detail` allowlist:** callouts get `{ messagePreview≤120, targeted }`,
+edit bursts get `NULL` — never content, diff, cursor, selection, output, or a
+raw client payload.
+
+**Timeline read model (`timeline.ts`).** `queryTimeline` unions
+`collaboration_changes` + `runs` + `audit_logs` (`GIT_COMMIT`,
+`SNAPSHOT_CREATED/RESTORED`) with **explicit safe column lists** — never
+`SELECT *` from `runs`/`audit_logs`; `stdout*`/`stderr*`/`signal`/secrets are
+never in a projection. Merge-sorted by **`(at DESC, id DESC)` total order**,
+opaque `(at,id)` cursor (immutable rows + tail-only retention ⇒ stable
+pagination), page clamped `[1,100]`. `queryWhileAway` = `queryTimeline` filtered
+to meaningful kinds, excluding the caller's own events, since the caller's
+server-side `collab_last_seen` clamped to `COLLAB_AWAY_MAX_LOOKBACK_MS` (24 h).
+
+**Transport.** New receive-only `MESSAGE_CUSTOM` `collab_change` (mirrors
+`run_status` — the client has no code path that authors it; only the historian's
+broadcaster emits, via `CollaborationManager.broadcastCollabChange`). Two REST
+reads + one ack, all `requireProjectAccess(…, "viewer")`:
+`GET/POST /api/projects/:id/collab/{timeline,while-away,while-away/ack}`.
+
+**Last-seen semantics.** Updated **only** on `removeClient` (last socket for
+that user), on `while-away/ack`, and first-ever connect (`insertLastSeenIfAbsent`
+in `ws/index.ts`). Monotonic upsert (never rewinds). Keyed by authenticated
+`userId`, never clientID. On reconnect the client emits `reconnected_after_gap`
+{ offlineMs } (first close sets the clock; a failed retry does not reset it);
+IDE.tsx fetches while-away only when `offlineMs ≥ COLLAB_AWAY_THRESHOLD_MS`
+(3 min). Dismiss / auto-dismiss (20 s) both `ack` exactly once → a refresh or
+repeated reconnect never re-surfaces the same events.
+
+**Frontend.** `ActivityTimeline.tsx` is a **section inside TeamPanel**
+(people + context + **team activity**) — no third multiplayer panel.
+`WhileYouWereAway.tsx` is a compact dismissible reconnect card grouped by
+author (run *failed → passed* collapsed). Every navigable row →
+`openAndRevealLocation(handleOpenFile, …)` — the canonical open-then-reveal
+primitive, file-only when no exact range, never navigable without a filePath.
+Live `collab_change` events fold into a bounded (~200) in-memory `timeline`
+state via `mergeTimeline` (de-dupe by id, `(at,id)` sort). TeamPanel rows show
+a per-collaborator "Last change: …" line from that same state.
+
+**Bug found + fixed during the browser pass (P1 — misattribution).** After a
+**server restart** (`tsx watch` reload), a reconnecting client re-sends its
+whole Y.Doc lineage as `messageYjsSyncStep2`; the room's fresh disk-seeded doc
+has different structs, so that bulk apply integrated every file as "new" and the
+M60 hook attributed one spurious `edit_burst` **per file** to the reconnecting
+user (observed live: 24 rows, `update_count: 1`, `start_line: null`, all one
+timestamp). **Fix:** `handleMessage` sets a `m60SuppressAttribution` flag around
+`readSyncMessage` whenever `syncType !== messageYjsUpdate` — only an
+**incremental** update is a real user edit; a `messageYjsSyncStep2` re-seed is
+not. Regression: `m60-room-attribution` "a client re-seeding the room via
+sync-step-2 produces NO history" + "an incremental edit AFTER a step-2 re-seed
+IS attributed". (The spec's §16 claim that idempotent re-sync always yields
+`tr.changed.size === 0` is only true when the server's doc still holds those
+structs — false across a restart.)
+
+**M60 EOL note.** The M59-discovered cross-client EOL/model-initialization
+divergence remains a documented collaboration correctness boundary — M60 adds
+no model-creation path and the `Editor.eol.test.tsx` regression stays green.
+
+**M60 attribution/persistence adversarial audit (2026-08-30).** A focused
+post-acceptance audit of Yjs attribution, reconnect-lineage suppression, burst
+state, historian persistence, timeline duplication, and While-You-Were-Away.
+
+*Reconnect-lineage suppression invariant (re-affirmed):* only an **incremental**
+`messageYjsUpdate` is attributable; `m60SuppressAttribution` is armed around
+`readSyncMessage` for every other sync type and **released in a `finally`**, so a
+frame that throws mid-apply cannot leave attribution stuck — which also matters
+because the M60 hook checks the flag *before* its own `external_mutation` /
+`initial_disk_load` contamination handling, so a stuck flag would silently let a
+bystander write claim an exact range. New regression: `m60-room-attribution` "a
+sync frame that throws mid-apply does not leave attribution suppressed".
+
+*One real defect found + fixed (timeline pagination — silent event loss).*
+`queryTimeline` fetched each source's newest `limit+1` rows **ignoring the
+`before` cursor**, then merge-sorted and filtered. When a single source had more
+than `limit+1` rows newer than the cursor, that source's older rows were never
+fetched on any later page and **disappeared from the timeline entirely** (a
+12-burst / page-size-3 walk dropped 9 events). Fix: push the `(at,id)` cursor
+predicate into all four source queries (`ended_at < ? OR (= ? AND
+('<prefix>'||id) < ?)`), so each returns its newest `limit+1` rows *before the
+cursor in the total order*. Regression: `m60-timeline` "stable pagination when
+one source dominates the newest rows" (walks every event exactly once).
+
+*Everything else audited held.* Multi-file attribution (per-`tr.changed` file,
+per-file range stash, no cross-file inheritance); range derivation (exact only
+for a single contiguous folded interval, `NULL` otherwise — never widened);
+burst state machine (idle/max-age/author-switch/file/cap/sweep, no cross-author
+or cross-file merge, `author_switch` closes the other author's burst on every
+`recordEdit`); historian persistence (batched one-`BEGIN` flush, size/interval/
+shutdown/dispose triggers, bounded queue + open-burst cap + per-project + time
+retention). Persistence-failure behaviour: a throwing `flushQueue` rolls back,
+logs, and drops that one batch — identical to the accepted `TelemetryHistorian`
+pattern, no in-memory corruption and no retry storm (documented limitation, not
+changed). Timeline `(at,id)` ordering is a strict total order over immutable
+tail-retention rows; While-You-Were-Away boundary is a monotonic per-user upsert
+that ack advances, so refresh / multi-tab / repeated reconnect never re-surface.
+Authorization (`requireProjectAccess(…, "viewer")` on every read + FK-scoped
+queries), privacy (`detail` two-key allowlist, safe column lists), and hot-path
+safety (`afterTransaction` → in-memory `recordEdit` only) unchanged.
+
+*Verification:* backend `60/60` M60 + `934 passed / 9 skipped` full suite,
+`tsc` + `eslint` clean; frontend `511/511`, `tsc` + `eslint` + `vite build`
+clean. **M60 remains CLOSED; M61 not started.**
+
+**Verification (2026-08-31, Docker available):**
+
+| Gate | Result |
+|---|---|
+| M60 backend focused | `m60-{schema,change-attribution,last-seen,historian,room-attribution,timeline,timeline-api,lifecycle}` — **60 passed / 0 failed** (incl. the 2026-08-30 adversarial-audit regressions — see the audit note below) |
+| Backend `tsc --noEmit` | **0 errors** |
+| Backend `eslint` | **0 errors** (M60 files: 0 warnings) |
+| Backend full `vitest run` | **932 passed / 0 failed / 9 skipped** (70 files, Docker up) — a flake found first pass (stale singleton-historian timer writing to a closed test db) fixed by adding `collaborationHistorian.stop()` to `m60-timeline-api` `afterAll`; a real bug found + fixed (below) |
+| `migrations.test.ts` | updated for schema v11 (3 hard-coded `.toBe(10)` / migration-list assertions → `11`) — **5/5** |
+| M60 frontend focused | `collab.change.client` 3, `collab.timeline` 7, `ActivityTimeline` 4, `WhileYouWereAway` 5, `IDE.timeline` 7 — **26 passed / 0 failed** |
+| Frontend full `vitest run` | **511 passed / 0 failed** (57 files; 484 baseline + 27) |
+| Frontend `tsc` / `eslint` / `vite build` | 0 errors / 0 new warnings (19 pre-existing) / build exit 0 |
+| M57 / M58 / M59 regression | `m4-collab` 48, `m57-presence` 27, `m58-attention` 70, `m56-collaboration-safe-mutations` 31, `collab-awareness-security` 23, `m6-collab` 8, frontend `collab.*` / `Editor.eol` / `Editor.viewstate` — all green |
+
+**Acceptance matrix (deterministic + integration; browser pass tracked
+separately below):**
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Yjs attribution | **PROVEN** | `m60-room-attribution` (real `CollaborationRoom` + fake sockets): authenticated author, viewer edit → no history, `external_mutation` → no event, multi-tab author, `dispose`/`removeClient` close |
+| Author correctness | **PROVEN** | attribution is `clients.get(tr.origin).userId`; string/`null`/unknown origin → skip; reconnect keeps `userId` (`m60-historian` "reconnect does not duplicate") |
+| Range correctness | **PROVEN** | `m60-change-attribution` 12/12 — contiguous exact, non-contiguous/observer-miss/contaminated → NULL, adjacent regions merge |
+| Burst grouping | **PROVEN** | idle/max-age/author/file splits, sweep, cap — pure + historian tests |
+| Historian persistence | **PROVEN** | batched (one `BEGIN` for N closes), `stop()` no loss, `disposeProject`, no duplicates |
+| History bounds | **PROVEN** | open-burst cap, queue-size flush at 100, per-project + time retention |
+| Retention | **PROVEN** | `m60-historian` "time purge + per-project cap"; `m60-lifecycle` cascade on project delete |
+| Timeline union | **PROVEN** | `m60-timeline` 11/11 — 5 sources, safe fields only, project isolation |
+| Pagination | **PROVEN** | stable `(at,id)` cursor; "no entry on two pages, none skipped"; collision determinism; deep-pagination event-loss fixed in the audit below ("stable pagination when one source dominates the newest rows") |
+| Authorization | **PROVEN** | `m60-timeline-api` — non-member 403/404, viewer allowed, revoked denied, cross-project isolation, ack advances last-seen |
+| Privacy | **PROVEN** | `detail` allowlist test; timeline "run events carry only safe fields"; no cursor/selection/keystroke/output source exists |
+| Live collaboration history | **PROVEN** (contract) / **PARTIAL** (browser) | `m60-room-attribution` "broadcasts collab_change"; `collab.change.client` receive-only + forge-proof; browser pass below |
+| While You Were Away | **PROVEN** (contract) / **PARTIAL** (browser) | `m60-timeline-api` ack→[]; `collab.timeline` `groupWhileAway` fail→pass; `WhileYouWereAway.test` dismiss/auto-dismiss once |
+| Context navigation | **PROVEN** | `IDE.timeline` — every nav routes through `openAndRevealLocation`; file-only without range; not navigable without filePath |
+| M57 / M58 / M59 regression | **PROVEN** | full suites green (counts above) |
+| Concurrent editing | **PROVEN** (Yjs) / **PARTIAL** (browser) | Yjs convergence unchanged (M6/M52 suites); browser pass below |
+| Performance | **PROVEN** | `afterTransaction` does zero I/O (source: routes to in-memory `recordEdit`); bounded queue/bursts/history/page/purge; no frontend polling — live push only on burst close |
+| Browser behavioural / visual verification | **PROVEN** for scenarios 1–8, 10 + while-away endpoint; **PARTIAL** for the live while-away *card trigger* | see the M60 browser pass below |
+
+**M60 browser pass (2026-08-31, two authenticated Chrome sessions — `ankit`
+@ `127.0.0.1:5173` driven via `javascript_tool`, `rahul` @ `localhost:5173`
+driven via clicks; same ghosted-third-connection / no-controlled-WS-disconnect
+limitations as the M59 closeout):**
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | Rahul/Ankit edit → meaningful change in Team Activity | **PASS** — `changed lines 5–7 · m60test.js`, exact contiguous range |
+| 2 | Rapid edits group into one burst | **PASS** — 3 edits on lines 5–7 → 1 `edit_burst`, `update_count` folded |
+| 3 | A second author is separately attributed | **PASS** — `rahul changed lines 22–23` and `ankit changed lines 5–7` as two rows, no mixing |
+| 4 | Click a timeline row → correct file/range opens | **PASS** — clicking Rahul's row moved the cursor to **line 22** in `m60test.js` via `openAndRevealLocation` |
+| 5 | M58 callout still live + a safe historical row | **PASS** — DB row `kind:callout … detail:{"messagePreview":…,"targeted":false}` only; timeline shows `left a callout` + preview; live-merged into Ankit's open panel via `collab_change` |
+| 6 | Run → safe high-level run event | **PASS** — `ran … — failed` appeared |
+| 7 | No stdout/stderr in history | **PASS** — timeline JSON contains no `stdout`/`stderr`/`signal`/`console.log`/output |
+| 8 | Callout metadata is not persistent chat | **PASS** — one immutable row, `messagePreview ≤ 120`, no reply/thread |
+| 9 | Leave / rejoin → While You Were Away | **PARTIAL** — the endpoint proven live: with a backdated `collab_last_seen`, `/collab/while-away` returned the right events **grouped by author** (`rahul → changed lines 22–23`), **excluding Ankit's own** events; `ack {upTo}` advanced `since` → a second call returned `[]` (no duplicates). The auto-mounting *card* on a real >3-min disconnect was not driven (no controlled WS-disconnect primitive in the tooling) |
+| 10 | Unauthorized project cannot read the timeline | **PASS** — fresh non-member → **404** on `/collab/timeline` and `/collab/while-away`; collaborator → 200 |
+| — | "Last change: …" line on a TeamPanel row | **PASS** — `Last change: changed lines 22–23 · m60test.js · 3m ago` |
+| — | existing multiplayer editing throughout | **PASS** — Yjs sync of the peer's edits was continuous and correct |
+
+Browser-test artifacts (`m60test.js`, seeded history rows, `m60outsider` user)
+were cleaned up afterwards.
+
+**Files (M60):** *new backend* `collab/{changeAttribution,historian,timeline,lastSeen}.ts`
++ 8 `test/m60-*.ts`; *changed backend* `db.ts` (migration v11 + inline schema),
+`config.ts` (11 knobs + `boundedIntEnv`), `collab/manager.ts` (2nd
+`afterTransaction` hook + `stashRange` + `ensureFileLoaded` observer +
+`broadcastCollabChange` + burst-close hooks + callout capture + last-seen on
+disconnect + `m60SuppressAttribution` around `readSyncMessage`), `app.ts`
+(historian init + broadcaster), `index.ts` (shutdown `stop()`), `ws/index.ts`
+(first-connect last-seen), `projects/{routes,service}.ts`,
+`backup/workspaceRestore.ts`, `test/migrations.test.ts` (v11). *new frontend*
+`collab/timeline.ts`, `components/Collab/{ActivityTimeline,WhileYouWereAway}.tsx`
++ 5 test files; *changed frontend* `collab/client.ts` (`collab_change` receive +
+reconnect-gap), `types.ts`, `api.ts`, `components/IDE/IDE.tsx` (timeline state +
+listeners + fetch + `lastChangeByUser` + mounts), `components/Collab/TeamPanel.tsx`
+(activity section + last-change line), `styles/collab.css`,
+`test/TeamPanel.test.tsx` (props + header-scope + activity test). **Not committed.**
+
+**Known limitations:** deleted-line counts are best-effort (added-line counts and
+ranges are exact); range enrichment is file-level when the observer misses / is
+ambiguous; a marathon continuously-connected session's while-away lookback is
+clamped to 24 h; `TimelineEvent` / `CollabChangeWire` are hand-synced across
+packages (repo convention); persistent comments/threads/mentions/reactions,
+AI summaries, semantic conflict UX remain **M61+**.
+
 ## Next recommended milestone
 
-0. **M51 is not chosen.** M50 completed the M50-discovery selection; a fresh
-   read-only discovery pass should run before M51 rather than pulling from the
-   stale candidate list below. Genuinely open items surfaced by the M50
-   discovery, in rough order: (a) real AI provider behind the existing
+0. **No next milestone is chosen — the repository now needs a decision, not
+   more autonomous implementation.** M51–M56 and the five post-M56 commits
+   have shipped every previously-listed bounded/ready item; the
+   "Repository state reconciliation" section above carries the authoritative
+   post-reconciliation backlog by decision class (A–F). Its class **A
+   (READY) is empty** — the only remaining work is class B (security
+   review), C (product decision), or D (architecture). This item's
+   sub-list is kept for continuity and matches that classification:
+   (a) real AI provider behind the existing
    verified-patch pipeline — **product-decision-required** (cost, API keys,
    project-data egress, prompt-injection trust boundary, demo-account policy);
-   (b) local-only Git repository support — **product-decision-required**
-   (local-only vs remotes, `.git` persistence/export, collaborator ownership);
+   (b) ~~local-only Git repository support~~ — **shipped in M51** (local-only,
+   no remotes; see the M51 section); this line is stale;
    (c) shared execution output / summon-terminal for collaborators
-   (`ws/execution.ts` has no room broadcast today); (d) native workspace-backup
-   scheduler + admin "backup all now" (`deploy/README.md` explicitly defers it);
-   (e) the pre-existing `ProblemsPanel.onSelectDiagnostic` "doesn't open a closed
-   file before reveal" bug (M26 fixed the twin for workspace search, this one is
-   still open); (f) `deploy/README.md` §"Workspace & Snapshot Backups" is stale —
-   it still says workspace/snapshot restore "is not yet automated" though M32/M46
-   automated it.
+   (`ws/execution.ts` has no room broadcast today) — still open, but note M54
+   deliberately broadcasts run *status* only and never stdout/stderr because
+   run output can contain injected project secrets (M47); widening that is a
+   security/product decision, not a plain bounded task; (d) native
+   workspace-backup scheduler + admin "backup all now" (`deploy/README.md`
+   explicitly defers the scheduler — "distinct concern (queue design, shutdown
+   lifecycle, per-project overlap-skipping)"); the "backup all now" admin
+   button alone is bounded, the scheduler is not;
+   (e) ~~the pre-existing `ProblemsPanel.onSelectDiagnostic` "doesn't open a closed
+   file before reveal" bug~~ — **fixed** (see "Post-M56 bounded fixes" §1 above);
+   (f) ~~`deploy/README.md` §"Workspace & Snapshot Backups" stale restore claim~~
+   — **fixed** (see "Post-M56 bounded fixes" §2 above).
 
 1. Audit-log retention/pruning remains explicitly deferred — the trail is complete and no longer
    self-destructs on project deletion (M33), and its health is now at least indirectly observable
@@ -4617,10 +5918,10 @@ end-to-end.
    happening again, it does not retroactively clean up prior damage. Not cleaned up here (QA
    fixture only, out of scope for a backend-only bugfix pass); a real production instance with
    pre-fix-created ghost files would need the same manual cleanup if this were ever deployed.
-5. From the M35/M37/M38 discovery passes, the strongest still-open candidate remains the admin
+5. ~~From the M35/M37/M38 discovery passes, the strongest still-open candidate remains the admin
    backup/restore action UI (`admin/routes.ts:984-1226`, zero frontend callers, includes a
-   destructive restore action that deserves its own scoping pass). Not picked automatically —
-   next session should decide fresh rather than rubber-stamp this note.
+   destructive restore action that deserves its own scoping pass).~~ — **shipped in M46**
+   (superseded by item 11 below); retained as historical context only.
 6. ~~`archive.ts`'s project-import race~~ — fixed in M39 (second dispose after workspace
    replacement, mirroring M38; live-sweep-verified 0/9 staggers clobbered, see above).
 7. ~~The frontend collaboration-reconnect vulnerability discovered during M39's browser
@@ -4660,10 +5961,11 @@ end-to-end.
     Walkthrough Tour"), so whether a real, cost-incurring external LLM call is even desired is a product
     question, not an engineering one — plus it would introduce a new trust boundary (prompt-injection/
     context-leak review) that doesn't exist today.
-14. `/api/admin/observability` (live connection/room/sandbox counters) still has no frontend caller
-    in `AdminDashboard.tsx` — deliberately not bundled into M46 (that milestone's contract scoped it
-    to backup/restore only). Still the strongest remaining backend-only gap, now smaller in isolation
-    than it looked next to the backup UI.
+14. ~~`/api/admin/observability` (live connection/room/sandbox counters) still has no frontend caller
+    in `AdminDashboard.tsx`~~ — **shipped in M49** (`0a393ca`): `AdminObservabilityPanel.tsx`
+    fetches `/api/admin/observability` and is wired as the "observability" tab in
+    `AdminDashboard.tsx` (verified `AdminObservabilityPanel.tsx:62`, `AdminDashboard.tsx:1810`).
+    This line was written during the pre-M49 M43-era audit and is stale.
 15. No security finding rose to the level of a standalone milestone during the M43-era audit (zip
     import path-traversal/zip-bomb guards, admin authorization, and the — reassuringly local-only,
     nothing-leaves-the-server — "AI" context-building path were all re-checked and found already
@@ -4688,9 +5990,12 @@ end-to-end.
     single seeding authority (loads disk on `file_open`, then sends an explicit `file_ready` signal),
     and the client defers its y-monaco binding until that signal (seed-free 2s fallback). Regression:
     `frontend/test/collab-initialization.test.ts` (10 cases, 7 fail pre-fix with the `'XX'`-vs-`'X'`
-    signature) + `m4-collab.test.ts` cases 33–36. `notifyExternalFileMutation` merging into
+    signature) + `m4-collab.test.ts` cases 33–36. ~~`notifyExternalFileMutation` merging into
     actively-edited collab buffers (M50 CROSS_LAYER finding, item 21) is a related but distinct path
-    and remains open.
+    and remains open.~~ — **fixed** in `2f738a4` (backend `dirtyFiles` conflict invariant) +
+    `91f6e08` (frontend surfacing); see the "Repository state reconciliation" section above.
 21. Real AI provider wiring (item 13 above) remains the highest-ceiling **product-decision-required**
-    candidate; `notifyExternalFileMutation` merging into actively-edited collab buffers (M50 CROSS_LAYER
-    finding) is the same class as item 20 and would likely be addressed together.
+    candidate. ~~`notifyExternalFileMutation` merging into actively-edited collab buffers (M50
+    CROSS_LAYER finding) is the same class as item 20 and would likely be addressed together.~~ —
+    **shipped** in `2f738a4` / `91f6e08` (see the reconciliation section above); AI provider wiring
+    is now the sole remaining item in this pair and is purely a product decision.

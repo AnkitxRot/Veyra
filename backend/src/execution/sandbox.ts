@@ -1,4 +1,8 @@
-import { spawn, execFile } from "node:child_process";
+import {
+  spawn,
+  execFile,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import { promisify } from "node:util";
 import { hostname } from "node:os";
 import type { AppConfig } from "../config.js";
@@ -896,6 +900,30 @@ export class SandboxManager {
 
 export const sandboxManager = SandboxManager.getInstance();
 
+/**
+ * Wrap a sandbox child's stdin so a write that loses the race with the child
+ * exiting first cannot crash the backend.
+ *
+ * `docker exec -i` forwards our stdin to the sandboxed process. When that
+ * process ends on its own, is SIGKILLed by a `stop`, or simply never reads
+ * stdin, the pipe's read end goes away and the next write (or `.end()`) emits
+ * an 'error' ('EPIPE' / 'ERR_STREAM_DESTROYED') on the stdin stream. A Node
+ * stream with no 'error' listener rethrows it as an uncaughtException that
+ * takes down the whole process — the same "per-connection emitter needs its
+ * own 'error' listener" failure the /ws/execute malformed-frame fix addressed
+ * (see backend/test/ws.test.ts). A stdin keystroke that arrives after the
+ * process is already gone is expected here, not fatal: the run has ended and
+ * the execution socket's `finish()` will drop the controller a moment later.
+ */
+export function makeStdinWriter(
+  child: ChildProcessWithoutNullStreams,
+): (data: string) => void {
+  child.stdin.on("error", () => {});
+  return (data: string) => {
+    if (child.stdin.writable) child.stdin.write(data);
+  };
+}
+
 export async function sandboxRun(
   projectId: string,
   workspaceDir: string,
@@ -1035,15 +1063,20 @@ export async function sandboxRun(
     child.kill("SIGKILL");
   };
 
+  // Guards every subsequent stdin write/end against a post-exit pipe error
+  // (an interactive program that returns, a `stop` SIGKILL, or a process
+  // that never reads stdin) escalating to a backend-wide uncaughtException.
+  const writeStdin = makeStdinWriter(child);
+
   if (opts.onController) {
     opts.onController({
-      writeStdin: (data) => child.stdin.write(data),
+      writeStdin,
       kill: killProcess,
     });
   }
 
   if (typeof opts.stdin === "string") {
-    child.stdin.write(opts.stdin);
+    writeStdin(opts.stdin);
     child.stdin.end();
   } else if (!opts.onController) {
     child.stdin.end();

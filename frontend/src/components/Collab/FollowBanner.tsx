@@ -7,6 +7,11 @@ export interface FollowBannerProps {
   isPaused?: boolean;
   pauseReason?: string;
   onStopFollowing: () => void;
+  /** M59: an anchor was captured when Follow started — offer to return to it. */
+  hasAnchor?: boolean;
+  onReturnToLocation?: () => void;
+  /** M59: the followed collaborator's current focus range, if any. */
+  followedRange?: { startLine: number; endLine: number } | null;
 }
 
 export default function FollowBanner({
@@ -14,6 +19,9 @@ export default function FollowBanner({
   isPaused = false,
   pauseReason = "You have unsaved local changes",
   onStopFollowing,
+  hasAnchor = false,
+  onReturnToLocation,
+  followedRange = null,
 }: FollowBannerProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -31,6 +39,13 @@ export default function FollowBanner({
     ? followedUser.activeFile.split("/").pop()
     : null;
   const line = followedUser.cursor?.line;
+  const rangeText = followedRange
+    ? followedRange.startLine === followedRange.endLine
+      ? ` · Line ${followedRange.startLine}`
+      : ` · Lines ${followedRange.startLine}–${followedRange.endLine}`
+    : line
+      ? ` · Line ${line}`
+      : "";
 
   return (
     <div
@@ -68,16 +83,28 @@ export default function FollowBanner({
             ) : fileName ? (
               <span className="follow-location">
                 {fileName}
-                {line ? ` · Line ${line}` : ""}
+                {rangeText}
               </span>
             ) : (
-              <span className="follow-location">Workspace navigation</span>
+              <span className="follow-location">
+                Workspace navigation{rangeText}
+              </span>
             )}
           </div>
         </div>
 
         <div className="follow-actions">
           <span className="follow-kbd-hint">Esc to stop</span>
+          {hasAnchor && onReturnToLocation && (
+            <button
+              className="glass-btn follow-return-btn"
+              onClick={onReturnToLocation}
+              title="Return to my location"
+              aria-label="Return to my location"
+            >
+              <span>Return to my location</span>
+            </button>
+          )}
           <button
             className="glass-btn follow-stop-btn"
             onClick={onStopFollowing}

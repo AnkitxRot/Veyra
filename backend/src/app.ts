@@ -14,10 +14,12 @@ import { projectSecretRoutes } from "./projectsecrets/routes.js";
 import { adminRoutes } from "./admin/routes.js";
 import { aiRoutes } from "./ai/routes.js";
 import { gitRoutes } from "./git/routes.js";
+import { commentRoutes } from "./comments/routes.js";
 import { getSystemCapabilitiesAsync } from "./tools.js";
 import { initCgroupRoot } from "./execution/sandbox.js";
 
 import { telemetryHistorian } from "./execution/historian.js";
+import { collaborationHistorian } from "./collab/historian.js";
 import { collaborationManager } from "./collab/manager.js";
 
 export function initDirectories(cfg: AppConfig): void {
@@ -53,6 +55,15 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   const db = existingDb ?? openDb(cfg.dbPath);
   telemetryHistorian.init(db, cfg);
   collaborationManager.init(cfg, db);
+  // M60: derived collaboration history. The historian broadcasts each closed
+  // burst / callout back into the live room as a receive-only `collab_change`.
+  collaborationHistorian.init(db, cfg);
+  collaborationHistorian.setBroadcaster((projectId, ev) =>
+    collaborationManager.broadcastCollabChange(
+      projectId,
+      ev as unknown as Record<string, unknown>,
+    ),
+  );
   const app = express();
   app.disable("x-powered-by");
 
@@ -110,6 +121,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   app.use("/api/projects", requireAuth(db), projectSecretRoutes(cfg, db));
   app.use("/api/projects", requireAuth(db), aiRoutes(cfg, db));
   app.use("/api/projects", requireAuth(db), gitRoutes(cfg, db));
+  app.use("/api/projects", requireAuth(db), commentRoutes(cfg, db));
   app.use("/api/admin", requireAdmin(db), adminRoutes(cfg, db));
 
   // Production frontend serving: the built Vite SPA. Only enabled when the

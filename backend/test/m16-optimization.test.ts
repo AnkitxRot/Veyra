@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sandboxManager } from "../src/execution/sandbox.js";
 import { resolveConfig } from "../src/config.js";
+import { isDockerRunning } from "../src/tools.js";
 
 describe("M16 Optimizations: Concurrent Preflight & Lazy Port Resolution", () => {
   let tmp: string;
@@ -16,7 +17,11 @@ describe("M16 Optimizations: Concurrent Preflight & Lazy Port Resolution", () =>
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("ensureProjectSandbox creates container and initializes ports lazily without blocking exec", async () => {
+  // Docker-dependent: provisions a real container. Auto-skipped when Docker
+  // is unavailable, matching every other container-provisioning test in the
+  // suite (exec/sandbox/lifecycle/api). The second test below is Docker-free
+  // (getProxyTarget on an inactive project) and always runs.
+  it.skipIf(!isDockerRunning())("ensureProjectSandbox creates container and initializes ports lazily without blocking exec", async () => {
     const pId = `m16-test-proj-${Date.now()}`;
     const workspace = join(tmp, pId);
     writeFileSync(join(tmp, "main.py"), "print('m16')\n");

@@ -1,3 +1,5 @@
+import type { TimelinePage, WhileAwayResponse } from "./types";
+
 export interface ApiErrorBody {
   error?: { code?: string; message?: string };
 }
@@ -169,5 +171,38 @@ export async function listAIVerifications(
 ): Promise<{ verifications: AIVerificationRecord[] }> {
   return api<{ verifications: AIVerificationRecord[] }>(
     `/api/projects/${projectId}/ai/verifications`,
+  );
+}
+
+// --- M60: collaboration history --------------------------------------------
+
+export async function fetchCollabTimeline(
+  projectId: string,
+  opts: { limit?: number; before?: string | null } = {},
+): Promise<TimelinePage> {
+  const q = new URLSearchParams();
+  if (opts.limit) q.set("limit", String(opts.limit));
+  if (opts.before) q.set("before", opts.before);
+  const qs = q.toString();
+  return api<TimelinePage>(
+    `/api/projects/${projectId}/collab/timeline${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export async function fetchWhileAway(
+  projectId: string,
+): Promise<WhileAwayResponse> {
+  return api<WhileAwayResponse>(
+    `/api/projects/${projectId}/collab/while-away`,
+  );
+}
+
+export async function ackWhileAway(
+  projectId: string,
+  upTo: string,
+): Promise<void> {
+  await api<{ ok: true }>(
+    `/api/projects/${projectId}/collab/while-away/ack`,
+    { method: "POST", body: JSON.stringify({ upTo }) },
   );
 }
