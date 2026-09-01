@@ -5984,7 +5984,7 @@ correctness problem (the tables are simply empty).
 ### Files (M61, all previously uncommitted — now on `stabilize/m57-m61`)
 
 **New backend:** `src/comments/{routes,store,validate,timelineSource}.ts`;
-`test/{m61-comments,m61-comment-store,m61-comment-timeline,m61-comment-validate,m61-transport}.test.ts`.
+`test/{m61-comments,m61-comment-store,m61-comment-timeline,m61-comment-validate,m61-transport,m61-lifecycle}.test.ts`.
 **Changed backend:** `db.ts` (migration **v12** + `M61_SCHEMA_SQL` inline +
 `copyLegacyPreferencesIntoSettings`), `config.ts`, `collab/manager.ts`
 (`broadcastCommentEvent` / `sendCommentMentionTo` / `broadcastProfileEvent` +
@@ -6000,15 +6000,16 @@ and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.na
 `components/Editor/Editor.tsx`, `components/Sidebar/Sidebar.tsx`,
 `styles/collab.css`.
 
-### Verification (2026-09-02, Docker available)
+### Verification (2026-09-02, Docker available; refreshed after the m61-lifecycle test was added)
 
 | Area | Status | Evidence |
 |---|---|---|
-| M61-A backend contract | **PROVEN** | `m61-comments` 8, `m61-comment-store` 6, `m61-comment-timeline` 3, `m61-comment-validate` 4, `m61-transport` 4 — all pass in the full Docker backend run (75 files / 961 passed / 9 Windows-only skips / 0 failed) |
+| M61-A backend contract | **PROVEN** | `m61-comments` 8, `m61-comment-store` 6, `m61-comment-timeline` 3, `m61-comment-validate` 4, `m61-transport` 4 — plus `m61-lifecycle` 5 — all pass in the full Docker backend run (76 files / 966 passed / 9 Windows-only skips / 0 failed) |
 | M61-A frontend contract | **PROVEN** | `CommentThread` 5, `CommentGutter` 3, `CommentComposer` 3, `CommentsPanel` 2, `mentionText` 2, `Sidebar.commentBadge` 4, `Editor.tabBadge` 4, `collab.comment.client` 4, `comment.anchor` 5, `comment.store` 3, `comment.keep` 5, `comment.navigation` 6, `comment.commands.registry` 3 — all pass in `npm test -w @cloud-ide/frontend` (71 files / 564 passed / 0 failed) |
 | Migration v12 apply (incl. from a pre-v11 DB) | **PROVEN** | `migrations.test.ts` — real v8 DB with data → `openDb()` → schema version 12, rows `[1..12]`, pre-existing data preserved; `m61: v12 creates the comment/settings/profile tables`; `m61: v12 copies pre-existing user_preferences into user_settings.data` |
 | v12 cascade — schema | **PROVEN** | `foreign_key_list(comments)` → `comment_threads` = `CASCADE`; `PRAGMA foreign_keys = ON` in `openDb` |
-| v12 cascade — behavioural (insert thread+comments+mentions → delete project/user → rows gone) | **NOT_PROVEN** | there is **no M61 lifecycle test** (unlike `m60-lifecycle.test.ts`); the FK clauses are asserted structurally only. Reverting the `comment_threads.project_id` / `comments.project_id` cascade would not fail any current test |
+| v12 cascade — behavioural (insert thread+comments+reply+mentions+reactions → delete project / user / root comment → exactly the right rows gone, no orphans, other project untouched) | **PROVEN** | `backend/test/m61-lifecycle.test.ts` (5) — real `openDb()` migration path, raw `DELETE FROM projects` / `DELETE FROM users` so the assertions depend entirely on the FK clauses. Revert-sensitivity demonstrated in this pass: reverting `comment_threads.project_id` CASCADE, `resolved_by` SET NULL, or `created_by` CASCADE each makes exactly the corresponding test fail (isolated reverts verified) |
+| user-deletion SET NULL vs CASCADE split | **PROVEN** | `m61-lifecycle.test.ts` — deleting a member who only *resolved* a thread nulls `resolved_by` (SET NULL) and keeps the thread + all comments; deleting the thread creator (`created_by`) / root-comment author (`author_id`) CASCADE-removes the whole thread sub-tree incl. another user's reply, its mentions and reactions |
 | Transport is outbound-only / no body over WS | **PROVEN** | `m61-transport.test.ts` (`comment_event` carries `{threadId,filePath,kind,at}`; `broadcastProfileEvent` carries `{type,userId}`; room-scoped; cross-project no-op); code inspection of `handleMessage` `MESSAGE_CUSTOM` allowlist |
 | REST authorization | **PROVEN** (contract) | every handler calls `requireProjectAccess`; `m61-comments.test.ts` covers viewer/editor/owner gating and the author-or-owner delete rule |
 | No HTML/Markdown injection | **PROVEN** | `sanitizeCommentBody` server-side; no `innerHTML`/`dangerouslySetInnerHTML` in `Comments/` or `comments/`; `mentionText.test.tsx` |
@@ -6022,7 +6023,7 @@ and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.na
   a forward-declared schema. The "north star" customization / identity product
   in the design doc is future work.
 - v12 migrates production databases to a schema with 7 unused tables.
-- No behavioural cascade test for the Track-A tables (schema-only).
+- Track-A cascade behaviour is now proven (`m61-lifecycle.test.ts`); Track-B/C tables remain untested because no code exercises them.
 - No browser/live verification of M61-A.
 - `CommentTimelineEvent` / comment wire shapes are hand-synced backend↔frontend
   (repo convention), each pinned by its own test.
