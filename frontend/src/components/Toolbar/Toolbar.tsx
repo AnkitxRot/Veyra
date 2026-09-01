@@ -17,6 +17,7 @@ import type {
   CollaboratorPresence,
   CollabConnectionStatus,
 } from "../../collab/client";
+import type { AttentionEvent } from "../../collab/attention";
 
 interface ToolbarProps {
   project: Project | null;
@@ -38,6 +39,11 @@ interface ToolbarProps {
   onJumpToCollaborator?: (c: CollaboratorPresence) => void;
   onOpenShareModal?: () => void;
   onOpenSecretsModal?: () => void;
+  onOpenTeamPanel?: () => void;
+  /** M58: count of actionable incoming targeted attention requests. */
+  incomingRequestCount?: number;
+  /** M59: full attention list, threaded to the collaborator popover focus block. */
+  attention?: AttentionEvent[];
 }
 
 export default function Toolbar({
@@ -60,6 +66,9 @@ export default function Toolbar({
   onJumpToCollaborator,
   onOpenShareModal,
   onOpenSecretsModal,
+  onOpenTeamPanel,
+  incomingRequestCount,
+  attention = [],
 }: ToolbarProps) {
   const [isRunning, setIsRunning] = React.useState(false);
   // M43: mirrors the isRunning/run-started/run-stopped pattern above.
@@ -365,6 +374,9 @@ export default function Toolbar({
           onFollowCollaborator={onFollowCollaborator}
           onJumpToCollaborator={onJumpToCollaborator}
           onOpenShareModal={onOpenShareModal}
+          onOpenTeamPanel={onOpenTeamPanel}
+          incomingRequestCount={incomingRequestCount}
+          attention={attention}
         />
       )}
 

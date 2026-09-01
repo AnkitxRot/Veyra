@@ -22,6 +22,9 @@ import {
   applyAIPatch,
   verifyAIPatch,
   AIVerificationRecord,
+  fetchCollabTimeline,
+  fetchWhileAway,
+  ackWhileAway,
 } from "../../api";
 import Sidebar from "../Sidebar/Sidebar";
 import Toolbar from "../Toolbar/Toolbar";
@@ -48,6 +51,42 @@ import CommandPaletteModal from "../common/CommandPaletteModal";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 import WorkspaceSearchModal from "../Search/WorkspaceSearchModal";
 import FollowBanner from "../Collab/FollowBanner";
+import TeamPanel from "../Collab/TeamPanel";
+import AttentionTray from "../Collab/AttentionTray";
+import WhileYouWereAway, {
+  type WhileAwayCardGroup,
+} from "../Collab/WhileYouWereAway";
+import type { AttentionEvent } from "../../collab/attention";
+import type {
+  TimelineEvent,
+  CollabChangeWire,
+  CommentThreadDTO,
+  CommentEventWire,
+  CommentMentionWire,
+} from "../../types";
+import { CommentStore } from "../../comments/store";
+import * as commentsApi from "../../comments/api";
+import { encodeAnchor } from "../../comments/anchor";
+import { countsByFile, nextInFile, previousInFile, nextUnresolved } from "../../comments/navigation";
+import { KeepDeduper, keepCalloutAsComment } from "../../comments/keep";
+import CommentThread from "../Comments/CommentThread";
+import CommentsPanel from "../Comments/CommentsPanel";
+import {
+  mergeTimeline,
+  wireToTimelineEvent,
+  groupWhileAway,
+} from "../../collab/timeline";
+import {
+  buildFocusContext,
+  FOLLOW_ABSENCE_GRACE_MS,
+  FOLLOW_LEFT_NOTICE_MS,
+} from "../../collab/focus";
+import {
+  anchorFilePresent,
+  anchorFileBasename,
+  type FollowAnchor,
+} from "../../collab/followAnchor";
+import type { EditorViewApi } from "../Editor/Editor";
 import type {
   CollaborationClient,
   CollaboratorPresence,
@@ -68,6 +107,7 @@ import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import { throttleLatest } from "../../utils/throttleLatest";
 import { handleSaveError } from "../../utils/collabConflict";
+import { openAndRevealLocation } from "../../utils/revealLocation";
 import {
   readProjectSession,
   writeProjectSession,
@@ -110,6 +150,11 @@ function describeMutationType(t: MutationType): string {
   }
 }
 
+// M60: client-side trigger gate for "While You Were Away" — mirrors the server
+// default COLLAB_AWAY_THRESHOLD_MS. The gate only decides whether to ASK the
+// server; the authoritative content boundary is the server's collab_last_seen.
+const COLLAB_AWAY_THRESHOLD_MS = 180_000;
+
 export default function IDE({
   user,
   onLogout,
@@ -151,6 +196,8 @@ export default function IDE({
   );
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const activeFileRef = useRef<string | null>(null);
+  activeFileRef.current = activeFile;
   const [openFiles, setOpenFiles] = useState<
     { path: string; content: string; dirty?: boolean }[]
   >([]);
@@ -244,8 +291,40 @@ export default function IDE({
   );
   // M54: collaborative run awareness — server-authoritative, ephemeral.
   const [runStatuses, setRunStatuses] = useState<RunStatusEntry[]>([]);
+  // M58: transient attention events (Point / Callout / targeted "Come look").
+  // One throttled state fed from the collab client's AttentionStore — no second
+  // store, no per-event IDE re-render.
+  const [attention, setAttention] = useState<AttentionEvent[]>([]);
+  const [attnRateNotice, setAttnRateNotice] = useState<number | null>(null);
+  const attnRateTimerRef = useRef<number | null>(null);
   const [collabStatus, setCollabStatus] =
     useState<CollabConnectionStatus>("disconnected");
+  // M60: Team Activity timeline (bounded, live-merged) + While-You-Were-Away.
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [timelineNextBefore, setTimelineNextBefore] = useState<string | null>(
+    null,
+  );
+  const [timelineLoaded, setTimelineLoaded] = useState(false);
+  const [timelineLoadingMore, setTimelineLoadingMore] = useState(false);
+  const [whileAwayGroups, setWhileAwayGroups] = useState<
+    WhileAwayCardGroup[] | null
+  >(null);
+  // M61-A: contextual comments — one CommentStore scoped to this project,
+  // fed by receive-only `comment_event` pings + REST refetch.
+  const commentStoreRef = useRef<CommentStore | null>(null);
+  const [commentThreadsByFile, setCommentThreadsByFile] = useState<
+    CommentThreadDTO[]
+  >([]);
+  const [unresolvedComments, setUnresolvedComments] = useState<
+    CommentThreadDTO[]
+  >([]);
+  const [openCommentThreadId, setOpenCommentThreadId] = useState<string | null>(
+    null,
+  );
+  const openCommentThreadIdRef = useRef<string | null>(null);
+  const [showResolvedComments, setShowResolvedComments] = useState(false);
+  const [mentionCards, setMentionCards] = useState<CommentMentionWire[]>([]);
+
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSecretsModalOpen, setIsSecretsModalOpen] = useState(false);
   const [projectRole, setProjectRole] = useState<"owner" | "editor" | "viewer">(
@@ -254,9 +333,30 @@ export default function IDE({
 
   // M48 Follow Mode & DND states
   const [followedUserId, setFollowedUserId] = useState<number | null>(null);
+  // M57: the full Team roster panel (opened from the header collaborator count).
+  const [teamPanelOpen, setTeamPanelOpen] = useState(false);
   const [followPaused, setFollowPaused] = useState<boolean>(false);
   const [followPauseReason, setFollowPauseReason] = useState<string>("");
   const [isDnd, setIsDnd] = useState<boolean>(false);
+
+  // M59: Collaborative Focus & Context Handoff.
+  //  - one anchor per follow session (the true pre-follow context), captured
+  //    once, preserved across A→B target switches, discarded on Stop/Return/reset
+  //  - one userId-keyed absence timer for the ~6s reconnect grace
+  //  - a lightweight "Rahul left" notice after the grace expires
+  const followAnchorRef = useRef<FollowAnchor | null>(null);
+  const followAbsenceTimerRef = useRef<number | null>(null);
+  const followLeftTimerRef = useRef<number | null>(null);
+  const followedUserIdRef = useRef<number | null>(null);
+  const collaboratorsRef = useRef<CollaboratorPresence[]>([]);
+  const lastFollowedRef = useRef<{ userId: number; name: string } | null>(null);
+  const editorViewApiRef = useRef<EditorViewApi | null>(null);
+  const attentionRef = useRef<AttentionEvent[]>([]);
+  const keepDeduperRef = useRef(new KeepDeduper());
+  const resetFollowStateRef = useRef<() => void>(() => {});
+  const [followLeftNotice, setFollowLeftNotice] = useState<{
+    name: string;
+  } | null>(null);
 
   // M5: Verification-Aware AI Engineering Assistant States
   const [aiExplainState, setAiExplainState] = useState<{
@@ -348,8 +448,18 @@ export default function IDE({
     let unsubRunStatus: (() => void) | undefined;
     let unsubConnection: (() => void) | undefined;
     let unsubExternalMutation: (() => void) | undefined;
+    let unsubAttention: (() => void) | undefined;
+    let unsubAttnRate: (() => void) | undefined;
+    let unsubCollabChange: (() => void) | undefined;
+    let unsubReconnGap: (() => void) | undefined;
+    let unsubCommentEvent: (() => void) | undefined;
+    let unsubCommentMention: (() => void) | undefined;
+    let unsubCommentStore: (() => void) | undefined;
     let throttledSetCollaborators: ReturnType<
       typeof throttleLatest<CollaboratorPresence[]>
+    > | null = null;
+    let throttledSetAttention: ReturnType<
+      typeof throttleLatest<AttentionEvent[]>
     > | null = null;
 
     (async () => {
@@ -379,10 +489,31 @@ export default function IDE({
         (entries: RunStatusEntry[]) => setRunStatuses(entries),
       );
 
+      // M58: attention events are human-frequency but still throttled to avoid
+      // a per-event IDE re-render (mirrors the collaborators path).
+      throttledSetAttention = throttleLatest<AttentionEvent[]>(
+        setAttention,
+        200,
+      );
+      unsubAttention = client.on("attention_change", throttledSetAttention);
+      unsubAttnRate = client.on("attention_rate_limited", () => {
+        setAttnRateNotice(Date.now());
+        if (attnRateTimerRef.current) {
+          window.clearTimeout(attnRateTimerRef.current);
+        }
+        attnRateTimerRef.current = window.setTimeout(
+          () => setAttnRateNotice(null),
+          4000,
+        );
+      });
+
       unsubConnection = client.on(
         "connection_change",
         (status: CollabConnectionStatus) => {
           setCollabStatus(status);
+          // M59: a forbidden session (role revoked / access lost) must clear
+          // Follow + anchor + timers immediately.
+          if (status === "forbidden") resetFollowStateRef.current();
         },
       );
 
@@ -417,6 +548,70 @@ export default function IDE({
           }, 8000);
         },
       );
+
+      // M60: a closed edit burst / callout lands live in the Team Activity
+      // timeline. RECEIVE-only (see collab/client.ts). Bounded to ~200.
+      unsubCollabChange = client.on(
+        "collab_change",
+        (w: CollabChangeWire) => {
+          setTimeline((prev) =>
+            mergeTimeline(prev, [wireToTimelineEvent(w)], 200),
+          );
+        },
+      );
+
+      // M61-A: contextual comments. `comment_event` is a receive-only
+      // cache-invalidation ping — the store refetches the affected file over
+      // REST (SQLite + REST stay authoritative). `comment_mention` is a
+      // targeted presentation ping surfaced in the Attention & Mentions tray.
+      const commentStore = new CommentStore(project.id);
+      commentStoreRef.current = commentStore;
+      unsubCommentStore = commentStore.on(() => {
+        const af = activeFileRef.current;
+        setCommentThreadsByFile(af ? commentStore.threadsFor(af) : []);
+        setUnresolvedComments(commentStore.unresolved());
+      });
+      void commentStore.loadUnresolved();
+      if (activeFileRef.current) void commentStore.load(activeFileRef.current);
+      unsubCommentEvent = client.on(
+        "comment_event",
+        (ev: CommentEventWire) => {
+          commentStore.applyEvent(ev);
+          void commentStore.loadUnresolved();
+          // The comment lifecycle also feeds the M60 timeline — refetch its head.
+          void fetchCollabTimeline(project.id, { limit: 40 })
+            .then((r) => setTimeline((prev) => mergeTimeline(prev, r.events, 200)))
+            .catch(() => {});
+        },
+      );
+      unsubCommentMention = client.on(
+        "comment_mention",
+        (ev: CommentMentionWire) => {
+          setMentionCards((c) => [ev, ...c].slice(0, 10));
+        },
+      );
+
+      // M60: on a real reconnect-after-gap, ask the server (authoritative
+      // last-seen boundary) whether there is anything meaningful to show.
+      unsubReconnGap = client.on(
+        "reconnected_after_gap",
+        (info: { offlineMs: number }) => {
+          if (info.offlineMs < COLLAB_AWAY_THRESHOLD_MS) return;
+          void fetchWhileAway(project.id)
+            .then((r) => {
+              if (cancelled || r.events.length === 0) return;
+              setWhileAwayGroups(
+                groupWhileAway(r.events).map((g) => ({
+                  userId: g.userId,
+                  username: g.username,
+                  lines: g.lines,
+                  events: g.events,
+                })),
+              );
+            })
+            .catch(() => {});
+        },
+      );
     })();
 
     // Fetch project access role
@@ -434,16 +629,43 @@ export default function IDE({
       unsubRunStatus?.();
       unsubConnection?.();
       unsubExternalMutation?.();
+      unsubAttention?.();
+      unsubAttnRate?.();
+      unsubCollabChange?.();
+      unsubReconnGap?.();
+      unsubCommentEvent?.();
+      unsubCommentMention?.();
+      unsubCommentStore?.();
+      commentStoreRef.current?.dispose();
+      commentStoreRef.current = null;
+      setCommentThreadsByFile([]);
+      setUnresolvedComments([]);
+      setOpenCommentThreadId(null);
+      setMentionCards([]);
+      setTimeline([]);
+      setTimelineLoaded(false);
+      setTimelineNextBefore(null);
+      setWhileAwayGroups(null);
       if (externalMutationTimerRef.current) {
         window.clearTimeout(externalMutationTimerRef.current);
       }
+      if (attnRateTimerRef.current) {
+        window.clearTimeout(attnRateTimerRef.current);
+      }
       setExternalMutationNotice(null);
+      // M59: project switch / disposal / unmount clears Follow + anchor + all
+      // follow timers so nothing leaks into the next project or a stale timer
+      // fires after this client is gone.
+      resetFollowStateRef.current();
       client?.dispose();
       if (collabClientRef.current === client) {
         collabClientRef.current = null;
       }
       throttledSetCollaborators?.cancel();
+      throttledSetAttention?.cancel();
       setRunStatuses([]);
+      setAttention([]);
+      setAttnRateNotice(null);
     };
     // project is tracked by id only to avoid reconnect churn when the object
     // reference changes without the id changing; collabClient is read via
@@ -552,6 +774,10 @@ export default function IDE({
   const fileIndex: IndexedFile[] = useMemo(() => {
     return buildFileIndex(tree);
   }, [tree]);
+  const fileIndexRef = useRef<IndexedFile[]>([]);
+  useEffect(() => {
+    fileIndexRef.current = fileIndex;
+  }, [fileIndex]);
 
   // --- Session restore: reopen this project's tabs / active file / panel ----
   //
@@ -687,8 +913,9 @@ export default function IDE({
     client.setActiveFileDirty(!!cur?.dirty);
   }, [activeFile, openFiles, collabClient]);
 
-  const handleOpenFile = async (path: string) => {
-    if (!project) return;
+  const handleOpenFile = useCallback(
+    async (path: string) => {
+      if (!project) return;
 
     // Record into recent store
     addRecentFile(project.id, path);
@@ -709,7 +936,9 @@ export default function IDE({
     } catch (err: any) {
       alert(`Could not open file: ${err.message || "Error"}`);
     }
-  };
+  },
+  [project],
+  );
 
   useEffect(() => {
     openFilesRef.current = openFiles;
@@ -834,16 +1063,178 @@ export default function IDE({
     [followedUserId, collaborators],
   );
 
-  // Auto-track followed collaborator
+  // M59: the followed collaborator's current focus range (from their latest
+  // attention event), shown on the FollowBanner. Derived — no store.
+  const followedFocusRange = useMemo(() => {
+    if (!followedUser || !user) return null;
+    const fc = buildFocusContext(
+      followedUser,
+      attention,
+      user.id,
+      followedUserId,
+    );
+    return fc.range
+      ? { startLine: fc.range.startLine, endLine: fc.range.endLine }
+      : null;
+  }, [followedUser, attention, followedUserId, user]);
+
+  // M59: keep refs fresh so timer callbacks / event handlers read current state.
   useEffect(() => {
-    if (!followedUser) {
-      if (followedUserId !== null) {
+    followedUserIdRef.current = followedUserId;
+  }, [followedUserId]);
+  useEffect(() => {
+    collaboratorsRef.current = collaborators;
+  }, [collaborators]);
+  useEffect(() => {
+    attentionRef.current = attention;
+  }, [attention]);
+  useEffect(() => {
+    openCommentThreadIdRef.current = openCommentThreadId;
+  }, [openCommentThreadId]);
+
+  const clearFollowAbsenceTimer = useCallback(() => {
+    if (followAbsenceTimerRef.current !== null) {
+      window.clearTimeout(followAbsenceTimerRef.current);
+      followAbsenceTimerRef.current = null;
+    }
+  }, []);
+
+  const clearFollowLeftTimer = useCallback(() => {
+    if (followLeftTimerRef.current !== null) {
+      window.clearTimeout(followLeftTimerRef.current);
+      followLeftTimerRef.current = null;
+    }
+  }, []);
+
+  // M59: capture the pre-follow context — ONCE per follow session. The
+  // null-guard is what makes Follow A → Follow B keep A's anchor.
+  const captureAnchor = useCallback(() => {
+    if (followAnchorRef.current) return;
+    const saved = editorViewApiRef.current?.save();
+    if (!saved) return;
+    followAnchorRef.current = {
+      filePath: saved.filePath,
+      viewState: saved.viewState,
+      cursor: saved.cursor,
+      capturedAt: Date.now(),
+    };
+  }, []);
+
+  // M59: the single Follow-transition controller. Acting on a DIFFERENT
+  // collaborator ends the current Follow (anchor PRESERVED). follow:true
+  // captures the anchor iff none exists, then sets the target.
+  const focusOn = useCallback(
+    (userId: number, opts: { follow: boolean }) => {
+      const cur = followedUserIdRef.current;
+      if (cur !== null && cur !== userId) {
         setFollowedUserId(null);
         setFollowPaused(false);
         setFollowPauseReason("");
+        clearFollowAbsenceTimer();
+        // anchor deliberately NOT touched here
+      }
+      if (opts.follow) {
+        if (followAnchorRef.current == null) captureAnchor();
+        setFollowedUserId(userId);
+        const c = collaboratorsRef.current.find((x) => x.userId === userId);
+        if (c) lastFollowedRef.current = { userId, name: c.name };
+      }
+    },
+    [captureAnchor, clearFollowAbsenceTimer],
+  );
+
+  const handleReturnToMyLocation = useCallback(async () => {
+    const anchor = followAnchorRef.current;
+    clearFollowAbsenceTimer();
+    clearFollowLeftTimer();
+    setFollowedUserId(null);
+    setFollowPaused(false);
+    setFollowPauseReason("");
+    setFollowLeftNotice(null);
+    followAnchorRef.current = null;
+    if (!anchor) return;
+
+    const known = new Set<string>([
+      ...fileIndexRef.current.map((f) => f.path),
+      ...openFilesRef.current.map((f) => f.path),
+    ]);
+    if (!anchorFilePresent(anchor, known)) {
+      setReplaceReconcileNotice(
+        `Your previous file "${anchorFileBasename(anchor)}" is no longer available.`,
+      );
+      return;
+    }
+    await handleOpenFile(anchor.filePath);
+    document.dispatchEvent(
+      new CustomEvent("ide-restore-view-state", {
+        detail: {
+          filePath: anchor.filePath,
+          viewState: anchor.viewState,
+          cursor: anchor.cursor,
+        },
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+
+  const handleStopFollowing = useCallback(() => {
+    clearFollowAbsenceTimer();
+    clearFollowLeftTimer();
+    setFollowedUserId(null);
+    setFollowPaused(false);
+    setFollowPauseReason("");
+    setFollowLeftNotice(null);
+    followAnchorRef.current = null;
+  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+
+  // M59: full reset — project switch / disposal / session expiry / unmount.
+  const resetFollowState = useCallback(() => {
+    clearFollowAbsenceTimer();
+    clearFollowLeftTimer();
+    followAnchorRef.current = null;
+    lastFollowedRef.current = null;
+    setFollowedUserId(null);
+    setFollowPaused(false);
+    setFollowPauseReason("");
+    setFollowLeftNotice(null);
+  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  useEffect(() => {
+    resetFollowStateRef.current = resetFollowState;
+  }, [resetFollowState]);
+
+  // M59: auto-track the followed collaborator, WITH a userId-keyed ~6s absence
+  // grace so a brief ws blip / reconnect does not drop Follow.
+  useEffect(() => {
+    if (!followedUser) {
+      if (followedUserId !== null && followAbsenceTimerRef.current === null) {
+        followAbsenceTimerRef.current = window.setTimeout(() => {
+          followAbsenceTimerRef.current = null;
+          const targetId = followedUserIdRef.current;
+          const stillAbsent =
+            targetId !== null &&
+            !collaboratorsRef.current.some((c) => c.userId === targetId);
+          if (stillAbsent) {
+            setFollowedUserId(null);
+            setFollowPaused(false);
+            setFollowPauseReason("");
+            setFollowLeftNotice({
+              name: lastFollowedRef.current?.name ?? "Your collaborator",
+            });
+            // anchor PRESERVED — the notice offers "Return to your location"
+            clearFollowLeftTimer();
+            followLeftTimerRef.current = window.setTimeout(() => {
+              followLeftTimerRef.current = null;
+              setFollowLeftNotice(null);
+              followAnchorRef.current = null; // "Stay here" default
+            }, FOLLOW_LEFT_NOTICE_MS);
+          }
+        }, FOLLOW_ABSENCE_GRACE_MS);
       }
       return;
     }
+
+    // followedUser is present → seamless resume: kill any pending absence timer.
+    clearFollowAbsenceTimer();
 
     if (followedUser.activeFile && followedUser.activeFile !== activeFile) {
       const isCurrentFileDirty = openFiles.some(
@@ -855,7 +1246,11 @@ export default function IDE({
       } else {
         setFollowPaused(false);
         setFollowPauseReason("");
-        handleOpenFile(followedUser.activeFile);
+        void openAndRevealLocation(handleOpenFile, {
+          filePath: followedUser.activeFile,
+          line: followedUser.cursor?.line ?? 1,
+          column: followedUser.cursor?.column ?? 1,
+        });
       }
     } else if (followedUser.activeFile === activeFile) {
       setFollowPaused(false);
@@ -872,58 +1267,466 @@ export default function IDE({
         );
       }
     }
-  }, [followedUser, activeFile, openFiles, followedUserId]);
+    // NOTE: no cleanup that clears followAbsenceTimerRef — the timer must
+    // survive `collaborators` churn (this effect re-runs on every awareness
+    // update). It is cleared explicitly in the handlers / teardown / on resume.
+  }, [followedUser, activeFile, openFiles, followedUserId, clearFollowAbsenceTimer, clearFollowLeftTimer]);
 
   const handleFollowCollaborator = useCallback(
     (c: CollaboratorPresence) => {
       if (followedUserId === c.userId) {
-        setFollowedUserId(null);
-        setFollowPaused(false);
-        setFollowPauseReason("");
-      } else {
-        setFollowedUserId(c.userId);
-        setFollowPaused(false);
-        setFollowPauseReason("");
-        if (c.activeFile) {
-          const isCurrentFileDirty = openFiles.some(
-            (f) => f.path === activeFile && f.dirty,
-          );
-          if (!isCurrentFileDirty) {
-            handleOpenFile(c.activeFile);
-          } else if (c.activeFile !== activeFile) {
-            setFollowPaused(true);
-            setFollowPauseReason("Follow paused — you have unsaved changes");
-          }
+        // Unfollow = Stop (discard anchor, stay put).
+        handleStopFollowing();
+        return;
+      }
+      focusOn(c.userId, { follow: true });
+      if (c.activeFile) {
+        const isCurrentFileDirty = openFilesRef.current.some(
+          (f) => f.path === activeFile && f.dirty,
+        );
+        if (!isCurrentFileDirty) {
+          void handleOpenFile(c.activeFile);
+        } else if (c.activeFile !== activeFile) {
+          setFollowPaused(true);
+          setFollowPauseReason("Follow paused — you have unsaved changes");
         }
       }
     },
-    [followedUserId, activeFile, openFiles],
+    [followedUserId, activeFile, focusOn, handleStopFollowing],
   );
 
-  const handleStopFollowing = useCallback(() => {
-    setFollowedUserId(null);
-    setFollowPaused(false);
-    setFollowPauseReason("");
+  const handleJumpToCollaborator = useCallback(
+    (c: CollaboratorPresence) => {
+      if (!c.activeFile) return;
+      // M59: Jump is a deliberate navigation elsewhere — it ends a follow of a
+      // DIFFERENT collaborator (anchor preserved). It never starts Follow.
+      focusOn(c.userId, { follow: false });
+      // M58: route through the canonical open-then-reveal primitive. The old
+      // handleOpenFile + setTimeout(dispatch) path could dispatch the reveal
+      // before a closed file finished opening — see openAndRevealLocation.
+      void openAndRevealLocation(handleOpenFile, {
+        filePath: c.activeFile,
+        line: c.cursor?.line ?? 1,
+        column: c.cursor?.column ?? 1,
+      });
+    },
+    [focusOn],
+  );
+
+  // M60: click a Team Activity / While-You-Were-Away row → the canonical
+  // open-then-reveal primitive. File-only when there is no exact range;
+  // never navigable when there is no filePath (commits, snapshots).
+  const handleTimelineNavigate = useCallback((ev: TimelineEvent) => {
+    if (!ev.navigable || !ev.filePath) return;
+    void openAndRevealLocation(handleOpenFile, {
+      filePath: ev.filePath,
+      line: ev.lineRange?.startLine ?? 1,
+      column: 1,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleJumpToCollaborator = useCallback((c: CollaboratorPresence) => {
-    if (c.activeFile) {
-      handleOpenFile(c.activeFile);
-      if (c.cursor) {
-        setTimeout(() => {
-          document.dispatchEvent(
-            new CustomEvent("ide-reveal-location", {
-              detail: {
-                filePath: c.activeFile,
-                line: c.cursor?.line,
-                column: c.cursor?.column,
-              },
-            }),
-          );
-        }, 100);
+  // ---- M61-A: contextual comments ----------------------------------------
+  const commentMembers = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const c of collaborators) seen.set(c.userId, c.name);
+    if (user) seen.set(user.id, user.username);
+    return [...seen.entries()].map(([userId, username]) => ({
+      userId,
+      username,
+    }));
+  }, [collaborators, user]);
+
+  const commentCountsByFile = useMemo(() => countsByFile(unresolvedComments), [unresolvedComments]);
+
+  const openCommentThread = useMemo(
+    () =>
+      [...commentThreadsByFile, ...unresolvedComments].find(
+        (t) => t.id === openCommentThreadId,
+      ) ?? null,
+    [commentThreadsByFile, unresolvedComments, openCommentThreadId],
+  );
+
+  const reloadActiveComments = useCallback(() => {
+    const af = activeFileRef.current;
+    if (af) void commentStoreRef.current?.load(af);
+    void commentStoreRef.current?.loadUnresolved();
+  }, []);
+
+  const handleOpenCommentThread = useCallback((threadId: string) => {
+    setOpenCommentThreadId(threadId);
+  }, []);
+
+  const handleCommentNavigate = useCallback(
+    (thread: CommentThreadDTO) => {
+      void openAndRevealLocation(handleOpenFile, {
+        filePath: thread.filePath,
+        line: thread.anchor.startLine,
+        column: 1,
+      });
+      setOpenCommentThreadId(thread.id);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const handleCreateComment = useCallback(
+    async (input: {
+      filePath: string;
+      selection: {
+        startLine: number;
+        startColumn: number;
+        endLine: number;
+        endColumn: number;
+      };
+    }) => {
+      const pid = project?.id;
+      const client = collabClientRef.current;
+      if (!pid || !client) return;
+      const yText = client.doc.getText(input.filePath);
+      const text = yText.toString();
+      const off = (line: number, col: number) => {
+        let o = 0;
+        let l = 1;
+        for (let i = 0; i < text.length && l < line; i++) {
+          if (text[i] === "\n") {
+            l++;
+            o = i + 1;
+          }
+        }
+        return o + (col - 1);
+      };
+      let s = off(input.selection.startLine, input.selection.startColumn);
+      let e = off(input.selection.endLine, input.selection.endColumn);
+      if (s === e) {
+        // no selection → anchor the whole clicked line
+        const lineStart = off(input.selection.startLine, 1);
+        const nl = text.indexOf("\n", lineStart);
+        s = lineStart;
+        e = nl === -1 ? text.length : nl;
+      }
+      const anchor = await encodeAnchor(yText, s, e);
+      const body = window.prompt("Comment on this code:");
+      if (!body || !body.trim()) return;
+      try {
+        const res = await commentsApi.createThread(pid, {
+          filePath: input.filePath,
+          anchor,
+          body: body.trim(),
+          mentions: [],
+        });
+        commentStoreRef.current?.upsertThread(res.thread);
+        reloadActiveComments();
+        setOpenCommentThreadId(res.thread.id);
+      } catch {
+        /* surfaced by the api error path */
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project?.id, reloadActiveComments],
+  );
+
+  const handleCommentResolve = useCallback(async () => {
+    const pid = project?.id;
+    if (!pid || !openCommentThreadId) return;
+    try {
+      const res = await commentsApi.resolveThread(pid, openCommentThreadId);
+      commentStoreRef.current?.upsertThread(res.thread);
+      reloadActiveComments();
+    } catch {
+      /* api error path */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, openCommentThreadId, reloadActiveComments]);
+
+  const handleCommentReopen = useCallback(async () => {
+    const pid = project?.id;
+    if (!pid || !openCommentThreadId) return;
+    try {
+      const res = await commentsApi.reopenThread(pid, openCommentThreadId);
+      commentStoreRef.current?.upsertThread(res.thread);
+      reloadActiveComments();
+    } catch {
+      /* api error path */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, openCommentThreadId, reloadActiveComments]);
+
+  const handleCommentReply = useCallback(
+    async (payload: { body: string; mentions: number[] }) => {
+      const pid = project?.id;
+      if (!pid || !openCommentThreadId) return;
+      try {
+        const res = await commentsApi.addReply(pid, openCommentThreadId, payload);
+        commentStoreRef.current?.upsertThread(res.thread);
+        reloadActiveComments();
+      } catch {
+        /* api error path */
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project?.id, openCommentThreadId, reloadActiveComments],
+  );
+
+  const handleCommentEdit = useCallback(
+    async (commentId: string, payload: { body: string; mentions: number[] }) => {
+      const pid = project?.id;
+      if (!pid) return;
+      try {
+        const res = await commentsApi.editComment(pid, commentId, payload);
+        commentStoreRef.current?.upsertThread(res.thread);
+        reloadActiveComments();
+      } catch {
+        /* api error path */
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project?.id, reloadActiveComments],
+  );
+
+  const handleCommentDelete = useCallback(
+    async (commentId: string) => {
+      const pid = project?.id;
+      if (!pid) return;
+      try {
+        const res = await commentsApi.deleteComment(pid, commentId);
+        commentStoreRef.current?.upsertThread(res.thread);
+        reloadActiveComments();
+      } catch {
+        /* api error path */
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project?.id, reloadActiveComments],
+  );
+
+  const handleCommentReact = useCallback(
+    async (commentId: string, emoji: string) => {
+      const pid = project?.id;
+      if (!pid) return;
+      try {
+        const res = await commentsApi.react(pid, commentId, emoji);
+        commentStoreRef.current?.upsertThread(res.thread);
+        reloadActiveComments();
+      } catch {
+        /* api error path */
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project?.id, reloadActiveComments],
+  );
+
+  const handleCommentUnreact = useCallback(
+    async (commentId: string, emoji: string) => {
+      const pid = project?.id;
+      if (!pid) return;
+      try {
+        const res = await commentsApi.unreact(pid, commentId, emoji);
+        commentStoreRef.current?.upsertThread(res.thread);
+        reloadActiveComments();
+      } catch {
+        /* api error path */
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project?.id, reloadActiveComments],
+  );
+
+  const handleMentionGoTo = useCallback(
+    (m: CommentMentionWire) => {
+      void openAndRevealLocation(handleOpenFile, {
+        filePath: m.filePath,
+        line: m.line,
+        column: 1,
+      });
+      setOpenCommentThreadId(m.threadId);
+      setMentionCards((c) => c.filter((x) => x.commentId !== m.commentId));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Load the active file's threads whenever it changes.
+  useEffect(() => {
+    if (activeFile && commentStoreRef.current) {
+      void commentStoreRef.current.load(activeFile);
+      setCommentThreadsByFile(commentStoreRef.current.threadsFor(activeFile));
+    } else {
+      setCommentThreadsByFile([]);
+    }
+  }, [activeFile, collabClient]);
+
+  const handleTimelineLoadMore = useCallback(() => {
+    if (!project || !timelineNextBefore || timelineLoadingMore) return;
+    const pid = project.id;
+    setTimelineLoadingMore(true);
+    void fetchCollabTimeline(pid, {
+      limit: 40,
+      before: timelineNextBefore,
+    })
+      .then((r) => {
+        setTimeline((prev) => mergeTimeline(prev, r.events, 400));
+        setTimelineNextBefore(r.nextBefore);
+      })
+      .catch(() => {})
+      .finally(() => setTimelineLoadingMore(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, timelineNextBefore, timelineLoadingMore]);
+
+  const handleWhileAwayDismiss = useCallback(() => {
+    const groups = whileAwayGroups;
+    setWhileAwayGroups(null);
+    if (!groups || !project) return;
+    const pid = project.id;
+    const newest = groups
+      .flatMap((g) => g.events)
+      .reduce<TimelineEvent | null>(
+        (a, b) => (a && a.at > b.at ? a : b),
+        null,
+      );
+    if (newest) void ackWhileAway(pid, newest.at).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [whileAwayGroups, project?.id]);
+
+  // M60: most-recent edit/callout per collaborator, for the popover "last change"
+  // line. `timeline` is already sorted newest-first, so first seen wins.
+  const lastChangeByUser = useMemo(() => {
+    const m = new Map<number, TimelineEvent>();
+    for (const e of timeline) {
+      if (
+        (e.kind === "edit_burst" || e.kind === "callout") &&
+        e.actor.userId != null &&
+        !m.has(e.actor.userId)
+      ) {
+        m.set(e.actor.userId, e);
       }
     }
+    return m;
+  }, [timeline]);
+
+  // M60: fetch the initial timeline page the first time the Team panel opens.
+  useEffect(() => {
+    if (!teamPanelOpen || timelineLoaded || !collabClient || !project) return;
+    const pid = project.id;
+    setTimelineLoaded(true);
+    void fetchCollabTimeline(pid, { limit: 40 })
+      .then((r) => {
+        setTimeline((prev) => mergeTimeline(prev, r.events, 200));
+        setTimelineNextBefore(r.nextBefore);
+      })
+      .catch(() => setTimelineLoaded(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamPanelOpen, timelineLoaded, collabClient, project?.id]);
+
+  // M58: every attention gesture (Point / Callout / request "Go there")
+  // navigates through the SAME open-then-reveal primitive.
+  const handleAttentionNavigate = useCallback((evt: AttentionEvent) => {
+    void openAndRevealLocation(handleOpenFile, {
+      filePath: evt.file,
+      line: evt.range.startLine,
+      column: evt.range.startColumn,
+    });
   }, []);
+
+  // M59: "Go there" on an attention event — ends a follow of a DIFFERENT
+  // collaborator (anchor preserved), navigates, does NOT start Follow.
+  const handleAttentionGoThere = useCallback(
+    (evt: AttentionEvent) => {
+      focusOn(evt.author.userId, { follow: false });
+      handleAttentionNavigate(evt);
+    },
+    [focusOn, handleAttentionNavigate],
+  );
+
+  // M59: "Follow" from an attention event — navigate then follow the author
+  // (only if they are still a connected collaborator).
+  const handleAttentionFollow = useCallback(
+    (evt: AttentionEvent) => {
+      handleAttentionNavigate(evt);
+      if (
+        collaboratorsRef.current.some((c) => c.userId === evt.author.userId)
+      ) {
+        focusOn(evt.author.userId, { follow: true });
+      }
+    },
+    [focusOn, handleAttentionNavigate],
+  );
+
+  // M59: callout-bubble / point-chip clicks in the Editor dispatch these.
+  useEffect(() => {
+    const byId = (id: unknown) =>
+      typeof id === "string"
+        ? attentionRef.current.find((e) => e.id === id) ?? null
+        : null;
+    const onActivate = (ev: Event) => {
+      const e = byId((ev as CustomEvent).detail?.id);
+      if (e) handleAttentionGoThere(e);
+    };
+    const onFollow = (ev: Event) => {
+      const e = byId((ev as CustomEvent).detail?.id);
+      if (e) handleAttentionFollow(e);
+    };
+    document.addEventListener("ide-attention-activate", onActivate);
+    document.addEventListener("ide-attention-follow", onFollow);
+    return () => {
+      document.removeEventListener("ide-attention-activate", onActivate);
+      document.removeEventListener("ide-attention-follow", onFollow);
+    };
+  }, [handleAttentionGoThere, handleAttentionFollow]);
+
+  // M61-A: Keep as comment — promote an ephemeral M58 callout to a persistent
+  // M61 thread via the existing comment creation path. The original callout
+  // keeps its ephemeral lifecycle and is never mutated into persistent state.
+  useEffect(() => {
+    const onKeep = async (ev: Event) => {
+      const id = (ev as CustomEvent).detail?.id;
+      if (typeof id !== "string") return;
+      const evt = attentionRef.current.find((e) => e.id === id);
+      if (!evt) return;
+      const pid = project?.id;
+      const client = collabClientRef.current;
+      if (!pid || !client) return;
+      const res = await keepCalloutAsComment({ callout: evt, doc: client.doc, projectId: pid }, keepDeduperRef.current);
+      if (!res) return;
+      commentStoreRef.current?.upsertThread(res.thread);
+      void commentStoreRef.current?.load(evt.file);
+      void commentStoreRef.current?.loadUnresolved();
+      setOpenCommentThreadId(res.thread.id);
+    };
+    document.addEventListener("ide-attention-keep-as-comment", onKeep as EventListener);
+    return () =>
+      document.removeEventListener("ide-attention-keep-as-comment", onKeep as EventListener);
+  }, [project?.id]);
+
+  const handleViewCollaborator = useCallback(
+    (userId: number) => {
+      const c = collaborators.find((x) => x.userId === userId);
+      if (c) handleJumpToCollaborator(c);
+    },
+    [collaborators, handleJumpToCollaborator],
+  );
+
+  const handleAttentionDismiss = useCallback(
+    (id: string, acted?: boolean) => {
+      collabClientRef.current?.dismissAttentionRequest(id, acted);
+    },
+    [],
+  );
+
+  // M58: only ACTIONABLE incoming targeted requests are counted on the chip —
+  // never ordinary points/callouts.
+  const incomingRequestCount = useMemo(
+    () =>
+      user
+        ? attention.filter(
+            (e) =>
+              e.kind === "request" &&
+              e.targetUserId === user.id &&
+              e.author.userId !== user.id,
+          ).length
+        : 0,
+    [attention, user],
+  );
 
   const handleToggleDnd = useCallback((dnd: boolean) => {
     setIsDnd(dnd);
@@ -1474,6 +2277,52 @@ export default function IDE({
           setIsWorkspaceSearchOpen(true);
         },
       },
+      {
+        id: "comments.action.nextInFile",
+        title: "Comments: Next in File",
+        description: "Navigate to the next unresolved comment in the current file",
+        category: "Navigation",
+        handler: () => {
+          const file = activeFileRef.current;
+          if (!file) return;
+          const store = commentStoreRef.current;
+          if (!store) return;
+          const next = nextInFile(store.threadsFor(file), openCommentThreadIdRef.current);
+          if (!next) return;
+          void openAndRevealLocation(handleOpenFile, { filePath: next.filePath, line: next.anchor.startLine, column: 1 });
+          setOpenCommentThreadId(next.id);
+        },
+      },
+      {
+        id: "comments.action.previousInFile",
+        title: "Comments: Previous in File",
+        description: "Navigate to the previous unresolved comment in the current file",
+        category: "Navigation",
+        handler: () => {
+          const file = activeFileRef.current;
+          if (!file) return;
+          const store = commentStoreRef.current;
+          if (!store) return;
+          const prev = previousInFile(store.threadsFor(file), openCommentThreadIdRef.current);
+          if (!prev) return;
+          void openAndRevealLocation(handleOpenFile, { filePath: prev.filePath, line: prev.anchor.startLine, column: 1 });
+          setOpenCommentThreadId(prev.id);
+        },
+      },
+      {
+        id: "comments.action.goToUnresolved",
+        title: "Comments: Go to Unresolved",
+        description: "Navigate to the next unresolved comment across the project",
+        category: "Navigation",
+        handler: () => {
+          const store = commentStoreRef.current;
+          if (!store) return;
+          const next = nextUnresolved(store.unresolved(), openCommentThreadIdRef.current);
+          if (!next) return;
+          void openAndRevealLocation(handleOpenFile, { filePath: next.filePath, line: next.anchor.startLine, column: 1 });
+          setOpenCommentThreadId(next.id);
+        },
+      },
       // Execution
       {
         id: "execution.action.run",
@@ -1732,6 +2581,7 @@ export default function IDE({
     handleFormatDocument,
     handleSaveActiveFile,
     handleTriggerAIAction,
+    handleOpenFile,
   ]);
 
   // Central Keyboard Shortcuts Dispatcher
@@ -1854,6 +2704,7 @@ export default function IDE({
           collaborators={collaborators}
           runStatuses={runStatuses}
           currentUserId={user.id}
+          commentCountsByFile={commentCountsByFile}
         />
       )}
 
@@ -1898,7 +2749,93 @@ export default function IDE({
               ? () => setIsSecretsModalOpen(true)
               : undefined
           }
+          onOpenTeamPanel={() => setTeamPanelOpen((v) => !v)}
+          incomingRequestCount={incomingRequestCount}
+          attention={attention}
         />
+        {user && (
+          <AttentionTray
+            events={attention}
+            currentUserId={user.id}
+            rateLimited={attnRateNotice != null}
+            onNavigate={handleAttentionGoThere}
+            onDismiss={handleAttentionDismiss}
+            onFollow={(e) => {
+              handleAttentionFollow(e);
+              handleAttentionDismiss(e.id, true);
+            }}
+            mentionCards={mentionCards}
+            onMentionGoTo={handleMentionGoTo}
+            onMentionDismiss={(commentId) =>
+              setMentionCards((c) => c.filter((x) => x.commentId !== commentId))
+            }
+          />
+        )}
+        {teamPanelOpen && user && (
+          <div className="team-panel-anchor">
+            <TeamPanel
+              collaborators={collaborators}
+              runStatuses={runStatuses}
+              currentUserId={user.id}
+              isDnd={isDnd}
+              followingUserId={followedUserId}
+              onClose={() => setTeamPanelOpen(false)}
+              onSetIntent={(t) => collabClientRef.current?.setIntent(t)}
+              onToggleDnd={handleToggleDnd}
+              onFollow={handleFollowCollaborator}
+              onJump={handleJumpToCollaborator}
+              timeline={timeline}
+              timelineHasMore={timelineNextBefore != null}
+              timelineLoadingMore={timelineLoadingMore}
+              onTimelineLoadMore={handleTimelineLoadMore}
+              onTimelineNavigate={handleTimelineNavigate}
+              lastChangeByUser={lastChangeByUser}
+            />
+            <CommentsPanel
+              activeFile={activeFile}
+              threads={commentThreadsByFile}
+              unresolved={unresolvedComments}
+              showResolved={showResolvedComments}
+              onToggleResolved={setShowResolvedComments}
+              onNavigate={handleCommentNavigate}
+            />
+          </div>
+        )}
+
+        {openCommentThread && user && (
+          <div
+            className="comment-thread-overlay"
+            style={teamPanelOpen ? { right: 340 } : undefined}
+          >
+            <CommentThread
+              thread={openCommentThread}
+              currentUserId={user.id}
+              members={commentMembers}
+              projectOwnerId={projectRole === "owner" ? user.id : undefined}
+              onReply={handleCommentReply}
+              onEdit={handleCommentEdit}
+              onDelete={handleCommentDelete}
+              onResolve={handleCommentResolve}
+              onReopen={handleCommentReopen}
+              onReact={handleCommentReact}
+              onUnreact={handleCommentUnreact}
+              onClose={() => setOpenCommentThreadId(null)}
+            />
+          </div>
+        )}
+
+        {whileAwayGroups && (
+          <WhileYouWereAway
+            groups={whileAwayGroups}
+            colorForUser={(uid) =>
+              collaboratorsRef.current.find((c) => c.userId === uid)?.color ??
+              "#89b4fa"
+            }
+            onNavigate={handleTimelineNavigate}
+            onDismiss={handleWhileAwayDismiss}
+            autoDismissMs={20000}
+          />
+        )}
 
         {/* Central Editor & Bottom Workspace */}
         <div className="ide-workspace" style={{ flexDirection: "column" }}>
@@ -1909,7 +2846,31 @@ export default function IDE({
                 isPaused={followPaused}
                 pauseReason={followPauseReason}
                 onStopFollowing={handleStopFollowing}
+                hasAnchor={followedUserId != null || followLeftNotice != null}
+                onReturnToLocation={handleReturnToMyLocation}
+                followedRange={followedFocusRange}
               />
+            )}
+            {followLeftNotice && (
+              <div className="follow-left-notice" role="status">
+                <span>⚠ {followLeftNotice.name} left</span>
+                <button
+                  type="button"
+                  onClick={handleReturnToMyLocation}
+                >
+                  Return to your location
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearFollowLeftTimer();
+                    setFollowLeftNotice(null);
+                    followAnchorRef.current = null;
+                  }}
+                >
+                  Stay here
+                </button>
+              </div>
             )}
             <ErrorBoundary label="Editor">
               <Suspense
@@ -1946,10 +2907,19 @@ export default function IDE({
                   collabClient={collabClient}
                   collaborators={collaborators}
                   currentUserId={user.id}
+                  attention={attention}
+                  onAttentionNavigate={handleAttentionNavigate}
+                  onViewCollaborator={handleViewCollaborator}
                   onUserEdit={handleUserEdit}
                   isReadOnly={projectRole === "viewer"}
                   liveApiRef={liveApiRef}
+                  editorViewApiRef={editorViewApiRef}
                   preferences={preferences}
+                  commentThreads={commentThreadsByFile}
+                  projectId={project?.id}
+                  commentCountsByFile={commentCountsByFile}
+                  onOpenCommentThread={handleOpenCommentThread}
+                  onCreateComment={handleCreateComment}
                   onCreateFile={() => {
                     const el = document.querySelector(
                       'button[title="New File"]',
@@ -2122,11 +3092,14 @@ export default function IDE({
                   <ProblemsPanel
                     diagnostics={diagnostics}
                     onSelectDiagnostic={(filePath, line, column) => {
-                      document.dispatchEvent(
-                        new CustomEvent("ide-reveal-location", {
-                          detail: { filePath, line, column },
-                        }),
-                      );
+                      // The diagnostic's file may not be an open tab (an error
+                      // in a file the user never opened). Open it first —
+                      // ide-reveal-location only acts on already-open tabs.
+                      void openAndRevealLocation(handleOpenFile, {
+                        filePath,
+                        line,
+                        column,
+                      });
                     }}
                     onClearDiagnostics={() => setDiagnostics([])}
                     onExplainDiagnostic={(diag) => {
@@ -2399,18 +3372,18 @@ export default function IDE({
         project={project}
         projectRole={projectRole}
         onReplaceApplied={handleReplaceApplied}
-        onSelectResult={async (filePath, line, column, matchLength) => {
+        onSelectResult={(filePath, line, column, matchLength) =>
           // A result's target file may not already be an open tab — unlike
           // setActiveFile (which only switches among already-open tabs),
           // handleOpenFile fetches+opens it first (no-op if already open),
-          // so the reveal below always has a loaded model to act on.
-          await handleOpenFile(filePath);
-          document.dispatchEvent(
-            new CustomEvent("ide-reveal-location", {
-              detail: { filePath, line, column, matchLength },
-            }),
-          );
-        }}
+          // so the reveal always has a loaded model to act on.
+          openAndRevealLocation(handleOpenFile, {
+            filePath,
+            line,
+            column,
+            matchLength,
+          })
+        }
       />
 
       {/* Project Health Center Modal */}

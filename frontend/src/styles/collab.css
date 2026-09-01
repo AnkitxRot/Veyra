@@ -112,3 +112,1052 @@
   margin-left: auto;
   flex: 0 0 auto;
 }
+
+/* --- M57: Team roster panel ------------------------------------------------ */
+.team-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1000;
+  width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 12px;
+  background: rgba(24, 26, 38, 0.97);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: var(--fg-primary, #cdd6f4);
+  font-size: 12px;
+}
+.team-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  color: var(--fg-muted, #a6adc8);
+  margin-bottom: 8px;
+}
+.team-count { opacity: 0.7; font-weight: 600; }
+.team-close {
+  background: none;
+  border: none;
+  color: var(--fg-muted, #a6adc8);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.team-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.team-row-self { border-top: none; }
+.team-row-main { min-width: 0; flex: 1; }
+.team-row-top { display: flex; align-items: center; gap: 6px; }
+.team-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.team-avail {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+.team-avail-online { background: #a6e3a1; }
+.team-avail-idle { background: #fab387; }
+.team-avail-away { background: #f9e2af; }
+.team-avail-dnd { background: #cba6f7; }
+.team-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-role {
+  font-size: 9px;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--fg-muted, #a6adc8);
+  font-weight: 600;
+}
+.team-time { margin-left: auto; font-size: 10px; color: var(--fg-muted, #a6adc8); white-space: nowrap; }
+.team-activity { margin-top: 2px; }
+.team-file, .team-folder, .team-intent {
+  font-size: 10.5px;
+  color: var(--fg-muted, #a6adc8);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-intent { color: var(--fg-primary, #cdd6f4); }
+.team-actions { display: flex; gap: 6px; margin-top: 6px; }
+.team-actions button {
+  flex: 1;
+  padding: 4px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fg-primary, #cdd6f4);
+  cursor: pointer;
+}
+.team-dnd {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fg-muted, #a6adc8);
+  cursor: pointer;
+}
+.team-dnd.on { color: #cba6f7; border-color: rgba(203, 166, 247, 0.4); background: rgba(203, 166, 247, 0.12); }
+.team-intent-edit { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
+.team-intent-edit input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--fg-primary, #cdd6f4);
+}
+.team-empty, .team-folders-title {
+  font-size: 10px;
+  color: var(--fg-muted, #a6adc8);
+  padding: 8px 0 4px;
+  letter-spacing: 0.06em;
+}
+.team-folders { border-top: 1px solid rgba(255, 255, 255, 0.06); margin-top: 4px; }
+.team-folder-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; padding: 2px 0; }
+.team-folder-name { color: var(--fg-muted, #a6adc8); }
+.team-folder-people { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* M57: header collaborator count chip */
+.collab-count {
+  position: relative;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg-primary, #cdd6f4);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* M57: editor same-file collaborator strip */
+.editor-samefile-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: 11px;
+  background: rgba(137, 180, 250, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--fg-muted, #a6adc8);
+}
+.editor-samefile-strip .samefile-chip { display: flex; align-items: center; gap: 5px; }
+.editor-samefile-strip .samefile-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* M57: folder-row collaborator dots in the explorer */
+.tree-folder-collab { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
+.tree-folder-collab .tree-collab-dot { width: 6px; height: 6px; border-radius: 50%; }
+.team-panel-anchor { position: relative; z-index: 60; }
+
+/* ==========================================================================
+   M58 — Live Attention, Callouts & Spatial Collaboration
+   Ambient by design: subtle collaborator colours, short-lived, never modal.
+   ========================================================================== */
+
+/* --- incoming point (editor decoration) --- */
+.attention-point-glyph::before {
+  content: "👉";
+  font-size: 11px;
+  opacity: 0.85;
+}
+.attention-point-line {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.attention-point-label {
+  margin-left: 6px;
+  font-style: italic;
+  font-size: 11px;
+  opacity: 0.75;
+  animation: attention-fade 6s ease-in forwards;
+}
+@keyframes attention-fade {
+  0%, 70% { opacity: 0.75; }
+  100% { opacity: 0; }
+}
+
+/* --- incoming callout (editor decoration + content widget) --- */
+.attention-callout-range {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-left: 2px solid var(--accent);
+}
+.attention-callout-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs, 6px);
+  background: rgba(24, 26, 38, 0.96);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  color: var(--fg-primary, #cdd6f4);
+  z-index: 40;
+}
+.attention-callout-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.attention-callout-who { font-weight: 600; white-space: nowrap; }
+.attention-callout-msg {
+  flex: 1 1 auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.attention-callout-x {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--fg-muted, #7f849c);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.attention-callout-x:hover { color: var(--fg-primary, #cdd6f4); }
+
+/* --- attention message composer --- */
+.attention-composer {
+  position: absolute;
+  z-index: 70;
+  display: flex;
+  padding: 6px;
+  border-radius: var(--radius-xs, 6px);
+  background: rgba(24, 26, 38, 0.98);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.14));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.attention-composer-input,
+.attention-composer-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.attention-composer-picker { flex-wrap: wrap; }
+.attention-composer-label { font-size: 11px; color: var(--fg-muted, #7f849c); }
+.attention-composer input {
+  width: 240px;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.14));
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--fg-primary, #cdd6f4);
+}
+.attention-composer button {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.14));
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg-primary, #cdd6f4);
+  cursor: pointer;
+}
+.attention-composer-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+/* --- spatial awareness badges (extends the M57 proximity indicator) --- */
+.spatial-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.spatial-dot { width: 6px; height: 6px; border-radius: 50%; }
+.spatial-nearby {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--fg-secondary, #bac2de);
+}
+.spatial-nearby .spatial-dot { background: var(--accent); }
+.spatial-overlap {
+  background: var(--warning-subtle, rgba(249, 226, 175, 0.15));
+  color: var(--warning, #f9e2af);
+}
+.spatial-overlap .spatial-dot { background: var(--warning, #f9e2af); }
+.spatial-view {
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10px;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* --- AttentionTray (bottom-right, non-modal) --- */
+.attention-tray {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 320px;
+}
+.attention-tray.is-focused .attention-tray-card {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.attention-tray-card {
+  padding: 10px 12px;
+  border-radius: var(--radius-xs, 6px);
+  background: rgba(24, 26, 38, 0.97);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  color: var(--fg-primary, #cdd6f4);
+}
+.attention-tray-head { display: flex; align-items: center; gap: 6px; }
+.attention-tray-dot { width: 8px; height: 8px; border-radius: 50%; }
+.attention-tray-title { font-weight: 600; }
+.attention-tray-loc {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--fg-muted, #7f849c);
+}
+.attention-tray-msg {
+  margin: 5px 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.attention-tray-actions { display: flex; gap: 6px; margin-top: 4px; }
+.attention-tray-actions button {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.14));
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg-primary, #cdd6f4);
+  cursor: pointer;
+}
+.attention-tray-actions button:first-child {
+  background: var(--accent);
+  color: #11111b;
+  border-color: transparent;
+}
+.attention-tray-more {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--fg-muted, #7f849c);
+  font-size: 11px;
+  cursor: pointer;
+}
+.attention-tray-sent {
+  font-size: 11px;
+  color: var(--fg-muted, #7f849c);
+  padding: 4px 8px;
+}
+.attention-tray-banner {
+  font-size: 11px;
+  color: var(--warning, #f9e2af);
+  background: var(--warning-subtle, rgba(249, 226, 175, 0.12));
+  padding: 6px 8px;
+  border-radius: var(--radius-xs, 6px);
+}
+.attention-tray-section {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border, rgba(137, 180, 250, 0.12));
+}
+.attention-tray-section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--fg-muted, #9399b2);
+  padding: 0 4px 2px;
+}
+
+/* --- attention count badge on the collaborator chip --- */
+.collab-attn-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--warning, #f9e2af);
+  color: #11111b;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* ==========================================================================
+   M59 — Collaborative Focus & Context Handoff
+   ========================================================================== */
+
+/* FollowBanner: return-to-anchor button */
+.follow-banner .follow-return-btn {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* "Rahul left" grace notice — sits where the FollowBanner was */
+.follow-left-notice {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--glass-bg, rgba(30, 30, 46, 0.92));
+  border: 1px solid var(--warning-subtle, rgba(249, 226, 175, 0.35));
+  color: var(--fg-primary, #cdd6f4);
+  font-size: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+.follow-left-notice button {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.follow-left-notice button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* AttentionTray: [Follow] request action */
+.attention-tray-follow {
+  color: var(--accent, #89b4fa);
+}
+
+/* Editor callout bubble: [Follow] button + clickable body */
+.attention-callout-bubble {
+  cursor: pointer;
+}
+.attention-callout-follow {
+  background: none;
+  border: none;
+  color: var(--accent, #89b4fa);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.attention-callout-keep {
+  background: rgba(137, 180, 250, 0.12);
+  border: 1px solid rgba(137, 180, 250, 0.28);
+  color: var(--accent, #89b4fa);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.attention-callout-keep:hover {
+  background: rgba(137, 180, 250, 0.2);
+}
+
+/* Editor point chip — clickable "👉 name" navigation affordance */
+.attention-point-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--glass-bg, rgba(30, 30, 46, 0.9));
+  border: 1px solid rgba(137, 180, 250, 0.4);
+  color: var(--fg-primary, #cdd6f4);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Collaborator popover: derived focus-context block */
+.collab-popover-focus .focus-state-following,
+.collab-popover-focus.focus-state-following {
+  border-color: rgba(137, 180, 250, 0.4);
+}
+.focus-state-idle {
+  opacity: 0.75;
+}
+.focus-state-viewing {
+  border-color: rgba(166, 227, 161, 0.3);
+}
+.focus-state-focused {
+  border-color: rgba(249, 226, 175, 0.35);
+}
+.focus-state-following {
+  border-color: rgba(137, 180, 250, 0.45);
+}
+
+/* ------------------------------------------------------------------ */
+/* M60: Team Activity timeline (inside TeamPanel) + While You Were Away */
+/* ------------------------------------------------------------------ */
+.team-activity-timeline {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(137, 180, 250, 0.15);
+}
+.tat-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted, #9399b2);
+  margin-bottom: 6px;
+}
+.tat-empty {
+  font-size: 12px;
+  color: var(--fg-muted, #9399b2);
+  padding: 4px 0;
+}
+.tat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 3px 4px;
+  border-radius: 6px;
+  color: var(--fg-primary, #cdd6f4);
+}
+.tat-navigable {
+  cursor: pointer;
+}
+.tat-navigable:hover,
+.tat-navigable:focus-visible {
+  background: rgba(137, 180, 250, 0.12);
+  outline: none;
+}
+.tat-time {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--fg-muted, #9399b2);
+  min-width: 44px;
+}
+.tat-icon {
+  flex: 0 0 auto;
+}
+.tat-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tat-actor {
+  font-weight: 600;
+}
+.tat-file {
+  color: var(--fg-muted, #9399b2);
+}
+.tat-sub {
+  color: var(--fg-muted, #9399b2);
+  font-style: italic;
+}
+.tat-more {
+  margin-top: 6px;
+  font-size: 11px;
+  background: none;
+  border: 1px solid rgba(137, 180, 250, 0.3);
+  color: var(--fg-primary, #cdd6f4);
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.tat-more:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.while-away-card {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--glass-bg, rgba(30, 30, 46, 0.97));
+  border: 1px solid rgba(137, 180, 250, 0.4);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  color: var(--fg-primary, #cdd6f4);
+  font-size: 12px;
+}
+.while-away-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted, #9399b2);
+  margin-bottom: 8px;
+}
+.while-away-dismiss {
+  background: none;
+  border: none;
+  color: var(--fg-muted, #9399b2);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.while-away-group {
+  margin-bottom: 8px;
+}
+.while-away-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.while-away-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.while-away-line {
+  padding: 2px 0 2px 14px;
+  line-height: 1.4;
+}
+.while-away-line.navigable {
+  cursor: pointer;
+}
+.while-away-line.navigable:hover {
+  color: var(--accent, #89b4fa);
+}
+.team-last-change {
+  font-size: 11px;
+  color: var(--fg-muted, #9399b2);
+  margin-top: 2px;
+}
+
+/* M61-A: Comment gutter, thread popover, panel, reactions, mentions --- */
+
+.comment-glyph {
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.comment-range {
+  background: var(--accent-subtle, rgba(137, 180, 250, 0.08));
+}
+.comment-chip {
+  background: var(--glass-surface, rgba(30, 30, 46, 0.92));
+  border: 1px solid var(--border, rgba(137, 180, 250, 0.18));
+  border-radius: var(--radius-sm, 6px);
+  padding: 1px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--fg-primary);
+  white-space: nowrap;
+}
+.comment-chip:hover {
+  background: var(--surface-hover, rgba(137, 180, 250, 0.12));
+}
+
+/* Thread popover */
+.comment-thread {
+  position: fixed;
+  z-index: 500;
+  width: 380px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0;
+  background: var(--bg-surface, #1e1e2e);
+  border: 1px solid var(--border, rgba(137, 180, 250, 0.18));
+  border-radius: var(--radius-md, 10px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+}
+.comment-thread-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, rgba(137, 180, 250, 0.1));
+  font-weight: 600;
+}
+.comment-thread-head > div {
+  display: flex;
+  gap: 4px;
+}
+.comment-thread-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.comment-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, rgba(137, 180, 250, 0.06));
+}
+.comment-row:last-child {
+  border-bottom: none;
+}
+.comment-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.c-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-subtle, rgba(137, 180, 250, 0.15));
+  color: var(--accent, #89b4fa);
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.comment-author {
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+.comment-time {
+  color: var(--fg-muted, #9399b2);
+  font-size: 11px;
+}
+.comment-flag {
+  color: var(--fg-subtle, #7f849c);
+  font-size: 10px;
+  font-style: italic;
+}
+.comment-body {
+  margin-top: 4px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-primary);
+}
+.comment-deleted-placeholder {
+  color: var(--fg-subtle, #7f849c);
+}
+.comment-row-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.comment-anchor-warning {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-xs, 4px);
+  background: rgba(249, 226, 175, 0.08);
+  border: 1px solid rgba(249, 226, 175, 0.2);
+  color: #f9e2af;
+  font-size: 11px;
+}
+
+/* Reactions */
+.comment-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  align-items: center;
+}
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs, 4px);
+  border: 1px solid var(--border, rgba(137, 180, 250, 0.12));
+  background: var(--glass-surface, rgba(30, 30, 46, 0.7));
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--fg-secondary, #a6adc8);
+}
+.reaction-chip.is-mine {
+  border-color: var(--accent, #89b4fa);
+  background: var(--accent-subtle, rgba(137, 180, 250, 0.12));
+  color: var(--accent, #89b4fa);
+}
+.reaction-add {
+  padding: 1px 5px;
+  border: 1px dashed var(--border, rgba(137, 180, 250, 0.15));
+  border-radius: var(--radius-xs, 4px);
+  background: transparent;
+  color: var(--fg-muted, #9399b2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.reaction-picker {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+  padding: 2px 4px;
+  background: var(--bg-surface, #1e1e2e);
+  border: 1px solid var(--border, rgba(137, 180, 250, 0.15));
+  border-radius: var(--radius-sm, 6px);
+}
+.reaction-picker button {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+.reaction-picker button:hover {
+  background: var(--surface-hover, rgba(137, 180, 250, 0.12));
+}
+
+/* Composer */
+.comment-composer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border, rgba(137, 180, 250, 0.1));
+}
+.comment-composer-input {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.comment-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.comment-mention-menu {
+  position: absolute;
+  z-index: 600;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--bg-surface, #1e1e2e);
+  border: 1px solid var(--border, rgba(137, 180, 250, 0.18));
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+}
+.comment-mention-item {
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.comment-mention-item.is-active,
+.comment-mention-item:hover {
+  background: var(--accent-subtle, rgba(137, 180, 250, 0.12));
+  color: var(--accent, #89b4fa);
+}
+
+/* Mention text */
+.mention {
+  color: var(--accent, #89b4fa);
+  font-weight: 600;
+}
+
+/* Comments panel (right rail) */
+.comments-panel {
+  padding: 8px 0;
+  font-size: 13px;
+}
+.comments-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px 6px;
+  border-bottom: 1px solid var(--border, rgba(137, 180, 250, 0.1));
+}
+.comments-panel-head h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--fg-secondary, #a6adc8);
+}
+.comments-panel-count {
+  font-size: 11px;
+  color: var(--fg-muted, #9399b2);
+}
+.comments-panel-group {
+  padding: 6px 0;
+}
+.comments-panel-group h4 {
+  margin: 0;
+  padding: 0 12px 4px;
+  font-size: 11px;
+  color: var(--fg-muted, #9399b2);
+}
+.comments-panel-empty {
+  padding: 4px 12px;
+  color: var(--fg-subtle, #7f849c);
+  font-size: 12px;
+}
+.comments-panel-row {
+  list-style: none;
+}
+.comments-panel-rowbtn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-primary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.comments-panel-rowbtn:hover {
+  background: var(--surface-hover, rgba(137, 180, 250, 0.08));
+}
+.comments-panel-loc {
+  color: var(--fg-muted, #9399b2);
+  font-size: 11px;
+}
+.comments-panel-preview {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-secondary, #a6adc8);
+}
+.comments-panel-meta {
+  font-size: 10px;
+  color: var(--fg-subtle, #7f849c);
+}
+.comments-panel-toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-muted, #9399b2);
+  font-size: 11px;
+}
+.comments-panel-toggle:hover {
+  color: var(--accent, #89b4fa);
+}
+
+/* M61-A: mention cards in the attention tray */
+.mention-card {
+  padding: 6px 10px;
+  background: var(--glass-surface, rgba(30, 30, 46, 0.92));
+  border: 1px solid var(--border, rgba(137, 180, 250, 0.18));
+  border-radius: var(--radius-sm, 6px);
+  font-size: 12px;
+  color: var(--fg-primary);
+  margin-bottom: 4px;
+}
+.mention-card-text {
+  color: var(--fg-muted, #9399b2);
+  margin-top: 2px;
+  font-size: 11px;
+}
+.mention-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.mention-card-actions button {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs, 4px);
+  border: 1px solid var(--border, rgba(137, 180, 250, 0.15));
+  background: var(--accent-subtle, rgba(137, 180, 250, 0.1));
+  color: var(--accent, #89b4fa);
+  cursor: pointer;
+}
+.mention-card-actions button:hover {
+  background: var(--accent, #89b4fa);
+  color: var(--bg-deep, #11111b);
+}
+.mention-card-dismiss {
+  background: transparent !important;
+  color: var(--fg-muted, #9399b2) !important;
+  border-color: transparent !important;
+}
+.mention-card-dismiss:hover {
+  color: var(--fg-primary) !important;
+}
+
+/* Comment thread overlay host — M61-A: fixed top-right was obscuring
+   TeamPanel and floating disconnected from code context. The smallest robust
+   fix is to keep it fixed but shift it left when TeamPanel is open so they
+   never overlap, and cap its size so it never covers the whole editor. */
+.comment-thread-overlay {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 500;
+  max-width: calc(100vw - 40px);
+}
+.comment-thread {
+  max-width: 380px;
+}
+.tree-node-comment-badge {
+  margin-left: 6px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg-muted, #9399b2);
+  background: rgba(137, 180, 250, 0.12);
+  border: 1px solid rgba(137, 180, 250, 0.18);
+  border-radius: 999px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+.tab-comment-badge {
+  margin-left: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--fg-muted, #9399b2);
+  background: rgba(137, 180, 250, 0.12);
+  border: 1px solid rgba(137, 180, 250, 0.18);
+  border-radius: 999px;
+  padding: 1px 4px;
+  flex-shrink: 0;
+}

@@ -83,6 +83,23 @@ export interface AppConfig {
   collabAwarenessCoalesceMs: number;
   collabHighWatermarkBytes: number;
   collabLowWatermarkBytes: number;
+  /** M60: change-attribution & collaboration-history tunables. See
+   *  docs/superpowers/specs/2026-08-31-m60-change-attribution-history-design.md §14. */
+  collabBurstIdleMs: number;
+  collabBurstMaxMs: number;
+  collabBurstSweepMs: number;
+  collabHistoryFlushIntervalMs: number;
+  collabHistoryRetentionDays: number;
+  collabHistoryMaxPerProject: number;
+  collabAwayThresholdMs: number;
+  collabAwayMaxLookbackMs: number;
+  collabAwayMaxEvents: number;
+  collabAwayNoticeMs: number;
+  collabOpenBurstsMax: number;
+  /** M61-A: per-(user, project) comment-write rate limit (create/reply/edit).
+   *  See docs/superpowers/specs/2026-08-31-m61-contextual-comments-customization-design.md §4.4. */
+  commentWriteMax: number;
+  commentWriteWindowMs: number;
   /** M47: operator-supplied master key for project-secret encryption.
    *  Raw value exactly as configured (base64- or hex-encoded 32 bytes); the
    *  secrets crypto module validates/normalizes it. `undefined` when unset —
@@ -141,6 +158,25 @@ export type ConfigOverrides = Partial<Omit<AppConfig, "runUser" | "limits">> & {
   runUser?: RunUser;
   limits?: Limits;
 };
+
+/**
+ * M60: strict numeric env resolution. A non-finite, negative, or below-minimum
+ * value silently falling through would break burst timing
+ * (`now - lastEditAt > NaN` is always false ⇒ a burst never closes) or the
+ * retention purge (`datetime('now','-NaN days')` ⇒ nothing purged), so bad
+ * input falls back to the default rather than propagating.
+ */
+function boundedIntEnv(
+  envName: string,
+  dflt: number,
+  opts: { min?: number; max?: number } = {},
+): number {
+  const raw = Number(process.env[envName]);
+  const min = opts.min ?? 1;
+  const max = opts.max ?? Number.MAX_SAFE_INTEGER;
+  if (!Number.isFinite(raw) || raw < min || raw > max) return dflt;
+  return Math.floor(raw);
+}
 
 export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
   const defaultDataDir = IS_WINDOWS
@@ -238,6 +274,70 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     collabLowWatermarkBytes:
       overrides.collabLowWatermarkBytes ??
       Number(process.env.COLLAB_LOW_WATERMARK_BYTES ?? 200_000),
+    // M60 tunables — strict numeric resolution (see boundedIntEnv above).
+    collabBurstIdleMs:
+      overrides.collabBurstIdleMs ??
+      boundedIntEnv("COLLAB_BURST_IDLE_MS", 15_000, { min: 100, max: 3_600_000 }),
+    collabBurstMaxMs:
+      overrides.collabBurstMaxMs ??
+      boundedIntEnv("COLLAB_BURST_MAX_MS", 300_000, {
+        min: 1_000,
+        max: 86_400_000,
+      }),
+    collabBurstSweepMs:
+      overrides.collabBurstSweepMs ??
+      boundedIntEnv("COLLAB_BURST_SWEEP_MS", 5_000, { min: 250, max: 600_000 }),
+    collabHistoryFlushIntervalMs:
+      overrides.collabHistoryFlushIntervalMs ??
+      boundedIntEnv("COLLAB_HISTORY_FLUSH_INTERVAL_MS", 5_000, {
+        min: 250,
+        max: 600_000,
+      }),
+    collabHistoryRetentionDays:
+      overrides.collabHistoryRetentionDays ??
+      boundedIntEnv("COLLAB_HISTORY_RETENTION_DAYS", 14, { min: 1, max: 3_650 }),
+    collabHistoryMaxPerProject:
+      overrides.collabHistoryMaxPerProject ??
+      boundedIntEnv("COLLAB_HISTORY_MAX_PER_PROJECT", 2_000, {
+        min: 10,
+        max: 1_000_000,
+      }),
+    collabAwayThresholdMs:
+      overrides.collabAwayThresholdMs ??
+      boundedIntEnv("COLLAB_AWAY_THRESHOLD_MS", 180_000, {
+        min: 1_000,
+        max: 86_400_000,
+      }),
+    collabAwayMaxLookbackMs:
+      overrides.collabAwayMaxLookbackMs ??
+      boundedIntEnv("COLLAB_AWAY_MAX_LOOKBACK_MS", 86_400_000, {
+        min: 60_000,
+        max: 30 * 86_400_000,
+      }),
+    collabAwayMaxEvents:
+      overrides.collabAwayMaxEvents ??
+      boundedIntEnv("COLLAB_AWAY_MAX_EVENTS", 50, { min: 1, max: 500 }),
+    collabAwayNoticeMs:
+      overrides.collabAwayNoticeMs ??
+      boundedIntEnv("COLLAB_AWAY_NOTICE_MS", 20_000, {
+        min: 1_000,
+        max: 600_000,
+      }),
+    collabOpenBurstsMax:
+      overrides.collabOpenBurstsMax ??
+      boundedIntEnv("COLLAB_OPEN_BURSTS_MAX", 5_000, {
+        min: 10,
+        max: 1_000_000,
+      }),
+    commentWriteMax:
+      overrides.commentWriteMax ??
+      boundedIntEnv("COMMENT_WRITE_MAX", 30, { min: 1, max: 100_000 }),
+    commentWriteWindowMs:
+      overrides.commentWriteWindowMs ??
+      boundedIntEnv("COMMENT_WRITE_WINDOW_MS", 60_000, {
+        min: 1_000,
+        max: 3_600_000,
+      }),
     shutdownGraceMs:
       overrides.shutdownGraceMs ??
       Number(process.env.SHUTDOWN_GRACE_MS ?? 10_000),

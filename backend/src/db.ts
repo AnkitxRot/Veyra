@@ -10,6 +10,175 @@ const { DatabaseSync } = require("node:sqlite") as {
   DatabaseSync: typeof DatabaseSyncType;
 };
 
+// M61 (v12): persistent code-anchored comment threads (Track A) + the
+// versioned per-user settings blob (Track B) + server-authoritative profile
+// identity tables (Track C). See
+// docs/superpowers/specs/2026-08-31-m61-contextual-comments-customization-design.md
+// §4.3 (comments) and §6.3 (profile). Anchors are stored as opaque
+// Y.RelativePosition blobs — the server never decodes or resolves them.
+const M61_SCHEMA_SQL = `
+    CREATE TABLE IF NOT EXISTS comment_threads (
+      id                 TEXT PRIMARY KEY,
+      project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      file_path          TEXT NOT NULL,
+      anchor_rel_start   BLOB,
+      anchor_rel_end     BLOB,
+      anchor_start_line  INTEGER NOT NULL,
+      anchor_end_line    INTEGER NOT NULL,
+      anchor_prefix_hash TEXT NOT NULL,
+      anchor_prefix      TEXT NOT NULL,
+      anchor_status      TEXT NOT NULL DEFAULT 'ok',
+      created_by         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at        TEXT,
+      resolved_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      root_comment_id    TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_comment_threads_project_file
+      ON comment_threads(project_id, file_path, resolved_at);
+    CREATE INDEX IF NOT EXISTS idx_comment_threads_project_updated
+      ON comment_threads(project_id, updated_at DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS comments (
+      id                TEXT PRIMARY KEY,
+      thread_id         TEXT NOT NULL REFERENCES comment_threads(id) ON DELETE CASCADE,
+      project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      parent_comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+      author_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body              TEXT NOT NULL,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      edited_at         TEXT,
+      deleted_at        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(thread_id, created_at, id);
+
+    CREATE TABLE IF NOT EXISTS comment_mentions (
+      comment_id        TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      mentioned_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (comment_id, mentioned_user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS comment_reactions (
+      comment_id        TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji             TEXT NOT NULL,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (comment_id, user_id, emoji)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      version     INTEGER NOT NULL DEFAULT 1,
+      data        TEXT NOT NULL DEFAULT '{}',
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_media (
+      id           TEXT PRIMARY KEY,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind         TEXT NOT NULL,
+      mime         TEXT NOT NULL,
+      width        INTEGER NOT NULL,
+      height       INTEGER NOT NULL,
+      bytes        INTEGER NOT NULL,
+      storage_path TEXT NOT NULL,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_profile_media_user ON profile_media(user_id, kind);
+
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      user_id              INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      display_name         TEXT,
+      pronouns             TEXT,
+      location             TEXT,
+      bio                  TEXT,
+      avatar_media_id      TEXT REFERENCES profile_media(id) ON DELETE SET NULL,
+      banner_kind          TEXT NOT NULL DEFAULT 'none',
+      banner_value         TEXT,
+      banner_media_id      TEXT REFERENCES profile_media(id) ON DELETE SET NULL,
+      profile_accent       TEXT NOT NULL DEFAULT 'inherit',
+      profile_effect       TEXT NOT NULL DEFAULT 'none',
+      availability_default  TEXT NOT NULL DEFAULT 'online',
+      profile_visibility    TEXT NOT NULL DEFAULT 'collaborators',
+      show_location         INTEGER NOT NULL DEFAULT 1,
+      show_links            INTEGER NOT NULL DEFAULT 1,
+      show_activity         INTEGER NOT NULL DEFAULT 1,
+      show_current_file     INTEGER NOT NULL DEFAULT 1,
+      show_recent_history   INTEGER NOT NULL DEFAULT 1,
+      show_featured         INTEGER NOT NULL DEFAULT 1,
+      version              INTEGER NOT NULL DEFAULT 1,
+      updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS user_custom_status (
+      user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      emoji       TEXT,
+      text        TEXT,
+      expires_at  TEXT,
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS user_badges (
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      badge_id    TEXT NOT NULL,
+      position    INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, badge_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_links (
+      id          TEXT PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL,
+      label       TEXT,
+      url         TEXT NOT NULL,
+      position    INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS user_featured_projects (
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      position    INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, project_id)
+    );
+`;
+
+// v12 only: copy any pre-existing M22 editor preferences into the new
+// versioned settings blob so upgraded users keep their editor config.
+function copyLegacyPreferencesIntoSettings(db: Db): void {
+  const legacy = db
+    .prepare(
+      "SELECT user_id, font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace FROM user_preferences",
+    )
+    .all() as Array<{
+    user_id: number;
+    font_size: number;
+    tab_size: number;
+    word_wrap: string;
+    minimap: number;
+    line_numbers: string;
+    cursor_blinking: string;
+    render_whitespace: string;
+  }>;
+  const ins = db.prepare(
+    "INSERT INTO user_settings (user_id, version, data) VALUES (?, 1, ?) ON CONFLICT(user_id) DO NOTHING",
+  );
+  for (const r of legacy) {
+    ins.run(
+      r.user_id,
+      JSON.stringify({
+        "editor.fontSize": Number(r.font_size),
+        "editor.tabSize": Number(r.tab_size),
+        "editor.wordWrap": r.word_wrap,
+        "editor.minimap": !!r.minimap,
+        "editor.lineNumbers": r.line_numbers,
+        "editor.cursorBlinking": r.cursor_blinking,
+        "editor.renderWhitespace": r.render_whitespace,
+      }),
+    );
+  }
+}
+
 export function openDb(dbPath: string): Db {
   if (dbPath !== ":memory:") {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -167,6 +336,37 @@ export function openDb(dbPath: string): Db {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_identity
       ON secrets(scope, scope_id, COALESCE(environment, ''), name);
     CREATE INDEX IF NOT EXISTS idx_secrets_scope ON secrets(scope, scope_id);
+
+    -- M60: derived, metadata-only collaboration history. NEVER stores document
+    -- content, diffs, Yjs updates, cursor/selection trails, or execution output
+    -- (see docs/superpowers/specs/2026-08-31-m60-change-attribution-history-design.md §7).
+    CREATE TABLE IF NOT EXISTS collaboration_changes (
+      id             TEXT PRIMARY KEY,
+      project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      author_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      file_path      TEXT NOT NULL,
+      kind           TEXT NOT NULL DEFAULT 'edit_burst',
+      started_at     TEXT NOT NULL,
+      ended_at       TEXT NOT NULL,
+      update_count   INTEGER NOT NULL DEFAULT 0,
+      lines_added    INTEGER NOT NULL DEFAULT 0,
+      lines_removed  INTEGER NOT NULL DEFAULT 0,
+      start_line     INTEGER,
+      end_line       INTEGER,
+      detail         TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_collab_changes_project_ended
+      ON collaboration_changes(project_id, ended_at DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS collab_last_seen (
+      project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      last_seen_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, user_id)
+    );
+
+    ${M61_SCHEMA_SQL}
   `);
   runMigrations(db);
   return db;
@@ -450,6 +650,54 @@ const MIGRATIONS: Migration[] = [
           ON secrets(scope, scope_id, COALESCE(environment, ''), name);
         CREATE INDEX IF NOT EXISTS idx_secrets_scope ON secrets(scope, scope_id);
       `);
+    },
+  },
+  {
+    version: 11,
+    description:
+      "M60: collaboration_changes + collab_last_seen for change attribution & history",
+    up(db: Db) {
+      // Mirrors the inline schema in openDb(); `IF NOT EXISTS` makes this a
+      // no-op on a fresh database and the real create on an upgraded one.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS collaboration_changes (
+          id             TEXT PRIMARY KEY,
+          project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          author_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          file_path      TEXT NOT NULL,
+          kind           TEXT NOT NULL DEFAULT 'edit_burst',
+          started_at     TEXT NOT NULL,
+          ended_at       TEXT NOT NULL,
+          update_count   INTEGER NOT NULL DEFAULT 0,
+          lines_added    INTEGER NOT NULL DEFAULT 0,
+          lines_removed  INTEGER NOT NULL DEFAULT 0,
+          start_line     INTEGER,
+          end_line       INTEGER,
+          detail         TEXT,
+          created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_collab_changes_project_ended
+          ON collaboration_changes(project_id, ended_at DESC, id DESC);
+
+        CREATE TABLE IF NOT EXISTS collab_last_seen (
+          project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          last_seen_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, user_id)
+        );
+      `);
+    },
+  },
+  {
+    version: 12,
+    description:
+      "M61: comment threads (Track A) + versioned user_settings (Track B) + profile identity tables (Track C)",
+    up(db: Db) {
+      // Mirrors the inline schema in openDb(); `IF NOT EXISTS` makes the
+      // CREATEs a no-op on a fresh database and the real create on an
+      // upgraded one. The legacy-preferences copy runs only here.
+      db.exec(M61_SCHEMA_SQL);
+      copyLegacyPreferencesIntoSettings(db);
     },
   },
 ];

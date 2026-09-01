@@ -10,6 +10,8 @@ export class FakeModel {
   private value: string;
   private disposedFlag = false;
   public uri: { path: string; toString: () => string };
+  // 0 = LF, 1 = CRLF — mirrors monaco.editor.EndOfLineSequence.
+  private eol: 0 | 1 = 0;
 
   constructor(value: string, uri: { path: string; toString: () => string }) {
     this.value = value;
@@ -22,6 +24,14 @@ export class FakeModel {
 
   setValue(v: string): void {
     this.value = v;
+  }
+
+  setEOL(eol: 0 | 1): void {
+    this.eol = eol;
+  }
+
+  getEOL(): string {
+    return this.eol === 1 ? "\r\n" : "\n";
   }
 
   isDisposed(): boolean {
@@ -81,8 +91,47 @@ export class FakeEditorInstance {
     return { dispose: () => {} };
   }
 
-  onDidChangeCursorSelection(_cb: (e: unknown) => void) {
+  private selectionListeners: Array<(e: unknown) => void> = [];
+  onDidChangeCursorSelection(cb: (e: unknown) => void) {
+    this.selectionListeners.push(cb);
     return { dispose: () => {} };
+  }
+
+  // --- M58: decorations + content widgets ---
+  public decorationCollections: FakeDecorationsCollection[] = [];
+  public contentWidgets = new Map<string, { getDomNode: () => HTMLElement }>();
+  private selection = {
+    startLineNumber: 1,
+    startColumn: 1,
+    endLineNumber: 1,
+    endColumn: 1,
+    getStartPosition: () => ({ lineNumber: 1, column: 1 }),
+  };
+
+  createDecorationsCollection() {
+    const c = new FakeDecorationsCollection();
+    this.decorationCollections.push(c);
+    return c;
+  }
+  addContentWidget(w: { getId: () => string; getDomNode: () => HTMLElement }) {
+    this.contentWidgets.set(w.getId(), w);
+    const node = w.getDomNode();
+    node.setAttribute("data-cw-id", w.getId());
+    document.body.appendChild(node);
+  }
+  removeContentWidget(w: { getId: () => string; getDomNode: () => HTMLElement }) {
+    this.contentWidgets.delete(w.getId());
+    w.getDomNode().remove();
+  }
+  layoutContentWidget() {}
+  getScrolledVisiblePosition() {
+    return { top: 40, left: 40, height: 18 };
+  }
+  getPosition() {
+    return { lineNumber: 1, column: 1 };
+  }
+  getSelection() {
+    return this.selection;
   }
 
   addCommand(_keybinding: number, handler: (...args: unknown[]) => unknown) {
@@ -124,12 +173,55 @@ export class FakeEditorInstance {
   setSelection() {}
   focus() {}
 
+  // --- M59: Monaco view-state save/restore ---
+  private viewStateCounter = 0;
+  public restoreCalls: Array<{ vs: unknown; modelPath: string | null }> = [];
+  public lastRestoredViewState: unknown = undefined;
+
+  saveViewState(): { __vs: true; id: number } | null {
+    if (!this.model) return null;
+    return { __vs: true, id: ++this.viewStateCounter };
+  }
+
+  restoreViewState(vs: unknown): void {
+    const modelPath = this.model
+      ? this.model.uri.path.replace(/^\//, "")
+      : null;
+    this.lastRestoredViewState = vs;
+    this.restoreCalls.push({ vs, modelPath });
+  }
+
   // --- test helpers (not part of the real Monaco API) ---
   _fireContentChange() {
     for (const cb of this.contentListeners) cb();
   }
   _fireCursorChange(position: { lineNumber: number; column: number }) {
     for (const cb of this.cursorListeners) cb({ position });
+  }
+  _fireSelectionChange(sel: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  }) {
+    this.selection = {
+      ...sel,
+      getStartPosition: () => ({
+        lineNumber: sel.startLineNumber,
+        column: sel.startColumn,
+      }),
+    };
+    for (const cb of this.selectionListeners) cb({ selection: this.selection });
+  }
+}
+
+export class FakeDecorationsCollection {
+  public decorations: unknown[] = [];
+  set(decos: unknown[]) {
+    this.decorations = decos;
+  }
+  clear() {
+    this.decorations = [];
   }
 }
 
@@ -147,6 +239,13 @@ const editor = {
     uri: { path: string; toString: () => string },
   ) => {
     const m = new FakeModel(value, uri);
+    // Mirrors real Monaco: content containing no "\r" is LF-detected, but an
+    // entirely empty initial value has no line breaks to detect from, so it
+    // falls back to a platform default — CRLF on Windows. Reproducing that
+    // fallback here is what makes Editor.tsx's explicit setEOL(LF) pin (the
+    // fix for the live-verified cross-client EOL divergence) a real,
+    // failing-without-it regression test rather than a no-op assertion.
+    if (value === "") m.setEOL(1);
     modelRegistry.set(uri.toString(), m);
     return m;
   },
@@ -155,6 +254,7 @@ const editor = {
   getModels: () => Array.from(modelRegistry.values()),
   setModelLanguage: (_model: unknown, _languageId: string) => {},
   setModelMarkers: (_model: unknown, _owner: string, _markers: unknown[]) => {},
+  EndOfLineSequence: { LF: 0, CRLF: 1 } as const,
 };
 
 const Uri = {
@@ -177,7 +277,33 @@ class Range {
   ) {}
 }
 
-export const monaco = { editor, Uri, KeyMod, KeyCode, MarkerSeverity, Range };
+class Selection extends Range {
+  getStartPosition() {
+    return { lineNumber: this.startLineNumber, column: this.startColumn };
+  }
+}
+
+(editor as Record<string, unknown>).OverviewRulerLane = {
+  Left: 1,
+  Center: 2,
+  Right: 4,
+  Full: 7,
+};
+(editor as Record<string, unknown>).ContentWidgetPositionPreference = {
+  EXACT: 0,
+  ABOVE: 1,
+  BELOW: 2,
+};
+
+export const monaco = {
+  editor,
+  Uri,
+  KeyMod,
+  KeyCode,
+  MarkerSeverity,
+  Range,
+  Selection,
+};
 
 export function __resetMonacoMocks() {
   modelRegistry = new Map();

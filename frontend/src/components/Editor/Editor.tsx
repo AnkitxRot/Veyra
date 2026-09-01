@@ -5,7 +5,17 @@ import { Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import type { CollaborationClient, CollaboratorPresence } from "../../collab/client";
-import type { UserPreferences } from "../../types";
+import { collaboratorsInFile } from "../../collab/presence";
+import {
+  rangesOverlap,
+  normalizeRange,
+  RANGE_NEAR_LINES,
+  type AttentionEvent,
+  type AttentionRange,
+} from "../../collab/attention";
+import AttentionComposer from "./AttentionComposer";
+import type { UserPreferences, CommentThreadDTO } from "../../types";
+import CommentGutter from "../Comments/CommentGutter";
 
 // ---------------------------------------------------------------------------
 // Live content registry (M1: truthful save primitive)
@@ -82,6 +92,21 @@ export interface LiveContentApi {
   apply(path: string, content: string): boolean;
 }
 
+/**
+ * M59: model-safe Monaco view-state (cursor + selection + scroll + folding).
+ * The anchor "return to my location" flow uses this. `restore` refuses (returns
+ * false) unless the active model IS `filePath` — a saved view state is NEVER
+ * applied to the wrong model. Never touches model content.
+ */
+export interface EditorViewApi {
+  save(): {
+    filePath: string;
+    viewState: unknown;
+    cursor: { line: number; column: number } | null;
+  } | null;
+  restore(filePath: string, viewState: unknown): boolean;
+}
+
 export interface EditorProps {
   project: any;
   openFiles: any[];
@@ -93,10 +118,27 @@ export interface EditorProps {
   collabClient?: CollaborationClient | null;
   collaborators?: CollaboratorPresence[];
   currentUserId?: number;
+  /** M58: transient attention events for the currently open project. */
+  attention?: AttentionEvent[];
+  onAttentionNavigate?: (e: AttentionEvent) => void;
+  /** M58: "View" a collaborator from the spatial-overlap badge. */
+  onViewCollaborator?: (userId: number) => void;
   onUserEdit?: () => void;
   isReadOnly?: boolean;
   liveApiRef?: React.MutableRefObject<LiveContentApi | null>;
+  /** M59: model-safe view-state save/restore for the follow anchor. */
+  editorViewApiRef?: React.MutableRefObject<EditorViewApi | null>;
   preferences?: UserPreferences;
+  /** M61-A: comment threads for the active project. */
+  commentThreads?: CommentThreadDTO[];
+  projectId?: string;
+  commentCountsByFile?: Map<string, number>;
+  onOpenCommentThread?: (threadId: string) => void;
+  /** M61-A: create a thread from the current selection. */
+  onCreateComment?: (input: {
+    filePath: string;
+    selection: { startLine: number; startColumn: number; endLine: number; endColumn: number };
+  }) => void;
 }
 
 export default function Editor({
@@ -110,19 +152,65 @@ export default function Editor({
   collabClient,
   collaborators = [],
   currentUserId,
+  attention = [],
+  onAttentionNavigate,
+  onViewCollaborator,
   onUserEdit,
   isReadOnly = false,
   liveApiRef,
+  editorViewApiRef,
   preferences,
+  commentThreads = [],
+  projectId,
+  commentCountsByFile,
+  onOpenCommentThread,
+  onCreateComment,
 }: EditorProps) {
-  const [localCursorLine, setLocalCursorLine] = React.useState<number>(1);
+  // Local cursor line is tracked only to feed the collab client; the M58
+  // spatial memo uses the full selection range instead.
+  const [, setLocalCursorLine] = React.useState<number>(1);
+  // M61-A: mirror the created editor instance into state so <CommentGutter>
+  // (which needs the live instance) mounts once it exists.
+  const [commentEditor, setCommentEditor] =
+    React.useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const activeFileRef = useRef(activeFile);
   const isUpdatingModelRef = useRef(false);
   const collabClientRef = useRef(collabClient);
   const onUserEditRef = useRef(onUserEdit);
+  const onCreateCommentRef = useRef(onCreateComment);
   const isReadOnlyRef = useRef(isReadOnly);
+  // M58: current local selection (zero-width when just a cursor) for spatial
+  // overlap; refs so the Monaco action closures see fresh values.
+  const [localSelection, setLocalSelection] = React.useState<AttentionRange>({
+    startLine: 1,
+    startColumn: 1,
+    endLine: 1,
+    endColumn: 1,
+  });
+  const collaboratorsRef = useRef(collaborators);
+  const [composer, setComposer] = React.useState<{
+    mode: "callout" | "comeLook";
+    anchorTop: number;
+    anchorLeft: number;
+    range: AttentionRange;
+  } | null>(null);
+  const attnDecorationsRef =
+    useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  const calloutWidgetsRef = useRef<Map<string, monaco.editor.IContentWidget>>(
+    new Map(),
+  );
+  // M59: clickable point chips (parity with callout bubbles, for navigation).
+  const pointWidgetsRef = useRef<Map<string, monaco.editor.IContentWidget>>(
+    new Map(),
+  );
+  // M59: a pending "restore this view state once the right model is active".
+  const restorePendingRef = useRef<{
+    filePath: string;
+    viewState: unknown;
+    cursor: { line: number; column: number } | null;
+  } | null>(null);
   // Tracks what the model-management effect last *fully* processed. Used to
   // skip expensive setup (setModelLanguage / bindMonacoModel / layout) when the
   // effect only re-ran because `openFiles` got a new array reference from a
@@ -145,17 +233,78 @@ export default function Editor({
     onUserEditRef.current = onUserEdit;
   }, [onUserEdit]);
 
-  const nearbyEditingCollaborators = React.useMemo(() => {
-    if (!activeFile || !collaborators) return [];
-    return collaborators.filter(
-      (c) =>
-        c.userId !== currentUserId &&
-        c.activeFile === activeFile &&
-        c.activity?.type === "editing" &&
-        c.cursor &&
-        Math.abs(c.cursor.line - localCursorLine) <= 5,
+  useEffect(() => {
+    onCreateCommentRef.current = onCreateComment;
+  }, [onCreateComment]);
+
+  useEffect(() => {
+    collaboratorsRef.current = collaborators;
+  }, [collaborators]);
+
+  // M58: three-tier spatial awareness. same-file (the M57 strip, unchanged) →
+  // nearby (editing within RANGE_NEAR_LINES, not overlapping) → overlapping
+  // (rangesOverlap of the active selections). Never a lock, never a semantic
+  // conflict claim.
+  const spatialCollaborators = React.useMemo(() => {
+    if (!activeFile) return [] as {
+      collaborator: CollaboratorPresence;
+      tier: "nearby" | "overlapping";
+    }[];
+    const out: {
+      collaborator: CollaboratorPresence;
+      tier: "nearby" | "overlapping";
+    }[] = [];
+    for (const cbr of collaborators) {
+      if (cbr.userId === currentUserId || cbr.activeFile !== activeFile) {
+        continue;
+      }
+      if (cbr.activity?.type !== "editing") continue;
+      const raw = cbr.selection
+        ? {
+            startLine: cbr.selection.startLine,
+            startColumn: cbr.selection.startColumn,
+            endLine: cbr.selection.endLine,
+            endColumn: cbr.selection.endColumn,
+          }
+        : cbr.cursor
+          ? {
+              startLine: cbr.cursor.line,
+              startColumn: cbr.cursor.column,
+              endLine: cbr.cursor.line,
+              endColumn: cbr.cursor.column,
+            }
+          : null;
+      const theirs = normalizeRange(raw);
+      if (!theirs) continue;
+      if (rangesOverlap(localSelection, theirs)) {
+        out.push({ collaborator: cbr, tier: "overlapping" });
+      } else if (
+        Math.abs(theirs.startLine - localSelection.startLine) <=
+        RANGE_NEAR_LINES
+      ) {
+        out.push({ collaborator: cbr, tier: "nearby" });
+      }
+    }
+    return out;
+  }, [activeFile, collaborators, currentUserId, localSelection]);
+
+  const overlappingCollaborators = spatialCollaborators.filter(
+    (s) => s.tier === "overlapping",
+  );
+  const nearbyCollaborators = spatialCollaborators.filter(
+    (s) => s.tier === "nearby",
+  );
+
+  // M57: everyone whose focused file IS this file (distinct from the
+  // within-5-lines proximity warning above — this is "who else is in here at
+  // all"). De-duped by userId so a multi-tab collaborator shows once.
+  const sameFileCollaborators = React.useMemo(() => {
+    if (!activeFile) return [];
+    const seen = new Set<number>();
+    return collaboratorsInFile(collaborators ?? [], activeFile, currentUserId).filter(
+      (c) => (seen.has(c.userId) ? false : (seen.add(c.userId), true)),
     );
-  }, [activeFile, collaborators, currentUserId, localCursorLine]);
+  }, [activeFile, collaborators, currentUserId]);
 
   // Dynamically apply preferences changes without remounting editor or replacing models
   useEffect(() => {
@@ -193,12 +342,47 @@ export default function Editor({
         bracketPairColorization: { enabled: true },
         readOnly: isReadOnlyRef.current,
       });
+      setCommentEditor(monacoRef.current);
 
       // Publish the live-content API for save consumers. Done as soon as the
       // editor exists so Ctrl+S issued while chunks/models settle still
       // resolves truthfully (or falls back cleanly when it cannot).
       if (liveApiRef) {
         liveApiRef.current = { get: getLiveContent, apply: applyLiveContent };
+      }
+
+      // M59: model-safe view-state API for the follow anchor.
+      if (editorViewApiRef) {
+        editorViewApiRef.current = {
+          save: () => {
+            const ed = monacoRef.current;
+            if (!ed || !activeFileRef.current) return null;
+            const pos = ed.getPosition?.();
+            return {
+              filePath: activeFileRef.current,
+              viewState: ed.saveViewState?.() ?? null,
+              cursor: pos
+                ? { line: pos.lineNumber, column: pos.column }
+                : null,
+            };
+          },
+          restore: (filePath, viewState) => {
+            const ed = monacoRef.current;
+            if (!ed || viewState == null) return false;
+            const m = ed.getModel?.();
+            const active = m ? normalizeModelKey(m.uri.path) : null;
+            if (active !== filePath) return false;
+            try {
+              ed.restoreViewState?.(
+                viewState as monaco.editor.ICodeEditorViewState,
+              );
+              ed.focus?.();
+              return true;
+            } catch {
+              return false;
+            }
+          },
+        };
       }
 
       monacoRef.current.onDidChangeCursorPosition((e) => {
@@ -212,8 +396,17 @@ export default function Editor({
       });
 
       monacoRef.current.onDidChangeCursorSelection((e) => {
+        const sel = e.selection;
+        // M58: track the local selection for spatial-overlap awareness. This
+        // is a LOCAL read only — it never writes awareness (that is the line
+        // below, unchanged).
+        setLocalSelection({
+          startLine: sel.startLineNumber,
+          startColumn: sel.startColumn,
+          endLine: sel.endLineNumber,
+          endColumn: sel.endColumn,
+        });
         if (collabClientRef.current) {
-          const sel = e.selection;
           collabClientRef.current.updateSelection({
             startLine: sel.startLineNumber,
             startColumn: sel.startColumn,
@@ -351,6 +544,104 @@ export default function Editor({
           );
         },
       });
+
+      // --- M58: attention actions ---------------------------------------
+      const attentionAvailable = () =>
+        !!activeFileRef.current &&
+        !isReadOnlyRef.current &&
+        collabClientRef.current?.status === "connected";
+
+      const rangeFromSelection = (
+        sel: monaco.Selection | null,
+      ): AttentionRange => ({
+        startLine: sel?.startLineNumber ?? 1,
+        startColumn: sel?.startColumn ?? 1,
+        endLine: sel?.endLineNumber ?? 1,
+        endColumn: sel?.endColumn ?? 1,
+      });
+
+      const anchorFor = (
+        ed: monaco.editor.ICodeEditor,
+        sel: monaco.Selection | null,
+      ): { top: number; left: number } => {
+        const pos = sel
+          ? { lineNumber: sel.startLineNumber, column: sel.startColumn }
+          : ed.getPosition() ?? { lineNumber: 1, column: 1 };
+        const vp = ed.getScrolledVisiblePosition(pos);
+        return { top: (vp?.top ?? 40) + 4, left: (vp?.left ?? 40) + 8 };
+      };
+
+      editorInstance.addAction({
+        id: "cloudide.attention.point",
+        label: "👉 Point here",
+        contextMenuGroupId: "9_collab",
+        contextMenuOrder: 1,
+        run: (ed) => {
+          if (!attentionAvailable()) return;
+          collabClientRef.current?.sendAttentionPoint(
+            activeFileRef.current!,
+            rangeFromSelection(ed.getSelection()),
+          );
+        },
+      });
+
+      editorInstance.addAction({
+        id: "cloudide.attention.callout",
+        label: "📣 Call out selection",
+        contextMenuGroupId: "9_collab",
+        contextMenuOrder: 2,
+        run: (ed) => {
+          if (!attentionAvailable()) return;
+          const sel = ed.getSelection();
+          const a = anchorFor(ed, sel);
+          setComposer({
+            mode: "callout",
+            anchorTop: a.top,
+            anchorLeft: a.left,
+            range: rangeFromSelection(sel),
+          });
+        },
+      });
+
+      editorInstance.addAction({
+        id: "cloudide.attention.comeLook",
+        label: "📣 Come look here…",
+        contextMenuGroupId: "9_collab",
+        contextMenuOrder: 3,
+        run: (ed) => {
+          if (!attentionAvailable()) return;
+          const sel = ed.getSelection();
+          const a = anchorFor(ed, sel);
+          setComposer({
+            mode: "comeLook",
+            anchorTop: a.top,
+            anchorLeft: a.left,
+            range: rangeFromSelection(sel),
+          });
+        },
+      });
+
+      // --- M61-A: create a persistent comment from the selection ----------
+      editorInstance.addAction({
+        id: "cloudide.comment.create",
+        label: "💬 Comment on selection",
+        contextMenuGroupId: "9_collab",
+        contextMenuOrder: 4,
+        run: (ed) => {
+          const path = activeFileRef.current;
+          if (!path || isReadOnlyRef.current) return;
+          const sel = ed.getSelection();
+          onCreateCommentRef.current?.({
+            filePath: path,
+            selection: {
+              startLine: sel?.startLineNumber ?? 1,
+              startColumn: sel?.startColumn ?? 1,
+              endLine: sel?.endLineNumber ?? 1,
+              endColumn: sel?.endColumn ?? 1,
+            },
+          });
+        },
+      });
     }
 
     return () => {
@@ -361,15 +652,19 @@ export default function Editor({
       if (liveApiRef && liveApiRef.current) {
         liveApiRef.current = null;
       }
+      if (editorViewApiRef && editorViewApiRef.current) {
+        editorViewApiRef.current = null;
+      }
       liveModels.clear();
       if (monacoRef.current) {
         monacoRef.current.dispose();
         monacoRef.current = null;
       }
+      setCommentEditor(null);
     };
-    // liveApiRef is a stable ref object passed down from IDE; including it
-    // satisfies exhaustive-deps without changing effect cadence.
-  }, [setOpenFiles, liveApiRef]);
+    // liveApiRef / editorViewApiRef are stable ref objects passed down from
+    // IDE; including them satisfies exhaustive-deps without changing cadence.
+  }, [setOpenFiles, liveApiRef, editorViewApiRef]);
 
   // Sync read-only status with Monaco options
   useEffect(() => {
@@ -424,6 +719,21 @@ export default function Editor({
           langInfo.monacoId,
           uri,
         );
+        // Force LF regardless of platform/content-detection: when the initial
+        // value is still empty (a real race — this effect can run before the
+        // REST fetch or the collab Y.Text seed resolves), Monaco falls back to
+        // a platform default (CRLF on Windows) and that choice sticks for the
+        // model's lifetime, since later content arrives via incremental edits
+        // (Yjs) or setValue(), neither of which re-detects EOL. The backend
+        // (files/service.ts, collab/manager.ts) only ever reads/writes/seeds
+        // raw "\n" content, so a client that keeps CRLF silently diverges:
+        // its keystrokes translate to Y.Text offsets assuming 2-byte line
+        // breaks that don't exist in the shared \n-only document, corrupting
+        // position for every other collaborator (verified live: two browser
+        // sessions on the same OS ended up LF vs CRLF for the same file, and
+        // a same-line edit landed one line apart across clients). Pinning LF
+        // here removes the platform/race dependency entirely.
+        model.setEOL(monaco.editor.EndOfLineSequence.LF);
       } else {
         // External content sync: another part of the app (AI patch apply,
         // save/format response, snapshot restore) replaced the content of the
@@ -465,6 +775,11 @@ export default function Editor({
             monacoRef.current,
             isReadOnly,
           );
+          // M57: a real tab/active-file switch (not first mount, not a
+          // collab-state change) is an observable navigation.
+          if (lastKey && lastKey.activeFile !== activeFile) {
+            collabClient.recordNavigation();
+          }
         }
 
         lastBoundKeyRef.current = { activeFile, collabClient, isReadOnly };
@@ -480,6 +795,68 @@ export default function Editor({
       isUpdatingModelRef.current = false;
     }
   }, [activeFile, openFiles, collabClient, isReadOnly]);
+
+  // M59: consume a pending view-state restore ONLY when the requested file is
+  // now the active file AND its Monaco model is attached. If the exact restore
+  // is not safe (no saved state / model mismatch) fall back to a plain cursor
+  // reveal. Never restores a view state into the wrong model.
+  const tryConsumeRestoreRef = useRef<() => void>(() => {});
+  tryConsumeRestoreRef.current = () => {
+    const pending = restorePendingRef.current;
+    if (!pending) return;
+    if (activeFileRef.current !== pending.filePath) return;
+    const ed = monacoRef.current;
+    if (!ed) return;
+    const m = ed.getModel?.();
+    if (!m || normalizeModelKey(m.uri.path) !== pending.filePath) return;
+
+    restorePendingRef.current = null;
+    let restored = false;
+    if (pending.viewState != null) {
+      try {
+        ed.restoreViewState?.(
+          pending.viewState as monaco.editor.ICodeEditorViewState,
+        );
+        restored = true;
+      } catch {
+        restored = false;
+      }
+    }
+    if (!restored) {
+      const line = Math.max(1, pending.cursor?.line ?? 1);
+      const column = Math.max(1, pending.cursor?.column ?? 1);
+      ed.revealPositionInCenter({ lineNumber: line, column });
+      ed.setPosition({ lineNumber: line, column });
+    }
+    ed.focus?.();
+  };
+
+  // Re-check after every model-management pass (same deps as that effect).
+  useEffect(() => {
+    tryConsumeRestoreRef.current();
+  }, [activeFile, openFiles]);
+
+  // Receive a restore request; try immediately (file may already be active),
+  // otherwise the effect above consumes it once the right model attaches.
+  useEffect(() => {
+    const onRestore = (e: Event) => {
+      const d = (e as CustomEvent).detail as {
+        filePath?: string;
+        viewState?: unknown;
+        cursor?: { line: number; column: number } | null;
+      };
+      if (!d?.filePath) return;
+      restorePendingRef.current = {
+        filePath: d.filePath,
+        viewState: d.viewState ?? null,
+        cursor: d.cursor ?? null,
+      };
+      tryConsumeRestoreRef.current();
+    };
+    document.addEventListener("ide-restore-view-state", onRestore);
+    return () =>
+      document.removeEventListener("ide-restore-view-state", onRestore);
+  }, []);
 
   // Synchronize Monaco Error Markers with Diagnostics
   useEffect(() => {
@@ -569,6 +946,203 @@ export default function Editor({
     }
   }, [openFiles]);
 
+  // M58: render incoming point/callout decorations + callout bubbles for the
+  // ACTIVE file only. Never mutates the Monaco model. Message text is always
+  // set via textContent — never innerHTML.
+  useEffect(() => {
+    const editor = monacoRef.current;
+    if (!editor) return;
+    if (!attnDecorationsRef.current && editor.createDecorationsCollection) {
+      attnDecorationsRef.current = editor.createDecorationsCollection();
+    }
+
+    const relevant = attention.filter(
+      (e) =>
+        e.file === activeFile &&
+        (e.kind === "point" || e.kind === "callout"),
+    );
+
+    const decos: monaco.editor.IModelDeltaDecoration[] = relevant.map((e) => {
+      const isPoint = e.kind === "point";
+      return {
+        range: new monaco.Range(
+          e.range.startLine,
+          e.range.startColumn,
+          isPoint ? e.range.startLine : e.range.endLine,
+          isPoint ? e.range.startColumn : e.range.endColumn,
+        ),
+        options: {
+          className: isPoint
+            ? "attention-point-line"
+            : "attention-callout-range",
+          glyphMarginClassName: isPoint ? "attention-point-glyph" : undefined,
+          isWholeLine: false,
+          // M59: the "👉 name" text now lives in a clickable point chip widget
+          // (below), so the inline `after` label is dropped to avoid duplication.
+          overviewRuler: monaco.editor.OverviewRulerLane
+            ? {
+                color: e.author.color,
+                position: monaco.editor.OverviewRulerLane.Right,
+              }
+            : undefined,
+        },
+      };
+    });
+    attnDecorationsRef.current?.set(decos);
+
+    // Callout bubbles as content widgets (imperative DOM → guaranteed
+    // textContent for the message).
+    const widgets = calloutWidgetsRef.current;
+    const seen = new Set<string>();
+    for (const e of relevant) {
+      if (e.kind !== "callout") continue;
+      seen.add(e.id);
+      if (widgets.has(e.id)) continue;
+      if (!editor.addContentWidget) continue;
+
+      const dom = document.createElement("div");
+      dom.className = "attention-callout-bubble";
+      // M59: clicking the bubble body steps into the author's context
+      // (navigate + end any different follow). Button clicks are excluded.
+      dom.onclick = (ev) => {
+        if ((ev.target as HTMLElement)?.closest("button")) return;
+        document.dispatchEvent(
+          new CustomEvent("ide-attention-activate", { detail: { id: e.id } }),
+        );
+      };
+      const dot = document.createElement("span");
+      dot.className = "attention-callout-dot";
+      dot.style.background = e.author.color;
+      dot.setAttribute("aria-hidden", "true");
+      const who = document.createElement("span");
+      who.className = "attention-callout-who";
+      who.textContent = `📣 ${e.author.username}`;
+      const msg = document.createElement("div");
+      msg.className = "attention-callout-msg";
+      msg.textContent = e.message ?? "";
+      const follow = document.createElement("button");
+      follow.type = "button";
+      follow.className = "attention-callout-follow";
+      follow.textContent = "Follow";
+      follow.setAttribute("aria-label", `Follow ${e.author.username}`);
+      follow.onclick = (ev) => {
+        ev.stopPropagation();
+        document.dispatchEvent(
+          new CustomEvent("ide-attention-follow", { detail: { id: e.id } }),
+        );
+      };
+      const keep = document.createElement("button");
+      keep.type = "button";
+      keep.className = "attention-callout-keep";
+      keep.textContent = "Keep as comment";
+      keep.setAttribute("aria-label", "Keep as comment");
+      keep.onclick = (ev) => {
+        ev.stopPropagation();
+        document.dispatchEvent(
+          new CustomEvent("ide-attention-keep-as-comment", { detail: { id: e.id } }),
+        );
+      };
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "attention-callout-x";
+      x.textContent = "×";
+      x.setAttribute("aria-label", "Dismiss callout");
+      x.onclick = (ev) => {
+        ev.stopPropagation();
+        collabClientRef.current?.attentionStore.dismissLocal(e.id);
+      };
+      dom.append(dot, who, msg, follow, keep, x);
+
+      const widget: monaco.editor.IContentWidget = {
+        getId: () => `attention-callout-${e.id}`,
+        getDomNode: () => dom,
+        getPosition: () => ({
+          position: {
+            lineNumber: e.range.startLine,
+            column: e.range.startColumn,
+          },
+          // [ABOVE, BELOW]
+          preference: [1, 2] as unknown as monaco.editor.ContentWidgetPositionPreference[],
+        }),
+      };
+      widgets.set(e.id, widget);
+      editor.addContentWidget(widget);
+    }
+    for (const [id, w] of widgets) {
+      if (!seen.has(id)) {
+        editor.removeContentWidget?.(w);
+        widgets.delete(id);
+      }
+    }
+
+    // M59: point chips — a tiny clickable "👉 name" widget so a point is a
+    // navigation affordance (parity with the callout bubble), not just a label.
+    const pointWidgets = pointWidgetsRef.current;
+    const seenPoints = new Set<string>();
+    for (const e of relevant) {
+      if (e.kind !== "point") continue;
+      seenPoints.add(e.id);
+      if (pointWidgets.has(e.id)) continue;
+      if (!editor.addContentWidget) continue;
+
+      const dom = document.createElement("div");
+      dom.className = "attention-point-chip";
+      dom.textContent = `👉 ${e.author.username}`;
+      dom.setAttribute("role", "button");
+      dom.onclick = () => {
+        document.dispatchEvent(
+          new CustomEvent("ide-attention-activate", { detail: { id: e.id } }),
+        );
+      };
+      const widget: monaco.editor.IContentWidget = {
+        getId: () => `attention-point-${e.id}`,
+        getDomNode: () => dom,
+        getPosition: () => ({
+          position: {
+            lineNumber: e.range.startLine,
+            column: e.range.startColumn,
+          },
+          preference: [1, 2] as unknown as monaco.editor.ContentWidgetPositionPreference[],
+        }),
+      };
+      pointWidgets.set(e.id, widget);
+      editor.addContentWidget(widget);
+    }
+    for (const [id, w] of pointWidgets) {
+      if (!seenPoints.has(id)) {
+        editor.removeContentWidget?.(w);
+        pointWidgets.delete(id);
+      }
+    }
+  }, [attention, activeFile]);
+
+  // M58: tear down every attention widget/decoration on unmount. Runs after
+  // the Monaco-create effect's own cleanup (which nulls monacoRef), so it
+  // detaches the widget DOM directly rather than via the editor.
+  useEffect(() => {
+    const widgets = calloutWidgetsRef.current;
+    const pointWidgets = pointWidgetsRef.current;
+    const decos = attnDecorationsRef;
+    return () => {
+      const editor = monacoRef.current;
+      for (const w of [...widgets.values(), ...pointWidgets.values()]) {
+        try {
+          editor?.removeContentWidget?.(w);
+        } catch {
+          /* editor already disposed */
+        }
+        try {
+          w.getDomNode().remove();
+        } catch {
+          /* node already detached */
+        }
+      }
+      widgets.clear();
+      pointWidgets.clear();
+      decos.current?.clear();
+    };
+  }, []);
+
   const hasOpenFiles = openFiles.length > 0;
 
   return (
@@ -594,6 +1168,18 @@ export default function Editor({
                 {f.dirty && (
                   <span className="tab-dirty-indicator" title="Unsaved changes" />
                 )}
+                {(() => {
+                  const cc = commentCountsByFile?.get(f.path) ?? 0;
+                  return cc > 0 ? (
+                    <span
+                      className="tab-comment-badge"
+                      title={`${cc} unresolved comment${cc === 1 ? "" : "s"}`}
+                      aria-label={`${cc} unresolved comments`}
+                    >
+                      💬 {cc}
+                    </span>
+                  ) : null;
+                })()}
                 {tabCollaborators.length > 0 && (
                   <span
                     className="tab-collab-badge"
@@ -641,22 +1227,126 @@ export default function Editor({
             );
           })}
 
-          {/* Proximity Edit Warning Indicator */}
-          {nearbyEditingCollaborators.length > 0 && (
+          {/* M58: spatial awareness — overlap wins over nearby. Never a lock,
+              never a semantic-conflict claim. */}
+          {overlappingCollaborators.length > 0 ? (
             <div
-              className="proximity-warning-badge"
+              className="spatial-badge spatial-overlap"
               role="status"
               aria-live="polite"
-              title={`Concurrent edits nearby: ${nearbyEditingCollaborators.map((c) => `${c.name} (Line ${c.cursor?.line || 1})`).join(", ")}`}
+              title={`Editing the same lines: ${overlappingCollaborators
+                .map((s) => s.collaborator.name)
+                .join(", ")}`}
             >
-              <span className="proximity-warning-dot" />
+              <span className="spatial-dot" aria-hidden="true" />
               <span>
-                Nearby edit:{" "}
-                {nearbyEditingCollaborators.map((c) => c.name).join(", ")} (within 5 lines)
+                ⚠{" "}
+                {overlappingCollaborators
+                  .map((s) => s.collaborator.name)
+                  .join(", ")}{" "}
+                {overlappingCollaborators.length === 1 ? "is" : "are"} editing
+                the same lines
+              </span>
+              {onViewCollaborator && overlappingCollaborators[0] && (
+                <button
+                  type="button"
+                  className="spatial-view"
+                  onClick={() =>
+                    onViewCollaborator(
+                      overlappingCollaborators[0].collaborator.userId,
+                    )
+                  }
+                >
+                  View {overlappingCollaborators[0].collaborator.name}
+                </button>
+              )}
+            </div>
+          ) : nearbyCollaborators.length > 0 ? (
+            <div
+              className="spatial-badge spatial-nearby"
+              role="status"
+              aria-live="polite"
+              title={`Editing nearby: ${nearbyCollaborators
+                .map((s) => s.collaborator.name)
+                .join(", ")}`}
+            >
+              <span className="spatial-dot" aria-hidden="true" />
+              <span>
+                {nearbyCollaborators
+                  .map((s) => s.collaborator.name)
+                  .join(", ")}{" "}
+                editing nearby (within {RANGE_NEAR_LINES} lines)
               </span>
             </div>
-          )}
+          ) : null}
         </div>
+      )}
+
+      {/* M57: who else is in this file right now (persistent, distinct from
+          the within-5-lines proximity warning above). */}
+      {sameFileCollaborators.length > 0 && (
+        <div
+          className="editor-samefile-strip"
+          role="status"
+          aria-live="polite"
+          aria-label="Collaborators in this file"
+        >
+          {sameFileCollaborators.map((c) => (
+            <span key={c.userId} className="samefile-chip">
+              <span
+                className="samefile-dot"
+                style={{ backgroundColor: c.color }}
+                aria-hidden="true"
+              />
+              {c.name} ·{" "}
+              {c.activity?.type === "editing" ? "✏️ Editing" : "👀 Viewing"}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* M58: attention message composer (Call out / Come look). */}
+      {composer && (
+        <AttentionComposer
+          mode={composer.mode}
+          anchorTop={composer.anchorTop}
+          anchorLeft={composer.anchorLeft}
+          collaborators={(collaborators ?? [])
+            .filter(
+              (c) =>
+                c.userId !== currentUserId &&
+                (c.status === "online" ||
+                  c.status === "idle" ||
+                  c.status === "away"),
+            )
+            .filter(
+              (c, i, arr) =>
+                arr.findIndex((x) => x.userId === c.userId) === i,
+            )
+            .map((c) => ({
+              userId: c.userId,
+              name: c.name,
+              color: c.color,
+            }))}
+          onSubmit={(message, targetUserId) => {
+            const client = collabClientRef.current;
+            const file = activeFileRef.current;
+            if (client && file) {
+              if (composer.mode === "callout") {
+                client.sendAttentionCallout(file, composer.range, message);
+              } else if (targetUserId != null) {
+                client.sendAttentionRequest(
+                  targetUserId,
+                  file,
+                  composer.range,
+                  message,
+                );
+              }
+            }
+            setComposer(null);
+          }}
+          onCancel={() => setComposer(null)}
+        />
       )}
 
       {/* Editor DOM container ALWAYS stays mounted so Monaco initializes on component mount */}
@@ -670,6 +1360,19 @@ export default function Editor({
           height: hasOpenFiles ? "calc(100% - 38px)" : "100%",
         }}
       />
+
+      {/* M61-A: comment gutter markers + chips for the active file. */}
+      {commentEditor && activeFile && projectId && (
+        <CommentGutter
+          editor={commentEditor}
+          monaco={monaco}
+          projectId={projectId}
+          activeFile={activeFile}
+          doc={collabClientRef.current?.doc ?? null}
+          threads={commentThreads}
+          onOpenThread={(id) => onOpenCommentThread?.(id)}
+        />
+      )}
 
       {/* Empty State when no files are open */}
       {!hasOpenFiles && (

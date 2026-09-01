@@ -31,6 +31,8 @@ import { sandboxManager, sandboxRun } from "../execution/sandbox.js";
 import { detectPreviewPorts } from "../execution/previewProbe.js";
 import { runGate, searchGate } from "../execution/runGate.js";
 import { STARTER_TEMPLATES, applyTemplate } from "./templates.js";
+import { queryTimeline, queryWhileAway } from "../collab/timeline.js";
+import { getLastSeen, touchLastSeen } from "../collab/lastSeen.js";
 import {
   createSnapshot,
   listSnapshots,
@@ -387,6 +389,90 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         .get(project.id, userOf(req).id) as { total: number };
 
       res.json({ runs, total: totalRow.total, limit, offset });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // M60: Collaboration history (Team Activity timeline). Viewer access — every
+  // collaborator can see the project's engineering story. Read-only union of
+  // collaboration_changes + runs + audited Git/snapshot events; safe columns
+  // only; deterministic ordering; opaque (at,id) cursor.
+  router.get("/:id/collab/timeline", (req, res, next) => {
+    try {
+      requireProjectAccess(db, userOf(req).id, req.params.id, "viewer");
+      const limitRaw = parseInt(String(req.query.limit ?? ""), 10);
+      const before =
+        typeof req.query.before === "string" && req.query.before.length <= 256
+          ? req.query.before
+          : null;
+      res.json(
+        queryTimeline(db, req.params.id, {
+          limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
+          before,
+        }),
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // M60: "While you were away". Authoritative boundary is the server-side
+  // collab_last_seen for the caller, clamped to COLLAB_AWAY_MAX_LOOKBACK_MS.
+  router.get("/:id/collab/while-away", (req, res, next) => {
+    try {
+      const user = userOf(req);
+      requireProjectAccess(db, user.id, req.params.id, "viewer");
+      const stored = getLastSeen(db, req.params.id, user.id);
+      const clampBoundary = new Date(
+        Date.now() - cfg.collabAwayMaxLookbackMs,
+      ).toISOString();
+      const since =
+        stored && stored > clampBoundary ? stored : clampBoundary;
+      const { events } = queryWhileAway(
+        db,
+        req.params.id,
+        user.id,
+        since,
+        cfg.collabAwayMaxEvents,
+      );
+      // Group by author, most-recently-active author first.
+      const byAuthor = new Map<number, typeof events>();
+      for (const e of events) {
+        const k = e.actor.userId ?? -1;
+        const arr = byAuthor.get(k);
+        if (arr) arr.push(e);
+        else byAuthor.set(k, [e]);
+      }
+      const groupedByAuthor = [...byAuthor.entries()]
+        .map(([userId, evs]) => ({
+          userId,
+          username: evs[0].actor.username,
+          events: evs,
+        }))
+        .sort((a, b) =>
+          (b.events[0]?.at ?? "").localeCompare(a.events[0]?.at ?? ""),
+        );
+      res.json({ since, events, groupedByAuthor });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // M60: acknowledge the while-away card — advances collab_last_seen so a
+  // refresh / repeated reconnect does not re-surface the same events.
+  router.post("/:id/collab/while-away/ack", (req, res, next) => {
+    try {
+      const user = userOf(req);
+      requireProjectAccess(db, user.id, req.params.id, "viewer");
+      const upTo =
+        typeof req.body?.upTo === "string" &&
+        req.body.upTo.length <= 40 &&
+        !Number.isNaN(Date.parse(req.body.upTo))
+          ? req.body.upTo
+          : new Date().toISOString();
+      touchLastSeen(db, req.params.id, user.id, upTo);
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }

@@ -274,6 +274,14 @@ export async function deleteProject(
   } catch {
     // Best-effort: historian may not be initialized in this context
   }
+  // M60: close+flush any open edit bursts and drop in-memory state. The DB
+  // rows then cascade-delete with the project row.
+  try {
+    const { collaborationHistorian } = await import("../collab/historian.js");
+    collaborationHistorian.disposeProject(project.id);
+  } catch {
+    // Best-effort
+  }
   await fs.rm(projectDir(cfg, project.id), { recursive: true, force: true });
   try {
     await fs.rm(join(cfg.dataDir, "snapshots", project.id), {

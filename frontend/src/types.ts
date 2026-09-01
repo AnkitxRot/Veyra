@@ -374,3 +374,141 @@ export interface AdminObservabilityData {
   };
   gc: Record<string, GcKindStats>;
 }
+
+// ---------------------------------------------------------------------------
+// M60: Change Attribution & Collaboration History.
+// Kept hand-synced with backend/src/collab/timeline.ts (TimelineEvent) and
+// backend/src/collab/historian.ts (CollabChangeWire) — there is no shared
+// cross-package module (same convention as the rest of this file).
+// ---------------------------------------------------------------------------
+
+export type TimelineEventKind =
+  | "edit_burst"
+  | "callout"
+  | "run"
+  | "commit"
+  | "snapshot"
+  | "comment";
+
+export interface TimelineEvent {
+  /** "<source>:<sourceId>" — globally unique; the pagination tie-break key. */
+  id: string;
+  kind: TimelineEventKind;
+  /** ISO ms — the primary sort key. */
+  at: string;
+  actor: { userId: number | null; username: string };
+  filePath?: string;
+  lineRange?: { startLine: number; endLine: number };
+  title: string;
+  subtitle?: string;
+  navigable: boolean;
+}
+
+export interface TimelinePage {
+  events: TimelineEvent[];
+  nextBefore: string | null;
+}
+
+export interface WhileAwayGroup {
+  userId: number;
+  username: string;
+  events: TimelineEvent[];
+}
+
+export interface WhileAwayResponse {
+  since: string;
+  events: TimelineEvent[];
+  groupedByAuthor: WhileAwayGroup[];
+}
+
+/** The receive-only MESSAGE_CUSTOM frame the server broadcasts on burst close. */
+export interface CollabChangeWire {
+  type: "collab_change";
+  id: string;
+  kind: "edit_burst" | "callout";
+  at: string;
+  actor: { userId: number; username: string };
+  filePath: string;
+  lineRange: { startLine: number; endLine: number } | null;
+  updateCount: number;
+  linesAdded: number;
+  linesRemoved: number;
+  calloutPreview?: string;
+}
+
+// ---------------------------------------------------------------------------
+// M61-A: Contextual Comments. Hand-synced with backend/src/comments/routes.ts
+// (CommentThreadDTO / CommentDTO) and backend/src/collab/manager.ts
+// (comment_event / comment_mention wire frames).
+// ---------------------------------------------------------------------------
+
+/** Opaque anchor payload — the client encodes/resolves it against the live
+ *  Y.Text; the server stores relStart/relEnd verbatim and never decodes them. */
+export interface CommentAnchor {
+  relStart: string | null;
+  relEnd: string | null;
+  slice: string;
+  startLine: number;
+  endLine: number;
+  prefixHash: string;
+}
+
+export interface CommentReactionGroup {
+  emoji: string;
+  userIds: number[];
+}
+
+export interface CommentDTO {
+  id: string;
+  threadId: string;
+  parentId: string | null;
+  authorId: number;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+  reactions: CommentReactionGroup[];
+}
+
+export interface CommentThreadDTO {
+  id: string;
+  projectId: string;
+  filePath: string;
+  anchor: CommentAnchor;
+  anchorStatus: "ok" | "stale";
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolvedBy: number | null;
+  root: CommentDTO;
+  replies: CommentDTO[];
+  mentions: { userId: number; username: string }[];
+}
+
+/** Receive-only MESSAGE_CUSTOM cache-invalidation ping — carries no bodies. */
+export interface CommentEventWire {
+  type: "comment_event";
+  threadId: string;
+  filePath: string;
+  kind: "created" | "replied" | "edited" | "deleted" | "resolved" | "reopened" | "reacted";
+  at: number;
+}
+
+/** Targeted MESSAGE_CUSTOM mention ping (M58 targeted-delivery semantics). */
+export interface CommentMentionWire {
+  type: "comment_mention";
+  threadId: string;
+  commentId: string;
+  filePath: string;
+  line: number;
+  author: { userId: number; username: string };
+  preview: string;
+  at: number;
+}
+
+/** Receive-only profile-bundle invalidation ping (M61-C). */
+export interface ProfileEventWire {
+  type: "profile_event";
+  userId: number;
+}

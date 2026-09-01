@@ -42,6 +42,7 @@ interface SidebarProps {
   collaborators?: CollaboratorPresence[];
   runStatuses?: RunStatusEntry[];
   currentUserId?: number;
+  commentCountsByFile?: Map<string, number>;
 }
 
 export default function Sidebar({
@@ -62,6 +63,7 @@ export default function Sidebar({
   collaborators,
   runStatuses,
   currentUserId,
+  commentCountsByFile,
 }: SidebarProps) {
   const [showProjectsAccordion, setShowProjectsAccordion] = useState(true);
   const [searchFilter, setSearchFilter] = useState("");
@@ -85,17 +87,29 @@ export default function Sidebar({
   const isDemoUser =
     user.username.startsWith("evaluator_") || (user as any).isDemo;
 
-  const collaboratorsByPath = React.useMemo(() => {
-    const map = new Map<string, CollaboratorPresence[]>();
-    if (!collaborators) return map;
+  // M57: file-level AND folder-level collaborator presence, derived in one
+  // pass over the canonical `collaborators` array (no second store). A folder
+  // row shows the union of collaborators whose active file is anywhere under
+  // it — de-duped by userId.
+  const { collaboratorsByPath, collaboratorsByFolder } = React.useMemo(() => {
+    const byPath = new Map<string, CollaboratorPresence[]>();
+    const byFolder = new Map<string, CollaboratorPresence[]>();
+    if (!collaborators)
+      return { collaboratorsByPath: byPath, collaboratorsByFolder: byFolder };
     for (const c of collaborators) {
-      if (c.userId !== currentUserId && c.activeFile) {
-        const list = map.get(c.activeFile) || [];
-        list.push(c);
-        map.set(c.activeFile, list);
+      if (c.userId === currentUserId || !c.activeFile) continue;
+      const fileList = byPath.get(c.activeFile) || [];
+      fileList.push(c);
+      byPath.set(c.activeFile, fileList);
+      const parts = c.activeFile.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        const folder = parts.slice(0, i).join("/");
+        const arr = byFolder.get(folder) || [];
+        if (!arr.some((x) => x.userId === c.userId)) arr.push(c);
+        byFolder.set(folder, arr);
       }
     }
-    return map;
+    return { collaboratorsByPath: byPath, collaboratorsByFolder: byFolder };
   }, [collaborators, currentUserId]);
 
   // M54: workspace-relative paths another collaborator is actively RUNNING
@@ -726,7 +740,9 @@ export default function Sidebar({
                 onSelect={onOpenFile}
                 selected={activeFile}
                 collaboratorsByPath={collaboratorsByPath}
+                collaboratorsByFolder={collaboratorsByFolder}
                 runningByPath={runningByPath}
+                commentCountsByFile={commentCountsByFile}
                 onAction={(action: any, node?: any) => {
                   if (
                     action === "new_file" ||
@@ -849,7 +865,9 @@ function FileTree({
   selected,
   onAction,
   collaboratorsByPath,
+  collaboratorsByFolder,
   runningByPath,
+  commentCountsByFile,
 }: any) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -942,7 +960,9 @@ function FileTree({
           selected={selected}
           onContextNode={handleContextNode}
           collaboratorsByPath={collaboratorsByPath}
+                collaboratorsByFolder={collaboratorsByFolder}
           runningByPath={runningByPath}
+          commentCountsByFile={commentCountsByFile}
         />
       )}
 
@@ -1031,7 +1051,9 @@ function FileTreeNodes({
   selected,
   onContextNode,
   collaboratorsByPath,
+  collaboratorsByFolder,
   runningByPath,
+  commentCountsByFile,
 }: any) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -1067,12 +1089,15 @@ function FileTreeNodes({
       {nodes.map((n: TreeNode) => {
         const isDir = n.type === "dir";
         const isCollapsed = collapsed[n.path];
-        const nodeCollaborators = !isDir
-          ? collaboratorsByPath?.get(n.path) || []
-          : [];
+        // M57: file rows show who is IN the file; folder rows show who is
+        // working anywhere UNDER the folder.
+        const nodeCollaborators = isDir
+          ? collaboratorsByFolder?.get(n.path) || []
+          : collaboratorsByPath?.get(n.path) || [];
         const nodeRunners: string[] = !isDir
           ? runningByPath?.get(n.path) || []
           : [];
+        const commentCount = !isDir ? commentCountsByFile?.get(n.path) ?? 0 : 0;
 
         return (
           <li key={n.path} role="none">
@@ -1157,6 +1182,15 @@ function FileTreeNodes({
                   )}
                 </span>
               )}
+              {commentCount > 0 && (
+                <span
+                  className="tree-node-comment-badge"
+                  title={`${commentCount} unresolved comment${commentCount === 1 ? "" : "s"}`}
+                  aria-label={`${commentCount} unresolved comments`}
+                >
+                  💬 {commentCount}
+                </span>
+              )}
             </div>
             {isDir && n.children && !isCollapsed && (
               <div className="tree-children" role="group">
@@ -1166,7 +1200,9 @@ function FileTreeNodes({
                   selected={selected}
                   onContextNode={onContextNode}
                   collaboratorsByPath={collaboratorsByPath}
+                collaboratorsByFolder={collaboratorsByFolder}
                   runningByPath={runningByPath}
+                  commentCountsByFile={commentCountsByFile}
                 />
               </div>
             )}

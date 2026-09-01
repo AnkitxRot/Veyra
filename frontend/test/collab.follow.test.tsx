@@ -82,6 +82,67 @@ describe("Milestone 48 — Follow Mode & UI Presence Indicators", () => {
       expect(screen.getByText("Follow paused — you have unsaved changes")).toBeDefined();
     });
 
+    it("M59 — [Return to my location] shows only with an anchor and calls back", () => {
+      const onReturn = vi.fn();
+      const followedUser: CollaboratorPresence = {
+        clientId: 101,
+        userId: 2,
+        name: "Bob",
+        role: "editor",
+        color: "#fab387",
+        status: "online",
+        activity: { type: "viewing", timestamp: Date.now() },
+        lastActive: Date.now(),
+      };
+      const { rerender } = render(
+        <FollowBanner
+          followedUser={followedUser}
+          onStopFollowing={vi.fn()}
+          hasAnchor={false}
+          onReturnToLocation={onReturn}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: /return to my location/i }),
+      ).toBeNull();
+
+      rerender(
+        <FollowBanner
+          followedUser={followedUser}
+          onStopFollowing={vi.fn()}
+          hasAnchor
+          onReturnToLocation={onReturn}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /return to my location/i }),
+      );
+      expect(onReturn).toHaveBeenCalledTimes(1);
+    });
+
+    it("M59 — shows the followed collaborator's range as Lines A–B", () => {
+      const followedUser: CollaboratorPresence = {
+        clientId: 101,
+        userId: 2,
+        name: "Bob",
+        role: "editor",
+        color: "#fab387",
+        status: "online",
+        activity: { type: "editing", timestamp: Date.now() },
+        activeFile: "src/index.ts",
+        cursor: { line: 42, column: 1 },
+        lastActive: Date.now(),
+      };
+      render(
+        <FollowBanner
+          followedUser={followedUser}
+          onStopFollowing={vi.fn()}
+          followedRange={{ startLine: 40, endLine: 52 }}
+        />,
+      );
+      expect(screen.getByText(/index\.ts · Lines 40–52/)).toBeDefined();
+    });
+
     it("stops following when Escape key is pressed", () => {
       const onStop = vi.fn();
       const followedUser: CollaboratorPresence = {
@@ -282,10 +343,16 @@ describe("Milestone 48 — Follow Mode & UI Presence Indicators", () => {
       const tabBadge = screen.getByLabelText(/active collaborator\(s\) on this tab/i);
       expect(tabBadge).toBeDefined();
 
-      // Proximity warning (local cursor at line 1, Bob editing at line 3 -> <= 5 lines apart)
-      const proximityWarning = screen.getByRole("status");
+      // M58 spatial awareness: local cursor at line 1, Bob editing at line 3
+      // -> within 5 lines, not overlapping -> "nearby" tier badge.
+      const proximityWarning = screen.getByText(/Bob editing nearby/);
       expect(proximityWarning).toBeDefined();
-      expect(proximityWarning.textContent).toContain("Nearby edit: Bob");
+      expect(document.querySelector(".spatial-nearby")).not.toBeNull();
+      // M57: the same-file collaborator strip also renders for Bob (distinct
+      // surface, distinct aria-label).
+      expect(
+        screen.getByLabelText("Collaborators in this file").textContent,
+      ).toContain("Bob");
     });
   });
 });

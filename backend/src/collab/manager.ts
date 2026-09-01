@@ -9,6 +9,24 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
 import { assertInsideWorkspace, safeResolve } from "../files/service.js";
+import { buildAuthoritativeAwarenessState } from "./presence.js";
+import {
+  parseAttentionInput,
+  buildAttentionEvent,
+  fallbackUserColor,
+  RateLimiter,
+  AttentionRequestRegistry,
+  ATTENTION_RATE_WINDOW_MS,
+  ATTENTION_MAX_EVENTS_PER_WINDOW,
+  type AttentionAuthor,
+  type AttentionEvent,
+  type AttentionClearedReason,
+} from "./attention.js";
+import {
+  collaborationHistorian,
+  type CollaborationHistorian,
+} from "./historian.js";
+import { touchLastSeen } from "./lastSeen.js";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -46,22 +64,13 @@ const RUN_STATUS_SWEEP_MS = 60_000;
 // server-side: identity is forced to the authenticated WS session, only the
 // connection's own awareness clientIDs may be written, and the remaining
 // ephemeral fields are enum/-bounds-checked. Nothing here is persisted.
-const AWARENESS_STATUS_VALUES = new Set(["online", "idle", "dnd"]);
-const AWARENESS_ACTIVITY_VALUES = new Set([
-  "viewing",
-  "editing",
-  "running",
-  "terminal",
-  "searching",
-  "reviewing",
-]);
+// The awareness FIELD ALLOWLIST (which ephemeral fields survive, and their
+// bounds) lives in ./presence.ts — M57 extracted it so G1/G2 (workingFolder,
+// intent) extend one place and the enums stop drifting across files. The
+// FRAME-DECODE limits below stay here: they belong to sanitizeIncomingAwareness
+// Update()'s per-connection clientID accounting, not to the field allowlist.
 const AWARENESS_MAX_ENTRIES_PER_FRAME = 64;
 const AWARENESS_MAX_CLIENT_IDS_PER_CONNECTION = 8;
-const AWARENESS_MAX_PATH_LEN = 512;
-const AWARENESS_MAX_DETAIL_LEN = 200;
-// Generous ceiling for a Monaco line/column — far beyond any real file, but
-// bounded so a peer can't be fed absurd/NaN/Infinity coordinates.
-const AWARENESS_MAX_COORD = 5_000_000;
 
 // M56: Collaboration-Safe Destructive Operations.
 //  - `flushBeforeDestructiveDispose()` persists a live room's latest
@@ -268,6 +277,17 @@ export class CollaborationRoom {
   private readonly runStatusLingerTimers = new Map<string, NodeJS.Timeout>();
   private runStatusSweepTimer: NodeJS.Timeout | null = null;
 
+  // M58: transient ATTENTION layer (Point / Callout / targeted "Come look").
+  // Points and callouts are pure relay (no server state — client TTL + a hard
+  // server ceiling baked into `expiresAt`). Targeted requests are held in a
+  // bounded in-memory registry with one expiry timer each, snapshotted ONLY to
+  // the intended recipient on join, and cleared on dismiss / expiry / author
+  // disconnect / target disconnect / dispose. Never persisted, never touches
+  // Y.Doc or awareness.
+  private readonly attentionRateLimiters = new WeakMap<WebSocket, RateLimiter>();
+  private readonly attentionRegistry = new AttentionRequestRegistry();
+  private readonly attentionExpiryTimers = new Map<string, NodeJS.Timeout>();
+
   /** Set at the start of dispose(). awareness.destroy() below internally
    *  calls setLocalState(null), which fires this room's own
    *  awareness "update" listener — without this guard that would re-arm
@@ -292,12 +312,38 @@ export class CollaborationRoom {
    *  that question. */
   private broadcastSendCount = 0;
 
+  // M60: idempotent per-file Y.Text observers for best-effort line-range
+  // enrichment, and a per-transaction stash they write into for the M60
+  // afterTransaction hook to drain. The stash is a WeakMap keyed by the
+  // transaction object — populated and drained within one synchronous
+  // cleanupTransactions pass (yjs 13.6.32: type observers fire before
+  // `afterTransaction`), never retained.
+  /** M60: set only while a `messageYjsSyncStep2` bulk apply is in flight (a
+   *  client re-seeding the room from its own lineage) — the M60
+   *  afterTransaction hook skips attribution for the duration. */
+  private m60SuppressAttribution = false;
+  private readonly rangeObservedFiles = new Set<string>();
+  private readonly rangeStash = new WeakMap<
+    Y.Transaction,
+    Map<
+      string,
+      {
+        startLine: number;
+        endLine: number;
+        contiguous: boolean;
+        linesAdded: number;
+        linesRemoved: number;
+      }
+    >
+  >();
+
   constructor(
     projectId: string,
     cfg: AppConfig,
     db: Db,
     onDispose: (projectId: string) => void,
     options: CollaborationRoomOptions = {},
+    private readonly historian: CollaborationHistorian = collaborationHistorian,
   ) {
     this.projectId = projectId;
     this.cfg = cfg;
@@ -372,6 +418,83 @@ export class CollaborationRoom {
           }
         }
       }
+    });
+
+    // M60: a SECOND, isolated afterTransaction subscriber for change
+    // attribution. Deliberately separate from the dirty-tracking listener
+    // above so its early-returns (which M60 must NOT short-circuit on —
+    // external mutations still contaminate an open burst) never interfere,
+    // and so the battle-tested dirty logic is untouched. `afterTransaction`
+    // is authoritative for author + file-level change existence; the Y.Text
+    // observer's stash is best-effort range enrichment only. See spec §3.
+    this.doc.on("afterTransaction", (tr: Y.Transaction) => {
+      if (this.disposed) return;
+      // M60: a bulk sync-step-2 re-seed is not a user edit.
+      if (this.m60SuppressAttribution) {
+        this.rangeStash.delete(tr);
+        return;
+      }
+      const origin = tr.origin;
+      const stash = this.rangeStash.get(tr);
+      const shares = this.doc.share as Map<string, unknown>;
+
+      const fileOf = (changedType: unknown): string | null => {
+        for (const [key, type] of shares.entries()) {
+          if (type === changedType) return key;
+        }
+        return null;
+      };
+
+      // External / disk-load transactions: no attribution, but they DO
+      // contaminate any open burst for the touched file (a bystander's write
+      // changed the file under an author — exact range can no longer be
+      // claimed).
+      if (origin === "external_mutation" || origin === "initial_disk_load") {
+        for (const changedType of tr.changed.keys()) {
+          const fp = fileOf(changedType);
+          if (fp) this.historian.contaminateFile(this.projectId, fp);
+        }
+        this.rangeStash.delete(tr);
+        return;
+      }
+
+      const isWs =
+        !!origin &&
+        typeof origin === "object" &&
+        this.clients.has(origin as WebSocket);
+      if (!isWs || tr.changed.size === 0) {
+        this.rangeStash.delete(tr);
+        return;
+      }
+      const cs = this.clients.get(origin as WebSocket);
+      if (!cs) {
+        this.rangeStash.delete(tr);
+        return;
+      }
+
+      const now = Date.now();
+      for (const changedType of tr.changed.keys()) {
+        const filePath = fileOf(changedType);
+        if (!filePath || !this.isPersistablePath(filePath)) continue;
+        const r = stash?.get(filePath) ?? null;
+        this.historian.recordEdit({
+          projectId: this.projectId,
+          authorUserId: cs.userId,
+          username: cs.username,
+          filePath,
+          at: now,
+          range: r
+            ? {
+                startLine: r.startLine,
+                endLine: r.endLine,
+                contiguous: r.contiguous,
+              }
+            : null,
+          linesAdded: r?.linesAdded ?? 0,
+          linesRemoved: r?.linesRemoved ?? 0,
+        });
+      }
+      this.rangeStash.delete(tr);
     });
 
     // Track awareness changes and queue the broadcast for coalescing —
@@ -695,6 +818,392 @@ export class CollaborationRoom {
     this.runStatusSweepTimer.unref?.();
   }
 
+  // --- M58: transient attention layer ------------------------------------
+
+  private attentionRateLimiterFor(ws: WebSocket): RateLimiter {
+    let rl = this.attentionRateLimiters.get(ws);
+    if (!rl) {
+      rl = new RateLimiter(
+        ATTENTION_RATE_WINDOW_MS,
+        ATTENTION_MAX_EVENTS_PER_WINDOW,
+      );
+      this.attentionRateLimiters.set(ws, rl);
+    }
+    return rl;
+  }
+
+  /**
+   * The attention author is ALWAYS the authenticated WS session — never
+   * anything the client asserted. Colour is taken from this connection's own
+   * published awareness (`user.color`), falling back to a deterministic
+   * palette colour so a point/callout carries identity even before the author
+   * has broadcast presence.
+   */
+  private authorFor(clientState: CollaboratorClientState): AttentionAuthor {
+    let color = fallbackUserColor(clientState.userId);
+    const ids = clientState.awarenessClientIds;
+    if (ids) {
+      for (const cid of ids) {
+        const st = this.awareness.getStates().get(cid) as
+          | { user?: { color?: unknown } }
+          | undefined;
+        const c = st?.user?.color;
+        if (typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c)) {
+          color = c;
+          break;
+        }
+      }
+    }
+    return {
+      userId: clientState.userId,
+      username: clientState.username,
+      color,
+    };
+  }
+
+  private encodeCustom(obj: unknown): Uint8Array {
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, MESSAGE_CUSTOM);
+    encoding.writeVarString(enc, JSON.stringify(obj));
+    return encoding.toUint8Array(enc);
+  }
+
+  private broadcastAttention(obj: unknown, exceptWs?: WebSocket): void {
+    const frame = this.encodeCustom(obj);
+    for (const [client] of this.clients.entries()) {
+      if (client === exceptWs) continue;
+      if (client.readyState !== 1) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  /**
+   * M60: fan out one closed-burst / callout history event to every client in
+   * the room as a receive-only `MESSAGE_CUSTOM` `collab_change`. No exclusions
+   * — the author seeing their own change land in the timeline is correct.
+   * Mirrors `broadcastRunStatus`. Sole caller is the historian's broadcaster.
+   */
+  public broadcastCollabChange(ev: Record<string, unknown>): void {
+    if (this.disposed) return;
+    const frame = this.encodeCustom({ type: "collab_change", ...ev });
+    for (const [client] of this.clients.entries()) {
+      if (client.readyState !== 1 /* OPEN */) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  /**
+   * M61-A: fan out one comment-lifecycle invalidation ping to every client in
+   * the room as a receive-only `MESSAGE_CUSTOM` `comment_event`. Carries NO
+   * authoritative comment data — it is a scoped cache-invalidation trigger;
+   * the client refetches `GET /comments?file=` over REST. Mirrors
+   * `broadcastCollabChange`. `comment_event` / `comment_mention` /
+   * `profile_event` are OUTBOUND-only (server-authored) — `handleMessage`'s
+   * `MESSAGE_CUSTOM` branch never accepts them from a client.
+   */
+  public broadcastCommentEvent(ev: Record<string, unknown>): void {
+    if (this.disposed) return;
+    const frame = this.encodeCustom({ type: "comment_event", ...ev });
+    for (const [client] of this.clients.entries()) {
+      if (client.readyState !== 1 /* OPEN */) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  /**
+   * M61-A: deliver a `comment_mention` ping to every live socket belonging to
+   * `userId` in this room (mirrors `sendAttentionTo`). Presentation only —
+   * persistence is the `comment_mentions` row; an offline target re-surfaces
+   * via the M60 "while you were away" path.
+   */
+  public sendCommentMentionTo(userId: number, ev: Record<string, unknown>): void {
+    if (this.disposed) return;
+    const frame = this.encodeCustom({ type: "comment_mention", ...ev });
+    for (const [client, s] of this.clients.entries()) {
+      if (s.userId !== userId) continue;
+      if (client.readyState !== 1) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  /**
+   * M61-C: fan out a `profile_event` invalidation ping — `{type, userId}` only.
+   * The client refetches the profile bundle for that user. Receive-only.
+   */
+  public broadcastProfileEvent(ev: Record<string, unknown>): void {
+    if (this.disposed) return;
+    const frame = this.encodeCustom({ type: "profile_event", ...ev });
+    for (const [client] of this.clients.entries()) {
+      if (client.readyState !== 1 /* OPEN */) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  /** M60: does any OTHER live socket in this room belong to `userId`? */
+  private hasOtherSocketForUser(userId: number): boolean {
+    for (const s of this.clients.values()) {
+      if (s.userId === userId) return true;
+    }
+    return false;
+  }
+
+  private sendAttentionTo(userId: number, obj: unknown): void {
+    const frame = this.encodeCustom(obj);
+    for (const [client, s] of this.clients.entries()) {
+      if (s.userId !== userId) continue;
+      if (client.readyState !== 1) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  private isAttentionRoomMember(userId: number, exceptWs?: WebSocket): boolean {
+    for (const [client, s] of this.clients.entries()) {
+      if (client === exceptWs) continue;
+      if (s.userId === userId) return true;
+    }
+    return false;
+  }
+
+  private scheduleAttentionExpiry(event: AttentionEvent): void {
+    const delay = Math.max(0, event.expiresAt - Date.now());
+    const timer = setTimeout(() => {
+      this.attentionExpiryTimers.delete(event.id);
+      this.clearAttentionRequest(event.id, "expired");
+    }, delay);
+    timer.unref?.();
+    this.attentionExpiryTimers.set(event.id, timer);
+  }
+
+  /**
+   * Removes one targeted request from the registry, clears its expiry timer,
+   * and notifies both the target and the author with an `attention_cleared`.
+   * A no-op if the id is unknown (already expired / dismissed).
+   */
+  private clearAttentionRequest(
+    id: string,
+    reason: AttentionClearedReason,
+  ): void {
+    const timer = this.attentionExpiryTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.attentionExpiryTimers.delete(id);
+    }
+    const event = this.attentionRegistry.delete(id);
+    if (!event || event.targetUserId === undefined) return;
+    const msg = { type: "attention_cleared", id, reason };
+    this.sendAttentionTo(event.targetUserId, msg);
+    this.sendAttentionTo(event.author.userId, msg);
+  }
+
+  /**
+   * Entry point for every inbound `attention_*` custom message. Called from
+   * within the existing `case MESSAGE_CUSTOM` try/catch, so it must never
+   * throw. Fails closed on rate limit, parse failure, unauthorized target.
+   */
+  private handleAttentionMessage(
+    ws: WebSocket,
+    clientState: CollaboratorClientState,
+    parsed: Record<string, unknown>,
+  ): void {
+    if (this.disposed) return;
+
+    if (parsed.type === "attention_dismiss") {
+      const id = typeof parsed.id === "string" ? parsed.id : null;
+      if (!id) return;
+      const event = this.attentionRegistry.get(id);
+      // Authorization: the entry must exist AND target the dismisser's user.
+      // A client-supplied `reason`/`acted` is never proof of anything.
+      if (!event || event.targetUserId !== clientState.userId) return;
+      this.clearAttentionRequest(
+        id,
+        parsed.acted === true ? "acted" : "dismissed",
+      );
+      return;
+    }
+
+    if (!this.attentionRateLimiterFor(ws).tryConsume(Date.now())) return;
+
+    const input = parseAttentionInput(parsed);
+    if (!input) return;
+
+    const now = Date.now();
+    const author = this.authorFor(clientState);
+
+    if (input.kind === "point" || input.kind === "callout") {
+      const event = buildAttentionEvent(input, author, now);
+      this.broadcastAttention(event, ws);
+      // M60: a callout additionally leaves a safe, metadata-only history row.
+      // The M58 callout itself stays ephemeral — this does not make it
+      // persistent chat (that is M61). Points are NOT recorded (too transient).
+      if (input.kind === "callout") {
+        this.historian.recordCallout({
+          projectId: this.projectId,
+          authorUserId: clientState.userId,
+          username: clientState.username,
+          filePath: event.file,
+          startLine: event.range?.startLine ?? null,
+          endLine: event.range?.endLine ?? null,
+          messagePreview: (event.message ?? "").slice(0, 120),
+          targeted: false,
+          at: now,
+        });
+      }
+      return;
+    }
+
+    // input.kind === "request"
+    if (
+      input.targetUserId === clientState.userId ||
+      !this.isAttentionRoomMember(input.targetUserId)
+    ) {
+      return; // self-target or non-member — silent
+    }
+
+    const event = buildAttentionEvent(input, author, now);
+    const res = this.attentionRegistry.tryAdd(event);
+    if (!res.ok) {
+      // Lightweight, transient sender-side indication. Not a persistent error.
+      this.sendAttentionTo(author.userId, {
+        type: "attention_rate_limited",
+        scope: "outstanding_requests",
+      });
+      return;
+    }
+    if (res.evicted) {
+      const t = this.attentionExpiryTimers.get(res.evicted.id);
+      if (t) {
+        clearTimeout(t);
+        this.attentionExpiryTimers.delete(res.evicted.id);
+      }
+      if (res.evicted.targetUserId !== undefined) {
+        const msg = {
+          type: "attention_cleared",
+          id: res.evicted.id,
+          reason: "expired" as const,
+        };
+        this.sendAttentionTo(res.evicted.targetUserId, msg);
+        this.sendAttentionTo(res.evicted.author.userId, msg);
+      }
+    }
+    this.scheduleAttentionExpiry(event);
+    this.sendAttentionTo(input.targetUserId, event);
+    this.sendAttentionTo(author.userId, event); // author echo → "✓ Sent"
+  }
+
+  /** Test-support: observability accessor (mirrors getBroadcastSendCount). */
+  public hasAttentionRequest(id: string): boolean {
+    return this.attentionRegistry.get(id) !== undefined;
+  }
+
+  /**
+   * M60: best-effort line-range enrichment. Computes the affected span of one
+   * Y.Text change from its Quill-style delta and stashes it against the
+   * transaction for the M60 afterTransaction hook to drain. Never authoritative
+   * — if this misses or is ambiguous, the change is still recorded file-level.
+   * Skips external/disk-load transactions (those are handled by contamination).
+   */
+  private stashRange(filePath: string, evt: Y.YTextEvent): void {
+    const tr = evt.transaction;
+    if (
+      tr.origin === "external_mutation" ||
+      tr.origin === "initial_disk_load"
+    ) {
+      return;
+    }
+    let offset = 0;
+    let changeStart = -1;
+    let changeEnd = -1;
+    let clusters = 0;
+    let inCluster = false;
+    let added = 0;
+    let removed = 0;
+    const deletedRuns: number[] = [];
+    // yjs's YTextEvent.changes.deleted carries the removed items when available.
+    try {
+      for (const item of evt.changes.deleted) {
+        const c = (item as { content?: { getContent?: () => unknown[] } })
+          .content;
+        const parts = c?.getContent?.() ?? [];
+        for (const p of parts) {
+          if (typeof p === "string") {
+            deletedRuns.push((p.match(/\n/g) || []).length);
+          }
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+    removed = deletedRuns.reduce((a, b) => a + b, 0);
+
+    for (const op of evt.delta as Array<{
+      retain?: number;
+      insert?: unknown;
+      delete?: number;
+    }>) {
+      if (typeof op.retain === "number") {
+        inCluster = false;
+        offset += op.retain;
+      } else {
+        if (!inCluster) {
+          clusters += 1;
+          inCluster = true;
+          if (changeStart < 0) changeStart = offset;
+        }
+        if (typeof op.insert === "string") {
+          added += (op.insert.match(/\n/g) || []).length;
+          offset += op.insert.length;
+          changeEnd = offset;
+        }
+        if (typeof op.delete === "number") {
+          changeEnd = Math.max(changeEnd, offset + op.delete);
+        }
+      }
+    }
+
+    const text = evt.target.toString();
+    const lineAt = (o: number): number =>
+      text.slice(0, Math.max(0, Math.min(o, text.length))).split("\n").length;
+
+    const entry = {
+      startLine: changeStart < 0 ? 1 : lineAt(changeStart),
+      endLine: changeEnd < 0 ? 1 : lineAt(changeEnd),
+      contiguous: clusters <= 1,
+      linesAdded: added,
+      linesRemoved: removed,
+    };
+
+    let m = this.rangeStash.get(tr);
+    if (!m) {
+      m = new Map();
+      this.rangeStash.set(tr, m);
+    }
+    const prev = m.get(filePath);
+    m.set(
+      filePath,
+      prev
+        ? {
+            startLine: Math.min(prev.startLine, entry.startLine),
+            endLine: Math.max(prev.endLine, entry.endLine),
+            contiguous: prev.contiguous && entry.contiguous,
+            linesAdded: prev.linesAdded + entry.linesAdded,
+            linesRemoved: prev.linesRemoved + entry.linesRemoved,
+          }
+        : entry,
+    );
+  }
+
   /**
    * Initializes a file's collaborative Y.Text from the workspace filesystem if not already loaded.
    *
@@ -732,6 +1241,17 @@ export class CollaborationRoom {
     }
 
     const yText = this.doc.getText(filePath);
+
+    // M60: attach ONE best-effort range observer per file (idempotent). Only
+    // reached after the workspace-boundary guard above and on the real
+    // doc.getText() handle — never on the detached Y.Text returned for a
+    // rejected path. doc.destroy() in dispose() removes every observer; the
+    // room is discarded straight after, so no explicit teardown is needed.
+    if (!this.rangeObservedFiles.has(filePath)) {
+      yText.observe((evt) => this.stashRange(filePath, evt));
+      this.rangeObservedFiles.add(filePath);
+    }
+
     if (yText.length === 0) {
       try {
         const content = await fs.readFile(fullPath, "utf-8");
@@ -878,6 +1398,18 @@ export class CollaborationRoom {
     if (destructive && destructive.actor.userId !== clientState.userId) {
       this.sendDestructiveMutationNotice(destructive);
     }
+
+    // 5. M58: replay ONLY currently-valid targeted requests aimed at THIS
+    // user. A reconnecting bystander gets nothing; an expired request is not
+    // in the registry so is never replayed; a request for another user is
+    // never sent here.
+    const attnNow = Date.now();
+    for (const event of this.attentionRegistry.byTarget(clientState.userId)) {
+      if (event.expiresAt <= attnNow) continue;
+      try {
+        ws.send(this.encodeCustom(event));
+      } catch {}
+    }
   }
 
   /**
@@ -908,7 +1440,19 @@ export class CollaborationRoom {
 
           const encoder = encoding.createEncoder();
           encoding.writeVarUint(encoder, MESSAGE_SYNC);
-          syncProtocol.readSyncMessage(decoder, encoder, this.doc, ws);
+          // M60: only an incremental `messageYjsUpdate` is a real user edit to
+          // attribute. `messageYjsSyncStep2` is a client re-seeding the room
+          // from its own Y.Doc lineage on connect/reconnect — after a server
+          // restart the room's disk-seeded doc has different structs, so that
+          // bulk apply would otherwise be misattributed as a fresh edit burst
+          // per file. Suppress attribution for the duration of this apply.
+          this.m60SuppressAttribution =
+            syncType !== syncProtocol.messageYjsUpdate;
+          try {
+            syncProtocol.readSyncMessage(decoder, encoder, this.doc, ws);
+          } finally {
+            this.m60SuppressAttribution = false;
+          }
 
           if (encoding.length(encoder) > 1) {
             ws.send(encoding.toUint8Array(encoder));
@@ -980,6 +1524,18 @@ export class CollaborationRoom {
                   } catch {}
                 })
                 .catch(() => {});
+            } else if (
+              parsed &&
+              typeof parsed.type === "string" &&
+              parsed.type.startsWith("attention_")
+            ) {
+              // M58: transient attention events. Server-authoritative author,
+              // bounded, targeted where applicable — see handleAttentionMessage.
+              this.handleAttentionMessage(
+                ws,
+                clientState,
+                parsed as Record<string, unknown>,
+              );
             }
           } catch {}
           break;
@@ -1028,6 +1584,55 @@ export class CollaborationRoom {
       );
       // Drop the attribution so a repeated removeClient() is a no-op.
       ownedIds.clear();
+    }
+
+    // M58: an author leaving withdraws their outstanding requests (the target
+    // is told `author_gone`); a target leaving drops requests aimed at them
+    // (never persisted, never replayed — silent). Runs AFTER clients.delete so
+    // the leaver is not counted as a member, and BEFORE scheduleIdleDisposal.
+    if (clientState) {
+      for (const e of this.attentionRegistry.deleteByAuthor(
+        clientState.userId,
+      )) {
+        const t = this.attentionExpiryTimers.get(e.id);
+        if (t) {
+          clearTimeout(t);
+          this.attentionExpiryTimers.delete(e.id);
+        }
+        if (e.targetUserId !== undefined) {
+          this.sendAttentionTo(e.targetUserId, {
+            type: "attention_cleared",
+            id: e.id,
+            reason: "author_gone",
+          });
+        }
+      }
+      for (const e of this.attentionRegistry.deleteByTarget(
+        clientState.userId,
+      )) {
+        const t = this.attentionExpiryTimers.get(e.id);
+        if (t) {
+          clearTimeout(t);
+          this.attentionExpiryTimers.delete(e.id);
+        }
+      }
+
+      // M60: on a genuine disconnect (no other live socket for this user —
+      // a multi-tab user closing one tab is not "gone"): close this author's
+      // open bursts and stamp the last-seen boundary. A reconnect opens a
+      // fresh burst; history is never duplicated (attribution is by userId).
+      if (!this.hasOtherSocketForUser(clientState.userId)) {
+        this.historian.closeAuthorBursts(
+          this.projectId,
+          clientState.userId,
+          "disconnect",
+        );
+        try {
+          touchLastSeen(this.db, this.projectId, clientState.userId);
+        } catch {
+          /* best-effort */
+        }
+      }
     }
 
     // If room is now empty, schedule a grace period before disposing
@@ -1124,10 +1729,11 @@ export class CollaborationRoom {
       kept.push({
         clientId,
         clock,
-        state: this.buildAuthoritativeAwarenessState(
-          parsed as Record<string, unknown>,
-          clientState,
-        ),
+        state: buildAuthoritativeAwarenessState(parsed as Record<string, unknown>, {
+          userId: clientState.userId,
+          username: clientState.username,
+          role: clientState.role,
+        }),
       });
     }
 
@@ -1160,148 +1766,10 @@ export class CollaborationRoom {
     return false;
   }
 
-  /**
-   * Builds the trusted awareness state for one entry: server-authoritative
-   * identity + an allowlist of bounded ephemeral fields. `incoming` is the
-   * untrusted client-decoded object.
-   */
-  private buildAuthoritativeAwarenessState(
-    incoming: Record<string, unknown>,
-    clientState: CollaboratorClientState,
-  ): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
+  // buildAuthoritativeAwarenessState / sanitizeAwarenessFilePath / isAwarenessCoord
+  // moved to ./presence.ts (M57). sanitizeIncomingAwarenessUpdate above still
+  // owns the frame decode + clientID ownership/claim — the security boundary.
 
-    // Identity — ALWAYS the authenticated session, never the client's claim.
-    const user: Record<string, unknown> = {
-      id: clientState.userId,
-      name: clientState.username,
-      role: clientState.role,
-    };
-    const incomingUser = incoming.user;
-    if (incomingUser && typeof incomingUser === "object") {
-      const color = (incomingUser as Record<string, unknown>).color;
-      if (typeof color === "string" && /^#[0-9a-fA-F]{3,8}$/.test(color)) {
-        user.color = color;
-      }
-    }
-    out.user = user;
-
-    if (
-      typeof incoming.status === "string" &&
-      AWARENESS_STATUS_VALUES.has(incoming.status)
-    ) {
-      out.status = incoming.status;
-    }
-
-    const activity = incoming.activity;
-    if (
-      activity &&
-      typeof activity === "object" &&
-      typeof (activity as Record<string, unknown>).type === "string" &&
-      AWARENESS_ACTIVITY_VALUES.has(
-        (activity as Record<string, unknown>).type as string,
-      )
-    ) {
-      const a = activity as Record<string, unknown>;
-      const cleaned: Record<string, unknown> = { type: a.type };
-      if (a.detail === null) {
-        cleaned.detail = null;
-      } else if (
-        typeof a.detail === "string" &&
-        a.detail.length <= AWARENESS_MAX_DETAIL_LEN
-      ) {
-        cleaned.detail = a.detail;
-      }
-      if (typeof a.timestamp === "number" && Number.isFinite(a.timestamp)) {
-        cleaned.timestamp = a.timestamp;
-      }
-      out.activity = cleaned;
-    }
-
-    const activeFile = this.sanitizeAwarenessFilePath(incoming.activeFile);
-    if (activeFile !== undefined) out.activeFile = activeFile;
-
-    const cursor = incoming.cursor;
-    if (cursor === null) {
-      out.cursor = null;
-    } else if (cursor && typeof cursor === "object") {
-      const c = cursor as Record<string, unknown>;
-      if (this.isAwarenessCoord(c.line) && this.isAwarenessCoord(c.column)) {
-        out.cursor = { line: c.line, column: c.column };
-      }
-    }
-
-    const selection = incoming.selection;
-    if (selection === null) {
-      out.selection = null;
-    } else if (selection && typeof selection === "object") {
-      const s = selection as Record<string, unknown>;
-      if (
-        this.isAwarenessCoord(s.startLine) &&
-        this.isAwarenessCoord(s.startColumn) &&
-        this.isAwarenessCoord(s.endLine) &&
-        this.isAwarenessCoord(s.endColumn)
-      ) {
-        out.selection = {
-          startLine: s.startLine,
-          startColumn: s.startColumn,
-          endLine: s.endLine,
-          endColumn: s.endColumn,
-        };
-      }
-    }
-
-    if (
-      typeof incoming.lastActive === "number" &&
-      Number.isFinite(incoming.lastActive)
-    ) {
-      out.lastActive = incoming.lastActive;
-    }
-
-    // M56: the single bounded "my active file has unsaved local edits" bit.
-    // A client may only report its OWN dirty state for its OWN active file.
-    // Any `dirtyPaths`-style list or other extra key is structurally dropped
-    // here because `out` is rebuilt from scratch and never spreads `incoming`.
-    if (typeof incoming.activeFileDirty === "boolean") {
-      out.activeFileDirty = incoming.activeFileDirty;
-    }
-
-    return out;
-  }
-
-  private isAwarenessCoord(n: unknown): n is number {
-    return (
-      typeof n === "number" &&
-      Number.isFinite(n) &&
-      n >= 0 &&
-      n <= AWARENESS_MAX_COORD
-    );
-  }
-
-  /**
-   * `activeFile` is broadcast to every collaborator, so it must look like a
-   * bounded workspace-relative path — never absolute, never traversal, never
-   * a control-char / NUL carrier. This is metadata only: NO filesystem
-   * access happens here (that stays in ensureFileLoaded, with its own
-   * realpath guard). Returns a string to keep, `null` for an explicit
-   * clear, or `undefined` to drop the field.
-   */
-  private sanitizeAwarenessFilePath(value: unknown): string | null | undefined {
-    if (value === null) return null;
-    if (typeof value !== "string") return undefined;
-    if (value.length === 0 || value.length > AWARENESS_MAX_PATH_LEN) {
-      return undefined;
-    }
-    // Reject C0 control characters (incl. NUL) and DEL.
-    for (let i = 0; i < value.length; i++) {
-      const code = value.charCodeAt(i);
-      if (code < 0x20 || code === 0x7f) return undefined;
-    }
-    const norm = value.replace(/\\/g, "/");
-    if (norm.startsWith("/") || /^[a-zA-Z]:/.test(norm)) return undefined;
-    if (norm.split("/").some((seg) => seg === "..")) return undefined;
-    return value;
-  }
 
   /**
    * Disconnects a specific user immediately upon role revocation.
@@ -1400,6 +1868,10 @@ export class CollaborationRoom {
     // authoritative guard: even if some other path reaches flushToDisk() on
     // a disposed room in the future, it must still refuse to write.
     if (this.disposed) return;
+
+    // M60: a flush-to-disk is a burst-close boundary — history and disk should
+    // agree on which files changed. Synchronous, in-memory only.
+    this.historian.closeProjectBursts(this.projectId, "flush");
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -1743,6 +2215,11 @@ export class CollaborationRoom {
    * Closes room, flushes files, and frees all memory.
    */
   public dispose(): void {
+    // M60: close every open burst BEFORE `disposed` is set and the Y.Doc is
+    // destroyed — synchronous, in-memory; the historian's own flush loop
+    // persists them. Runs first so the "collab_change" broadcast (via the
+    // historian's broadcaster) still finds live clients.
+    this.historian.closeProjectBursts(this.projectId, "dispose");
     this.disposed = true;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.maxFlushTimer) clearTimeout(this.maxFlushTimer);
@@ -1758,6 +2235,10 @@ export class CollaborationRoom {
       this.runStatusSweepTimer = null;
     }
     this.runStatus.clear();
+    // M58: attention teardown.
+    for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
+    this.attentionExpiryTimers.clear();
+    this.attentionRegistry.clear();
     this.yjsCoalesceTimer = null;
     this.awarenessCoalesceTimer = null;
     this.slowClientRecheckTimer = null;
@@ -1835,6 +2316,46 @@ export class CollaborationManager {
    */
   public notifyRunStatus(projectId: string, input: RunStatusEntry): void {
     this.rooms.get(projectId)?.handleRunStatus(input);
+  }
+
+  /**
+   * M60: fan out a closed-burst / callout history event to a project's live
+   * room. Wired as the `CollaborationHistorian` broadcaster in index.ts. A
+   * no-op when no room is live (nobody to notify). Server-built payload only.
+   */
+  public broadcastCollabChange(
+    projectId: string,
+    ev: Record<string, unknown>,
+  ): void {
+    this.rooms.get(projectId)?.broadcastCollabChange(ev);
+  }
+
+  /**
+   * M61-A: fan out a comment-lifecycle invalidation ping to a project's live
+   * room. No-op when no room is live. Server-built payload only.
+   */
+  public broadcastCommentEvent(
+    projectId: string,
+    ev: Record<string, unknown>,
+  ): void {
+    this.rooms.get(projectId)?.broadcastCommentEvent(ev);
+  }
+
+  /** M61-A: deliver a `comment_mention` ping to one user in a project room. */
+  public sendCommentMentionTo(
+    projectId: string,
+    userId: number,
+    ev: Record<string, unknown>,
+  ): void {
+    this.rooms.get(projectId)?.sendCommentMentionTo(userId, ev);
+  }
+
+  /** M61-C: fan out a `profile_event` invalidation ping to a project room. */
+  public broadcastProfileEvent(
+    projectId: string,
+    ev: Record<string, unknown>,
+  ): void {
+    this.rooms.get(projectId)?.broadcastProfileEvent(ev);
   }
 
   /**

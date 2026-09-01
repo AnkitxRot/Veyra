@@ -505,9 +505,10 @@ metadata, audit history, snapshot _records_, etc.), but not the two filesystem-r
 durable project state: `<data-dir>/workspaces/<projectId>/` (actual project source files) and
 `<data-dir>/snapshots/<projectId>/` (the gzip _bodies_ of user-created snapshots — the `snapshots`
 table only stores their metadata). Milestone 31 adds an automated, admin-managed **backup** for
-these two, per project. **Restore is not yet automated for workspaces/snapshots** — that is
-deferred to a future milestone; recovering a project's files today still means extracting one of
-these archives by hand into `<data-dir>/workspaces/<projectId>/`.
+these two, per project; Milestone 32 added the matching **automated restore**
+(`POST /api/admin/workspace-backups/:projectId/:filename/restore`), and Milestone 46 surfaced both
+in the admin dashboard's "Database & Workspace Backups" tab. Manual extraction of an archive into
+`<data-dir>/workspaces/<projectId>/` still works as a fallback but is no longer required.
 
 ### What is included / excluded
 
@@ -572,6 +573,7 @@ POST   /api/admin/workspace-backups/:projectId              Creates a backup for
 GET    /api/admin/workspace-backups/:projectId               Lists that project's backups.
 GET    /api/admin/workspace-backups/:projectId/:filename     Downloads a specific backup.
 DELETE /api/admin/workspace-backups/:projectId/:filename     Deletes a specific backup.
+POST   /api/admin/workspace-backups/:projectId/:filename/restore   Restores that backup in place (M32; destructive, admin-only).
 ```
 
 Admin-only, same as the database backup routes. `:projectId` list/download/delete deliberately do

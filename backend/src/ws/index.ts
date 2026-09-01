@@ -10,6 +10,7 @@ import { handleExecutionConnection } from "./execution.js";
 import { hashToken } from "../auth/middleware.js";
 import { AdminTelemetryStreamManager } from "../admin/telemetry-stream.js";
 import { collaborationManager } from "../collab/manager.js";
+import { insertLastSeenIfAbsent } from "../collab/lastSeen.js";
 import { ApiError } from "../errors.js";
 import { resolveProxyEntry } from "../projects/proxyTargets.js";
 import {
@@ -343,6 +344,11 @@ export function setupWebSocketServer(
             username: row.username,
             role: accessRole,
           });
+          // M60: seed a last-seen boundary on the FIRST ever connect to this
+          // project (no-op afterwards) — a first-time collaborator has no
+          // "while you were away" backlog. The boundary then advances only on
+          // disconnect and on while-away ack.
+          insertLastSeenIfAbsent(db, projectId, row.id);
 
           ws.on("message", (data: any) => {
             const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);

@@ -5,7 +5,10 @@ import type {
   AvailabilityStatus,
 } from "../../collab/client";
 import type { RunStatusEntry } from "../../types";
+import type { AttentionEvent } from "../../collab/attention";
+import { buildFocusContext } from "../../collab/focus";
 import { IconUsers, IconSparkles } from "../common/Icons";
+import { pickRunForUser, formatRunText } from "./runActivity";
 
 export interface CollaboratorAvatarStackProps {
   collaborators: CollaboratorPresence[];
@@ -18,40 +21,12 @@ export interface CollaboratorAvatarStackProps {
   onFollowCollaborator?: (collaborator: CollaboratorPresence) => void;
   onJumpToCollaborator?: (collaborator: CollaboratorPresence) => void;
   onOpenShareModal?: () => void;
-}
-
-// M54: a collaborator's most relevant run — an active run wins over a
-// lingering terminal one; among terminal ones the most recent.
-function pickRunForUser(
-  entries: RunStatusEntry[],
-  userId: number,
-): RunStatusEntry | null {
-  const mine = entries.filter((e) => e.userId === userId);
-  if (mine.length === 0) return null;
-  const running = mine.find((e) => e.state === "running");
-  if (running) return running;
-  return mine.reduce((a, b) =>
-    (b.endedAt ?? b.startedAt) > (a.endedAt ?? a.startedAt) ? b : a,
-  );
-}
-
-function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function formatRunText(entry: RunStatusEntry, now: number): string {
-  const base = entry.file ? entry.file.split("/").pop() : null;
-  if (entry.state === "running") {
-    return `Running ${base ?? "code"}${entry.language ? ` · ${entry.language}` : ""} · ${formatElapsed(now - entry.startedAt)}`;
-  }
-  const label = base ?? "run";
-  if (entry.state === "success")
-    return `${label} exited ${entry.exitCode ?? 0}`;
-  if (entry.state === "failed") return `${label} failed`;
-  return `${label} stopped`;
+  /** M57: open the full Team roster panel (count chip + avatar click). */
+  onOpenTeamPanel?: () => void;
+  /** M58: count of actionable incoming targeted attention requests. */
+  incomingRequestCount?: number;
+  /** M59: full attention list — drives the popover focus-context block. */
+  attention?: AttentionEvent[];
 }
 
 export default function CollaboratorAvatarStack({
@@ -65,6 +40,9 @@ export default function CollaboratorAvatarStack({
   onFollowCollaborator,
   onJumpToCollaborator,
   onOpenShareModal,
+  onOpenTeamPanel,
+  incomingRequestCount = 0,
+  attention = [],
 }: CollaboratorAvatarStackProps) {
   // M54: local 1s tick for the elapsed clock — only while some run is active.
   const [now, setNow] = useState(() => Date.now());
@@ -173,7 +151,11 @@ export default function CollaboratorAvatarStack({
         );
       case "idle":
         return (
-          <span className="collab-avatar-status idle" title="Idle (Away)" />
+          <span className="collab-avatar-status idle" title="Idle" />
+        );
+      case "away":
+        return (
+          <span className="collab-avatar-status idle" title="Away" />
         );
       case "dnd":
         return (
@@ -313,6 +295,40 @@ export default function CollaboratorAvatarStack({
             );
           })}
         </div>
+      )}
+
+      {/* M57: collaborator count — opens the full Team roster panel. The
+          per-avatar quick popover above is preserved for fast Follow/Jump. */}
+      {onOpenTeamPanel && (
+        <button
+          type="button"
+          className="collab-count"
+          onClick={() => {
+            onOpenTeamPanel();
+            // M58: nudge the AttentionTray into view when there are requests.
+            if (incomingRequestCount > 0) {
+              document.dispatchEvent(
+                new CustomEvent("ide-focus-attention-tray"),
+              );
+            }
+          }}
+          title="Open team panel"
+          aria-label={`${collaborators.length} collaborator${
+            collaborators.length === 1 ? "" : "s"
+          } — open team panel`}
+        >
+          {collaborators.length}
+          {incomingRequestCount > 0 && (
+            <span
+              className="collab-attn-badge"
+              aria-label={`${incomingRequestCount} attention request${
+                incomingRequestCount === 1 ? "" : "s"
+              }`}
+            >
+              {incomingRequestCount}
+            </span>
+          )}
+        </button>
       )}
 
       {/* Selected Collaborator Activity Popover */}
@@ -475,6 +491,59 @@ export default function CollaboratorAvatarStack({
               </div>
             )}
           </div>
+
+          {(() => {
+            // M59: derived collaborative-focus context — file, range, latest
+            // callout message, and a UI-only state chip. Pure over the existing
+            // presence + attention sources; no store.
+            const fc = buildFocusContext(
+              selectedCollaborator,
+              attention,
+              currentUserId,
+              followingUserId ?? null,
+            );
+            if (!fc.range && !fc.attention?.message) return null;
+            return (
+              <div
+                className={`collab-popover-focus focus-state-${fc.state}`}
+                style={{
+                  padding: "6px 8px",
+                  background: "rgba(137, 180, 250, 0.08)",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  marginBottom: "10px",
+                  border: "1px solid rgba(137, 180, 250, 0.18)",
+                }}
+              >
+                <div
+                  style={{
+                    color: "var(--fg-muted, #a6adc8)",
+                    fontSize: "10px",
+                    marginBottom: "2px",
+                  }}
+                >
+                  FOCUS
+                </div>
+                {fc.range && (
+                  <div style={{ fontWeight: 500 }}>
+                    {fc.range.startLine === fc.range.endLine
+                      ? `Line ${fc.range.startLine}`
+                      : `Lines ${fc.range.startLine}–${fc.range.endLine}`}
+                  </div>
+                )}
+                {fc.attention?.message && (
+                  <div
+                    style={{
+                      color: "var(--fg-secondary, #bac2de)",
+                      marginTop: "2px",
+                    }}
+                  >
+                    📣 “{fc.attention.message}”
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div style={{ display: "flex", gap: "6px" }}>
             <button
