@@ -6005,7 +6005,7 @@ and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.na
 | Area | Status | Evidence |
 |---|---|---|
 | M61-A backend contract | **PROVEN** | `m61-comments` 8, `m61-comment-store` 6, `m61-comment-timeline` 3, `m61-comment-validate` 4, `m61-transport` 4 — plus `m61-lifecycle` 5 — all pass in the full Docker backend run (76 files / 966 passed / 9 Windows-only skips / 0 failed) |
-| M61-A frontend contract | **PROVEN** | `CommentThread` 5, `CommentGutter` 3, `CommentComposer` 3, `CommentsPanel` 2, `mentionText` 2, `Sidebar.commentBadge` 4, `Editor.tabBadge` 4, `collab.comment.client` 4, `comment.anchor` 5, `comment.store` 3, `comment.keep` 5, `comment.navigation` 6, `comment.commands.registry` 3 — all pass in `npm test -w @cloud-ide/frontend` (71 files / 564 passed / 0 failed) |
+| M61-A frontend contract | **PROVEN** | `CommentThread` 5, `CommentGutter` 5 (+2 sync-race regressions, 2026-09-02), `CommentThread.overlay` 2 (new, 2026-09-02), `CommentComposer` 3, `CommentsPanel` 2, `mentionText` 2, `Sidebar.commentBadge` 4, `Editor.tabBadge` 4, `collab.comment.client` 4, `comment.anchor` 5, `comment.store` 3, `comment.keep` 5, `comment.navigation` 6, `comment.commands.registry` 3 — all pass in `npm test -w @cloud-ide/frontend` (72 files / 568 passed / 0 failed) |
 | Migration v12 apply (incl. from a pre-v11 DB) | **PROVEN** | `migrations.test.ts` — real v8 DB with data → `openDb()` → schema version 12, rows `[1..12]`, pre-existing data preserved; `m61: v12 creates the comment/settings/profile tables`; `m61: v12 copies pre-existing user_preferences into user_settings.data` |
 | v12 cascade — schema | **PROVEN** | `foreign_key_list(comments)` → `comment_threads` = `CASCADE`; `PRAGMA foreign_keys = ON` in `openDb` |
 | v12 cascade — behavioural (insert thread+comments+reply+mentions+reactions → delete project / user / root comment → exactly the right rows gone, no orphans, other project untouched) | **PROVEN** | `backend/test/m61-lifecycle.test.ts` (5) — real `openDb()` migration path, raw `DELETE FROM projects` / `DELETE FROM users` so the assertions depend entirely on the FK clauses. Revert-sensitivity demonstrated in this pass: reverting `comment_threads.project_id` CASCADE, `resolved_by` SET NULL, or `created_by` CASCADE each makes exactly the corresponding test fail (isolated reverts verified) |
@@ -6014,8 +6014,60 @@ and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.na
 | REST authorization | **PROVEN** (contract) | every handler calls `requireProjectAccess`; `m61-comments.test.ts` covers viewer/editor/owner gating and the author-or-owner delete rule |
 | No HTML/Markdown injection | **PROVEN** | `sanitizeCommentBody` server-side; no `innerHTML`/`dangerouslySetInnerHTML` in `Comments/` or `comments/`; `mentionText.test.tsx` |
 | Backend / frontend typecheck · lint · build · app image | **PROVEN** | `tsc --noEmit` 0/0; `eslint` 0 errors both; `vite build` exit 0; `docker build -f docker/Dockerfile.app` exit 0 (runs `tsc -p tsconfig.build.json` + `tsc --noEmit && vite build` + `npm ci`) |
-| Live / two-session browser walkthrough | **NOT_PROVEN** | not exercised in this pass; no implementing-session browser record exists for M61. No claim is made about live anchor drift, mention delivery, resolve/reopen, or the gutter/badge UI in a real browser |
+| Live / two-session browser walkthrough | **PROVEN** (2026-09-02, second pass) | Real Chrome (User A, project owner) + two real WS collab peers (Users B/C) on `notes.txt`. UI-proven in the browser: create-from-selection, thread popover, live reply propagation to A with no reload, mention toast for A, resolve/reopen + badge/chip/panel transitions, tombstone + replies retained, full-reload persistence of thread/replies/resolution/tombstone/counts, anchor `exact`/`drifted`/`stale` via the real `resolveAnchor` against the live Y.Doc (stale shows the warning banner + drops the marker + panel "⚠ moved"), XSS-safe literal rendering, tab/tree/panel badges, M60 TEAM ACTIVITY timeline entries. Protocol-proven (WS/REST peers): B/C receive `comment_event`; only the mentioned user receives `comment_mention` (author + unrelated member get none); viewer → 403 on every mutation; non-collaborator → 404 on every comment endpoint; non-member mention ids dropped. Two real UI defects were found and fixed in this pass — see "Browser-pass defects" below. Comment *edit* (PATCH) was not exercised in the browser (unit-covered); the second-identity/authorization items are WS/REST-proven, not driven through a second browser UI. |
 | Track B / C / D | **N/A — not implemented** | v12 ships their tables dormant; `broadcastProfileEvent` has no product caller |
+
+### Browser-pass defects (2026-09-02, found + fixed in `fix(m61): stabilize comment browser interactions`)
+
+Two real M61-A UI defects were found during the first real-browser walkthrough and
+fixed in the same pass. Both fixes are minimal and revert-sensitive-tested.
+
+1. **Comment thread popover rendered ~360 px off the right edge of the viewport**
+   (only ~20 px visible). `.comment-thread` was `position: fixed` with no offsets
+   while nested inside `.comment-thread-overlay` (`position: fixed; right: 20px`);
+   the overlay collapsed to a zero-width box and could not place the detached child
+   (computed `left: 1229px; width: 380px` in a 1249 px viewport).
+   **Fix:** `frontend/src/styles/collab.css` — `.comment-thread` → `position: relative`
+   (placement stays entirely on the overlay).
+   **Regression test:** `frontend/test/CommentThread.overlay.test.ts` — no `.comment-thread`
+   rule may be `position: fixed`; `.comment-thread-overlay` must keep `position: fixed;
+   right: 20px; top: 80px`. Reverting the CSS fails the test.
+
+2. **CommentGutter resolved anchors before the initial Y.Doc sync** → every
+   `RelativePosition` resolved to `null` → a false `stale` that `reportAnchorStatus`
+   **persisted to the server for all users** (and into the M60 timeline), and the
+   thread then stayed showing `⚠ moved`, lost its `💬` marker, and dropped out of the
+   tab/tree badge + navigation — even with the anchored text untouched. Reproduced:
+   a fresh untouched comment showed `anchor_status:"stale"` after every reload.
+   **Fix:** `frontend/src/components/Comments/CommentGutter.tsx` — during the initial
+   sync window, skip the resolve pass (no report, no marker) while the file's `Y.Text`
+   is empty and poll (≤20 × 500 ms); re-resolve on `editor.onDidChangeModelContent`
+   (debounced 250 ms), which also keeps `exact`/`drifted`/`stale` current under live
+   local/remote editing; once content is seen an empty `Y.Text` resolves to `stale`
+   normally.
+   **Regression tests:** `frontend/test/CommentGutter.test.tsx` — (a) empty doc + a
+   thread whose stored status is already `stale` → `reportAnchorStatus` NOT called and
+   no marker while empty, then after sync + a content event the marker appears and the
+   advisory is corrected to `"ok"`; (b) content arrives with NO model-content event
+   (M52 deferred-bind window) → the 500 ms poll recovers the marker. Reverting the fix
+   fails (a); removing only the poll fails (b).
+
+**Not fixed (cosmetic / product-decision, non-blocking):** the `💬` chip renders one
+line above the anchor; the intended glyph-margin marker never renders (editor created
+without `glyphMargin`, and the `comment-range` decoration is a zero-width range — only
+the chip is a working indicator); after the anchor-status auto-correction the tab/tree
+badge lags one refetch (`reportAnchorStatus` doesn't invalidate the client
+`CommentStore`); a thread whose root is tombstoned with zero live replies still shows a
+chip (CommentGutter filter omits `root.deletedAt`, unlike `navigation.ts::navigableThreads`).
+
+**Pre-existing, separate from M61 (recorded here because the browser pass hit it):**
+the Monaco editor renderer hangs when a **TypeScript / JavaScript** file is opened
+in the automation browser (CDP screenshot / eval time out; plain-text and Markdown
+files are fine, and a bare Monaco 0.56 model with a TS language works). It
+**reproduces on clean `master` @ `ce2007c`** and on `stabilize/m57-m61` — it is
+**not introduced by M57–M61** and is outside this stabilization task. The M61-A
+browser walkthrough used `notes.txt` as the anchor file for this reason. Needs its
+own investigation pass (likely the bundled TS/JS worker in `monacoSetup.ts`).
 
 ### Known limitations
 
@@ -6024,7 +6076,10 @@ and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.na
   in the design doc is future work.
 - v12 migrates production databases to a schema with 7 unused tables.
 - Track-A cascade behaviour is now proven (`m61-lifecycle.test.ts`); Track-B/C tables remain untested because no code exercises them.
-- No browser/live verification of M61-A.
+- ~~No browser/live verification of M61-A.~~ Done 2026-09-02 (see the "Live /
+  two-session browser walkthrough" row and "Browser-pass defects" above); two real
+  UI defects were found and fixed. Comment *edit* (PATCH) and a true second-browser
+  authorization walkthrough remain WS/REST- and unit-only.
 - `CommentTimelineEvent` / comment wire shapes are hand-synced backend↔frontend
   (repo convention), each pinned by its own test.
 - Comment anchors are best-effort under heavy concurrent restructuring of the

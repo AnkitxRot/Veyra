@@ -10,10 +10,12 @@ vi.mock("../src/comments/api", () => ({
 
 import CommentGutter from "../src/components/Comments/CommentGutter";
 import { encodeAnchor } from "../src/comments/anchor";
+import { reportAnchorStatus } from "../src/comments/api";
 
 afterEach(() => {
   cleanup();
   __resetMonacoMocks();
+  vi.mocked(reportAnchorStatus).mockClear();
   document.querySelectorAll("[data-thread-id]").forEach((n) => n.remove());
 });
 
@@ -110,6 +112,89 @@ describe("M61-A CommentGutter", () => {
     expect(chip).toBeTruthy();
     fireEvent.click(chip);
     expect(onOpen).toHaveBeenCalledWith(t.id);
+  });
+
+  it("does not persist a false 'stale' while the Y.Doc is still syncing, and recovers on content change", async () => {
+    const file = "a.ts";
+    // The authoritative doc — the anchor is encoded against these real items.
+    const sourceDoc = new Y.Doc();
+    sourceDoc.getText(file).insert(0, "line1\nline2\nTARGET\nline4\n");
+    const t = await makeThread(
+      sourceDoc,
+      file,
+      "line1\nline2\n".length,
+      "line1\nline2\n".length + "TARGET".length,
+      // as if a previous sync-race pass had already persisted a false stale
+      { anchorStatus: "stale" },
+    );
+
+    // The doc the component gets starts EMPTY (server sync not finished yet).
+    const doc = new Y.Doc();
+    const editor = monaco.editor.create(document.createElement("div"), {});
+    mount({
+      editor,
+      monaco,
+      projectId: "p",
+      activeFile: file,
+      doc,
+      threads: [t],
+      onOpenThread: () => {},
+    });
+    await flush();
+
+    // While the file's Y.Text is empty we must NOT report anything — a
+    // resolve here would be a false stale and reportAnchorStatus persists it.
+    expect(reportAnchorStatus).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-thread-id]")).toBeNull();
+
+    // Sync completes: the real items (and their content) arrive.
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(sourceDoc));
+    (editor as unknown as { _fireContentChange: () => void })._fireContentChange();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300)); // clear the 250ms debounce
+    });
+    await flush();
+
+    // Now it resolves to a real anchor: the marker appears and the stale
+    // advisory is corrected back to "ok".
+    expect(document.querySelector("[data-thread-id]")).toBeTruthy();
+    expect(reportAnchorStatus).toHaveBeenCalledWith("p", t.id, "ok");
+  });
+
+  it("recovers via the sync poll when no model content event fires (deferred y-monaco bind)", async () => {
+    const file = "a.ts";
+    const sourceDoc = new Y.Doc();
+    sourceDoc.getText(file).insert(0, "alpha\nbeta\nGAMMA\n");
+    const t = await makeThread(
+      sourceDoc,
+      file,
+      "alpha\nbeta\n".length,
+      "alpha\nbeta\n".length + "GAMMA".length,
+    );
+
+    const doc = new Y.Doc();
+    const editor = monaco.editor.create(document.createElement("div"), {});
+    mount({
+      editor,
+      monaco,
+      projectId: "p",
+      activeFile: file,
+      doc,
+      threads: [t],
+      onOpenThread: () => {},
+    });
+    await flush();
+    expect(document.querySelector("[data-thread-id]")).toBeNull();
+
+    // Content arrives on the Y.Doc, but the editor never fires a content
+    // change (e.g. y-monaco has not bound yet — M52 deferred bind window).
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(sourceDoc));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 650)); // past one 500ms poll
+    });
+    await flush();
+
+    expect(document.querySelector("[data-thread-id]")).toBeTruthy();
   });
 
   it("never mutates the Monaco model", async () => {

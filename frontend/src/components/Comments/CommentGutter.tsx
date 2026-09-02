@@ -47,17 +47,43 @@ export default function CommentGutter({
 
   useEffect(() => {
     if (!editor) return;
-    let cancelled = false;
+    let generation = 0;
+    let syncRetry: ReturnType<typeof setTimeout> | null = null;
+    let syncRetriesLeft = 20; // ~10s of 500ms polls while the Y.Doc syncs
     if (!decoRef.current && editor.createDecorationsCollection) {
       decoRef.current = editor.createDecorationsCollection();
     }
 
-    (async () => {
+    const runPass = async () => {
+      const gen = ++generation;
+      const cancelled = () => gen !== generation;
       const decos: MonacoNS.editor.IModelDeltaDecoration[] = [];
       const keep = new Set<string>();
       const fileThreads = threads.filter(
         (t) => t.filePath === activeFile && t.resolvedAt == null,
       );
+
+      // The Y.Doc for this file is loaded asynchronously (server sync +
+      // y-monaco). Resolving anchors against a not-yet-populated Y.Text makes
+      // every RelativePosition resolve to `null` → a false `stale`, which
+      // `reportAnchorStatus` would then PERSIST for all users. During the
+      // initial sync window, skip the pass while the file's Y.Text is empty
+      // and poll; the y-monaco write that lands the synced content also fires
+      // `onDidChangeModelContent`, which re-runs this. Once we have seen
+      // content (or the window elapses) an empty Y.Text is a genuine
+      // full-delete and is allowed to resolve to `stale` normally.
+      if (
+        doc &&
+        fileThreads.length > 0 &&
+        syncRetriesLeft > 0 &&
+        doc.getText(activeFile).toString().length === 0
+      ) {
+        syncRetriesLeft--;
+        if (syncRetry) clearTimeout(syncRetry);
+        syncRetry = setTimeout(() => void runPass(), 500);
+        return;
+      }
+      syncRetriesLeft = 0;
 
       for (const thread of fileThreads) {
         const resolved = doc
@@ -70,7 +96,7 @@ export default function CommentGutter({
               prefixHash: thread.anchor.prefixHash,
             })
           : { state: "stale" as const, range: null, recovery: null };
-        if (cancelled) return;
+        if (cancelled()) return;
 
         // Advisory report — never load-bearing; fire and forget, once per state.
         if (reportedRef.current.get(thread.id) !== resolved.state) {
@@ -133,7 +159,7 @@ export default function CommentGutter({
         }
       }
 
-      if (cancelled) return;
+      if (cancelled()) return;
       decoRef.current?.set(decos);
       for (const [id, w] of widgetsRef.current) {
         if (!keep.has(id)) {
@@ -141,10 +167,26 @@ export default function CommentGutter({
           widgetsRef.current.delete(id);
         }
       }
-    })();
+    };
+
+    void runPass();
+
+    // Re-resolve when the editor content changes: the y-monaco write that
+    // lands the synced Y.Text fires this (recovering from the sync race
+    // guarded above), and so does live local / remote editing (keeping the
+    // exact / drifted / stale state and the markers current as the anchored
+    // region moves).
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const sub = editor.onDidChangeModelContent?.(() => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => void runPass(), 250);
+    });
 
     return () => {
-      cancelled = true;
+      generation++;
+      if (debounce) clearTimeout(debounce);
+      if (syncRetry) clearTimeout(syncRetry);
+      sub?.dispose?.();
     };
   }, [editor, monaco, projectId, activeFile, doc, threads, onOpenThread]);
 
