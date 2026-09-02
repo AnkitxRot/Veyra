@@ -803,9 +803,13 @@
   background: var(--surface-hover, rgba(137, 180, 250, 0.12));
 }
 
-/* Thread popover */
+/* Thread popover. Placement is owned by .comment-thread-overlay (position:
+   fixed; top: 80px; right: 20px). This element must stay in the overlay's
+   flow — a nested `position: fixed` here detaches it and lands it ~360px off
+   the right edge of the viewport (only the overlay's zero-width box anchors
+   to `right: 20px`). Keep it in-flow. */
 .comment-thread {
-  position: fixed;
+  position: relative;
   z-index: 500;
   width: 380px;
   max-height: 60vh;
