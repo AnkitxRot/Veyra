@@ -5387,8 +5387,8 @@ with M59 component-render cases.
 | Attention TTL expiry does not disturb Follow | **PROVEN** | tracking effect deps exclude `attention`; Decision 13 contract test |
 | Project switch / session expiry clears everything | **PROVEN** | collab-effect teardown + `forbidden` both call `resetFollowState` (contract test) |
 | No new transport / store / DB / Yjs / awareness write | **PROVEN** | `focus.ts` pure (no React/store); no `MESSAGE_CUSTOM`/`setLocalStateField.*focus` in the M59 diff (contract test) |
-| Concurrent-edit convergence (Scenario G) | **PROVEN** | 2026-08-30 closeout pass — two real authenticated sessions on a fresh 50-line file: independent-region, adjacent-line, same-line, and interleaved-burst edits from both clients all converged **byte-for-byte** (identical FNV-ish hash on both models AND on disk), 51 lines throughout, no reload, no whole-file clobber, no line-offset corruption — see "M59 final closeout pass" below |
-| EOL / model-initialization correctness | **PROVEN** | red→green verified (revert `Editor.tsx` `setEOL(LF)` → `Editor.eol.test.tsx` fails `expected '\r\n' to be '\n'`; restore → 2/2 pass); grep confirms `createModel` has exactly one collaborative call site and it is immediately followed by the LF pin; `client.ts` / `MonacoBinding` never create a model and `setValue` does not re-detect EOL; live both sessions showed `eol: "\n"` on every checkpoint across ~30 cross-client edits, disk stayed `\n`-only |
+| Concurrent-edit convergence (Scenario G) | **PROVEN** (with a 2026-09-04 caveat + fix) | 2026-08-30 closeout pass — two real authenticated sessions on a fresh 50-line file: independent-region, adjacent-line, same-line, and interleaved-burst edits from both clients all converged **byte-for-byte** — see "M59 final closeout pass" below. **2026-09-04:** re-testing found the convergence was environment-fragile — see the EOL row below and "M57–M61 live release-gate closure (2026-09-04)". After the EOL re-pin fix, a fresh two-browser concurrent same-line edit converged byte-for-byte (identical hash/length, LF-only on both) |
+| EOL / model-initialization correctness | ~~**PROVEN**~~ → **the invariant did NOT hold; re-fixed 2026-09-04** | The 2026-08-30 claim ("`client.ts` / `MonacoBinding` … `setValue` does not re-detect EOL; live both sessions showed `eol:"\n"`") was **wrong**: on 2026-09-04, two same-OS Chrome sessions opening the same file reproducibly ended up **CRLF (first opener) vs LF (second opener)**, and concurrent same-line edits **diverged byte-for-byte**. Root cause: the `new MonacoBinding(...)` ctor seeds the model with `model.setValue(ytext.toString())`, which drops the Editor.tsx create-time LF pin back to the Windows platform default. Fix: `client.ts::completeBind` re-pins `model.setEOL(LF)` after every (re)bind. Regression: `collab-initialization.test.ts` +2 (revert-sensitive). `Editor.eol.test.tsx` 2/2 still green (it never exercised the bind path). See "M57–M61 live release-gate closure (2026-09-04)" |
 | Browser visual walkthrough | **PROVEN** for Follow jump / FollowBanner / auto-track / dirty-buffer pause / dirty-preserving Return / concurrent-edit convergence; ~~**PARTIAL** for the grace-timeout + "left" notice transition~~ → **PROVEN 2026-09-04** (real disconnect, both reconnect branches, no auto-refollow — see "M57–M61 live release-gate closure (2026-09-04)") |
 
 **Known limitations / M60+ roadmap:** the collaborator-popover focus block shows
@@ -6210,6 +6210,27 @@ introduced by the memoization. **Fix:** new pure `frontend/src/utils/openFiles.t
 guards. Live re-verified: re-open / close-then-reopen now keeps one tab, 0
 warnings.
 
+**Bug 2 — collaborative EOL divergence → cross-client text corruption (P0; found
+while checking Monaco state during Gate 1).** Two same-OS Chrome sessions opening
+the same file reproducibly ended up **CRLF (first opener) vs LF (second opener)**,
+and concurrent same-line edits **diverged byte-for-byte** — exactly the M59 P0
+that the `Editor.tsx` create-time `setEOL(LF)` pin was meant to close, and which
+STATUS's 2026-08-30 "EOL / model-initialization correctness — PROVEN" row
+asserted was handled. It was not: `new MonacoBinding(...)` in
+`client.ts::completeBind` seeds the model with `model.setValue(ytext.toString())`,
+which drops the pin back to the Windows platform default (CRLF). The 2026-08-30
+`Editor.eol.test.tsx` never exercised the bind path, and the live G re-test that
+pass happened not to trip the timing. This is **pre-existing** (worse on `master`,
+which has no pin at all) — not introduced by anything this pass. **Fix:**
+`client.ts::completeBind` re-pins `model.setEOL(LF)` as its last step, after the
+binding ctor and any Phase-7 `setValue`. **Regression:**
+`frontend/test/collab-initialization.test.ts` +2 (revert-sensitive; the fake
+`MonacoBinding`/`FakeModel` now model the `setValue`→CRLF clobber). Live
+re-verified: both sessions LF, concurrent same-line edits converge byte-for-byte.
+
+Both fixes are frontend-only, ≤ 12 changed source lines each, and do not touch
+comments, migrations, the follow state machine, or any backend.
+
 ### Final verification (2026-09-04, Docker up)
 
 | Gate | Result |
@@ -6223,6 +6244,7 @@ warnings.
 | Backend `CI=true npm test` (Docker) | **966 passed / 0 failed / 9 skipped** (76 files) — unchanged from baseline (changes are frontend-only) |
 | `git diff --check` | clean |
 | Bug 1 regression red→green | verified (`appendOpenFile` dedupe reverted → 2 tests fail) |
+| Bug 2 regression red→green | verified (`completeBind` re-pin reverted → 2 tests fail) |
 | M61-A live (15 steps, 2 browsers) | **PROVEN** — re-run clean after both fixes |
 | Second-session authorization live | **PROVEN** — re-run clean |
 | M59 Scenario E live | **PROVEN** — re-run clean |
