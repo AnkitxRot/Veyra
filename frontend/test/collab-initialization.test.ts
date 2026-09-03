@@ -19,7 +19,9 @@ import * as decoding from "lib0/decoding";
 // MonacoBinding reproduces the one real behavior the bug hinges on — on
 // construct the Monaco model is overwritten FROM the Y.Text, then kept
 // synced to it via `ytext.observe`.
-vi.mock("../src/monacoSetup", () => ({ monaco: {} }));
+vi.mock("../src/monacoSetup", () => ({
+  monaco: { editor: { EndOfLineSequence: { LF: 0, CRLF: 1 } } },
+}));
 
 const bindingCtorCalls: Array<{ ytext: Y.Text; model: FakeModel }> = [];
 vi.mock("y-monaco", () => ({
@@ -31,6 +33,8 @@ vi.mock("y-monaco", () => ({
       this.ytext = ytext;
       this.model = model;
       bindingCtorCalls.push({ ytext, model });
+      // Real y-monaco seeds the model via model.setValue(), which — like real
+      // Monaco on Windows for \n-only content — resets the model EOL to CRLF.
       model.setValue(ytext.toString());
       this.handler = () => model.setValue(ytext.toString());
       ytext.observe(this.handler);
@@ -61,6 +65,9 @@ function fileReadyMessage(path: string): Uint8Array {
 class FakeModel {
   private value: string;
   private disposedFlag = false;
+  // "\r\n" = CRLF, "\n" = LF. Starts LF; setValue() drops it to the platform
+  // default (CRLF), exactly as real Monaco does for \n-only content on Windows.
+  private eol = "\n";
   constructor(initial: string) {
     this.value = initial;
   }
@@ -69,6 +76,13 @@ class FakeModel {
   }
   setValue(v: string): void {
     this.value = v;
+    this.eol = "\r\n";
+  }
+  getEOL(): string {
+    return this.eol;
+  }
+  setEOL(seq: number): void {
+    this.eol = seq === 0 ? "\n" : "\r\n";
   }
   isDisposed(): boolean {
     return this.disposedFlag;
@@ -411,6 +425,51 @@ describe("CollaborationClient — M52 initial-load seed-race matrix", () => {
     expect(final).toBe("NEW");
     expect(final).not.toContain("OLD");
     expect(model.getValue()).toBe("NEW");
+    client.dispose();
+  });
+
+  // 11. M59 P0 — the model EOL is re-pinned to LF AFTER the y-monaco bind.
+  // The MonacoBinding ctor seeds the model via setValue(), which (like real
+  // Monaco on Windows for \n-only content) leaves the model EOL at CRLF —
+  // undoing the LF pin Editor.tsx applies at create time. A CRLF-EOL client
+  // then translates its Monaco edits into wrong Y.Text offsets and concurrent
+  // edits diverge byte-for-byte across clients (reproduced live). completeBind
+  // must set the EOL back to LF as its last step.
+  it("re-pins the model EOL to LF after the y-monaco bind seeds it", () => {
+    const client = new CollaborationClient("proj-11", USER);
+    const ws = FakeWebSocket.latest();
+    ws.simulateOpen();
+
+    const serverDoc = new Y.Doc();
+    serverDoc.getText("main.py").insert(0, "line one\nline two\n");
+    ws.simulateMessage(serverReplyToSyncStep1(serverDoc, firstSyncFrame(ws)));
+
+    const model = new FakeModel("line one\nline two\n");
+    expect(model.getEOL()).toBe("\n"); // pinned by Editor.tsx at create time
+    client.bindMonacoModel("main.py", model as any, {} as any);
+
+    // Y.Text was already populated -> binds immediately; the fake binding's
+    // setValue() seed has just dropped the model to CRLF.
+    expect(bindingCtorCalls.length).toBe(1);
+    expect(model.getEOL()).toBe("\n"); // completeBind re-pinned it back to LF
+    client.dispose();
+  });
+
+  it("re-pins EOL to LF on a deferred bind too (after file_ready)", () => {
+    const client = new CollaborationClient("proj-11b", USER);
+    const ws = FakeWebSocket.latest();
+    ws.simulateOpen();
+
+    const model = new FakeModel("X");
+    client.bindMonacoModel("main.py", model as any, {} as any);
+
+    const serverDoc = new Y.Doc();
+    serverDoc.getText("main.py").insert(0, "X");
+    ws.simulateMessage(serverReplyToSyncStep1(serverDoc, firstSyncFrame(ws)));
+    ws.simulateMessage(fileReadyMessage("main.py"));
+
+    expect(bindingCtorCalls.length).toBe(1);
+    expect(model.getEOL()).toBe("\n");
     client.dispose();
   });
 });

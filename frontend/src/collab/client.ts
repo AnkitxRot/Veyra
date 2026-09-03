@@ -1082,6 +1082,18 @@ export class CollaborationClient {
       ) {
         model.setValue(localValue);
       }
+
+      // M59 P0 re-pin: the MonacoBinding ctor (and any Phase-7 setValue above)
+      // seed the model via model.setValue(), which drops the LF pin Editor.tsx
+      // applies at create time back to the platform default — CRLF on Windows.
+      // The backend and the shared Y.Text are \n-only, so a CRLF-EOL client
+      // translates its Monaco edits to Y.Text offsets that assume 2-byte line
+      // breaks the document does not have, landing every remote edit at the
+      // wrong position (verified live: two same-OS browsers ended up CRLF vs
+      // LF for the same file and concurrent edits diverged byte-for-byte).
+      // Re-pin LF here — after every (re)bind — so the invariant actually holds.
+      const LF = monaco.editor?.EndOfLineSequence?.LF;
+      if (LF !== undefined) model.setEOL(LF);
     } catch (err) {
       console.error("[CollabClient] Failed to bind Monaco editor:", err);
     }
