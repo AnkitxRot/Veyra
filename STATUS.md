@@ -5978,8 +5978,17 @@ readers or writers**:
 
 Consequence for a deployment: applying v12 migrates a production database to a
 schema with 7 unused tables. Landing Track A needs its 4 tables; whether to also
-land the Track B/C tables now or split v12 is a **merge-time decision**, not a
-correctness problem (the tables are simply empty).
+land the Track B/C tables now or split v12 was the one remaining **merge-time
+decision**, not a correctness problem (the tables are simply empty).
+
+**Decision (2026-09-04, release closure for `stabilize/m57-m61`): v12 is accepted
+as-is.** The seven dormant Track-B/C tables ship in the single v12 `up()`
+alongside the four Track-A tables. v12 is **not** being split and the migration is
+**not** being redesigned. Rationale: the dormant tables are empty and inert (no
+readers, no writers, FKs self-consistent), splitting would churn the migration
+list and `migrations.test.ts` version assertions for zero behavioural gain, and
+the forward-declared schema is the intended landing shape for the Track-B/C
+product work. This closes item (C) for this milestone.
 
 ### Files (M61, all previously uncommitted — now on `stabilize/m57-m61`)
 
