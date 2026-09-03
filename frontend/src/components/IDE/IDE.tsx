@@ -108,6 +108,7 @@ import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import { throttleLatest } from "../../utils/throttleLatest";
 import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
+import { appendOpenFile } from "../../utils/openFiles";
 import {
   readProjectSession,
   writeProjectSession,
@@ -921,7 +922,7 @@ export default function IDE({
     addRecentFile(project.id, path);
     setRecentFilesList(getRecentFiles(project.id));
 
-    const existing = openFiles.find((f) => f.path === path);
+    const existing = openFilesRef.current.find((f) => f.path === path);
     if (existing) {
       setActiveFile(path);
       return;
@@ -931,7 +932,7 @@ export default function IDE({
       const res = await api<{ content: string }>(
         `/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`,
       );
-      setOpenFiles((prev) => [...prev, { path, content: res.content }]);
+      setOpenFiles((prev) => appendOpenFile(prev, { path, content: res.content }));
       setActiveFile(path);
     } catch (err: any) {
       alert(`Could not open file: ${err.message || "Error"}`);
