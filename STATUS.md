@@ -5369,8 +5369,8 @@ with M59 component-render cases.
 | Full backend suite | **PROVEN** | `npx vitest run` → **874 passed / 0 failed / 9 skipped** (62 files) — 832 + the uncommitted `m57-presence` / `m58-attention` / `sandbox-stdin` files; re-run in the closeout pass with Docker up |
 | Backend typecheck | **PROVEN** (was RED) | `tsc --noEmit` exit 0 — the closeout pass found `test/m58-attention.test.ts` had 103 pre-existing `TS2345` errors (its `makeWs()` mock cast `as never as {…}` was not assignable to the `ws` `WebSocket` the room API takes); fixed by casting `as unknown as WebSocket & { sent: Uint8Array[] }` + a `import type { WebSocket } from "ws"`. All 70 M58 tests still pass at runtime |
 | `git diff --check` | **PROVEN** | clean (only LF/CRLF advisory warnings) |
-| Browser behavioural verification | **PROVEN** for A/B/C/D/F/G; **PARTIAL** for E | 2026-08-30 walkthrough covered A/B/C/D/F; the 2026-08-30 closeout pass drove **G** (concurrent-edit convergence) live end-to-end — see "M59 final closeout pass" below. **E** (grace-timeout / reconnect transition) was not driven live either pass — blocked by a ghosted third connection in the shared automation browser + no controlled WS-disconnect primitive through the tooling; rests on `collab.focus.follow.test.tsx` 40/40, which covers the grace timer, userId-keyed reconnect, no-auto-refollow, and the exact "old absence timer clears a newer Follow" regression |
-| Browser visual verification | **PROVEN** for A/B/C/D/F/G; **PARTIAL** for E | screenshots captured and inspected for A/B/C/D/F (first pass) and for G's converged buffer (closeout pass); E's grace/"left"-notice transition not visually captured |
+| Browser behavioural verification | **PROVEN** for A/B/C/D/F/G; ~~**PARTIAL** for E~~ → **PROVEN for E (2026-09-04)** | 2026-08-30 walkthrough covered A/B/C/D/F; the 2026-08-30 closeout pass drove **G** (concurrent-edit convergence) live end-to-end — see "M59 final closeout pass" below. **E** was closed out 2026-09-04 with a real socket-disconnect primitive (`pageB.close()` — a genuine `/ws/collab` close, not a client-state poke) driving both the reconnect-inside-grace (seamless resume) and reconnect-after-grace ("left" notice at ~6.45s, no auto-refollow) transitions — see "M57–M61 live release-gate closure (2026-09-04)". `collab.focus.follow.test.tsx` 40/40 still stands as the deterministic guard |
+| Browser visual verification | **PROVEN** for A/B/C/D/F/G; ~~**PARTIAL** for E~~ → **PROVEN for E (2026-09-04)** | screenshots captured and inspected for A/B/C/D/F (first pass) and for G's converged buffer (closeout pass); E's grace / "left"-notice / no-refollow transitions captured 2026-09-04 (`e-01`…`e-04`) |
 
 **Acceptance matrix:**
 
@@ -5389,7 +5389,7 @@ with M59 component-render cases.
 | No new transport / store / DB / Yjs / awareness write | **PROVEN** | `focus.ts` pure (no React/store); no `MESSAGE_CUSTOM`/`setLocalStateField.*focus` in the M59 diff (contract test) |
 | Concurrent-edit convergence (Scenario G) | **PROVEN** | 2026-08-30 closeout pass — two real authenticated sessions on a fresh 50-line file: independent-region, adjacent-line, same-line, and interleaved-burst edits from both clients all converged **byte-for-byte** (identical FNV-ish hash on both models AND on disk), 51 lines throughout, no reload, no whole-file clobber, no line-offset corruption — see "M59 final closeout pass" below |
 | EOL / model-initialization correctness | **PROVEN** | red→green verified (revert `Editor.tsx` `setEOL(LF)` → `Editor.eol.test.tsx` fails `expected '\r\n' to be '\n'`; restore → 2/2 pass); grep confirms `createModel` has exactly one collaborative call site and it is immediately followed by the LF pin; `client.ts` / `MonacoBinding` never create a model and `setValue` does not re-detect EOL; live both sessions showed `eol: "\n"` on every checkpoint across ~30 cross-client edits, disk stayed `\n`-only |
-| Browser visual walkthrough | **PROVEN** for Follow jump / FollowBanner / auto-track / dirty-buffer pause / dirty-preserving Return / concurrent-edit convergence; **PARTIAL** for the grace-timeout + "left" notice transition (not driven live — see the E note in the Verification table) |
+| Browser visual walkthrough | **PROVEN** for Follow jump / FollowBanner / auto-track / dirty-buffer pause / dirty-preserving Return / concurrent-edit convergence; ~~**PARTIAL** for the grace-timeout + "left" notice transition~~ → **PROVEN 2026-09-04** (real disconnect, both reconnect branches, no auto-refollow — see "M57–M61 live release-gate closure (2026-09-04)") |
 
 **Known limitations / M60+ roadmap:** the collaborator-popover focus block shows
 the *latest* callout message only (no history); the "Rahul left" notice is a
@@ -5569,8 +5569,13 @@ API) opened in both.
   divergence could not be reproduced — the LF pin removes the race that caused
   it.
 
-**Scenario E — live disconnect grace (Phase 2): NOT driven live; contract
-suite stands.** Concrete blocker: the shared automation browser carried a
+**Scenario E — live disconnect grace (Phase 2): NOT driven live [this pass];
+contract suite stands.** *(Closed out 2026-09-04 — driven live end-to-end with a
+Playwright multi-context harness whose `pageB.close()` is a real `/ws/collab`
+close and whose `ctxB.newPage()` reconnect lands inside the grace; see "M57–M61
+live release-gate closure (2026-09-04)". The blocker below was specific to the
+single-shared-browser MCP tooling used in this 2026-08-30 pass.)* Concrete
+blocker: the shared automation browser carried a
 **ghosted third connection** (a duplicate `ankit` client from an earlier
 detached session — visible as `count 3` / two `ankit` awareness entries with
 different `clientId`s) that could not be cleanly killed, and the browser
@@ -6023,7 +6028,7 @@ and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.na
 | REST authorization | **PROVEN** (contract) | every handler calls `requireProjectAccess`; `m61-comments.test.ts` covers viewer/editor/owner gating and the author-or-owner delete rule |
 | No HTML/Markdown injection | **PROVEN** | `sanitizeCommentBody` server-side; no `innerHTML`/`dangerouslySetInnerHTML` in `Comments/` or `comments/`; `mentionText.test.tsx` |
 | Backend / frontend typecheck · lint · build · app image | **PROVEN** | `tsc --noEmit` 0/0; `eslint` 0 errors both; `vite build` exit 0; `docker build -f docker/Dockerfile.app` exit 0 (runs `tsc -p tsconfig.build.json` + `tsc --noEmit && vite build` + `npm ci`) |
-| Live / two-session browser walkthrough | **PROVEN** (2026-09-02, second pass) | Real Chrome (User A, project owner) + two real WS collab peers (Users B/C) on `notes.txt`. UI-proven in the browser: create-from-selection, thread popover, live reply propagation to A with no reload, mention toast for A, resolve/reopen + badge/chip/panel transitions, tombstone + replies retained, full-reload persistence of thread/replies/resolution/tombstone/counts, anchor `exact`/`drifted`/`stale` via the real `resolveAnchor` against the live Y.Doc (stale shows the warning banner + drops the marker + panel "⚠ moved"), XSS-safe literal rendering, tab/tree/panel badges, M60 TEAM ACTIVITY timeline entries. Protocol-proven (WS/REST peers): B/C receive `comment_event`; only the mentioned user receives `comment_mention` (author + unrelated member get none); viewer → 403 on every mutation; non-collaborator → 404 on every comment endpoint; non-member mention ids dropped. Two real UI defects were found and fixed in this pass — see "Browser-pass defects" below. Comment *edit* (PATCH) was not exercised in the browser (unit-covered); the second-identity/authorization items are WS/REST-proven, not driven through a second browser UI. |
+| Live / two-session browser walkthrough | **PROVEN** (2026-09-02, second pass) | Real Chrome (User A, project owner) + two real WS collab peers (Users B/C) on `notes.txt`. UI-proven in the browser: create-from-selection, thread popover, live reply propagation to A with no reload, mention toast for A, resolve/reopen + badge/chip/panel transitions, tombstone + replies retained, full-reload persistence of thread/replies/resolution/tombstone/counts, anchor `exact`/`drifted`/`stale` via the real `resolveAnchor` against the live Y.Doc (stale shows the warning banner + drops the marker + panel "⚠ moved"), XSS-safe literal rendering, tab/tree/panel badges, M60 TEAM ACTIVITY timeline entries. Protocol-proven (WS/REST peers): B/C receive `comment_event`; only the mentioned user receives `comment_mention` (author + unrelated member get none); viewer → 403 on every mutation; non-collaborator → 404 on every comment endpoint; non-member mention ids dropped. Two real UI defects were found and fixed in this pass — see "Browser-pass defects" below. Comment *edit* (PATCH) was not exercised in the browser (unit-covered); the second-identity/authorization items are WS/REST-proven, not driven through a second browser UI. **Superseded 2026-09-04** — the full 15-step M61-A workflow (PATCH edit included) and second-browser authorization were driven end-to-end through two genuinely separate authenticated Chrome contexts; see "M57–M61 live release-gate closure (2026-09-04)" below. |
 | Track B / C / D | **N/A — not implemented** | v12 ships their tables dormant; `broadcastProfileEvent` has no product caller |
 
 ### Browser-pass defects (2026-09-02, found + fixed in `fix(m61): stabilize comment browser interactions`)
@@ -6085,15 +6090,149 @@ own investigation pass (likely the bundled TS/JS worker in `monacoSetup.ts`).
   in the design doc is future work.
 - v12 migrates production databases to a schema with 7 unused tables.
 - Track-A cascade behaviour is now proven (`m61-lifecycle.test.ts`); Track-B/C tables remain untested because no code exercises them.
-- ~~No browser/live verification of M61-A.~~ Done 2026-09-02 (see the "Live /
-  two-session browser walkthrough" row and "Browser-pass defects" above); two real
-  UI defects were found and fixed. Comment *edit* (PATCH) and a true second-browser
-  authorization walkthrough remain WS/REST- and unit-only.
+- ~~No browser/live verification of M61-A.~~ Done 2026-09-02, then closed out
+  2026-09-04: the full 15-step workflow incl. PATCH edit and a true two-browser
+  authorization walkthrough are now PROVEN live (see "M57–M61 live release-gate
+  closure (2026-09-04)" below). Four real defects total were found and fixed
+  across the two passes.
 - `CommentTimelineEvent` / comment wire shapes are hand-synced backend↔frontend
   (repo convention), each pinned by its own test.
 - Comment anchors are best-effort under heavy concurrent restructuring of the
   anchored region (the `drifted` / `stale` states are the designed fallback,
   not a guarantee of pixel-accurate re-anchoring).
+
+
+## M57–M61 live release-gate closure (2026-09-04)
+
+A fresh, from-scratch reproduction of the three remaining live/browser release
+gates for `stabilize/m57-m61`, run against the real configured Docker + Chrome
+environment (backend `npm run dev` :3000, Vite dev server :5173, Chrome via
+Playwright multi-context). No STATUS/previous-report evidence was reused — every
+gate was driven live. Baseline: local `4b97de6` (the intentionally-unpushed
+preceding closure commit).
+
+**Harness.** Playwright driving `chrome` channel, one `browser.newContext()` per
+identity = genuinely separate cookie jars / authenticated sessions. All REST + WS
+traffic goes through the Vite proxy so it is same-origin with the pages. Scripts
+retained under the pass's scratch area; screenshots `a-01`…`a-05`, `b-*`, `e-01`…
+`e-04`.
+
+### Gate 1 — M61-A contextual comments, live, two browsers: **PROVEN**
+
+Two separate authenticated Chrome contexts (`valice`, `vbob` — both editors;
+`vview` viewer; project owned by a third user) on `notes.txt`. Every step driven
+through the real rendered UI (Monaco selection + `cloudide.comment.create`
+action, the `window.prompt` body dialog, the thread overlay, the gutter chip, the
+composer, the thread header, the row actions) and cross-checked against REST:
+
+1–4. Select a real source range in A → create thread from it → REST confirms the
+row + anchor → **B sees the gutter chip appear live, no reload**.
+5–6. B replies through the composer → **A sees the reply in the open thread, no
+reload**.
+7–8. A `@mentions` vbob in a reply → **only vbob gets the mention card**; the
+author (A) and the uninvolved viewer session get nothing.
+9–10. Resolve in A → B's chip clears live + REST `resolvedAt` set → Reopen →
+REST `resolvedAt` cleared.
+11–12. **Edit A's own comment through the real UI path** (row → *Edit* → composer
+*Save*): a `PATCH /comments/:id` fires, REST shows the new body + `editedAt`;
+after a full reload the edited body and the `edited` flag persist.
+13. Anchor states, driven by real Monaco edits: **exact** (fresh, no warning);
+**drifted** (edit *inside* the anchored slice → chip kept, no stale warning,
+server advisory not `stale`); **stale** (delete the whole anchored region → chip
+removed, `.comment-anchor-warning` + panel `⚠ moved`, advisory persisted
+`stale`).
+14. Delete A's root comment → tombstone (`deletedAt` set, `comment deleted`
+placeholder), the two replies retained.
+15. Reload **both** sessions → thread id, tombstone, reply count and
+`anchorStatus` are identical across A and B.
+
+Zero page errors, zero HTTP 4xx/5xx across the whole workflow (after the fix in
+Bug 1 below).
+
+### Gate 2 — second-session comment authorization: **PROVEN**
+
+Real HTTP from five genuinely separate authenticated contexts (owner, two
+editors, a viewer, a non-member), plus a browser-UI check:
+
+- **viewer read**: `GET /comments` → 200, thread visible.
+- **viewer mutation**: create / reply / PATCH / delete / resolve / react →
+  **all 403**. Confirmed again through the real UI — the viewer's own
+  `reportAnchorStatus` POST is refused 403 and a UI reply never lands.
+- **non-member**: every comment endpoint (GET + all mutations) → **404
+  `not_found`** (project not disclosed).
+- **author/owner delete policy**: a *different* editor PATCH/DELETE-ing the
+  author's comment → 403; the author deleting their own → 200 (tombstoned); the
+  project owner deleting another user's comment → 200.
+
+### Gate 3 — M59 Scenario E (disconnect grace / reconnect): **PROVEN**
+
+Real socket-disconnect primitive: `pageB.close()` — a genuine page unload that
+closes the followed peer's `/ws/collab` socket (server `ws 'close'` →
+`room.removeClient` → awareness broadcast-removed). Reconnect:
+`ctxB.newPage()` + `goto('/p/<id>')` — a fresh page for the **same** user (same
+session cookie ⇒ same `userId`, new `clientId`), which re-establishes the collab
+socket in ~2.8 s (measured), inside the ~6 s grace. The follower's client follow
+state is never touched directly. *(An earlier attempt with `context.setOffline(true)`
+was discarded — CDP offline emulation does **not** tear down an established
+WebSocket here, so the peer never actually left. Documented so it is not retried.)*
+
+- **Follow established** (A follows B via the TeamPanel) → `.follow-banner`
+  "Following B".
+- **Reconnect inside the grace**: close B, reopen ~1 s later → B's disconnect is
+  real (the Following banner drops during the outage), reconnect lands at ~4 s →
+  **seamless resume**, the "left" notice is **never** shown, the banner returns to
+  "Following B".
+- **Reconnect after the grace**: close B, hold ~9 s → the **"⚠ B left"** notice
+  appears at **t ≈ 6.45 s** (two runs: 6458 ms, 6451 ms — consistent with
+  `FOLLOW_ABSENCE_GRACE_MS` 6000 + poll latency), no "Following" banner alongside
+  it. Reopen B → **no auto-refollow** (the Following banner does not return), B is
+  back as a live collaborator, the TeamPanel offers *Follow B* again (clean state,
+  not stuck *Unfollow*), A's editor is intact. 0 page errors.
+
+`collab.focus.follow.test.tsx` 40/40 remains the deterministic guard.
+
+### Bugs found + fixed this pass
+
+**Bug 1 — duplicate open-file tab / duplicate React key (found during Gate 1).**
+Re-opening an already-open file (clicking a background tab's file in the tree,
+reopening a closed file, or comment/session navigation racing an explicit open)
+appended a second `openFiles` entry → two `editor-tab` nodes with the same
+`key={f.path}` (React "two children with the same key" warning flood). Root
+cause: M61 (`eb1a9d9`) wrapped `IDE.handleOpenFile` in `useCallback` keyed on
+`[project]`, freezing its `openFiles` closure — the early `existing` guard then
+reads a stale snapshot and `setOpenFiles((prev) => [...prev, …])` did not dedupe
+against `prev`. On `master` (`ce2007c`) `handleOpenFile` is a plain function
+recreated each render, so the guard was always fresh — this is a regression
+introduced by the memoization. **Fix:** new pure `frontend/src/utils/openFiles.ts`
+`appendOpenFile(prev, next)` that dedupes against the authoritative `prev`;
+`handleOpenFile` uses it and reads the fast-path guard from `openFilesRef.current`.
+**Regression:** `frontend/test/openFiles.test.ts` (5, revert-sensitive) + wiring
+guards. Live re-verified: re-open / close-then-reopen now keeps one tab, 0
+warnings.
+
+### Final verification (2026-09-04, Docker up)
+
+| Gate | Result |
+|---|---|
+| Frontend `vitest run` | **575 passed / 0 failed** (73 files) — was 568/72; +`openFiles.test.ts` (5) +`collab-initialization` (2) |
+| Frontend `tsc --noEmit` | **0 errors** |
+| Frontend `eslint .` | **0 errors** (pre-existing warnings only; net −1 on IDE.tsx) |
+| Frontend `vite build` | **exit 0** |
+| Backend `tsc --noEmit` | **0 errors** |
+| Backend `eslint .` | **0 errors** / 29 pre-existing warnings |
+| Backend `CI=true npm test` (Docker) | **966 passed / 0 failed / 9 skipped** (76 files) — unchanged from baseline (changes are frontend-only) |
+| `git diff --check` | clean |
+| Bug 1 regression red→green | verified (`appendOpenFile` dedupe reverted → 2 tests fail) |
+| M61-A live (15 steps, 2 browsers) | **PROVEN** — re-run clean after both fixes |
+| Second-session authorization live | **PROVEN** — re-run clean |
+| M59 Scenario E live | **PROVEN** — re-run clean |
+
+**Residual non-blocking notes:** the pre-existing Monaco TS/JS-file renderer hang
+in an automation browser still stands (walkthroughs use `notes.txt`); a viewer
+opening a file whose anchors are drifted/stale still emits one console-visible
+403 from `reportAnchorStatus` (the denial is correct — noisy, not a defect); the
+`COMMENT_WRITE_MAX` limiter was raised to 200 for this pass's isolated test
+instance only (env var, no code change).
 
 
 ## Next recommended milestone
