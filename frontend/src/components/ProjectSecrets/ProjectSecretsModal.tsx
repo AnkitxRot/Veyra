@@ -271,7 +271,7 @@ export default function ProjectSecretsModal({
           </div>
           <button
             onClick={onClose}
-            className="glass-btn icon-only"
+            className="glass-btn glass-btn-icon"
             aria-label="Close modal"
             style={{ width: "28px", height: "28px" }}
           >
@@ -528,7 +528,7 @@ export default function ProjectSecretsModal({
                           </button>
                           <button
                             onClick={() => handleDelete(s)}
-                            className="glass-btn icon-only"
+                            className="glass-btn glass-btn-icon"
                             style={{
                               color: "#f38ba8",
                               width: "26px",

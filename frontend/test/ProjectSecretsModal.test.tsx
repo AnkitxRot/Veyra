@@ -188,6 +188,14 @@ describe("ProjectSecretsModal", () => {
     await waitFor(() => expect(getByText(/already exists/i)).toBeTruthy());
   });
 
+  it("renders the close button with the glass-btn-icon class, not the dead icon-only class", async () => {
+    const { getByLabelText, findByText } = renderModal();
+    await findByText("API_KEY");
+    const closeBtn = getByLabelText("Close modal");
+    expect(closeBtn.className).toContain("glass-btn-icon");
+    expect(closeBtn.className.split(/\s+/)).not.toContain("icon-only");
+  });
+
   it("guards against duplicate in-flight requests", async () => {
     let resolvePost: () => void = () => {};
     fetchMock.mockImplementation((url: string, opts?: any) => {

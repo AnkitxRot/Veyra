@@ -172,7 +172,7 @@ export default function AIPatchModal({
 
           <button
             onClick={onClose}
-            className="glass-btn icon-only"
+            className="glass-btn glass-btn-icon"
             style={{ width: '28px', height: '28px' }}
             title="Reject and close"
           >
