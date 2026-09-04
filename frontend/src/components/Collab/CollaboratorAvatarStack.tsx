@@ -7,6 +7,7 @@ import type {
 import type { RunStatusEntry } from "../../types";
 import type { AttentionEvent } from "../../collab/attention";
 import { buildFocusContext } from "../../collab/focus";
+import { displayLabel, secondaryHandle } from "../../collab/presence";
 import { IconUsers, IconSparkles } from "../common/Icons";
 import { pickRunForUser, formatRunText } from "./runActivity";
 
@@ -221,7 +222,13 @@ export default function CollaboratorAvatarStack({
           aria-label="Active Collaborators"
         >
           {otherCollaborators.map((c) => {
+            // M62: initials stay derived from the immutable username so a
+            // rename never churns the avatar. Colour stays `c.color`
+            // (userId-keyed server-side).
             const initials = c.name.slice(0, 2).toUpperCase();
+            const label = displayLabel(c);
+            const handle = secondaryHandle(c);
+            const identity = handle ? `${label} (${handle})` : label;
             const isFollowing = followingUserId === c.userId;
             const activitySummary = formatActivityText(c);
             const isRunningNow = runStatuses.some(
@@ -268,8 +275,8 @@ export default function CollaboratorAvatarStack({
                   onMouseLeave={(e) =>
                     (e.currentTarget.style.transform = "translateY(0) scale(1)")
                   }
-                  title={`${c.name} (${(c.role || "collaborator").toUpperCase()}) — ${activitySummary} [${(c.status || "online").toUpperCase()}]`}
-                  aria-label={`Collaborator ${c.name}, ${c.role || "collaborator"}, ${c.status || "online"}. ${activitySummary}.`}
+                  title={`${identity} — ${(c.role || "collaborator").toUpperCase()} — ${activitySummary} [${(c.status || "online").toUpperCase()}]`}
+                  aria-label={`Collaborator ${identity}, ${c.role || "collaborator"}, ${c.status || "online"}. ${activitySummary}.`}
                 >
                   {initials}
                 </button>
@@ -277,7 +284,7 @@ export default function CollaboratorAvatarStack({
                 {isRunningNow && (
                   <span
                     aria-hidden="true"
-                    title={`${c.name} — ${activitySummary}`}
+                    title={`${identity} — ${activitySummary}`}
                     style={{
                       position: "absolute",
                       bottom: "-2px",
@@ -350,7 +357,11 @@ export default function CollaboratorAvatarStack({
             color: "var(--fg-primary, #cdd6f4)",
           }}
           role="dialog"
-          aria-label={`Collaborator Details: ${selectedCollaborator.name}`}
+          aria-label={`Collaborator Details: ${
+            secondaryHandle(selectedCollaborator)
+              ? `${displayLabel(selectedCollaborator)} (${secondaryHandle(selectedCollaborator)})`
+              : displayLabel(selectedCollaborator)
+          }`}
         >
           <div
             style={{
@@ -390,7 +401,7 @@ export default function CollaboratorAvatarStack({
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {selectedCollaborator.name}
+                  {displayLabel(selectedCollaborator)}
                 </span>
                 <span
                   style={{
@@ -406,6 +417,20 @@ export default function CollaboratorAvatarStack({
                   {selectedCollaborator.role || "collaborator"}
                 </span>
               </div>
+              {secondaryHandle(selectedCollaborator) && (
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--fg-muted, #a6adc8)",
+                    marginTop: "1px",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {secondaryHandle(selectedCollaborator)}
+                </div>
+              )}
               <div
                 style={{
                   display: "flex",
@@ -558,7 +583,7 @@ export default function CollaboratorAvatarStack({
                 onFollowCollaborator?.(selectedCollaborator);
                 setSelectedCollaborator(null);
               }}
-              title={`Follow ${selectedCollaborator.name}'s editor and navigation`}
+              title={`Follow ${displayLabel(selectedCollaborator)}'s editor and navigation`}
             >
               {followingUserId === selectedCollaborator.userId
                 ? "Unfollow"

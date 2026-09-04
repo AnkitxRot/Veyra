@@ -512,3 +512,40 @@ export interface ProfileEventWire {
   type: "profile_event";
   userId: number;
 }
+
+/**
+ * M62: the self-service profile identity, exactly as `GET`/`PUT
+ * /api/auth/profile` return it. Every field is independently nullable — a
+ * `null` means "not set" / "cleared", never an empty string.
+ */
+export interface UserProfile {
+  displayName: string | null;
+  pronouns: string | null;
+  bio: string | null;
+  updatedAt: string | null;
+}
+
+/**
+ * M62: the Profile tab's local form state. Always strings (a controlled
+ * input never holds `null`); the `null` <-> "" mapping happens only at the
+ * API boundary.
+ */
+export interface ProfileDraft {
+  displayName: string;
+  pronouns: string;
+  bio: string;
+}
+
+/**
+ * M62: one collaborator as `GET /api/projects/:id/collaborators` returns it.
+ * `displayName` is the server-resolved EFFECTIVE label (never null — it
+ * falls back to `username` server-side). `userId` / `username` remain the
+ * technical identity for keys, mentions, ownership and attribution.
+ */
+export interface CollaboratorInfo {
+  userId: number;
+  username: string;
+  displayName: string;
+  role: "owner" | "editor" | "viewer";
+  createdAt: string;
+}

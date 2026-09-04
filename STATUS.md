@@ -6389,7 +6389,8 @@ instance only (env var, no code change).
 **Scope landed:** M62-1 (frontend `glass-btn-icon` class fix, commit `fa7ca7b`), M62-2
 (self-service `GET`/`PUT /api/auth/profile` for `displayName` / `pronouns` / `bio`),
 M62-3 (effective display identity through collaboration presence + targeted realtime
-invalidation). **M62-4 (Settings UI) and M62-5 are NOT started.**
+invalidation), M62-4 (Settings → Profile tab), M62-5 (display identity unified across
+every collaboration surface). **M62.5 avatar upload / `profile_media` is NOT started.**
 
 **Data model:** reuses the dormant `user_profiles` row (M61-C, migration v12). Only
 `display_name` / `pronouns` / `bio` are writable; `version` is DB-controlled (+1 per
@@ -6454,8 +6455,68 @@ preserving them as spaces — sanitize first, collapse second.
 | Revert-sensitivity | 9/9 — sanitization, key allowlist, resolver fallback, room-target filter, cache refresh, awareness displayName, username preservation, profile_event hook, roster resolve each break ≥1 test when reverted |
 | New deterministic coverage | `m62-profile-validate` (12), `m62-identity-resolver` (14), `m62-profile-store` (10), `m62-profile-api` (23), `m62-collab-identity` (14) |
 
-**Not done / next:** M62-4 wires a frontend Settings pane to `GET`/`PUT /api/auth/profile`
-and renders `user.displayName` / roster `displayName` in the collaboration UI. No forced
-one-shot awareness rebroadcast for an idle editing user was added (M62 decision retained):
-the cache refreshes server-side immediately and peers pick up the new name on the user's
-next awareness frame, a reconnect, or a REST roster refetch triggered by `profile_event`.
+### M62-4 — Settings → Profile tab
+
+`SettingsModal` gains a `[ Editor ] [ Profile ]` tab bar (existing `glass-tabs` /
+`glass-tab` classes). The Editor tab is behavior-unchanged (regression-guarded).
+The Profile tab is a self-contained editor — local component state only, no store,
+no context. `GET /api/auth/profile` runs once the first time the tab is shown per
+open; `PUT` sends exactly `{displayName, pronouns, bio}` (trimmed, blank → `null`).
+On success it adopts the canonical server response; a 400 surfaces the server's own
+message verbatim. Demo sessions render every control disabled with an explanatory
+note (the backend still 403s a demo PUT). Fields: display name (48, counter,
+"Blank → @username" helper), pronouns (24, counter), bio (280, textarea, counter).
+All values render as plain React text — no `dangerouslySetInnerHTML`, no markup sink.
+New: `frontend/src/api.ts` `getProfile()` / `updateProfile()`; `types.ts`
+`UserProfile` / `ProfileDraft` / `CollaboratorInfo`.
+
+### M62-5 — display identity across collaboration surfaces
+
+`CollaboratorPresence` gains an optional `displayName` (parsed from
+`user.displayName`; `name` still = username). One canonical frontend resolver in
+`collab/presence.ts`: `displayLabel(c)` (effective name, else username) and
+`secondaryHandle(c)` (`@username`, only when the label differs). Every surface reads
+through it:
+
+- **Avatar stack** — popover heading + `@username` line, `title` / `aria-label`
+  carry `displayName (@username) — ROLE — activity`. Initials stay derived from the
+  **username** and colour stays `getUserColor(userId)` — a rename never churns the
+  avatar.
+- **Team panel** — row shows `displayLabel` + a muted `@username`; `key={c.userId}`,
+  Follow/Jump wiring, selection all unchanged.
+- **Comments** — author row shows `displayLabel` + muted `@username` when it differs;
+  `initials` and mention tokens stay `@username`; attribution / delete / ownership
+  stay `userId`-based. `commentMembers` now merges the REST roster (userId →
+  username + effective displayName) with live presence; `IDE.tsx` refetches
+  `/api/projects/:id/collaborators` on a `profile_event` (invalidation-only, never
+  trusts the packet), coalesced to one refetch per 300 ms burst, torn down on
+  project switch.
+- **FollowBanner + Editor same-file strip / tab badge / spatial-overlap badge /
+  "Come look" picker** — all show `displayLabel` (judge-loop pass 1 caught these as
+  adjacent surfaces). Monaco's own in-editor remote-cursor name label is left as the
+  username on purpose — it is the unambiguous @handle at the caret, and y-monaco
+  renders it from `awareness.user.name`, which M62-3 fixes as the username.
+- **Mentions** — `@username` generation and lookup semantics are untouched.
+
+**Idle-user latency (M62 decision retained):** no forced one-shot awareness
+rebroadcast. A rename reaches comment surfaces immediately (roster refetch) and
+presence surfaces (avatar/Team) on the renamer's next awareness frame, a reconnect,
+or REST — so during active editing all surfaces converge within ~1 s; a fully idle
+renamer's presence label lags until their next heartbeat.
+
+**Verification gates (2026-09-04):**
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` → **616 passed / 0 failed** (77 files) |
+| Frontend build | `tsc --noEmit && vite build` exit 0 |
+| Frontend eslint | 0 errors, 35 warnings (unchanged from baseline — no new warnings) |
+| Backend (untouched) | typecheck exit 0; `m62-profile-api` + `m62-collab-identity` 37/37; full backend suite last green at `7111093` (1039 passed) |
+| `git diff --check` | clean |
+| New deterministic coverage | `SettingsModal.profile.test.tsx` (18), `identity-consistency.test.tsx` (8), `IDE.profileEvent.test.tsx` (7), `collab.presence.test.ts` +9 |
+
+**Not done:** M62.5 avatar / initial-image upload (`profile_media` activation) is out
+of scope and not started. Two-browser acceptance (rename propagation, blank
+fallback, shared display names, demo lockout, a11y) is deterministically guarded but
+still needs a real browser pass — see the acceptance checklist in the M62-4/5
+implementation notes.

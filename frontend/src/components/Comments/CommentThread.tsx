@@ -61,15 +61,24 @@ export default function CommentThread({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
 
-  const nameOf = (userId: number) =>
-    members.find((m) => m.userId === userId)?.username ?? `user ${userId}`;
+  // M62: username stays the mention token + stable identity; displayName is
+  // presentation only. The @username suffix shows only when it differs.
+  const memberOf = (userId: number) => members.find((m) => m.userId === userId);
+  const usernameOf = (userId: number) =>
+    memberOf(userId)?.username ?? `user ${userId}`;
+  const labelOf = (userId: number) => {
+    const d = memberOf(userId)?.displayName;
+    return typeof d === "string" && d.trim().length > 0 ? d : usernameOf(userId);
+  };
   const knownUsernames = new Set(members.map((m) => m.username));
 
   const rows: CommentDTO[] = [thread.root, ...thread.replies];
   const resolved = thread.resolvedAt != null;
 
   const renderComment = (c: CommentDTO, isRoot: boolean) => {
-    const author = nameOf(c.authorId);
+    const authorUsername = usernameOf(c.authorId);
+    const authorLabel = labelOf(c.authorId);
+    const showAuthorHandle = authorLabel !== authorUsername;
     const canEdit = c.authorId === currentUserId && c.deletedAt == null;
     const canDelete =
       c.deletedAt == null &&
@@ -101,9 +110,12 @@ export default function CommentThread({
       <li key={c.id} className="comment-row" data-comment-id={c.id} tabIndex={-1}>
         <div className="comment-row-head">
           <span className="c-avatar" aria-hidden="true">
-            {initials(author)}
+            {initials(authorUsername)}
           </span>
-          <span className="comment-author">{author}</span>
+          <span className="comment-author">{authorLabel}</span>
+          {showAuthorHandle && (
+            <span className="comment-author-handle">@{authorUsername}</span>
+          )}
           <span className="comment-time">{relTime(c.createdAt)}</span>
           {c.editedAt && <span className="comment-flag">edited</span>}
           {c.deletedAt && <span className="comment-flag">deleted</span>}

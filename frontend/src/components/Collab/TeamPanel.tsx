@@ -3,6 +3,8 @@ import type { CollaboratorPresence } from "../../collab/presence";
 import {
   formatRelativeTime,
   groupCollaboratorsByFolder,
+  displayLabel,
+  secondaryHandle,
 } from "../../collab/presence";
 import type { RunStatusEntry, TimelineEvent } from "../../types";
 import { pickRunForUser, formatRunText } from "./runActivity";
@@ -180,7 +182,10 @@ export default function TeamPanel({
               />
               <div className="team-row-main">
                 <div className="team-row-top">
-                  <span className="team-name">{c.name}</span>
+                  <span className="team-name">{displayLabel(c)}</span>
+                  {secondaryHandle(c) && (
+                    <span className="team-handle">{secondaryHandle(c)}</span>
+                  )}
                   <span className="team-role">{c.role}</span>
                   <span className="team-time">
                     {formatRelativeTime(c.lastActive, now)}
@@ -216,7 +221,7 @@ export default function TeamPanel({
                 <div className="team-actions">
                   <button
                     type="button"
-                    aria-label={`Follow ${c.name}`}
+                    aria-label={`Follow ${displayLabel(c)}`}
                     onClick={() => onFollow(c)}
                   >
                     {followingUserId === c.userId ? "Unfollow" : "Follow"}
@@ -224,7 +229,7 @@ export default function TeamPanel({
                   {c.activeFile && (
                     <button
                       type="button"
-                      aria-label={`Jump to ${c.name}`}
+                      aria-label={`Jump to ${displayLabel(c)}`}
                       onClick={() => onJump(c)}
                     >
                       Jump
@@ -244,7 +249,7 @@ export default function TeamPanel({
             <div className="team-folder-row" key={folder}>
               <span className="team-folder-name">{folder}</span>
               <span className="team-folder-people">
-                {people.map((p) => p.name).join(", ")}
+                {people.map((p) => displayLabel(p)).join(", ")}
               </span>
             </div>
           ))}

@@ -43,7 +43,16 @@ export interface CollaboratorIntent {
 export interface CollaboratorPresence {
   clientId: number;
   userId: number;
+  /** The immutable technical username. Identity key, mention token, the
+   *  always-available @handle. NEVER replaced by displayName. */
   name: string;
+  /**
+   * M62: the collaborator's effective display name, as resolved server-side
+   * (sanitized profile displayName, else the username). `undefined` when the
+   * awareness packet carried none — an older/mixed-version peer — in which
+   * case surfaces fall back to `name`. Presentation only.
+   */
+  displayName?: string;
   role: "owner" | "editor" | "viewer";
   color: string;
   /** Availability — how reachable the collaborator is. Independent of `activity`. */
@@ -80,6 +89,32 @@ const USER_COLORS = [
 
 export function getUserColor(userId: number): string {
   return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
+}
+
+/**
+ * M62: the single frontend definition of a collaborator's display label —
+ * effective displayName, or the username when none is set. Presentation
+ * ONLY. Never a key, never a lookup, never used for colour (that stays
+ * `getUserColor(userId)`). Every collaboration surface reads through this.
+ */
+export function displayLabel(c: {
+  name: string;
+  displayName?: string | null;
+}): string {
+  const d = c.displayName;
+  return typeof d === "string" && d.trim().length > 0 ? d : c.name;
+}
+
+/**
+ * M62: the `@username` disambiguation suffix — returned only when the
+ * display label actually differs from the username (so an unchanged
+ * identity is not shown twice). `null` = show nothing extra.
+ */
+export function secondaryHandle(c: {
+  name: string;
+  displayName?: string | null;
+}): string | null {
+  return displayLabel(c) !== c.name ? `@${c.name}` : null;
 }
 
 /** dirname(activeFile), workspace-relative. Root-level files → null. */
@@ -171,6 +206,12 @@ export function readPresenceState(
     clientId,
     userId: Number(state.user.id) || 0,
     name: typeof state.user.name === "string" ? state.user.name : "Anonymous",
+    // M62: server-authored effective display name. Absent on older peers —
+    // stays `undefined`, and every surface falls back to `name`.
+    displayName:
+      typeof state.user.displayName === "string"
+        ? state.user.displayName
+        : undefined,
     role:
       state.user.role === "owner" || state.user.role === "viewer"
         ? state.user.role

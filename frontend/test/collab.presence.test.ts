@@ -7,8 +7,28 @@ import {
   collaboratorsInFolder,
   groupCollaboratorsByFolder,
   getUserColor,
+  displayLabel,
+  secondaryHandle,
   type CollaboratorPresence,
 } from "../src/collab/presence";
+
+describe("M62 — displayLabel / secondaryHandle", () => {
+  it("displayLabel: displayName when non-blank, else username", () => {
+    expect(displayLabel({ name: "ada99", displayName: "Ada L." })).toBe("Ada L.");
+    expect(displayLabel({ name: "ada99", displayName: "  " })).toBe("ada99");
+    expect(displayLabel({ name: "ada99", displayName: null })).toBe("ada99");
+    expect(displayLabel({ name: "ada99" })).toBe("ada99");
+  });
+  it("secondaryHandle: @username only when the label differs", () => {
+    expect(secondaryHandle({ name: "ada99", displayName: "Ada L." })).toBe("@ada99");
+    expect(secondaryHandle({ name: "ada99", displayName: "ada99" })).toBeNull();
+    expect(secondaryHandle({ name: "ada99" })).toBeNull();
+  });
+  it("neither helper mutates identity or colour", () => {
+    // pure string in, pure string out — no userId, no colour involvement
+    expect(getUserColor(42)).toBe(getUserColor(42));
+  });
+});
 
 describe("deriveWorkingFolder", () => {
   it("returns the parent dir", () =>
@@ -98,6 +118,32 @@ describe("readPresenceState", () => {
   it("falls back to a getUserColor when no color is present", () => {
     const p = readPresenceState(1, { user: { id: 5, name: "x" } })!;
     expect(p.color).toBe(getUserColor(5));
+  });
+
+  // --- M62: effective display name ---------------------------------------
+  it("parses user.displayName when present, keeping name = username", () => {
+    const p = readPresenceState(7, {
+      user: { id: 3, name: "ada99", displayName: "Ada L.", role: "editor" },
+      status: "online",
+    })!;
+    expect(p.name).toBe("ada99");
+    expect(p.displayName).toBe("Ada L.");
+  });
+
+  it("stays compatible with an older peer that sends no displayName", () => {
+    const p = readPresenceState(7, {
+      user: { id: 3, name: "ada99" },
+      status: "online",
+    })!;
+    expect(p.name).toBe("ada99");
+    expect(p.displayName).toBeUndefined();
+  });
+
+  it("ignores a non-string displayName", () => {
+    const p = readPresenceState(7, {
+      user: { id: 3, name: "ada99", displayName: 42 },
+    })!;
+    expect(p.displayName).toBeUndefined();
   });
 
   it("defaults activity to 'viewing' when absent", () => {

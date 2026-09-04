@@ -29,6 +29,8 @@ export {
   collaboratorsInFile,
   collaboratorsInFolder,
   groupCollaboratorsByFolder,
+  displayLabel,
+  secondaryHandle,
 } from "./presence";
 export type {
   CollaboratorPresence,
