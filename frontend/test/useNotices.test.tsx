@@ -113,6 +113,23 @@ describe("useNotices — explicit dismissal", () => {
     expect(result.current.notices).toHaveLength(0);
   });
 
+  it("dismiss removes a persistent notice (it stays until then)", () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useNotices());
+    let id = "";
+    act(() => {
+      id = result.current.notify({ kind: "error", text: "stuck", ttl: null });
+    });
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(result.current.notices).toHaveLength(1); // still there
+    act(() => {
+      result.current.dismiss(id);
+    });
+    expect(result.current.notices).toHaveLength(0);
+  });
+
   it("dismissKey(k) removes the keyed entry only", () => {
     const { result } = renderHook(() => useNotices());
     act(() => {
@@ -300,6 +317,25 @@ describe("useNotices — bounded queue", () => {
     expect(result.current.notices.map((n) => n.text)).toContain(
       `t${MAX_NOTICES - 1}`,
     );
+  });
+
+  it("eviction never drops a persistent notice ahead of a transient one", () => {
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      result.current.notify({ kind: "error", text: "p1", ttl: null });
+      result.current.notify({ kind: "error", text: "p2", ttl: null });
+      // enough transient to force eviction past MAX_NOTICES
+      for (let i = 0; i < MAX_NOTICES; i++) {
+        result.current.notify({ kind: "info", text: `t${i}`, ttl: 5000 });
+      }
+    });
+    const texts = result.current.notices.map((n) => n.text);
+    expect(texts).toHaveLength(MAX_NOTICES);
+    expect(texts).toContain("p1");
+    expect(texts).toContain("p2");
+    // oldest transients evicted first
+    expect(texts).not.toContain("t0");
+    expect(texts).toContain(`t${MAX_NOTICES - 1}`);
   });
 
   it("an evicted notice's timer is cleared (no callback after eviction)", () => {

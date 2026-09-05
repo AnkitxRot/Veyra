@@ -5,6 +5,10 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
+const scpSrc = readFileSync(
+  join(here, "../src/components/Git/SourceControlPanel.tsx"),
+  "utf-8",
+);
 
 /**
  * M64 — IDE.tsx wiring for the unified notice system. Source-string guards:
@@ -161,5 +165,15 @@ describe("M64 — IDE.tsx notice wiring", () => {
     const alerts = src.match(/\balert\(/g) ?? [];
     // open-file (1) + AI action/patch (4) = 5; save paths migrated to notices
     expect(alerts).toHaveLength(5);
+  });
+
+  it("does not touch SourceControlPanel's persistent conflict banners", () => {
+    // M64 leaves the git conflict / collab-conflict banners entirely alone:
+    // they stay component-local useState and never route through useNotices.
+    expect(scpSrc).not.toContain("useNotices");
+    expect(scpSrc).not.toContain("NoticeStack");
+    expect(scpSrc).toContain("const [conflict, setConflict]");
+    expect(scpSrc).toContain("const [collabConflict, setCollabConflict]");
+    expect(scpSrc).toContain('data-testid="git-collab-conflict"');
   });
 });

@@ -105,6 +105,20 @@ describe("NoticeStack", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it("renders notices in insertion order (newest last / at the bottom)", () => {
+    const notices = [
+      makeNotice({ text: "older" }),
+      makeNotice({ text: "newer" }),
+    ];
+    const { container } = render(
+      <NoticeStack notices={notices} onDismiss={() => {}} />,
+    );
+    const rows = Array.from(
+      container.querySelectorAll(".notice .notice-text"),
+    ).map((el) => el.textContent);
+    expect(rows).toEqual(["older", "newer"]);
+  });
+
   it("is a labelled region for assistive tech", () => {
     render(
       <NoticeStack notices={[makeNotice()]} onDismiss={() => {}} />,
