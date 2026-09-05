@@ -59,6 +59,19 @@ const RUN_STATUS_LINGER_MS = 10_000;
 const RUN_STATUS_MAX_AGE_MS = 30 * 60 * 1000;
 const RUN_STATUS_SWEEP_MS = 60_000;
 
+// M65: Shared Run Output. A bounded, ephemeral, in-memory replay tail of a
+// run's stdout/stderr, delivered to owner/editor collaborators (NEVER viewers,
+// NEVER a client) alongside the M54 run-status broadcast. Nothing is persisted;
+// the buffer IS the reconnect story. Chunks accumulated within
+// RUN_OUTPUT_FLUSH_MS are coalesced into one broadcast batch to bound frame
+// rate. When the buffer would exceed RUN_OUTPUT_MAX_BYTES the OLDEST chunks are
+// dropped (tail semantics — newest output is the most relevant) and `truncated`
+// latches true. The buffer is bound to its M54 run-status entry: output for an
+// execution with no live status entry is rejected, and it is torn down with the
+// status entry (linger clear / stale sweep / dispose).
+export const RUN_OUTPUT_MAX_BYTES = 256 * 1024;
+const RUN_OUTPUT_FLUSH_MS = 60;
+
 // M55: server-authoritative awareness identity + bounded ephemeral metadata.
 // The collaboration `user` identity was previously client-asserted and
 // rebroadcast verbatim, so a modified client could advertise another user's
@@ -167,6 +180,26 @@ interface DestructiveMutationRecord {
 }
 
 export type RunState = "running" | "success" | "failed" | "stopped";
+
+/** M65: one stdout/stderr fragment in a run's shared output buffer. */
+export interface RunOutputChunk {
+  stream: "stdout" | "stderr";
+  data: string;
+}
+
+interface RunOutputEntry {
+  /** Retained ring, oldest first. Bounded to RUN_OUTPUT_MAX_BYTES. */
+  chunks: RunOutputChunk[];
+  /** UTF-8 byte length of everything in `chunks`. */
+  bytes: number;
+  /** Latches once any chunk has been dropped / head-truncated. */
+  truncated: boolean;
+  /** Monotonic per-execution batch counter (last emitted). */
+  seq: number;
+  /** Chunks arrived since the last flush, awaiting the coalesced broadcast. */
+  pending: RunOutputChunk[];
+  flushTimer: NodeJS.Timeout | null;
+}
 
 export interface RunStatusEntry {
   executionId: string;
@@ -278,6 +311,12 @@ export class CollaborationRoom {
   private readonly runStatus = new Map<string, RunStatusEntry>();
   private readonly runStatusLingerTimers = new Map<string, NodeJS.Timeout>();
   private runStatusSweepTimer: NodeJS.Timeout | null = null;
+
+  // M65: ephemeral shared run-output buffers, keyed by executionId. Populated
+  // only via CollaborationManager.notifyRunOutput (the authenticated execution
+  // socket's onStdout/onStderr). Never persisted. Teardown rides the M54
+  // run-status lifecycle — see deleteRunOutput() call sites.
+  private readonly runOutput = new Map<string, RunOutputEntry>();
 
   // M58: transient ATTENTION layer (Point / Callout / targeted "Come look").
   // Points and callouts are pure relay (no server state — client TTL + a hard
@@ -769,6 +808,8 @@ export class CollaborationRoom {
     const timer = setTimeout(() => {
       this.runStatusLingerTimers.delete(input.executionId);
       this.runStatus.delete(input.executionId);
+      // M65: the shared output buffer is bound to this status entry.
+      this.deleteRunOutput(input.executionId);
       this.broadcastRunStatus({
         type: "run_status",
         executionId: input.executionId,
@@ -803,6 +844,7 @@ export class CollaborationRoom {
           now - entry.startedAt > RUN_STATUS_MAX_AGE_MS
         ) {
           this.runStatus.delete(id);
+          this.deleteRunOutput(id); // M65
           const linger = this.runStatusLingerTimers.get(id);
           if (linger) {
             clearTimeout(linger);
@@ -825,6 +867,153 @@ export class CollaborationRoom {
       }
     }, RUN_STATUS_SWEEP_MS);
     this.runStatusSweepTimer.unref?.();
+  }
+
+  // --- M65: shared run output -------------------------------------------
+
+  /**
+   * Records one stdout/stderr fragment for a run and schedules a coalesced
+   * broadcast to the room's owner/editor clients. The only caller is
+   * CollaborationManager.notifyRunOutput, driven by the authenticated
+   * execution WebSocket (ws/execution.ts onStdout/onStderr). Rejected unless
+   * the run has a live M54 status entry, so a buffer can never outlive — or
+   * predate — its run.
+   */
+  public handleRunOutput(
+    executionId: string,
+    stream: "stdout" | "stderr",
+    data: string,
+  ): void {
+    if (this.disposed) return;
+    if (typeof data !== "string" || data.length === 0) return;
+    if (!this.runStatus.has(executionId)) return;
+
+    let entry = this.runOutput.get(executionId);
+    if (!entry) {
+      entry = {
+        chunks: [],
+        bytes: 0,
+        truncated: false,
+        seq: 0,
+        pending: [],
+        flushTimer: null,
+      };
+      this.runOutput.set(executionId, entry);
+    }
+
+    const chunk: RunOutputChunk = { stream, data };
+    entry.chunks.push(chunk);
+    entry.bytes += Buffer.byteLength(data, "utf8");
+    entry.pending.push(chunk);
+    this.trimRunOutput(entry);
+
+    if (!entry.flushTimer) {
+      entry.flushTimer = setTimeout(() => {
+        const e = this.runOutput.get(executionId);
+        if (e) e.flushTimer = null;
+        this.flushRunOutput(executionId);
+      }, RUN_OUTPUT_FLUSH_MS);
+      entry.flushTimer.unref?.();
+    }
+  }
+
+  /** Enforce RUN_OUTPUT_MAX_BYTES: drop whole chunks from the front; if a lone
+   *  chunk is itself over the cap, keep only its tail. Latches `truncated`. */
+  private trimRunOutput(entry: RunOutputEntry): void {
+    while (entry.bytes > RUN_OUTPUT_MAX_BYTES && entry.chunks.length > 1) {
+      const dropped = entry.chunks.shift()!;
+      entry.bytes -= Buffer.byteLength(dropped.data, "utf8");
+      entry.truncated = true;
+    }
+    if (entry.bytes > RUN_OUTPUT_MAX_BYTES && entry.chunks.length === 1) {
+      const only = entry.chunks[0];
+      const buf = Buffer.from(only.data, "utf8");
+      const tail = buf
+        .subarray(buf.length - RUN_OUTPUT_MAX_BYTES)
+        .toString("utf8");
+      entry.chunks[0] = { stream: only.stream, data: tail };
+      entry.bytes = Buffer.byteLength(tail, "utf8");
+      entry.truncated = true;
+    }
+  }
+
+  private flushRunOutput(executionId: string): void {
+    if (this.disposed) return;
+    const entry = this.runOutput.get(executionId);
+    if (!entry || entry.pending.length === 0) return;
+    entry.seq += 1;
+    const chunks = entry.pending;
+    entry.pending = [];
+    this.broadcastRunOutput({
+      type: "run_output",
+      executionId,
+      seq: entry.seq,
+      truncated: entry.truncated,
+      chunks,
+    });
+  }
+
+  /**
+   * Fan out one run-output frame to the room's OWNER/EDITOR clients only —
+   * the M65 access boundary. Viewers get M54 run status but never the output
+   * stream itself. Server-authored; there is no inbound `run_output`.
+   */
+  private broadcastRunOutput(obj: unknown): void {
+    const frame = this.encodeCustom(obj);
+    for (const [client, state] of this.clients.entries()) {
+      if (state.role !== "owner" && state.role !== "editor") continue;
+      if (client.readyState !== 1 /* OPEN */) continue;
+      try {
+        client.send(frame);
+      } catch {}
+    }
+  }
+
+  private deleteRunOutput(executionId: string): void {
+    const entry = this.runOutput.get(executionId);
+    if (!entry) return;
+    if (entry.flushTimer) clearTimeout(entry.flushTimer);
+    this.runOutput.delete(executionId);
+  }
+
+  /**
+   * M65: replay the buffered output of every live run to a freshly joined
+   * owner/editor as `snapshot: true` frames. Mirrors the M54 run-status
+   * snapshot in addClient(). Nothing is sent to a viewer.
+   */
+  private sendRunOutputSnapshot(ws: WebSocket): void {
+    for (const [executionId, entry] of this.runOutput.entries()) {
+      if (entry.chunks.length === 0) continue;
+      const frame = this.encodeCustom({
+        type: "run_output",
+        executionId,
+        seq: entry.seq,
+        snapshot: true,
+        truncated: entry.truncated,
+        chunks: entry.chunks,
+      });
+      try {
+        ws.send(frame);
+      } catch {}
+    }
+  }
+
+  /** Test-support: a read-only view of a run's buffer (mirrors
+   *  getBroadcastSendCount / hasAttentionRequest). */
+  public getRunOutputSnapshotForTest(executionId: string): {
+    chunks: RunOutputChunk[];
+    bytes: number;
+    truncated: boolean;
+    seq: number;
+  } | null {
+    const e = this.runOutput.get(executionId);
+    if (!e) return null;
+    return {
+      chunks: e.chunks.map((c) => ({ ...c })),
+      bytes: e.bytes,
+      truncated: e.truncated,
+      seq: e.seq,
+    };
   }
 
   // --- M58: transient attention layer ------------------------------------
@@ -1448,6 +1637,16 @@ export class CollaborationRoom {
           ws.send(encoding.toUint8Array(enc));
         } catch {}
       }
+    }
+
+    // 3b. M65: replay buffered shared run output to a joining owner/editor so a
+    // mid-run collaborator sees what has printed so far. Viewers get status
+    // only (see broadcastRunOutput / the M65 access boundary).
+    if (
+      this.runOutput.size > 0 &&
+      (clientState.role === "owner" || clientState.role === "editor")
+    ) {
+      this.sendRunOutputSnapshot(ws);
     }
 
     // 4. M56: if this project's workspace was recently replaced wholesale
@@ -2307,6 +2506,11 @@ export class CollaborationRoom {
       this.runStatusSweepTimer = null;
     }
     this.runStatus.clear();
+    // M65: shared run-output teardown.
+    for (const e of this.runOutput.values()) {
+      if (e.flushTimer) clearTimeout(e.flushTimer);
+    }
+    this.runOutput.clear();
     this.displayNameByUser.clear();
     // M58: attention teardown.
     for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
@@ -2389,6 +2593,21 @@ export class CollaborationManager {
    */
   public notifyRunStatus(projectId: string, input: RunStatusEntry): void {
     this.rooms.get(projectId)?.handleRunStatus(input);
+  }
+
+  /**
+   * M65: publish one run-output fragment into a project's collaboration room.
+   * The sole caller is the authenticated execution WebSocket lifecycle
+   * (ws/execution.ts). No-op when no room is live. Owner/editor-only delivery
+   * and the 256 KB bound are enforced in CollaborationRoom.
+   */
+  public notifyRunOutput(
+    projectId: string,
+    executionId: string,
+    stream: "stdout" | "stderr",
+    data: string,
+  ): void {
+    this.rooms.get(projectId)?.handleRunOutput(executionId, stream, data);
   }
 
   /**
