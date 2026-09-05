@@ -14,6 +14,7 @@ import {
   ContainerStats,
   UserPreferences,
   RunStatusEntry,
+  SharedRunOutput,
 } from "../../types";
 import {
   api,
@@ -292,6 +293,11 @@ export default function IDE({
   );
   // M54: collaborative run awareness — server-authoritative, ephemeral.
   const [runStatuses, setRunStatuses] = useState<RunStatusEntry[]>([]);
+  // M65: shared run output — the bounded, ephemeral stdout/stderr replay that
+  // rides alongside a run status for owner/editor collaborators (RECEIVE-only).
+  const [sharedRunOutputs, setSharedRunOutputs] = useState<SharedRunOutput[]>(
+    [],
+  );
   // M58: transient attention events (Point / Callout / targeted "Come look").
   // One throttled state fed from the collab client's AttentionStore — no second
   // store, no per-event IDE re-render.
@@ -457,6 +463,7 @@ export default function IDE({
       }
       setCollaborators([]);
       setRunStatuses([]);
+      setSharedRunOutputs([]);
       setCollabStatus("disconnected");
       return;
     }
@@ -465,6 +472,7 @@ export default function IDE({
     let client: CollaborationClient | null = null;
     let unsubAwareness: (() => void) | undefined;
     let unsubRunStatus: (() => void) | undefined;
+    let unsubRunOutput: (() => void) | undefined;
     let unsubConnection: (() => void) | undefined;
     let unsubExternalMutation: (() => void) | undefined;
     let unsubAttention: (() => void) | undefined;
@@ -509,6 +517,14 @@ export default function IDE({
       unsubRunStatus = client.on(
         "run_status_change",
         (entries: RunStatusEntry[]) => setRunStatuses(entries),
+      );
+
+      // M65: shared run output — batched by the server (RUN_OUTPUT_FLUSH_MS)
+      // and additionally cheap here (only owner/editor peers' runs, capped at
+      // 256 KB). No throttle; the console view renders it read-only.
+      unsubRunOutput = client.on(
+        "run_output_change",
+        (outs: SharedRunOutput[]) => setSharedRunOutputs(outs),
       );
 
       // M58: attention events are human-frequency but still throttled to avoid
@@ -696,6 +712,7 @@ export default function IDE({
       cancelled = true;
       unsubAwareness?.();
       unsubRunStatus?.();
+      unsubRunOutput?.();
       unsubConnection?.();
       unsubExternalMutation?.();
       unsubAttention?.();
@@ -734,6 +751,7 @@ export default function IDE({
       throttledSetCollaborators?.cancel();
       throttledSetAttention?.cancel();
       setRunStatuses([]);
+      setSharedRunOutputs([]);
       setAttention([]);
       // M62: cancel a pending coalesced profile-event roster refetch and
       // drop the stale roster so the next project starts clean.
@@ -3313,7 +3331,14 @@ export default function IDE({
                 }}
               >
                 {bottomTab === "output" && (
-                  <Output project={project} onRefreshTree={loadTree} />
+                  <Output
+                    project={project}
+                    onRefreshTree={loadTree}
+                    sharedRunOutputs={sharedRunOutputs}
+                    runStatuses={runStatuses}
+                    currentUserId={user.id}
+                    collabConnected={collabStatus === "connected"}
+                  />
                 )}
                 {bottomTab === "problems" && (
                   <ProblemsPanel

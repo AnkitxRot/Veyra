@@ -202,3 +202,44 @@
   text-align: center;
   padding: var(--space-6);
 }
+
+/* ==========================================================================
+   M65 — Shared Run Output (read-only view of a collaborator's run)
+   ========================================================================== */
+
+.shared-run-output-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  padding: 8px 12px 0;
+}
+
+.shared-run-output {
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--glass-surface-2);
+  padding: 8px 10px;
+}
+
+.shared-run-output-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.shared-run-output-title {
+  color: var(--fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-run-output-body {
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}

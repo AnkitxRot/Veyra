@@ -14,15 +14,38 @@ import {
   IconDownload,
 } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
-import { RunRecord, SnapshotRecord } from "../../types";
+import {
+  RunRecord,
+  RunStatusEntry,
+  SharedRunOutput,
+  SnapshotRecord,
+} from "../../types";
 import { PromptModal, ConfirmModal } from "../common/Modal";
 import { useExecutionSession } from "../../hooks/useExecutionSession";
 import { bulkConflictSummary } from "../../utils/collabConflict";
+import SharedRunOutputPanel from "./SharedRunOutputPanel";
 const ExecutionTelemetryModal = React.lazy(
   () => import("./ExecutionTelemetryModal"),
 );
 
-export default function Output({ project, onRefreshTree }: any) {
+export interface OutputProps {
+  project: any;
+  onRefreshTree?: () => void;
+  /** M65: other collaborators' bounded, read-only run output (owner/editor). */
+  sharedRunOutputs?: SharedRunOutput[];
+  runStatuses?: RunStatusEntry[];
+  currentUserId?: number;
+  collabConnected?: boolean;
+}
+
+export default function Output({
+  project,
+  onRefreshTree,
+  sharedRunOutputs = [],
+  runStatuses = [],
+  currentUserId,
+  collabConnected = false,
+}: OutputProps) {
   const [activeTab, setActiveTab] = useState<
     "console" | "history" | "snapshots"
   >("console");
@@ -56,6 +79,18 @@ export default function Output({ project, onRefreshTree }: any) {
     type: "new_snapshot" | "restore_snapshot" | "delete_snapshot" | null;
     snapshot?: SnapshotRecord;
   }>({ type: null });
+
+  // M65: another collaborator's run output — shown read-only above the local
+  // console. Never your own run (you see that live), and only when a matching
+  // run status confirms who is (was) running.
+  const foreignRunOutputs = sharedRunOutputs
+    .map((o) => ({
+      output: o,
+      status: runStatuses.find((s) => s.executionId === o.executionId),
+    }))
+    .filter(
+      ({ status }) => status != null && status.userId !== currentUserId,
+    );
 
   const scrollToBottom = () => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -281,6 +316,19 @@ export default function Output({ project, onRefreshTree }: any) {
             minHeight: 0,
           }}
         >
+          {foreignRunOutputs.length > 0 && (
+            <div className="shared-run-output-list">
+              {foreignRunOutputs.map(({ output, status }) => (
+                <SharedRunOutputPanel
+                  key={output.executionId}
+                  output={output}
+                  status={status}
+                  connected={collabConnected}
+                />
+              ))}
+            </div>
+          )}
+
           <div className="output-log-container" style={{ flex: 1 }}>
             {logs.length === 0 ? (
               <div
