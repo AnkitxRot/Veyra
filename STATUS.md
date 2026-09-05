@@ -6272,11 +6272,13 @@ instance only (env var, no code change).
    project-data egress, prompt-injection trust boundary, demo-account policy);
    (b) ~~local-only Git repository support~~ — **shipped in M51** (local-only,
    no remotes; see the M51 section); this line is stale;
-   (c) shared execution output / summon-terminal for collaborators
-   (`ws/execution.ts` has no room broadcast today) — still open, but note M54
-   deliberately broadcasts run *status* only and never stdout/stderr because
-   run output can contain injected project secrets (M47); widening that is a
-   security/product decision, not a plain bounded task; (d) native
+   (c) ~~shared execution output for collaborators~~ — **shipped in M65** (see
+   the M65 section): stdout/stderr broadcast to owner/editor room clients only,
+   bounded 256 KB ephemeral buffer, no viewer stdin/kill, no shared interactive
+   terminal ("summon-terminal" remains out of scope). The M47 injected-secret
+   concern is handled by the owner/editor-only access gate + the fact that
+   secrets are only injected into the run's env, not echoed to stdout;
+   (d) native
    workspace-backup scheduler + admin "backup all now" (`deploy/README.md`
    explicitly defers the scheduler — "distinct concern (queue design, shutdown
    lifecycle, per-project overlap-skipping)"); the "backup all now" admin
@@ -6776,3 +6778,114 @@ of every M64 commit) — the M63 connection wiring is untouched.
 `tsc --noEmit` 0, `vite build` 0, `eslint .` 0 errors / 35 warnings (baseline);
 backend `tsc --noEmit` 0, full suite 1039 / 9 skip / 0 (Docker up);
 `git diff --check` clean; tree clean.
+
+## M65 — shared run output (bounded, ephemeral, owner/editor)
+
+**Objective:** an authorized collaborator can watch another member's run output
+(stdout/stderr) inside the IDE, read-only, without collaboration ever becoming
+an interactive shared terminal. Server-authoritative, ephemeral, bounded.
+
+**Commit range:** `91202ff..820ef26` (4 commits)
+
+| Commit | Purpose |
+|---|---|
+| `d4a4720` feat(collab): add bounded ephemeral shared run output buffer | `CollaborationRoom` run-output ring + broadcast + snapshot + teardown |
+| `2e701da` feat(run): publish execution output to the collaboration room | `ws/execution.ts` onStdout/onStderr calls `notifyRunOutput`; auth integration tests |
+| `c0219ad` feat(collab): receive shared run output on the client | `CollaborationClient.runOutputs` receive-only transport + seq de-dupe |
+| `820ef26` feat(ide): surface read-only shared run output in the console | `SharedRunOutputPanel` + IDE/Output wiring |
+
+**Architecture (server-authoritative, ephemeral — mirrors M54 run status):**
+
+```
+runProject onStdout/onStderr (ws/execution.ts, authenticated editor+ socket)
+  -> collaborationManager.notifyRunOutput(projectId, executionId, stream, data)
+  -> CollaborationRoom.handleRunOutput  — rejected unless a live M54 run_status
+      entry exists for executionId (buffer cannot predate or outlive its run)
+  -> per-execution ring: chunks[], bytes, truncated, seq, pending, flushTimer
+      - RUN_OUTPUT_MAX_BYTES = 256 KB, enforced on every append
+      - overflow -> drop OLDEST whole chunks (a lone oversized chunk is
+        head-truncated), truncated latches true
+      - chunks within RUN_OUTPUT_FLUSH_MS (60 ms) coalesce into one batch,
+        monotonic per-execution seq
+  -> broadcastRunOutput -> MESSAGE_CUSTOM {type:"run_output", executionId, seq,
+      truncated, chunks} to room clients whose role is owner OR editor ONLY
+  -> addClient(): an owner/editor joiner gets the buffered tail as
+      {..., snapshot:true} frames (viewers get nothing)
+  -> CollaborationClient: snapshot replaces the buffer + sets lastSeq; live
+      frames append, ignored when seq <= lastSeq (reconnect de-dupe); a
+      256 KB client-side char cap mirrors the server; buffer dropped with its
+      run_status ("cleared"), on reconnect reset, and on dispose()
+  -> IDE.tsx sharedRunOutputs state (run_output_change) -> <Output>
+  -> SharedRunOutputPanel: read-only, above the local console, only for OTHER
+      users' runs with a matching status. Header (who + file + running/
+      completed/failed/stopped badge), "earlier output truncated" marker,
+      "Output unavailable — reconnecting" when the collab link is down. No
+      stdin field, no stop control.
+```
+
+**256 KB truncation choice — drop OLDEST, mark explicitly.** The shared buffer
+is a bounded *replay tail* for late joiners and reconnecting clients; the newest
+output (current progress, latest error, exit banner) is the most relevant, which
+matches terminal scrollback / `tail` semantics and M54's "latest state wins,
+linger briefly" treatment. The runner's own `/ws/execute` stream is unaffected —
+it consumed every chunk live. Truncation is surfaced (`truncated` flag -> UI
+marker), never silent, and the buffer never grows unbounded.
+
+**Product decision — viewer access (spec was ambiguous: "owner/editor-only
+access" vs "read-only for viewers").** Resolved conservatively: shared run
+*output* goes to **owner + editor room clients only**. Viewers keep M54 run
+*status* (who / what / state) but never receive the output stream. The role gate
+lives in one place (`broadcastRunOutput` recipient filter + the `addClient`
+snapshot guard); including viewers later is a one-predicate change. Rationale:
+"owner/editor-only access" is an explicit hard-requirement bullet, and
+under-sharing code-execution output is the safe failure mode.
+
+**Security (server-side, not frontend-role):**
+
+| Guarantee | Enforcement |
+|---|---|
+| viewer / non-member cannot run, stdin, or kill | `/ws/execute` upgrade `requireProjectAccess(minRole:"editor")` — unchanged; integration test asserts 403 for viewer + stranger |
+| non-member cannot subscribe to output | `/ws/collab` upgrade `requireProjectAccess(minRole:"viewer")` — stranger 403 |
+| viewer cannot see output | `broadcastRunOutput` / snapshot filter on `CollaboratorClientState.role` |
+| client cannot inject or forge output | inbound `MESSAGE_CUSTOM` allowlist unchanged (no `run_output`); the client has no code path that authors the frame |
+| output cannot accumulate unbounded | 256 KB ring on the server, 256 KB char cap on the client |
+| nothing persisted | in-memory only; the `runs` table is written solely by the existing M54 status path (test asserts 0 rows from the output path) |
+
+**Lifecycle / cleanup:** the output buffer is bound to its M54 `run_status`
+entry. Terminal state -> retained through `RUN_STATUS_LINGER_MS` (late chunks
+still flow), then dropped with the status entry (`cleared` frame). The 30-min
+stale-run sweep and `dispose()` both drop the buffer + its flush timer. No
+per-execution subscription object exists, so a reconnect cannot create a
+duplicate subscription; a reconnecting owner/editor just gets one fresh snapshot
+and the `seq` guard suppresses any duplicated in-flight batch.
+
+**Verification gates (2026-09-06):**
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1061 passed / 9 skipped / 0 failed** (83 files, 345 s); Docker-gated suites (`python-deps` 42 s, `templates.exec`, `m16-optimization`, `sandbox`) actually executed. +22 vs. M64 baseline = the M65 backend tests |
+| M65 backend room tests | `m65-shared-run-output.test.ts` — 17: stdout/stderr delivery, owner delivery, viewer exclusion (x2), no-status rejection, coalescing + seq, 256 KB bound + oldest-drop + latch, single-oversized head-truncate, mid-run snapshot, linger retention then drop, stale-sweep drop, `dispose()` timer + buffer clear, disposed-room no-op, no `runs` persistence, manager routing, non-OPEN skip |
+| M65 backend integration | `m65-shared-run-output.integration.test.ts` — 5: viewer -> `/ws/execute` 403, stranger -> `/ws/execute` 403, stranger -> `/ws/collab` 403, editor -> `/ws/execute` 101, owner run streams stdout+stderr to an editor and never to a viewer (viewer still gets `run_status`) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` -> **737 passed / 0 failed** (88 files); +19 (collab.runOutput.client 8, SharedRunOutputPanel 6, ideSharedRunOutput.wiring 5) |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint .` -> 0 errors / 35 warnings (baseline unchanged) |
+| `git diff --check` | clean |
+| Live browser — TWO real sessions | owner (`m65own_7684`, script-driven `/ws/execute`) + editor (`m61_userA`, real IDE tab). **PASS:** live stdout streaming into `SharedRunOutputPanel` ("running" badge, "m65own_7684 is running main.py", lines 0-5); stderr interleaved; "completed" state (past-tense header, badge); read-only (no stdin form, no stop control — DOM-confirmed); 256 KB truncation with "earlier output truncated" marker + oldest rows dropped (body 261 961 chars <= 262 144, first visible line `row 2312:`); ephemeral teardown — panel gone ~10 s after the run terminal state; zero console errors |
+| Revert-sensitivity | 256 KB trim, oldest-drop, `truncated` latch, no-status rejection, viewer exclusion, snapshot-on-join, linger teardown, `dispose()` clear, client seq de-dupe, client `run_status`-cleared teardown, IDE `run_output_change` wiring each break >=1 test when reverted |
+
+**NOT run in the live browser** (deterministically covered): viewer *exclusion*
+from output (needs a third authenticated session — covered by
+`m65-shared-run-output.test.ts` x2 + the integration test), the
+"unavailable — reconnecting" notice on a forced disconnect, and reconnect
+snapshot de-dupe (`collab.runOutput.client.test.ts`). A second/third
+authenticated browser session could not be created because that needs account
+creation / password entry, which is outside what this agent may do; the two
+sessions used were driven from pre-existing / API-created credentials without
+interactive auth.
+
+**Not done / out of scope (M65):** no durable run-output history, no viewer
+stdin / kill / shared interactive terminal, no external AI provider, no change to
+the runner's own `/ws/execute` stream, no new REST endpoint, no M66 preference
+work.
