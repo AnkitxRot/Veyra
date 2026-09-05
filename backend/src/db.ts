@@ -307,6 +307,7 @@ export function openDb(dbPath: string): Db {
       line_numbers       TEXT NOT NULL DEFAULT 'on',
       cursor_blinking    TEXT NOT NULL DEFAULT 'smooth',
       render_whitespace  TEXT NOT NULL DEFAULT 'selection',
+      format_on_save     INTEGER NOT NULL DEFAULT 0,
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -698,6 +699,23 @@ const MIGRATIONS: Migration[] = [
       // upgraded one. The legacy-preferences copy runs only here.
       db.exec(M61_SCHEMA_SQL);
       copyLegacyPreferencesIntoSettings(db);
+    },
+  },
+  {
+    version: 13,
+    description:
+      "M66: add user_preferences.format_on_save — the 'format on save' editor setting moves from browser localStorage into the typed server-persisted preference store (single source of truth). Existing rows default to 0 (off), matching the prior client default.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      if (!cols.includes("format_on_save")) {
+        db.exec(
+          "ALTER TABLE user_preferences ADD COLUMN format_on_save INTEGER NOT NULL DEFAULT 0",
+        );
+      }
     },
   },
 ];

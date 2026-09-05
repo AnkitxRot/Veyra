@@ -9,6 +9,9 @@ export interface UserPreferences {
   lineNumbers: "on" | "off" | "relative" | "interval";
   cursorBlinking: "blink" | "smooth" | "phase" | "expand" | "solid";
   renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
+  /** M66: run the editor formatter on every save. Previously a browser-only
+   *  localStorage flag; now part of the single typed source of truth. */
+  formatOnSave: boolean;
   updatedAt?: string;
 }
 
@@ -20,6 +23,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   lineNumbers: "on",
   cursorBlinking: "smooth",
   renderWhitespace: "selection",
+  formatOnSave: false,
 };
 
 const ALLOWED_KEYS = new Set([
@@ -30,6 +34,7 @@ const ALLOWED_KEYS = new Set([
   "lineNumbers",
   "cursorBlinking",
   "renderWhitespace",
+  "formatOnSave",
 ]);
 
 const VALID_TAB_SIZES = [2, 4, 8];
@@ -57,7 +62,7 @@ const VALID_RENDER_WHITESPACE = [
 export function getUserPreferences(db: Db, userId: number): UserPreferences {
   const row = db
     .prepare(
-      `SELECT font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, updated_at
+      `SELECT font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save, updated_at
        FROM user_preferences WHERE user_id = ?`,
     )
     .get(userId) as any;
@@ -74,6 +79,7 @@ export function getUserPreferences(db: Db, userId: number): UserPreferences {
     lineNumbers: row.line_numbers,
     cursorBlinking: row.cursor_blinking,
     renderWhitespace: row.render_whitespace,
+    formatOnSave: Boolean(row.format_on_save),
     updatedAt: row.updated_at,
   };
 }
@@ -193,6 +199,16 @@ export function updateUserPreferences(
     }
   }
 
+  if (updates.formatOnSave !== undefined) {
+    if (typeof updates.formatOnSave !== "boolean") {
+      throw new ApiError(
+        400,
+        "formatOnSave must be a boolean",
+        "invalid_format_on_save",
+      );
+    }
+  }
+
   // Get current preferences to preserve unspecified fields
   const current = getUserPreferences(db, userId);
   const merged: UserPreferences = {
@@ -210,13 +226,17 @@ export function updateUserPreferences(
       updates.renderWhitespace !== undefined
         ? updates.renderWhitespace
         : current.renderWhitespace,
+    formatOnSave:
+      updates.formatOnSave !== undefined
+        ? updates.formatOnSave
+        : current.formatOnSave,
   };
 
   db.prepare(
     `INSERT INTO user_preferences (
-       user_id, font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, updated_at
+       user_id, font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(user_id) DO UPDATE SET
        font_size = excluded.font_size,
        tab_size = excluded.tab_size,
@@ -225,6 +245,7 @@ export function updateUserPreferences(
        line_numbers = excluded.line_numbers,
        cursor_blinking = excluded.cursor_blinking,
        render_whitespace = excluded.render_whitespace,
+       format_on_save = excluded.format_on_save,
        updated_at = datetime('now')`,
   ).run(
     userId,
@@ -235,6 +256,7 @@ export function updateUserPreferences(
     merged.lineNumbers,
     merged.cursorBlinking,
     merged.renderWhitespace,
+    merged.formatOnSave ? 1 : 0,
   );
 
   return getUserPreferences(db, userId);
