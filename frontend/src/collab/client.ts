@@ -5,7 +5,12 @@ import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { MonacoBinding } from "y-monaco";
 import { monaco } from "../monacoSetup";
-import { User, RunStatusEntry } from "../types";
+import {
+  User,
+  RunStatusEntry,
+  RunOutputChunk,
+  SharedRunOutput,
+} from "../types";
 import {
   getUserColor,
   readPresenceState,
@@ -130,6 +135,16 @@ export class CollaborationClient {
   // from the server's `run_status` broadcasts (which the server derives from
   // the real, authenticated execution lifecycle). Keyed by server executionId.
   private runStatuses = new Map<string, RunStatusEntry>();
+
+  // M65: shared run output — the bounded, ephemeral stdout/stderr replay that
+  // accompanies a `run_status` for owner/editor room members. RECEIVE-ONLY;
+  // keyed by server executionId; torn down with its `run_status` entry. The
+  // per-execution `lastSeq` de-dupes replayed batches after a reconnect.
+  private runOutputs = new Map<
+    string,
+    { executionId: string; chunks: RunOutputChunk[]; truncated: boolean; lastSeq: number }
+  >();
+  private static readonly RUN_OUTPUT_CLIENT_MAX_CHARS = 256 * 1024;
 
   // M58: transient attention events (Point / Callout / targeted "Come look").
   // RECEIVE-authoritative — the server stamps id/author/createdAt/expiresAt;
@@ -633,6 +648,11 @@ export class CollaborationClient {
       this.runStatuses.clear();
       this.emit("run_status_change", this.getRunStatuses());
     }
+    // M65: same for shared run output — the fresh room re-snapshots live runs.
+    if (this.runOutputs.size > 0) {
+      this.runOutputs.clear();
+      this.emit("run_output_change", this.getRunOutputs());
+    }
 
     this.initDocAndAwareness();
 
@@ -874,6 +894,16 @@ export class CollaborationClient {
               this.handleRunStatusMessage(parsed);
             } else if (
               parsed &&
+              parsed.type === "run_output" &&
+              typeof parsed.executionId === "string" &&
+              Array.isArray(parsed.chunks)
+            ) {
+              // M65: RECEIVE-ONLY shared run output. Only the server's
+              // execution lifecycle emits this frame; a peer cannot forge it
+              // (same guarantee as run_status). Never authored by this client.
+              this.handleRunOutputMessage(parsed);
+            } else if (
+              parsed &&
               parsed.type === "external_mutation_notice" &&
               (typeof parsed.path === "string" || parsed.path === null) &&
               typeof parsed.mutationType === "string" &&
@@ -1095,6 +1125,10 @@ export class CollaborationClient {
     const id: string = msg.executionId;
     if (msg.state === "cleared") {
       this.runStatuses.delete(id);
+      // M65: the shared output buffer is bound to this run-status entry.
+      if (this.runOutputs.delete(id)) {
+        this.emit("run_output_change", this.getRunOutputs());
+      }
     } else if (
       (msg.state === "running" ||
         msg.state === "success" ||
@@ -1122,6 +1156,84 @@ export class CollaborationClient {
 
   public getRunStatuses(): RunStatusEntry[] {
     return Array.from(this.runStatuses.values());
+  }
+
+  // M65: apply one server `run_output` frame. `snapshot` frames replace the
+  // buffer (reconnect / mid-run join); live frames append, guarded by `seq` so
+  // a batch the server already folded into a snapshot is not double-counted.
+  // Shape-guards against a corrupt frame; every field is server-authoritative.
+  private handleRunOutputMessage(msg: any): void {
+    if (this.isDisposed) return;
+    const id: string = msg.executionId;
+    const chunks = this.sanitizeRunOutputChunks(msg.chunks);
+    if (!chunks) return;
+    const seq = typeof msg.seq === "number" ? msg.seq : 0;
+    const frameTruncated = msg.truncated === true;
+
+    if (msg.snapshot === true) {
+      const entry = {
+        executionId: id,
+        chunks,
+        truncated: frameTruncated,
+        lastSeq: seq,
+      };
+      this.capRunOutput(entry);
+      this.runOutputs.set(id, entry);
+      this.emit("run_output_change", this.getRunOutputs());
+      return;
+    }
+
+    let entry = this.runOutputs.get(id);
+    if (!entry) {
+      entry = { executionId: id, chunks: [], truncated: false, lastSeq: 0 };
+      this.runOutputs.set(id, entry);
+    } else if (entry.lastSeq > 0 && seq <= entry.lastSeq) {
+      return; // already covered (duplicate replay after reconnect)
+    }
+    entry.chunks.push(...chunks);
+    entry.lastSeq = Math.max(entry.lastSeq, seq);
+    if (frameTruncated) entry.truncated = true;
+    this.capRunOutput(entry);
+    this.emit("run_output_change", this.getRunOutputs());
+  }
+
+  private sanitizeRunOutputChunks(raw: unknown): RunOutputChunk[] | null {
+    if (!Array.isArray(raw)) return null;
+    const out: RunOutputChunk[] = [];
+    for (const c of raw) {
+      if (
+        !c ||
+        (c.stream !== "stdout" && c.stream !== "stderr") ||
+        typeof c.data !== "string"
+      ) {
+        return null;
+      }
+      out.push({ stream: c.stream, data: c.data });
+    }
+    return out;
+  }
+
+  /** Client-side mirror of the server's 256 KB bound: drop oldest chunks. */
+  private capRunOutput(entry: {
+    chunks: RunOutputChunk[];
+    truncated: boolean;
+  }): void {
+    let total = entry.chunks.reduce((n, c) => n + c.data.length, 0);
+    while (
+      total > CollaborationClient.RUN_OUTPUT_CLIENT_MAX_CHARS &&
+      entry.chunks.length > 1
+    ) {
+      total -= entry.chunks.shift()!.data.length;
+      entry.truncated = true;
+    }
+  }
+
+  public getRunOutputs(): SharedRunOutput[] {
+    return Array.from(this.runOutputs.values()).map((e) => ({
+      executionId: e.executionId,
+      chunks: e.chunks.map((c) => ({ ...c })),
+      truncated: e.truncated,
+    }));
   }
 
   private clearPendingBind(): void {
@@ -1366,6 +1478,7 @@ export class CollaborationClient {
     this.removeActivityListeners();
     this.clearPendingBind();
     this.runStatuses.clear();
+    this.runOutputs.clear();
     this.attentionStore.dispose();
     this.unbindCurrentModel();
     if (this.ws) {

@@ -102,6 +102,21 @@ export interface RunStatusEntry {
   exitCode: number | null;
 }
 
+// M65: Shared Run Output. A bounded, ephemeral replay of another collaborator's
+// run stdout/stderr, delivered to owner/editor room members only (never
+// viewers, never sent by the browser). Carries no command/env/secret content.
+export interface RunOutputChunk {
+  stream: "stdout" | "stderr";
+  data: string;
+}
+
+export interface SharedRunOutput {
+  executionId: string;
+  chunks: RunOutputChunk[];
+  /** True once the server or the client dropped older output past its bound. */
+  truncated: boolean;
+}
+
 export interface SnapshotRecord {
   id: string;
   project_id: string;
