@@ -6605,3 +6605,102 @@ handles reconciliation), no persistence of unsynced edits to localStorage, no
 avatars, no M64/M65/M66+ (notice consolidation, preference store, theme,
 keybindings, performance). Real-browser two-session pass of the banner + retry +
 beforeunload is deterministically guarded but not yet browser-verified.
+
+## M64 — unified transient notices + blocking `alert()` removal (frontend)
+
+**Objective:** one typed, non-blocking notice mechanism in the IDE. Replace the
+six fragmented transient-notice states in `IDE.tsx`, each with its own `useState`
++ ad-hoc `setTimeout` lifecycle, and remove the two blocking `alert()` calls in
+the save path — without flattening semantically different UI states into one
+visual renderer.
+
+**Scope landed (frontend only — no backend/protocol change):**
+
+### `frontend/src/hooks/useNotices.ts` (new) — lifecycle owner
+
+One hook owns id / TTL / dedupe / cleanup for every notice; it never inspects
+presentation.
+
+- **Stable ids** — module counter (`notice-<n>`).
+- **Typed model** — `{ kind, text, ttl, surface, dedupeKey?, actions?, onExpire?,
+  role }`. `kind` ∈ success/info/warning/error; `surface` ∈
+  `stack | statusbar | editor | headless` (opaque to the hook — the caller
+  filters on it). `ttl` omitted / `null` / `0` ⇒ persistent (explicit dismissal
+  only).
+- **API** — `notify(input) → id`, `dismiss(id)`, `dismissKey(dedupeKey)`,
+  `hasKey(dedupeKey)`. `notify` with a live `dedupeKey` replaces that entry in
+  place with a fresh id (old timer cleared).
+- **Bounded queue** — `MAX_NOTICES = 6`; on overflow the oldest transient entry
+  is evicted, falling back to the oldest overall only when every entry is
+  persistent. A persistent notice is never evicted ahead of a transient one.
+- **Timers** — one `Map<id, handle>` in a ref, cleared on dismiss / replace /
+  evict / unmount. An expiry callback whose notice id is already gone is a
+  no-op (a stale timer can never remove its replacement); `onExpire` fires only
+  on real TTL expiry, never on `dismiss` / `dismissKey` / dedupe-replace.
+
+### `frontend/src/components/common/NoticeStack.tsx` (new) + `styles/notice.css` (new)
+
+Renders only the `surface: "stack"` slice — fixed bottom-centre, newest at the
+bottom, `role="region" aria-label="Notifications"`. Each row: kind-tinted left
+border, text, optional action buttons, a dismiss control;
+`role`/`aria-live` follow the kind (`alert`/`assertive` for errors). Visible cap
+(3) never hides a persistent notice — transient notices fill the remaining
+slots newest-first, the rest collapse to a "+N more" line. Reuses existing
+tokens; no new visual language. This also fixes the pre-M64 bug where
+`invalidRouteNotice` / `replaceReconcileNotice` / `externalMutationNotice` all
+rendered at `position:fixed; bottom:40px` and overlapped.
+
+### `IDE.tsx` migration (mechanical, one `useNotices()` instance)
+
+| Was | Now |
+|---|---|
+| `saveToast` (statusbar badge, 2–3s) | `surface:"statusbar"`, `dedupeKey:"save-toast"` — still rendered in the footer badge slot, **not** moved to the stack |
+| `externalMutationNotice` (M56 ping + direct-save conflict, 8s, one slot) | shared `dedupeKey:"ext-mutation"`, 8s TTL — one file-mutation notice at a time, preserved |
+| `alert("Save failed: …")` / `alert("no live content …")` | persistent (`ttl:null`) per-path `dedupeKey:"save-fail:<path>"` error notice, `role:"alert"`, non-blocking; a later successful save of that path clears it |
+| `replaceReconcileNotice` (manual dismiss) | persistent `dedupeKey:"reconcile"`, cleared on project switch |
+| `invalidRouteNotice` (manual dismiss) | persistent `dedupeKey:"invalid-route"` (`kind:error`), cleared by `dismissKey` when a project is picked / the route resolves |
+| `followLeftNotice` (editor-local, Return/Stay actions, TTL side-effect, feeds `FollowBanner.hasAnchor`) | `surface:"editor"` entry, `dedupeKey:"follow-left"`, `ttl:FOLLOW_LEFT_NOTICE_MS`; **still rendered in `.ide-editor-area`** with its actions; `onExpire` nulls `followAnchorRef.current` ("Stay here" default); `hasAnchor` reads `hasNotice("follow-left")` |
+| `attnRateNotice` (`number\|null` + 4s timer) | headless — `surface:"headless"`, `dedupeKey:"attn-rate"`, 4s TTL, never rendered; `AttentionTray` unchanged and still owns the visible "Too many pending requests" banner, fed from `hasNotice("attn-rate")` |
+
+Removed: `saveToast`, `externalMutationNotice` + `externalMutationTimerRef`,
+`replaceReconcileNotice`, `invalidRouteNotice`, `followLeftNotice` +
+`followLeftTimerRef` + `clearFollowLeftTimer`, `attnRateNotice` +
+`attnRateTimerRef`.
+
+### Explicitly untouched
+
+- `SourceControlPanel.tsx` — the truly-persistent `git-conflict` /
+  `git-collab-conflict` banners stay component-local `useState`; a wiring guard
+  asserts it imports neither `useNotices` nor `NoticeStack`.
+- The remaining `alert()` calls in `IDE.tsx` (open-file failure, 4× AI
+  action/patch) — not save paths; a guard pins the count at 5 so none is
+  accidentally migrated or removed.
+
+**Verification gates (2026-09-06):**
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` → **706 passed / 0 failed** (85 files); +49 new (useNotices 20, NoticeStack 9, ideNotices.wiring 17, ideSaveConflict +2, minus churn) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `tsc --noEmit && vite build` exit 0 |
+| Frontend eslint | `eslint .` → 0 errors / 35 warnings (unchanged from baseline) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite | `npm test` → **1039 passed / 9 skipped / 0 failed** (81 files; unchanged — M64 is frontend-only) |
+| `git diff --check` | clean |
+| Docker-dependent (exec/sandbox/preview e2e) | Docker **available** on this host — the Docker-gated backend tests (`python-deps`, `templates.exec`, `m16`, `sandbox`, …) ran and passed; 9 skipped are non-Docker conditional skips |
+| Revert-sensitivity | TTL expiry, explicit dismiss, dedupe-replace, stale-timer no-op, `onExpire`-only-on-expiry, MAX_NOTICES eviction, persistent-not-evicted, unmount cleanup, save-path `alert()` removal, save-fail persistence + per-path dedupe + clear-on-success, ext-mutation single slot, follow-left placement + actions + anchor-null-on-expire, `hasAnchor` derivation, attn-rate headless, SourceControlPanel untouched — each breaks ≥1 test when reverted |
+
+**Commit sequence:** `test(ide): specify unified notice lifecycle` →
+`feat(ide): add typed notice queue` → `feat(ide): add shared NoticeStack
+renderer` → `feat(ide): route save and mutation notices through the queue` →
+`feat(ide): route persistent route/reconcile notices through the queue` →
+`refactor(ide): unify follow-left notice lifecycle` → `refactor(ide): unify
+attention rate-limit lifecycle` → `test(ide): harden notice regression
+coverage` → `docs(status): record M64 verification`.
+
+**Not done / out of scope (M64):** no design-system rewrite, no broad visual
+redesign, no M66 preference architecture, no themes/keybindings/avatars/AI
+providers/performance. The non-save `alert()` surfaces (`IDE.tsx` open-file +
+AI, and the older `Sidebar.tsx`/`AdminDashboard.tsx` pattern from the backlog)
+are a separate future UX pass. Real-browser pass of the notice stack + follow-
+left actions is deterministically guarded but not browser-verified.
