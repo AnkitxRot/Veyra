@@ -1,0 +1,21 @@
+{
+  "name": "CloudeeeIDE",
+  "install": "bash scripts/cloud-agent-install.sh",
+  "start": "bash scripts/cloud-agent-start.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "description": "CloudeeeIDE backend API + WebSocket server (Express/tsx) on http://localhost:3000. Bootstraps a local admin account (admin / devpassword123 by default; override via ADMIN_USERNAME / ADMIN_PASSWORD).",
+      "command": "DATA_DIR=\"$HOME/.cloud-ide\" ADMIN_USERNAME=\"${ADMIN_USERNAME:-admin}\" ADMIN_PASSWORD=\"${ADMIN_PASSWORD:-devpassword123}\" PORT=3000 npm run dev"
+    },
+    {
+      "name": "frontend",
+      "description": "Vite dev server for the React IDE frontend on http://localhost:5173 (proxies /api and /ws to the backend on port 3000).",
+      "command": "npm run dev -w @cloud-ide/frontend"
+    }
+  ],
+  "ports": [
+    { "name": "frontend", "port": 5173 },
+    { "name": "backend", "port": 3000 }
+  ]
+}
