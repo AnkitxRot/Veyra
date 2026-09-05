@@ -95,6 +95,41 @@ describe("NoticeStack", () => {
     expect(screen.queryByText("t1")).toBeNull();
   });
 
+  it("caps persistent notices at max too, but keeps them reachable via expand", () => {
+    const notices = [
+      makeNotice({ text: "p0", ttl: null }),
+      makeNotice({ text: "p1", ttl: null }),
+      makeNotice({ text: "p2", ttl: null }),
+      makeNotice({ text: "p3", ttl: null }),
+      makeNotice({ text: "p4", ttl: null }),
+    ];
+    render(<NoticeStack notices={notices} onDismiss={() => {}} />);
+    // default view: at most `max` rows
+    expect(document.querySelectorAll(".notice-stack .notice")).toHaveLength(3);
+    // the oldest persistent are hidden but announced
+    expect(screen.queryByText("p0")).toBeNull();
+    const more = screen.getByRole("button", { name: /2 more/i });
+
+    // expand -> every persistent notice is now reachable (and dismissible)
+    fireEvent.click(more);
+    expect(document.querySelectorAll(".notice-stack .notice")).toHaveLength(5);
+    expect(screen.getByText("p0")).toBeTruthy();
+
+    // collapse again
+    fireEvent.click(screen.getByRole("button", { name: /show less/i }));
+    expect(document.querySelectorAll(".notice-stack .notice")).toHaveLength(3);
+  });
+
+  it("does not render the expand control when nothing is hidden", () => {
+    render(
+      <NoticeStack
+        notices={[makeNotice({ ttl: null }), makeNotice({ ttl: null })]}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/more/i)).toBeNull();
+  });
+
   it("renders notice actions as buttons wired to their handlers", () => {
     const onClick = vi.fn();
     const n = makeNotice({

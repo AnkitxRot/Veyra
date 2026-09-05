@@ -7,14 +7,16 @@ import { IconClose } from "./Icons";
  * newest at the bottom. Presentation only: lifecycle (ids, TTL, dedupe,
  * cleanup) belongs to useNotices.
  *
- * Persistent notices (ttl === null) are never hidden by the visible cap;
- * transient notices fill the remaining slots, newest first.
+ * The default view shows at most `max` rows. Persistent notices (ttl === null)
+ * are prioritised over transient ones and are never *dropped* — anything that
+ * does not fit collapses behind an expand control so every notice stays
+ * reachable and dismissible.
  */
 export interface NoticeStackProps {
   /** The caller's `surface === "stack"` slice, in insertion order. */
   notices: Notice[];
   onDismiss: (id: string) => void;
-  /** Max rows rendered before older transient notices collapse to "+N more". */
+  /** Max rows in the collapsed view (default 3). */
   max?: number;
 }
 
@@ -25,24 +27,35 @@ export default function NoticeStack({
   onDismiss,
   max = DEFAULT_MAX,
 }: NoticeStackProps) {
-  if (notices.length === 0) return null;
+  const [expanded, setExpanded] = React.useState(false);
 
-  const transient = notices.filter((n) => n.ttl !== null);
-  const persistentCount = notices.length - transient.length;
-  const transientSlots = Math.max(0, max - persistentCount);
-  const shownTransient = new Set(
-    transient
-      .slice(Math.max(0, transient.length - transientSlots))
-      .map((n) => n.id),
-  );
-  const shown = notices.filter(
-    (n) => n.ttl === null || shownTransient.has(n.id),
-  );
-  const hiddenCount = notices.length - shown.length;
+  if (notices.length === 0) {
+    // reset the toggle so it doesn't linger for the next batch
+    if (expanded) setExpanded(false);
+    return null;
+  }
+
+  let visible: Notice[];
+  if (expanded || notices.length <= max) {
+    visible = notices;
+  } else {
+    const persistent = notices.filter((n) => n.ttl === null);
+    const transient = notices.filter((n) => n.ttl !== null);
+    const shownPersistent = persistent.slice(Math.max(0, persistent.length - max));
+    const slots = Math.max(0, max - shownPersistent.length);
+    const shownTransient = transient.slice(
+      Math.max(0, transient.length - slots),
+    );
+    const shownIds = new Set(
+      [...shownPersistent, ...shownTransient].map((n) => n.id),
+    );
+    visible = notices.filter((n) => shownIds.has(n.id));
+  }
+  const hiddenCount = notices.length - visible.length;
 
   return (
     <div className="notice-stack" role="region" aria-label="Notifications">
-      {shown.map((n) => (
+      {visible.map((n) => (
         <div
           key={n.id}
           className={`notice notice-${n.kind}`}
@@ -70,8 +83,14 @@ export default function NoticeStack({
           </button>
         </div>
       ))}
-      {hiddenCount > 0 && (
-        <div className="notice-more">+{hiddenCount} more</div>
+      {(hiddenCount > 0 || expanded) && notices.length > max && (
+        <button
+          type="button"
+          className="notice-more"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Show less" : `+${hiddenCount} more`}
+        </button>
       )}
     </div>
   );
