@@ -91,6 +91,32 @@ describe("M64 — IDE.tsx notice wiring", () => {
     expect(src).toContain('dismissNoticeKey("reconcile")');
   });
 
+  it("the follow-left notice is an editor-surface entry with a TTL side effect", () => {
+    const at = src.indexOf('dedupeKey: "follow-left"');
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at - 200, at + 700);
+    expect(block).toContain('surface: "editor"');
+    expect(block).toContain("ttl: FOLLOW_LEFT_NOTICE_MS");
+    // expiry discards the follow anchor ("Stay here" default)
+    const onExpire = block.slice(block.indexOf("onExpire:"), block.indexOf("actions:"));
+    expect(onExpire).toContain("followAnchorRef.current = null");
+    // Return / Stay actions preserved
+    expect(block).toContain("Return to your location");
+    expect(block).toContain("Stay here");
+  });
+
+  it("follow-left is rendered in the editor region, not the stack", () => {
+    const editorArea = src.indexOf('className="ide-editor-area"');
+    const editorNotice = src.indexOf('n.surface === "editor"', editorArea);
+    const errorBoundary = src.indexOf('<ErrorBoundary label="Editor">', editorArea);
+    expect(editorNotice).toBeGreaterThan(editorArea);
+    expect(editorNotice).toBeLessThan(errorBoundary);
+    // FollowBanner.hasAnchor still reflects a live follow-left notice
+    expect(src).toContain(
+      'hasAnchor={followedUserId != null || hasNotice("follow-left")}',
+    );
+  });
+
   it("drops the removed transient-notice state and timer refs", () => {
     for (const gone of [
       "saveToast",
@@ -102,6 +128,10 @@ describe("M64 — IDE.tsx notice wiring", () => {
       "setReplaceReconcileNotice",
       "invalidRouteNotice",
       "setInvalidRouteNotice",
+      "followLeftNotice",
+      "setFollowLeftNotice",
+      "followLeftTimerRef",
+      "clearFollowLeftTimer",
     ]) {
       expect(src).not.toContain(gone);
     }

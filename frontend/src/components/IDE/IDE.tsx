@@ -278,6 +278,7 @@ export default function IDE({
     notify,
     dismiss: dismissNotice,
     dismissKey: dismissNoticeKey,
+    hasKey: hasNotice,
   } = useNotices();
 
   // M4: Real-Time Multiplayer Collaboration States
@@ -357,10 +358,11 @@ export default function IDE({
   //  - one anchor per follow session (the true pre-follow context), captured
   //    once, preserved across A→B target switches, discarded on Stop/Return/reset
   //  - one userId-keyed absence timer for the ~6s reconnect grace
-  //  - a lightweight "Rahul left" notice after the grace expires
+  //  - a lightweight "Rahul left" notice after the grace expires (M64: the
+  //    editor-surface "follow-left" notice — lifecycle owned by useNotices,
+  //    still rendered in the editor region with its Return / Stay actions)
   const followAnchorRef = useRef<FollowAnchor | null>(null);
   const followAbsenceTimerRef = useRef<number | null>(null);
-  const followLeftTimerRef = useRef<number | null>(null);
   const followedUserIdRef = useRef<number | null>(null);
   const collaboratorsRef = useRef<CollaboratorPresence[]>([]);
   const lastFollowedRef = useRef<{ userId: number; name: string } | null>(null);
@@ -368,9 +370,6 @@ export default function IDE({
   const attentionRef = useRef<AttentionEvent[]>([]);
   const keepDeduperRef = useRef(new KeepDeduper());
   const resetFollowStateRef = useRef<() => void>(() => {});
-  const [followLeftNotice, setFollowLeftNotice] = useState<{
-    name: string;
-  } | null>(null);
 
   // M5: Verification-Aware AI Engineering Assistant States
   const [aiExplainState, setAiExplainState] = useState<{
@@ -1214,13 +1213,6 @@ export default function IDE({
     }
   }, []);
 
-  const clearFollowLeftTimer = useCallback(() => {
-    if (followLeftTimerRef.current !== null) {
-      window.clearTimeout(followLeftTimerRef.current);
-      followLeftTimerRef.current = null;
-    }
-  }, []);
-
   // M59: capture the pre-follow context — ONCE per follow session. The
   // null-guard is what makes Follow A → Follow B keep A's anchor.
   const captureAnchor = useCallback(() => {
@@ -1261,11 +1253,12 @@ export default function IDE({
   const handleReturnToMyLocation = useCallback(async () => {
     const anchor = followAnchorRef.current;
     clearFollowAbsenceTimer();
-    clearFollowLeftTimer();
+    // M64: explicit dismissal — clears the notice + its TTL timer, and does
+    // NOT run onExpire (the anchor is discarded here directly instead).
+    dismissNoticeKey("follow-left");
     setFollowedUserId(null);
     setFollowPaused(false);
     setFollowPauseReason("");
-    setFollowLeftNotice(null);
     followAnchorRef.current = null;
     if (!anchor) return;
 
@@ -1293,29 +1286,27 @@ export default function IDE({
       }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [clearFollowAbsenceTimer, dismissNoticeKey]);
 
   const handleStopFollowing = useCallback(() => {
     clearFollowAbsenceTimer();
-    clearFollowLeftTimer();
+    dismissNoticeKey("follow-left");
     setFollowedUserId(null);
     setFollowPaused(false);
     setFollowPauseReason("");
-    setFollowLeftNotice(null);
     followAnchorRef.current = null;
-  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [clearFollowAbsenceTimer, dismissNoticeKey]);
 
   // M59: full reset — project switch / disposal / session expiry / unmount.
   const resetFollowState = useCallback(() => {
     clearFollowAbsenceTimer();
-    clearFollowLeftTimer();
+    dismissNoticeKey("follow-left");
     followAnchorRef.current = null;
     lastFollowedRef.current = null;
     setFollowedUserId(null);
     setFollowPaused(false);
     setFollowPauseReason("");
-    setFollowLeftNotice(null);
-  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [clearFollowAbsenceTimer, dismissNoticeKey]);
   useEffect(() => {
     resetFollowStateRef.current = resetFollowState;
   }, [resetFollowState]);
@@ -1335,16 +1326,36 @@ export default function IDE({
             setFollowedUserId(null);
             setFollowPaused(false);
             setFollowPauseReason("");
-            setFollowLeftNotice({
-              name: lastFollowedRef.current?.name ?? "Your collaborator",
+            const name =
+              lastFollowedRef.current?.name ?? "Your collaborator";
+            // anchor PRESERVED — the notice offers "Return to your location".
+            // M64: editor-surface notice; on TTL expiry the anchor is
+            // discarded ("Stay here" default) via onExpire.
+            notify({
+              kind: "warning",
+              text: `${name} left`,
+              ttl: FOLLOW_LEFT_NOTICE_MS,
+              surface: "editor",
+              dedupeKey: "follow-left",
+              onExpire: () => {
+                followAnchorRef.current = null;
+              },
+              actions: [
+                {
+                  label: "Return to your location",
+                  onClick: () => {
+                    void handleReturnToMyLocation();
+                  },
+                },
+                {
+                  label: "Stay here",
+                  onClick: () => {
+                    dismissNoticeKey("follow-left");
+                    followAnchorRef.current = null;
+                  },
+                },
+              ],
             });
-            // anchor PRESERVED — the notice offers "Return to your location"
-            clearFollowLeftTimer();
-            followLeftTimerRef.current = window.setTimeout(() => {
-              followLeftTimerRef.current = null;
-              setFollowLeftNotice(null);
-              followAnchorRef.current = null; // "Stay here" default
-            }, FOLLOW_LEFT_NOTICE_MS);
           }
         }, FOLLOW_ABSENCE_GRACE_MS);
       }
@@ -1388,7 +1399,16 @@ export default function IDE({
     // NOTE: no cleanup that clears followAbsenceTimerRef — the timer must
     // survive `collaborators` churn (this effect re-runs on every awareness
     // update). It is cleared explicitly in the handlers / teardown / on resume.
-  }, [followedUser, activeFile, openFiles, followedUserId, clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [
+    followedUser,
+    activeFile,
+    openFiles,
+    followedUserId,
+    clearFollowAbsenceTimer,
+    notify,
+    dismissNoticeKey,
+    handleReturnToMyLocation,
+  ]);
 
   const handleFollowCollaborator = useCallback(
     (c: CollaboratorPresence) => {
@@ -3051,32 +3071,33 @@ export default function IDE({
                 isPaused={followPaused}
                 pauseReason={followPauseReason}
                 onStopFollowing={handleStopFollowing}
-                hasAnchor={followedUserId != null || followLeftNotice != null}
+                hasAnchor={followedUserId != null || hasNotice("follow-left")}
                 onReturnToLocation={handleReturnToMyLocation}
                 followedRange={followedFocusRange}
               />
             )}
-            {followLeftNotice && (
-              <div className="follow-left-notice" role="status">
-                <span>⚠ {followLeftNotice.name} left</span>
-                <button
-                  type="button"
-                  onClick={handleReturnToMyLocation}
+            {/* M64: the "X left" follow notice — lifecycle in useNotices,
+                still rendered here in the editor region with its actions. */}
+            {activeNotices
+              .filter((n) => n.surface === "editor")
+              .map((n) => (
+                <div
+                  key={n.id}
+                  className="follow-left-notice"
+                  role="status"
                 >
-                  Return to your location
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearFollowLeftTimer();
-                    setFollowLeftNotice(null);
-                    followAnchorRef.current = null;
-                  }}
-                >
-                  Stay here
-                </button>
-              </div>
-            )}
+                  <span>⚠ {n.text}</span>
+                  {n.actions?.map((a) => (
+                    <button
+                      key={a.label}
+                      type="button"
+                      onClick={a.onClick}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
             <ErrorBoundary label="Editor">
               <Suspense
                 fallback={

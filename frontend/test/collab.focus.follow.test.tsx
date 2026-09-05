@@ -229,7 +229,7 @@ describe("M59 — Stop vs Return (Decisions 6, 7)", () => {
 });
 
 describe("M59 — userId-keyed absence grace (Decisions 8, 9, 10)", () => {
-  const graceBlk = block(ideSrc, "if (!followedUser) {", 1700);
+  const graceBlk = block(ideSrc, "if (!followedUser) {", 2400);
 
   it("absence does NOT clear Follow synchronously — only inside the timeout", () => {
     const beforeTimeout = graceBlk.slice(0, graceBlk.indexOf("setTimeout"));
@@ -260,15 +260,20 @@ describe("M59 — userId-keyed absence grace (Decisions 8, 9, 10)", () => {
   });
 
   it("after the grace the 'left' notice shows and the anchor is PRESERVED", () => {
-    expect(graceBlk).toContain("setFollowLeftNotice({");
-    const afterNotice = graceBlk.slice(graceBlk.indexOf("setFollowLeftNotice"));
-    // anchor cleared only by the FOLLOW_LEFT_NOTICE_MS "stay here" timeout
-    const leftTimer = afterNotice.slice(
-      afterNotice.indexOf("followLeftTimerRef.current = window.setTimeout"),
-      afterNotice.indexOf("FOLLOW_LEFT_NOTICE_MS)"),
+    // M64: the notice is the editor-surface "follow-left" entry in useNotices.
+    expect(graceBlk).toContain('dedupeKey: "follow-left"');
+    const notice = graceBlk.slice(graceBlk.indexOf("notify({"));
+    expect(notice).toContain('surface: "editor"');
+    expect(notice).toContain("ttl: FOLLOW_LEFT_NOTICE_MS");
+    // the anchor is discarded ONLY on TTL expiry (the "Stay here" default),
+    // via onExpire — never synchronously when the notice is raised
+    const beforeNotify = graceBlk.slice(0, graceBlk.indexOf("notify({"));
+    expect(beforeNotify).not.toContain("followAnchorRef.current = null");
+    const onExpire = notice.slice(
+      notice.indexOf("onExpire:"),
+      notice.indexOf("actions:"),
     );
-    expect(leftTimer).toContain("setFollowLeftNotice(null)");
-    expect(leftTimer).toContain("followAnchorRef.current = null");
+    expect(onExpire).toContain("followAnchorRef.current = null");
   });
 
   it("no auto-refollow: re-adding the user later never calls focusOn from awareness", () => {
@@ -293,13 +298,13 @@ describe("M59 — lifecycle resets (Decision 11)", () => {
     );
   });
 
-  it("resetFollowState clears target + anchor + both timers + notice", () => {
+  it("resetFollowState clears target + anchor + absence timer + notice", () => {
     const blk = block(ideSrc, "const resetFollowState = useCallback");
     expect(blk).toContain("clearFollowAbsenceTimer()");
-    expect(blk).toContain("clearFollowLeftTimer()");
     expect(blk).toContain("followAnchorRef.current = null");
     expect(blk).toContain("setFollowedUserId(null)");
-    expect(blk).toContain("setFollowLeftNotice(null)");
+    // M64: explicit dismissal (no onExpire → the anchor null above stands)
+    expect(blk).toContain('dismissNoticeKey("follow-left")');
   });
 });
 
@@ -420,16 +425,26 @@ describe("M59 — FollowBanner + 'left' notice", () => {
   it("IDE derives hasAnchor (following or just-left) — no ref read in render", () => {
     const render = block(ideSrc, "<FollowBanner", 400);
     expect(render).toContain(
-      "hasAnchor={followedUserId != null || followLeftNotice != null}",
+      'hasAnchor={followedUserId != null || hasNotice("follow-left")}',
     );
     expect(render).toContain("onReturnToLocation={handleReturnToMyLocation}");
   });
 
+  it("the 'left' notice is rendered in the editor region with its actions", () => {
+    // render site: still the .follow-left-notice element, driven by the
+    // editor-surface notice slice
+    const render = block(ideSrc, "surface === \"editor\"", 400);
+    expect(render).toContain('className="follow-left-notice"');
+    expect(render).toContain("n.actions?.map");
+  });
+
   it("the 'left' notice offers Return / Stay here (Stay discards the anchor)", () => {
-    const blk = block(ideSrc, "follow-left-notice", 700);
+    // action wiring lives on the notice entry (useNotices), not the render
+    const blk = block(ideSrc, 'dedupeKey: "follow-left"', 900);
     expect(blk).toContain("Return to your location");
     expect(blk).toContain("Stay here");
-    const stay = blk.slice(blk.indexOf("Stay here") - 260, blk.indexOf("Stay here"));
+    const stay = blk.slice(blk.indexOf('"Stay here"'));
+    expect(stay).toContain('dismissNoticeKey("follow-left")');
     expect(stay).toContain("followAnchorRef.current = null");
   });
 });
