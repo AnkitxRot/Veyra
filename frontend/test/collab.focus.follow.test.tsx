@@ -281,7 +281,7 @@ describe("M59 — userId-keyed absence grace (Decisions 8, 9, 10)", () => {
 describe("M59 — lifecycle resets (Decision 11)", () => {
   it("collab-effect teardown runs the full follow reset", () => {
     const cancelledAt = ideSrc.indexOf("cancelled = true;");
-    const teardown = ideSrc.slice(cancelledAt, cancelledAt + 1400);
+    const teardown = ideSrc.slice(cancelledAt, cancelledAt + 1600);
     expect(teardown).toContain("resetFollowStateRef.current()");
     expect(teardown).toContain("client?.dispose()");
   });

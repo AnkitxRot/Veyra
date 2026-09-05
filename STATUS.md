@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-30.
+Last updated: 2026-09-06.
 
 ## Current state
 
@@ -6520,3 +6520,88 @@ of scope and not started. Two-browser acceptance (rename propagation, blank
 fallback, shared display names, demo lockout, a11y) is deterministically guarded but
 still needs a real browser pass — see the acceptance checklist in the M62-4/5
 implementation notes.
+
+## M63 — unified connection & sync-state visibility (frontend)
+
+**Objective:** a user can always tell whether the collaboration connection is
+connected, reconnecting, resynchronizing, terminally disconnected, or forbidden,
+and whether local edits are still waiting to reach the server.
+
+**Scope landed (frontend only — no backend/protocol change):**
+
+### CollaborationClient connection-state model (`frontend/src/collab/client.ts`)
+
+- **Real `resynchronizing` phase.** A reconnect open no longer jumps straight to
+  `connected`. `onopen` checks `disconnectedAt !== null` (captured before it is
+  cleared) and, for a reconnect, sets `resynchronizing`. It leaves that state for
+  `connected` only when `handleMessage` sees `syncProtocol.readSyncMessage(...)`
+  return `messageYjsSyncStep2` — the server→client reconciliation-complete signal
+  (WebSocket OPEN is not proof the doc is caught up). Fallback: `RESYNC_TIMEOUT_MS`
+  (10 s) forces completion if that frame never arrives on an open socket. First
+  connect is unchanged (straight to `connected`). The completion point is
+  evidence-based: backend `addClient` sends the server SyncStep1 first
+  (`manager.ts`), so the client flushes its accumulated offline diff in its
+  SyncStep2 response before the server's SyncStep2 arrives — this is exactly
+  y-websocket's own `synced` signal, not an invented state.
+- **Pending local update accounting.** `doc.on("update")` now: `origin === this`
+  (a remote update this client applied) → ignored; socket OPEN → sent as before;
+  socket not OPEN → `pendingLocalUpdates += 1` + `pending_updates_change` event.
+  The unit is un-sendable Yjs update **batches**, not keystrokes (Yjs merges
+  edits). `finishResync()` zeroes it once the resync completes; an
+  explicit-disposal reset (`resetLocalCollabState`) also zeroes it (those edits
+  are discarded by design).
+- **Transient-blip grace.** `setStatus` still flips `this.status` synchronously,
+  but the first `disconnected` since the last good connection
+  (`reconnectAttempts === 0`, not exhausted) defers its `connection_change` emit
+  by `RECONNECT_GRACE_MS` (2500 ms, > the ~1500 ms first backoff so the natural
+  transition to `reconnecting` pre-empts it). Any other status transition cancels
+  the deferred emit.
+- **Bounded reconnect + manual retry.** After `MAX_RECONNECT_ATTEMPTS` (8)
+  consecutive failures, `scheduleReconnect` stops scheduling, sets
+  `reconnectExhausted`, emits `reconnect_exhausted`, and emits `disconnected`
+  immediately (bypassing the grace). `retry()` resets the accounting and dials
+  again; it is a no-op while `forbidden` (access-revoked stays terminal). A 1001
+  close during `resynchronizing` is treated as an explicit disposal, same as
+  during `connected`.
+- `dispose()` clears the new grace and resync timers; `reconnectTimer` is now
+  nulled on fire.
+
+### Editor-region banner (`frontend/src/components/Collab/CollabConnectionBanner.tsx`, new)
+
+Mounted at the top of `.ide-editor-area` in `IDE.tsx`, fed directly from IDE
+state — **independent of the collaborator avatar stack**, so a solo editor whose
+socket drops still sees it. Renders nothing when connected with nothing pending.
+`reconnecting` / `resynchronizing` / `disconnected` / `disconnected+exhausted`
+(with a Retry button) / `forbidden` (no retry) each get a truthful line;
+`pendingLocalUpdates > 0` adds "You have unsynced local changes. Keep this tab
+open until they reach the server." for any status, with no data-loss claim.
+`role="alert"` for terminal states, `role="status"` otherwise.
+
+### IDE wiring (`frontend/src/components/IDE/IDE.tsx`)
+
+New `pendingCollabUpdates` / `collabReconnectExhausted` state fed by the client's
+`pending_updates_change` / `reconnect_exhausted` events; the `connection_change`
+handler clears `collabReconnectExhausted` on any forward motion. Both
+subscriptions torn down + state reset on project switch. A `beforeunload` guard
+is registered **iff** `pendingCollabUpdates > 0` and removed the moment it
+returns to zero (or on unmount).
+
+**Verification gates (2026-09-06):**
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` → **657 passed / 0 failed** (82 files); +41 new (collab.connectionState 11, collab.reconnect 10, CollabConnectionBanner 11, IDE.connectionVisibility 5, IDE.beforeUnload 4) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `tsc --noEmit && vite build` exit 0 |
+| Frontend eslint | `eslint .` → 0 errors / 35 warnings (unchanged from baseline) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite | `npm test` → **997 passed / 51 skipped / 0 failed** (unchanged — M63 is frontend-only) |
+| `git diff --check` | clean |
+| Docker-dependent (exec/sandbox/preview e2e) | **UNAVAILABLE on this host** (`docker info` fails); the 51 skipped backend tests are not verified-green here — run on Linux CI |
+| Revert-sensitivity | resync entry/exit, syncStep2 detection, pending increment, remote-update exclusion, pending clear-on-resync, grace deferral, reconnect ceiling, retry reset, forbidden no-op, dispose timer clears, beforeunload guard each break ≥1 test when reverted |
+
+**Not done / out of scope (M63):** no offline-edit queue redesign (Yjs already
+handles reconciliation), no persistence of unsynced edits to localStorage, no
+avatars, no M64/M65/M66+ (notice consolidation, preference store, theme,
+keybindings, performance). Real-browser two-session pass of the banner + retry +
+beforeunload is deterministically guarded but not yet browser-verified.

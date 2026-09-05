@@ -53,7 +53,7 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
   it("tears down the subscription and cancels the pending refetch", () => {
     const teardown = src.slice(
       src.indexOf("cancelled = true;"),
-      src.indexOf("cancelled = true;") + 2000,
+      src.indexOf("cancelled = true;") + 2200,
     );
     expect(teardown).toContain("unsubProfileEvent?.();");
     expect(teardown).toContain(
