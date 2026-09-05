@@ -49,6 +49,7 @@ import AIVerificationCard from "../AI/AIVerificationCard";
 const Tour = React.lazy(() => import("../common/Tour"));
 import CommandPaletteModal from "../common/CommandPaletteModal";
 import { ErrorBoundary } from "../common/ErrorBoundary";
+import NoticeStack from "../common/NoticeStack";
 import WorkspaceSearchModal from "../Search/WorkspaceSearchModal";
 import FollowBanner from "../Collab/FollowBanner";
 import CollabConnectionBanner from "../Collab/CollabConnectionBanner";
@@ -108,6 +109,7 @@ import {
 } from "../../utils/recentStore";
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
+import { useNotices } from "../../hooks/useNotices";
 import { throttleLatest } from "../../utils/throttleLatest";
 import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
@@ -195,9 +197,6 @@ export default function IDE({
   // bad link, silently opening projects[0]).
   const routeProjectIdRef = useRef(routeProjectId);
   routeProjectIdRef.current = routeProjectId;
-  const [invalidRouteNotice, setInvalidRouteNotice] = useState<string | null>(
-    null,
-  );
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const activeFileRef = useRef<string | null>(null);
@@ -270,20 +269,18 @@ export default function IDE({
   const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
-  // M50: shown when a Replace All changed files on disk that were open with
-  // unsaved edits (those buffers are deliberately left untouched).
-  const [replaceReconcileNotice, setReplaceReconcileNotice] = useState<
-    string | null
-  >(null);
-  // M56: dismissible informational banner when another collaborator (or an
-  // admin operation) mutated a file this client currently has open. Metadata
-  // only — Yjs / the M50 reconciler still own the actual content.
-  const [externalMutationNotice, setExternalMutationNotice] = useState<{
-    text: string;
-    key: string;
-  } | null>(null);
-  const externalMutationTimerRef = useRef<number | null>(null);
+  // M64: one typed transient-notice mechanism. Owns id/TTL/dedupe/cleanup for
+  // every notice; callers filter by `surface` and render each group in place
+  // (NoticeStack for "stack", the status bar for "statusbar", the editor
+  // region for "editor", nothing for "headless").
+  const {
+    notices: activeNotices,
+    notify,
+    dismiss: dismissNotice,
+    dismissKey: dismissNoticeKey,
+    hasKey: hasNotice,
+    clear: clearNotices,
+  } = useNotices();
 
   // M4: Real-Time Multiplayer Collaboration States
   const [collabClient, setCollabClient] = useState<CollaborationClient | null>(
@@ -299,8 +296,10 @@ export default function IDE({
   // One throttled state fed from the collab client's AttentionStore — no second
   // store, no per-event IDE re-render.
   const [attention, setAttention] = useState<AttentionEvent[]>([]);
-  const [attnRateNotice, setAttnRateNotice] = useState<number | null>(null);
-  const attnRateTimerRef = useRef<number | null>(null);
+  // M64: the attention rate-limit signal is a headless notice — a
+  // lifecycle-managed flag ("attn-rate", 4s TTL) with no rendered text. The
+  // user-visible rate-limit banner is owned by AttentionTray, which reads this
+  // via the `rateLimited` prop.
   const [collabStatus, setCollabStatus] =
     useState<CollabConnectionStatus>("disconnected");
   // M63: local Yjs update batches not yet on the wire to the server, and
@@ -362,10 +361,11 @@ export default function IDE({
   //  - one anchor per follow session (the true pre-follow context), captured
   //    once, preserved across A→B target switches, discarded on Stop/Return/reset
   //  - one userId-keyed absence timer for the ~6s reconnect grace
-  //  - a lightweight "Rahul left" notice after the grace expires
+  //  - a lightweight "Rahul left" notice after the grace expires (M64: the
+  //    editor-surface "follow-left" notice — lifecycle owned by useNotices,
+  //    still rendered in the editor region with its Return / Stay actions)
   const followAnchorRef = useRef<FollowAnchor | null>(null);
   const followAbsenceTimerRef = useRef<number | null>(null);
-  const followLeftTimerRef = useRef<number | null>(null);
   const followedUserIdRef = useRef<number | null>(null);
   const collaboratorsRef = useRef<CollaboratorPresence[]>([]);
   const lastFollowedRef = useRef<{ userId: number; name: string } | null>(null);
@@ -373,9 +373,6 @@ export default function IDE({
   const attentionRef = useRef<AttentionEvent[]>([]);
   const keepDeduperRef = useRef(new KeepDeduper());
   const resetFollowStateRef = useRef<() => void>(() => {});
-  const [followLeftNotice, setFollowLeftNotice] = useState<{
-    name: string;
-  } | null>(null);
 
   // M5: Verification-Aware AI Engineering Assistant States
   const [aiExplainState, setAiExplainState] = useState<{
@@ -445,7 +442,10 @@ export default function IDE({
     // the source, duplicated a source file's content on disk.
     setOpenFiles([]);
     setActiveFile(null);
-    setReplaceReconcileNotice(null);
+    // M64: every notice producer is project-scoped (save feedback, save
+    // failures, reconcile, route, external mutation, attention rate limit,
+    // follow-left) — none should survive a project switch.
+    clearNotices();
     setGitBranch(null);
     setGitInitialized(false);
 
@@ -519,14 +519,9 @@ export default function IDE({
       );
       unsubAttention = client.on("attention_change", throttledSetAttention);
       unsubAttnRate = client.on("attention_rate_limited", () => {
-        setAttnRateNotice(Date.now());
-        if (attnRateTimerRef.current) {
-          window.clearTimeout(attnRateTimerRef.current);
-        }
-        attnRateTimerRef.current = window.setTimeout(
-          () => setAttnRateNotice(null),
-          4000,
-        );
+        // M64: a headless notice — no kind, no text, never rendered. It is a
+        // lifecycle-managed flag; AttentionTray owns the visible banner.
+        notify({ ttl: 4000, surface: "headless", dedupeKey: "attn-rate" });
       });
 
       unsubConnection = client.on(
@@ -572,16 +567,15 @@ export default function IDE({
                 (typeof n.matchCount === "number"
                   ? ` · ${n.matchCount} ${n.matchCount === 1 ? "match" : "matches"}`
                   : "");
-          const key = `${n.actor.userId}:${n.path ?? "*"}:${n.mutationType}`;
-          setExternalMutationNotice({ text, key });
-          if (externalMutationTimerRef.current) {
-            window.clearTimeout(externalMutationTimerRef.current);
-          }
-          externalMutationTimerRef.current = window.setTimeout(() => {
-            setExternalMutationNotice((cur) =>
-              cur && cur.key === key ? null : cur,
-            );
-          }, 8000);
+          // M64: single shared slot ("ext-mutation") — a newer file-mutation
+          // notice replaces the current one, matching the pre-M64 one-state
+          // behaviour. 8s TTL, stale/replacement handling owned by useNotices.
+          notify({
+            kind: "info",
+            text,
+            ttl: 8000,
+            dedupeKey: "ext-mutation",
+          });
         },
       );
 
@@ -727,13 +721,8 @@ export default function IDE({
       setTimelineLoaded(false);
       setTimelineNextBefore(null);
       setWhileAwayGroups(null);
-      if (externalMutationTimerRef.current) {
-        window.clearTimeout(externalMutationTimerRef.current);
-      }
-      if (attnRateTimerRef.current) {
-        window.clearTimeout(attnRateTimerRef.current);
-      }
-      setExternalMutationNotice(null);
+      // M64: notices are reset wholesale at the top of this effect for the
+      // next project; nothing collab-specific to drop in this teardown.
       // M59: project switch / disposal / unmount clears Follow + anchor + all
       // follow timers so nothing leaks into the next project or a stale timer
       // fires after this client is gone.
@@ -746,7 +735,6 @@ export default function IDE({
       throttledSetAttention?.cancel();
       setRunStatuses([]);
       setAttention([]);
-      setAttnRateNotice(null);
       // M62: cancel a pending coalesced profile-event roster refetch and
       // drop the stale roster so the next project starts clean.
       if (profileEventTimerRef.current != null) {
@@ -794,9 +782,13 @@ export default function IDE({
         if (invalidRoute) {
           // Explicit link to a project that isn't ours / doesn't exist — do
           // NOT open a different one and do NOT show an "opened" state.
-          setInvalidRouteNotice(
-            "That project link isn't available. It may have been deleted, or you may not have access. Pick a project to continue.",
-          );
+          notify({
+            kind: "error",
+            text: "That project link isn't available. It may have been deleted, or you may not have access. Pick a project to continue.",
+            ttl: null,
+            dedupeKey: "invalid-route",
+            role: "alert",
+          });
           onNavigateProject?.(null);
         } else if (projectId) {
           const target = res.projects.find((p) => p.id === projectId)!;
@@ -836,7 +828,7 @@ export default function IDE({
 
   // Track Recent Projects on Switch
   const handleSelectProject = (p: Project) => {
-    setInvalidRouteNotice(null);
+    dismissNoticeKey("invalid-route");
     if (p.id === project?.id) return;
     setProject(p);
     addRecentProject(p);
@@ -856,15 +848,26 @@ export default function IDE({
       setProject(target);
       addRecentProject(target);
       setLastProjectId(target.id);
-      setInvalidRouteNotice(null);
+      dismissNoticeKey("invalid-route");
     } else if (projects.length > 0) {
       // navigated (e.g. pasted a link) to a project we can't resolve
-      setInvalidRouteNotice(
-        "That project link isn't available. It may have been deleted, or you may not have access.",
-      );
+      notify({
+        kind: "error",
+        text: "That project link isn't available. It may have been deleted, or you may not have access.",
+        ttl: null,
+        dedupeKey: "invalid-route",
+        role: "alert",
+      });
       onNavigateProject?.(null);
     }
-  }, [routeProjectId, projects, project?.id, onNavigateProject]);
+  }, [
+    routeProjectId,
+    projects,
+    project?.id,
+    onNavigateProject,
+    notify,
+    dismissNoticeKey,
+  ]);
 
   // Sync Recent Files on Project Switch
   useEffect(() => {
@@ -1127,13 +1130,17 @@ export default function IDE({
       }
 
       if (dirtySkipped.length > 0) {
-        setReplaceReconcileNotice(
-          `${opts.noticeLabel} updated ${dirtySkipped.length} open ${
-            dirtySkipped.length === 1 ? "file" : "files"
-          } on disk, but your unsaved changes were left untouched: ${dirtySkipped.join(
-            ", ",
-          )}. Save or discard your edits to pick up the change.`,
-        );
+        notify({
+          kind: "warning",
+          text:
+            `${opts.noticeLabel} updated ${dirtySkipped.length} open ${
+              dirtySkipped.length === 1 ? "file" : "files"
+            } on disk, but your unsaved changes were left untouched: ${dirtySkipped.join(
+              ", ",
+            )}. Save or discard your edits to pick up the change.`,
+          ttl: null,
+          dedupeKey: "reconcile",
+        });
       }
 
       // A branch checkout can add or remove files, not just change contents —
@@ -1142,7 +1149,7 @@ export default function IDE({
         void loadTree();
       }
     },
-    [project, loadTree],
+    [project, loadTree, notify],
   );
 
   const handleReplaceApplied = useCallback(
@@ -1202,13 +1209,6 @@ export default function IDE({
     }
   }, []);
 
-  const clearFollowLeftTimer = useCallback(() => {
-    if (followLeftTimerRef.current !== null) {
-      window.clearTimeout(followLeftTimerRef.current);
-      followLeftTimerRef.current = null;
-    }
-  }, []);
-
   // M59: capture the pre-follow context — ONCE per follow session. The
   // null-guard is what makes Follow A → Follow B keep A's anchor.
   const captureAnchor = useCallback(() => {
@@ -1237,23 +1237,29 @@ export default function IDE({
         // anchor deliberately NOT touched here
       }
       if (opts.follow) {
+        // M64: a fresh follow session supersedes a pending "X left" notice —
+        // otherwise it lingers with live Return/Stay buttons and its TTL
+        // expiry would null this session's anchor. Explicit dismissal, so
+        // onExpire does not run.
+        dismissNoticeKey("follow-left");
         if (followAnchorRef.current == null) captureAnchor();
         setFollowedUserId(userId);
         const c = collaboratorsRef.current.find((x) => x.userId === userId);
         if (c) lastFollowedRef.current = { userId, name: c.name };
       }
     },
-    [captureAnchor, clearFollowAbsenceTimer],
+    [captureAnchor, clearFollowAbsenceTimer, dismissNoticeKey],
   );
 
   const handleReturnToMyLocation = useCallback(async () => {
     const anchor = followAnchorRef.current;
     clearFollowAbsenceTimer();
-    clearFollowLeftTimer();
+    // M64: explicit dismissal — clears the notice + its TTL timer, and does
+    // NOT run onExpire (the anchor is discarded here directly instead).
+    dismissNoticeKey("follow-left");
     setFollowedUserId(null);
     setFollowPaused(false);
     setFollowPauseReason("");
-    setFollowLeftNotice(null);
     followAnchorRef.current = null;
     if (!anchor) return;
 
@@ -1262,9 +1268,12 @@ export default function IDE({
       ...openFilesRef.current.map((f) => f.path),
     ]);
     if (!anchorFilePresent(anchor, known)) {
-      setReplaceReconcileNotice(
-        `Your previous file "${anchorFileBasename(anchor)}" is no longer available.`,
-      );
+      notify({
+        kind: "warning",
+        text: `Your previous file "${anchorFileBasename(anchor)}" is no longer available.`,
+        ttl: null,
+        dedupeKey: "reconcile",
+      });
       return;
     }
     await handleOpenFile(anchor.filePath);
@@ -1278,29 +1287,27 @@ export default function IDE({
       }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [clearFollowAbsenceTimer, dismissNoticeKey]);
 
   const handleStopFollowing = useCallback(() => {
     clearFollowAbsenceTimer();
-    clearFollowLeftTimer();
+    dismissNoticeKey("follow-left");
     setFollowedUserId(null);
     setFollowPaused(false);
     setFollowPauseReason("");
-    setFollowLeftNotice(null);
     followAnchorRef.current = null;
-  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [clearFollowAbsenceTimer, dismissNoticeKey]);
 
   // M59: full reset — project switch / disposal / session expiry / unmount.
   const resetFollowState = useCallback(() => {
     clearFollowAbsenceTimer();
-    clearFollowLeftTimer();
+    dismissNoticeKey("follow-left");
     followAnchorRef.current = null;
     lastFollowedRef.current = null;
     setFollowedUserId(null);
     setFollowPaused(false);
     setFollowPauseReason("");
-    setFollowLeftNotice(null);
-  }, [clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [clearFollowAbsenceTimer, dismissNoticeKey]);
   useEffect(() => {
     resetFollowStateRef.current = resetFollowState;
   }, [resetFollowState]);
@@ -1320,16 +1327,36 @@ export default function IDE({
             setFollowedUserId(null);
             setFollowPaused(false);
             setFollowPauseReason("");
-            setFollowLeftNotice({
-              name: lastFollowedRef.current?.name ?? "Your collaborator",
+            const name =
+              lastFollowedRef.current?.name ?? "Your collaborator";
+            // anchor PRESERVED — the notice offers "Return to your location".
+            // M64: editor-surface notice; on TTL expiry the anchor is
+            // discarded ("Stay here" default) via onExpire.
+            notify({
+              kind: "warning",
+              text: `${name} left`,
+              ttl: FOLLOW_LEFT_NOTICE_MS,
+              surface: "editor",
+              dedupeKey: "follow-left",
+              onExpire: () => {
+                followAnchorRef.current = null;
+              },
+              actions: [
+                {
+                  label: "Return to your location",
+                  onClick: () => {
+                    void handleReturnToMyLocation();
+                  },
+                },
+                {
+                  label: "Stay here",
+                  onClick: () => {
+                    dismissNoticeKey("follow-left");
+                    followAnchorRef.current = null;
+                  },
+                },
+              ],
             });
-            // anchor PRESERVED — the notice offers "Return to your location"
-            clearFollowLeftTimer();
-            followLeftTimerRef.current = window.setTimeout(() => {
-              followLeftTimerRef.current = null;
-              setFollowLeftNotice(null);
-              followAnchorRef.current = null; // "Stay here" default
-            }, FOLLOW_LEFT_NOTICE_MS);
           }
         }, FOLLOW_ABSENCE_GRACE_MS);
       }
@@ -1373,7 +1400,16 @@ export default function IDE({
     // NOTE: no cleanup that clears followAbsenceTimerRef — the timer must
     // survive `collaborators` churn (this effect re-runs on every awareness
     // update). It is cleared explicitly in the handlers / teardown / on resume.
-  }, [followedUser, activeFile, openFiles, followedUserId, clearFollowAbsenceTimer, clearFollowLeftTimer]);
+  }, [
+    followedUser,
+    activeFile,
+    openFiles,
+    followedUserId,
+    clearFollowAbsenceTimer,
+    notify,
+    dismissNoticeKey,
+    handleReturnToMyLocation,
+  ]);
 
   const handleFollowCollaborator = useCallback(
     (c: CollaboratorPresence) => {
@@ -2002,17 +2038,27 @@ export default function IDE({
                 : f,
             ),
           );
-          setSaveToast(`Formatted with ${res.formatter}`);
-          setTimeout(() => setSaveToast(null), 2000);
+          notify({
+            kind: "success",
+            text: `Formatted with ${res.formatter}`,
+            ttl: 2000,
+            surface: "statusbar",
+            dedupeKey: "save-toast",
+          });
         } else if (res.warning) {
-          setSaveToast(`Format note: ${res.warning}`);
-          setTimeout(() => setSaveToast(null), 3000);
+          notify({
+            kind: "info",
+            text: `Format note: ${res.warning}`,
+            ttl: 3000,
+            surface: "statusbar",
+            dedupeKey: "save-toast",
+          });
         }
       } catch (err: any) {
         console.warn("Formatting skipped:", err.message);
       }
     },
-    [project, activeFile, resolveLiveFileContent],
+    [project, activeFile, resolveLiveFileContent, notify],
   );
 
   // M1: Ctrl+S / palette saves funnel through dispatchCanonicalSave → the
@@ -2046,7 +2092,15 @@ export default function IDE({
         finalContent = detail.content;
       }
       if (typeof finalContent !== "string") {
-        alert(`Save failed: no live content available for ${path}`);
+        // M64: non-blocking, persistent — a save that produced nothing to
+        // write must not vanish on a timer. Dismissed explicitly or by the
+        // next successful save of this path.
+        notify({
+          kind: "error",
+          text: `Save failed: no editable content available for ${path}`,
+          ttl: null,
+          dedupeKey: `save-fail:${path}`,
+        });
         return;
       }
 
@@ -2078,34 +2132,54 @@ export default function IDE({
             f.path === path ? { ...f, content: finalContent, dirty: false } : f,
           ),
         );
-        setSaveToast(`Saved ${path.split("/").pop()}`);
-        setTimeout(() => setSaveToast(null), 2000);
+        // M64: a successful save clears any standing persistent save-failure
+        // notice for this path (DECISION 1 — cleared by a state-changing path).
+        dismissNoticeKey(`save-fail:${path}`);
+        notify({
+          kind: "success",
+          text: `Saved ${path.split("/").pop()}`,
+          ttl: 2000,
+          surface: "statusbar",
+          dedupeKey: "save-toast",
+        });
       } catch (err: any) {
         handleSaveError(err, path, {
           // Not a failure: the server safely refused to overwrite a
           // collaborator's unsaved edits. Surface it as a truthful,
-          // non-blocking conflict notice (reusing the M56 banner) and leave
-          // the buffer dirty so the user can retry once the collaborator saves.
+          // non-blocking conflict notice (the shared "ext-mutation" slot) and
+          // leave the buffer dirty so the user can retry once the collaborator
+          // saves.
           onCollabConflict: (message) => {
-            const key = `save-conflict:${path}:${Date.now()}`;
-            setExternalMutationNotice({ text: message, key });
-            if (externalMutationTimerRef.current) {
-              window.clearTimeout(externalMutationTimerRef.current);
-            }
-            externalMutationTimerRef.current = window.setTimeout(() => {
-              setExternalMutationNotice((cur) =>
-                cur && cur.key === key ? null : cur,
-              );
-            }, 8000);
+            notify({
+              kind: "warning",
+              text: message,
+              ttl: 8000,
+              dedupeKey: "ext-mutation",
+            });
           },
-          onFailure: (message) => alert(`Save failed: ${message}`),
+          // M64: real save failure — non-blocking, persistent, deduped per
+          // path. No blocking dialog; it never auto-dismisses.
+          onFailure: (message) => {
+            notify({
+              kind: "error",
+              text: `Save failed: ${message}`,
+              ttl: null,
+              dedupeKey: `save-fail:${path}`,
+            });
+          },
         });
       }
     };
 
     document.addEventListener("ide-save", handleSave);
     return () => document.removeEventListener("ide-save", handleSave);
-  }, [project, formatOnSave, resolveLiveFileContent]);
+  }, [
+    project,
+    formatOnSave,
+    resolveLiveFileContent,
+    notify,
+    dismissNoticeKey,
+  ]);
 
   // Listen to ide-run event from Toolbar
   useEffect(() => {
@@ -2563,9 +2637,14 @@ export default function IDE({
           setFormatOnSave((prev) => {
             const next = !prev;
             localStorage.setItem("cloudeee_format_on_save", String(next));
-            setSaveToast(`Format on Save: ${next ? "Enabled" : "Disabled"}`);
-            setTimeout(() => setSaveToast(null), 2500);
             return next;
+          });
+          notify({
+            kind: "info",
+            text: `Format on Save: ${!formatOnSave ? "Enabled" : "Disabled"}`,
+            ttl: 2500,
+            surface: "statusbar",
+            dedupeKey: "save-toast",
           });
         },
       },
@@ -2715,6 +2794,7 @@ export default function IDE({
     handleSaveActiveFile,
     handleTriggerAIAction,
     handleOpenFile,
+    notify,
   ]);
 
   // Central Keyboard Shortcuts Dispatcher
@@ -2815,6 +2895,11 @@ export default function IDE({
     (d) => d.severity === "warning",
   ).length;
 
+  // M64: the save/format status-bar badge (surface:"statusbar") — kept in its
+  // existing footer slot, only its lifecycle now runs through useNotices.
+  const statusbarNotice =
+    activeNotices.find((n) => n.surface === "statusbar")?.text ?? null;
+
   const ideLayout = (
     <div className="ide-layout">
       {/* Liquid Glass Sidebar */}
@@ -2890,7 +2975,7 @@ export default function IDE({
           <AttentionTray
             events={attention}
             currentUserId={user.id}
-            rateLimited={attnRateNotice != null}
+            rateLimited={hasNotice("attn-rate")}
             onNavigate={handleAttentionGoThere}
             onDismiss={handleAttentionDismiss}
             onFollow={(e) => {
@@ -2987,32 +3072,33 @@ export default function IDE({
                 isPaused={followPaused}
                 pauseReason={followPauseReason}
                 onStopFollowing={handleStopFollowing}
-                hasAnchor={followedUserId != null || followLeftNotice != null}
+                hasAnchor={followedUserId != null || hasNotice("follow-left")}
                 onReturnToLocation={handleReturnToMyLocation}
                 followedRange={followedFocusRange}
               />
             )}
-            {followLeftNotice && (
-              <div className="follow-left-notice" role="status">
-                <span>⚠ {followLeftNotice.name} left</span>
-                <button
-                  type="button"
-                  onClick={handleReturnToMyLocation}
+            {/* M64: the "X left" follow notice — lifecycle in useNotices,
+                still rendered here in the editor region with its actions. */}
+            {activeNotices
+              .filter((n) => n.surface === "editor")
+              .map((n) => (
+                <div
+                  key={n.id}
+                  className="follow-left-notice"
+                  role="status"
                 >
-                  Return to your location
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearFollowLeftTimer();
-                    setFollowLeftNotice(null);
-                    followAnchorRef.current = null;
-                  }}
-                >
-                  Stay here
-                </button>
-              </div>
-            )}
+                  <span>⚠ {n.text}</span>
+                  {n.actions?.map((a) => (
+                    <button
+                      key={a.label}
+                      type="button"
+                      onClick={a.onClick}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
             <ErrorBoundary label="Editor">
               <Suspense
                 fallback={
@@ -3289,109 +3375,12 @@ export default function IDE({
           </div>
         </div>
 
-        {/* Session restore: an explicit /p/:id link could not be opened */}
-        {invalidRouteNotice && (
-          <div
-            role="alert"
-            style={{
-              position: "fixed",
-              bottom: "40px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 9000,
-              maxWidth: "620px",
-              width: "calc(100% - 48px)",
-              background: "var(--glass-surface, rgba(30,30,46,0.96))",
-              border: "1px solid #f38ba8",
-              borderRadius: "var(--radius-sm, 8px)",
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px",
-              fontSize: "12px",
-              color: "var(--fg-primary)",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
-            }}
-          >
-            <IconAlertTriangle size={14} color="#f38ba8" />
-            <span style={{ flex: 1, lineHeight: 1.4 }}>{invalidRouteNotice}</span>
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost"
-              style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
-              onClick={() => setInvalidRouteNotice(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* M50: Replace All dirty-buffer reconciliation notice */}
-        {replaceReconcileNotice && (
-          <div
-            role="status"
-            style={{
-              position: "fixed",
-              bottom: "40px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 9000,
-              maxWidth: "620px",
-              width: "calc(100% - 48px)",
-              background: "var(--glass-surface, rgba(30,30,46,0.96))",
-              border: "1px solid #fab387",
-              borderRadius: "var(--radius-sm, 8px)",
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px",
-              fontSize: "12px",
-              color: "var(--fg-primary)",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
-            }}
-          >
-            <IconAlertTriangle size={14} color="#fab387" />
-            <span style={{ flex: 1, lineHeight: 1.4 }}>
-              {replaceReconcileNotice}
-            </span>
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost"
-              style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
-              onClick={() => setReplaceReconcileNotice(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* M56: external-mutation informational notice */}
-        {externalMutationNotice && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="external-mutation-banner"
-            style={{
-              position: "fixed",
-              bottom: "40px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 9000,
-              maxWidth: "560px",
-              width: "calc(100% - 48px)",
-            }}
-          >
-            <span className="emb-text">{externalMutationNotice.text}</span>
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost emb-dismiss"
-              style={{ fontSize: "11px", padding: "2px 8px" }}
-              onClick={() => setExternalMutationNotice(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
+        {/* M64: unified transient-notice stack — save feedback, external
+            mutation, and the persistent invalid-route / reconcile notices. */}
+        <NoticeStack
+          notices={activeNotices.filter((n) => n.surface === "stack")}
+          onDismiss={dismissNotice}
+        />
 
         {/* AI Verification Outcome Banner / Notification */}
         {aiVerification && (
@@ -3453,13 +3442,13 @@ export default function IDE({
           </div>
 
           <div className="ide-statusbar-section">
-            {saveToast && (
+            {statusbarNotice && (
               <span
                 className="glass-badge glass-badge-success"
                 style={{ animation: "fadeIn 150ms ease" }}
               >
                 <IconCheck size={9} />
-                <span>{saveToast}</span>
+                <span>{statusbarNotice}</span>
               </span>
             )}
             <span
@@ -3470,8 +3459,13 @@ export default function IDE({
                   "cloudeee_format_on_save",
                   String(!formatOnSave),
                 );
-                setSaveToast(`Format on Save: ${!formatOnSave ? "On" : "Off"}`);
-                setTimeout(() => setSaveToast(null), 2000);
+                notify({
+                  kind: "info",
+                  text: `Format on Save: ${!formatOnSave ? "On" : "Off"}`,
+                  ttl: 2000,
+                  surface: "statusbar",
+                  dedupeKey: "save-toast",
+                });
               }}
               style={{ cursor: "pointer" }}
               title="Click to toggle Format on Save"

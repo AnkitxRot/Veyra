@@ -4,13 +4,15 @@ import * as React from "react";
 
 // Follow-up to "prevent collab external mutation data loss": a direct file
 // save that the server safely refuses (409 collab_external_conflict) must be
-// shown as a truthful, non-blocking conflict notice — NOT a generic blocking
-// "Save failed" alert, and never claiming a merge happened.
+// shown as a truthful, non-blocking conflict notice — NOT a "Save failed"
+// error, and never claiming a merge happened.
 //
-// The routing decision (`handleSaveError`) and the message text are unit-
-// tested directly against production code in collabConflict.test.ts. This
-// test covers the IDE wiring: a conflict lands in the M56 banner and not in
-// alert(); a normal save is unaffected.
+// M64: the ide-save listener no longer calls alert() at all. A real failure
+// becomes a persistent error notice; a collab conflict goes to the shared
+// "ext-mutation" transient slot; a success clears any standing save-failure
+// notice for that path. The routing decision (`handleSaveError`) and message
+// text are unit-tested in collabConflict.test.ts; this test covers the IDE
+// wiring against the real useNotices hook.
 
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
@@ -20,22 +22,19 @@ vi.mock("../src/api", () => ({
 }));
 
 import { handleSaveError } from "../src/utils/collabConflict";
+import { useNotices } from "../src/hooks/useNotices";
+import NoticeStack from "../src/components/common/NoticeStack";
 
 /**
- * Mirrors IDE.tsx's ide-save listener EXACTLY for the success/error branches:
- * success -> "Saved <file>" toast; error -> handleSaveError() routes a collab
- * conflict into the dismissible external-mutation banner (leaving the buffer
- * dirty) and everything else into alert(). Only the wiring is reproduced here;
- * the decision lives in the imported production helper.
+ * Mirrors IDE.tsx's ide-save listener for the success/error branches after
+ * M64: success -> statusbar "Saved <file>" + clear this path's save-failure
+ * notice; error -> handleSaveError() routes a collab conflict into the shared
+ * transient "ext-mutation" slot (buffer left dirty) and everything else into
+ * a persistent per-path save-failure error notice. No alert() anywhere.
  */
 function SaveHarness({ projectId }: { projectId: string }) {
-  const [saveToast, setSaveToast] = React.useState<string | null>(null);
-  const [notice, setNotice] = React.useState<{
-    text: string;
-    key: string;
-  } | null>(null);
+  const { notices, notify, dismiss, dismissKey } = useNotices();
   const [dirtyCleared, setDirtyCleared] = React.useState(false);
-  const timerRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     const onSave = async (e: Event) => {
@@ -47,34 +46,49 @@ function SaveHarness({ projectId }: { projectId: string }) {
           body: JSON.stringify({ path, content: "x" }),
         });
         setDirtyCleared(true);
-        setSaveToast(`Saved ${path.split("/").pop()}`);
+        dismissKey(`save-fail:${path}`);
+        notify({
+          kind: "success",
+          text: `Saved ${path.split("/").pop()}`,
+          ttl: 2000,
+          surface: "statusbar",
+          dedupeKey: "save-toast",
+        });
       } catch (err) {
         handleSaveError(err, path, {
           onCollabConflict: (message) => {
-            const key = `save-conflict:${path}:${Date.now()}`;
-            setNotice({ text: message, key });
-            if (timerRef.current) window.clearTimeout(timerRef.current);
-            timerRef.current = window.setTimeout(() => {
-              setNotice((cur) => (cur && cur.key === key ? null : cur));
-            }, 8000);
+            notify({
+              kind: "warning",
+              text: message,
+              ttl: 8000,
+              dedupeKey: "ext-mutation",
+            });
           },
-          onFailure: (m) => alert(`Save failed: ${m}`),
+          onFailure: (message) => {
+            notify({
+              kind: "error",
+              text: `Save failed: ${message}`,
+              ttl: null,
+              dedupeKey: `save-fail:${path}`,
+            });
+          },
         });
       }
     };
     document.addEventListener("ide-save", onSave);
     return () => document.removeEventListener("ide-save", onSave);
-  }, [projectId]);
+  }, [projectId, notify, dismissKey]);
+
+  const statusbar = notices.find((n) => n.surface === "statusbar")?.text ?? null;
 
   return (
     <div>
-      {saveToast && <div data-testid="save-toast">{saveToast}</div>}
+      {statusbar && <div data-testid="save-toast">{statusbar}</div>}
       {dirtyCleared && <div data-testid="dirty-cleared" />}
-      {notice && (
-        <div role="status" className="external-mutation-banner">
-          <span className="emb-text">{notice.text}</span>
-        </div>
-      )}
+      <NoticeStack
+        notices={notices.filter((n) => n.surface === "stack")}
+        onDismiss={dismiss}
+      />
     </div>
   );
 }
@@ -98,19 +112,19 @@ describe("IDE save — collaboration conflict visibility", () => {
     vi.restoreAllMocks();
   });
 
-  it("a 409 collab_external_conflict shows a truthful conflict notice, not a blocking alert, and does not clear dirty", async () => {
+  it("a 409 collab_external_conflict shows a truthful conflict notice, never alert(), and does not clear dirty", async () => {
     apiMock.mockRejectedValue(
-      Object.assign(new Error("This file has unsaved changes from another collaborator."), {
-        code: "collab_external_conflict",
-        status: 409,
-      }),
+      Object.assign(
+        new Error("This file has unsaved changes from another collaborator."),
+        { code: "collab_external_conflict", status: 409 },
+      ),
     );
 
     render(<SaveHarness projectId="p1" />);
     fireSave("src/app/main.ts");
 
-    const banner = await screen.findByRole("status");
-    const text = (banner.textContent || "").toLowerCase();
+    const stack = await screen.findByRole("region", { name: /notification/i });
+    const text = (stack.textContent || "").toLowerCase();
     expect(text).toContain("main.ts");
     expect(text).toContain("not applied");
     expect(text).toContain("their version was kept");
@@ -122,23 +136,21 @@ describe("IDE save — collaboration conflict visibility", () => {
     expect(screen.queryByTestId("dirty-cleared")).toBeNull();
   });
 
-  it("a successful save shows the normal toast and no conflict banner", async () => {
+  it("a successful save shows the normal toast and no conflict/error notice", async () => {
     apiMock.mockResolvedValue({ ok: true });
 
     render(<SaveHarness projectId="p1" />);
     fireSave("src/app/main.ts");
 
     await waitFor(() =>
-      expect(screen.getByTestId("save-toast").textContent).toBe(
-        "Saved main.ts",
-      ),
+      expect(screen.getByTestId("save-toast").textContent).toBe("Saved main.ts"),
     );
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("region", { name: /notification/i })).toBeNull();
     expect(alertSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId("dirty-cleared")).not.toBeNull();
   });
 
-  it("a genuine server failure still uses the blocking alert (a conflict must not swallow real errors)", async () => {
+  it("a genuine server failure becomes a persistent error notice, not a blocking alert", async () => {
     apiMock.mockRejectedValue(
       Object.assign(new Error("Internal Server Error"), { status: 500 }),
     );
@@ -146,11 +158,42 @@ describe("IDE save — collaboration conflict visibility", () => {
     render(<SaveHarness projectId="p1" />);
     fireSave("src/app/main.ts");
 
-    await waitFor(() =>
-      expect(alertSpy).toHaveBeenCalledWith(
-        "Save failed: Internal Server Error",
-      ),
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Save failed: Internal Server Error");
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("save-toast")).toBeNull();
+  });
+
+  it("repeated failures for the same path collapse to a single notice", async () => {
+    apiMock.mockRejectedValue(
+      Object.assign(new Error("Internal Server Error"), { status: 500 }),
     );
-    expect(screen.queryByRole("status")).toBeNull();
+
+    render(<SaveHarness projectId="p1" />);
+    fireSave("src/app/main.ts");
+    await screen.findByRole("alert");
+    fireSave("src/app/main.ts");
+    fireSave("src/app/main.ts");
+
+    await waitFor(() =>
+      expect(screen.getAllByRole("alert")).toHaveLength(1),
+    );
+  });
+
+  it("a later successful save clears the standing failure notice for that path", async () => {
+    apiMock.mockRejectedValueOnce(
+      Object.assign(new Error("Internal Server Error"), { status: 500 }),
+    );
+    apiMock.mockResolvedValueOnce({ ok: true });
+
+    render(<SaveHarness projectId="p1" />);
+    fireSave("src/app/main.ts");
+    await screen.findByRole("alert");
+
+    fireSave("src/app/main.ts");
+    await waitFor(() =>
+      expect(screen.getByTestId("save-toast").textContent).toBe("Saved main.ts"),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
