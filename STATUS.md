@@ -6702,5 +6702,77 @@ coverage` → `docs(status): record M64 verification`.
 redesign, no M66 preference architecture, no themes/keybindings/avatars/AI
 providers/performance. The non-save `alert()` surfaces (`IDE.tsx` open-file +
 AI, and the older `Sidebar.tsx`/`AdminDashboard.tsx` pattern from the backlog)
-are a separate future UX pass. Real-browser pass of the notice stack + follow-
-left actions is deterministically guarded but not browser-verified.
+are a separate future UX pass.
+
+### M64 adversarial audit + live verification (2026-09-06)
+
+A second read-through against source, Docker, and a real browser session.
+**Five defects found and fixed** (all P2, all inside M64):
+
+1. **`fix(ide): harden notice queue`** (`c97f098`)
+   - `NoticeInput.kind` / `text` are now optional (default `"info"` / `""`). The
+     headless attn-rate notice no longer passes `text: ""` to imitate a visible
+     notice — it declares only `ttl` + `surface` + `dedupeKey`.
+   - Persistent notices are no longer force-evicted at `MAX_NOTICES`: eviction
+     sheds the oldest **transient** entry, and only an absolute
+     `MAX_NOTICES_CEILING` (12) can drop a persistent one. Prevents a run of
+     failed-save notices silently dropping the oldest error whose buffer is
+     still dirty. Growth stays bounded.
+   - TTL callback now bails on `timersRef.get(id) !== handle` — an authoritative
+     check (ids never reused) closing the theoretical window where a timer fires
+     between a clear and the next React commit.
+2. **`fix(ide): clear stale follow-left notice when a new follow begins`**
+   (`54e1b42`) — pre-existing edge case carried into M64: after "X left",
+   following someone else via the Team tray left the stale notice on screen with
+   live Return/Stay buttons, and its 8s expiry then nulled the **new** follow
+   session's anchor. `focusOn`'s `opts.follow` branch now dismisses it.
+3. **`fix(ide): bound the visible notice stack`** (`88fcbd4`) — **found in the
+   browser**: five simultaneous persistent save-failure notices all rendered
+   (the cap only limited transient rows). NoticeStack now caps the collapsed
+   view at `max` for persistent notices too and collapses the remainder behind a
+   `+N more` ⇄ `Show less` toggle — nothing is dropped from the DOM, everything
+   stays one click from view and dismissal.
+4. **`fix(ide): clear the notice queue on project switch`** (`87b1250`) — a
+   persistent `save-fail:<path>` notice from project A survived a switch to
+   project B (only `reconcile` / `invalid-route` / `ext-mutation` / `attn-rate`
+   were dismissed there). `useNotices` gained `clear()`; IDE calls it once in the
+   per-project reset block.
+5. **`test(ide): cover the useNotices + NoticeStack integration`** (`69239d8`) —
+   converted the persistent-survives-transient + explicit-dismiss flow from
+   split unit assertions to one real-hook + real-component behavioural test.
+
+**Live browser verification (Chrome, single session, dev server + Docker up):**
+
+| Flow | Result |
+|---|---|
+| Save failure → notice, no `alert()` | PASS — `.notice-error` `role="alert"` `aria-live="assertive"` "Save failed: …", `window.alert` recorded 0 calls, page never blocked |
+| Same-path repeat failure | PASS — dedupes to one notice |
+| Distinct-path failures | PASS — two concurrent notices, DOM-rect check: no overlap |
+| Successful save clears the failure | PASS — `save-fail:notes.txt` cleared, `save-fail:other.txt` remained; "Saved notes.txt" in the status-bar badge (not the stack) |
+| Explicit dismiss | PASS — `.notice-dismiss` removes it, stack unmounts when empty |
+| Bounded stack | PASS — 5 persistent → 3 shown + "+2 more" → expand → 5 → "Show less" → 3 |
+| Status-bar transient | PASS — "Saved" / "Format on Save: On" badge, auto-clears after its TTL, never enters the stack |
+| Layering / a11y | notice `z-index` 9000 (below the 9999 modal backdrop — a modal covers it, standard); `role="region" aria-label="Notifications"`; per-kind `role`/`aria-live` confirmed in the live DOM |
+| Reload with a notice visible | PASS — notice gone (React state), app reloads clean, collab reconnects, **no console errors/warnings** across the whole session |
+
+**Verified through Docker:** full backend suite (`npm test`) — 1039 passed / 9
+skipped / 0 failed, 81 files, with the Docker-gated suites (`python-deps`,
+`templates.exec`, `m16-optimization`, `sandbox`, …) actually executed.
+
+**NOT run in the live browser** (deterministically covered instead):
+follow-left across two sessions, attention rate-limit across two sessions, and a
+forced collab disconnect. Blocker: each needs a **second authenticated user** in
+a separate session, and creating an account / entering a password to
+authenticate is outside what this agent may do; no pre-authenticated second
+session was available. Coverage for these: `useNotices` behaviour tests
+(`onExpire`, actions, dismiss, headless), `AttentionTray.test.tsx`
+(`rateLimited` prop), `collab.focus.follow.test.tsx` (41), the M63 connection
+suites (`collab.connectionState` / `collab.reconnect` / `CollabConnectionBanner`
+/ `IDE.connectionVisibility`), and the fact that M64's edits to the shared
+collab effect are textually confined to notice lines (verified via `git show`
+of every M64 commit) — the M63 connection wiring is untouched.
+
+**Post-audit gates (2026-09-06):** frontend `vitest run` **718 / 0** (85 files),
+`tsc --noEmit` 0, `vite build` 0, `eslint .` 0 errors / 35 warnings (baseline);
+backend `tsc --noEmit` 0, full suite 1039 / 9 skip / 0 (Docker up);
+`git diff --check` clean; tree clean.
