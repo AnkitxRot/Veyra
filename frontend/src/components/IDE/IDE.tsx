@@ -63,6 +63,8 @@ import type {
   CommentThreadDTO,
   CommentEventWire,
   CommentMentionWire,
+  ProfileEventWire,
+  CollaboratorInfo,
 } from "../../types";
 import { CommentStore } from "../../comments/store";
 import * as commentsApi from "../../comments/api";
@@ -325,6 +327,14 @@ export default function IDE({
   const openCommentThreadIdRef = useRef<string | null>(null);
   const [showResolvedComments, setShowResolvedComments] = useState(false);
   const [mentionCards, setMentionCards] = useState<CommentMentionWire[]>([]);
+  // M62: project collaborator roster (userId → username + effective
+  // displayName), from `GET /api/projects/:id/collaborators`. Feeds comment
+  // author rows. Refetched (coalesced) on a `profile_event` invalidation —
+  // the ping itself carries no name, only "someone in this room changed".
+  const [commentRoster, setCommentRoster] = useState<
+    Map<number, { username: string; displayName: string | null }>
+  >(new Map());
+  const profileEventTimerRef = useRef<number | null>(null);
 
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSecretsModalOpen, setIsSecretsModalOpen] = useState(false);
@@ -456,6 +466,7 @@ export default function IDE({
     let unsubCommentEvent: (() => void) | undefined;
     let unsubCommentMention: (() => void) | undefined;
     let unsubCommentStore: (() => void) | undefined;
+    let unsubProfileEvent: (() => void) | undefined;
     let throttledSetCollaborators: ReturnType<
       typeof throttleLatest<CollaboratorPresence[]>
     > | null = null;
@@ -592,6 +603,45 @@ export default function IDE({
         },
       );
 
+      // M62: keep the comment author roster fresh. Initial load now, then one
+      // coalesced refetch per burst of `profile_event` pings. The ping is
+      // invalidation-only — it never carries a name, and it only reaches this
+      // client because the changed user is in THIS project's room (per-room
+      // socket), so no extra project-scoping check is needed. Presence names
+      // update via awareness independently; this path is only for comments.
+      const loadCommentRoster = () => {
+        api<{ collaborators: CollaboratorInfo[] }>(
+          `/api/projects/${project.id}/collaborators`,
+        )
+          .then((r) => {
+            if (cancelled) return;
+            const next = new Map<
+              number,
+              { username: string; displayName: string | null }
+            >();
+            for (const c of r.collaborators ?? []) {
+              next.set(c.userId, {
+                username: c.username,
+                displayName: c.displayName ?? null,
+              });
+            }
+            setCommentRoster(next);
+          })
+          .catch(() => {});
+      };
+      loadCommentRoster();
+      unsubProfileEvent = client.on(
+        "profile_event",
+        (_ev: ProfileEventWire) => {
+          // coalesce: while a refetch is already scheduled, drop the event.
+          if (profileEventTimerRef.current != null) return;
+          profileEventTimerRef.current = window.setTimeout(() => {
+            profileEventTimerRef.current = null;
+            loadCommentRoster();
+          }, 300);
+        },
+      );
+
       // M60: on a real reconnect-after-gap, ask the server (authoritative
       // last-seen boundary) whether there is anything meaningful to show.
       unsubReconnGap = client.on(
@@ -637,6 +687,7 @@ export default function IDE({
       unsubCommentEvent?.();
       unsubCommentMention?.();
       unsubCommentStore?.();
+      unsubProfileEvent?.();
       commentStoreRef.current?.dispose();
       commentStoreRef.current = null;
       setCommentThreadsByFile([]);
@@ -667,6 +718,13 @@ export default function IDE({
       setRunStatuses([]);
       setAttention([]);
       setAttnRateNotice(null);
+      // M62: cancel a pending coalesced profile-event roster refetch and
+      // drop the stale roster so the next project starts clean.
+      if (profileEventTimerRef.current != null) {
+        window.clearTimeout(profileEventTimerRef.current);
+        profileEventTimerRef.current = null;
+      }
+      setCommentRoster(new Map());
     };
     // project is tracked by id only to avoid reconnect churn when the object
     // reference changes without the id changing; collabClient is read via
@@ -1329,14 +1387,44 @@ export default function IDE({
 
   // ---- M61-A: contextual comments ----------------------------------------
   const commentMembers = useMemo(() => {
-    const seen = new Map<number, string>();
-    for (const c of collaborators) seen.set(c.userId, c.name);
-    if (user) seen.set(user.id, user.username);
-    return [...seen.entries()].map(([userId, username]) => ({
-      userId,
-      username,
-    }));
-  }, [collaborators, user]);
+    // userId → { username (mention token + key), displayName (presentation) }.
+    // The REST roster is authoritative for displayName (freshest after a
+    // `profile_event` refetch); live presence fills anyone connected but not
+    // on the roster (typically the project owner) and any displayName the
+    // roster hasn't caught up on; the local user is always included.
+    const m = new Map<
+      number,
+      { userId: number; username: string; displayName: string | null }
+    >();
+    for (const [uid, info] of commentRoster) {
+      m.set(uid, {
+        userId: uid,
+        username: info.username,
+        displayName: info.displayName,
+      });
+    }
+    for (const c of collaborators) {
+      const existing = m.get(c.userId);
+      if (!existing) {
+        m.set(c.userId, {
+          userId: c.userId,
+          username: c.name,
+          displayName: c.displayName ?? null,
+        });
+      } else if (!existing.displayName && c.displayName) {
+        existing.displayName = c.displayName;
+      }
+    }
+    if (user) {
+      const existing = m.get(user.id);
+      m.set(user.id, {
+        userId: user.id,
+        username: user.username,
+        displayName: existing?.displayName ?? null,
+      });
+    }
+    return [...m.values()];
+  }, [commentRoster, collaborators, user]);
 
   const commentCountsByFile = useMemo(() => countsByFile(unresolvedComments), [unresolvedComments]);
 
@@ -3480,6 +3568,8 @@ export default function IDE({
         preferences={preferences}
         onSave={handleUpdatePreferences}
         onClose={() => setShowSettings(false)}
+        username={user.username}
+        isDemo={isDemo}
       />
     </div>
   );

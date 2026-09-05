@@ -5,7 +5,7 @@ import { Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import type { CollaborationClient, CollaboratorPresence } from "../../collab/client";
-import { collaboratorsInFile } from "../../collab/presence";
+import { collaboratorsInFile, displayLabel } from "../../collab/presence";
 import {
   rangesOverlap,
   normalizeRange,
@@ -1184,7 +1184,7 @@ export default function Editor({
                   <span
                     className="tab-collab-badge"
                     title={tabCollaborators
-                      .map((c) => `${c.name} (${c.activity?.type || "viewing"})`)
+                      .map((c) => `${displayLabel(c)} (${c.activity?.type || "viewing"})`)
                       .join(", ")}
                     aria-label={`${tabCollaborators.length} active collaborator(s) on this tab`}
                   >
@@ -1235,14 +1235,14 @@ export default function Editor({
               role="status"
               aria-live="polite"
               title={`Editing the same lines: ${overlappingCollaborators
-                .map((s) => s.collaborator.name)
+                .map((s) => displayLabel(s.collaborator))
                 .join(", ")}`}
             >
               <span className="spatial-dot" aria-hidden="true" />
               <span>
                 ⚠{" "}
                 {overlappingCollaborators
-                  .map((s) => s.collaborator.name)
+                  .map((s) => displayLabel(s.collaborator))
                   .join(", ")}{" "}
                 {overlappingCollaborators.length === 1 ? "is" : "are"} editing
                 the same lines
@@ -1257,7 +1257,7 @@ export default function Editor({
                     )
                   }
                 >
-                  View {overlappingCollaborators[0].collaborator.name}
+                  View {displayLabel(overlappingCollaborators[0].collaborator)}
                 </button>
               )}
             </div>
@@ -1267,13 +1267,13 @@ export default function Editor({
               role="status"
               aria-live="polite"
               title={`Editing nearby: ${nearbyCollaborators
-                .map((s) => s.collaborator.name)
+                .map((s) => displayLabel(s.collaborator))
                 .join(", ")}`}
             >
               <span className="spatial-dot" aria-hidden="true" />
               <span>
                 {nearbyCollaborators
-                  .map((s) => s.collaborator.name)
+                  .map((s) => displayLabel(s.collaborator))
                   .join(", ")}{" "}
                 editing nearby (within {RANGE_NEAR_LINES} lines)
               </span>
@@ -1298,7 +1298,7 @@ export default function Editor({
                 style={{ backgroundColor: c.color }}
                 aria-hidden="true"
               />
-              {c.name} ·{" "}
+              {displayLabel(c)} ·{" "}
               {c.activity?.type === "editing" ? "✏️ Editing" : "👀 Viewing"}
             </span>
           ))}
@@ -1325,7 +1325,7 @@ export default function Editor({
             )
             .map((c) => ({
               userId: c.userId,
-              name: c.name,
+              name: displayLabel(c),
               color: c.color,
             }))}
           onSubmit={(message, targetUserId) => {

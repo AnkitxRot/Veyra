@@ -129,7 +129,7 @@ export default function ProblemsPanel({
         {diagnostics.length > 0 && (
           <button
             type="button"
-            className="glass-btn icon-only"
+            className="glass-btn glass-btn-icon"
             onClick={onClearDiagnostics}
             title="Clear all problems"
             style={{ width: "24px", height: "24px" }}

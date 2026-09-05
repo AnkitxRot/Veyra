@@ -155,9 +155,15 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     );
 
     const s = storedState(room, 42);
-    expect(s.user).toEqual({ id: 7, name: "carol", role: "viewer" });
+    expect(s.user).toEqual({
+      id: 7,
+      name: "carol",
+      displayName: "carol",
+      role: "viewer",
+    });
     expect(s.user.id).not.toBe(1);
     expect(s.user.name).not.toBe("alice");
+    expect(s.user.displayName).not.toBe("alice");
     expect(s.user.role).not.toBe("owner");
     expect(s.user.extra).toBeUndefined();
   });
@@ -336,7 +342,12 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     expect(s.lastActive).toBeUndefined();
     expect(s.bio).toBeUndefined();
     // identity is still present and correct
-    expect(s.user).toEqual({ id: 1, name: "alice", role: "editor" });
+    expect(s.user).toEqual({
+      id: 1,
+      name: "alice",
+      displayName: "alice",
+      role: "editor",
+    });
   });
 
   it("activeFile rejects absolute / drive / traversal / control-char paths but keeps a normal relative path", async () => {
@@ -529,6 +540,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     expect(storedState(room, 333).user).toEqual({
       id: 5,
       name: "dave",
+      displayName: "dave",
       role: "viewer",
     });
   });
@@ -715,6 +727,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     expect(storedState(room, 77).user).toEqual({
       id: 8,
       name: "mallory",
+      displayName: "mallory",
       role: "editor",
     });
   });
@@ -746,7 +759,12 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       );
       const st = storedState(room, 33);
       expect(st.activeFileDirty).toBe(true);
-      expect(st.user).toEqual({ id: 3, name: "carol", role: "editor" });
+      expect(st.user).toEqual({
+        id: 3,
+        name: "carol",
+        displayName: "carol",
+        role: "editor",
+      });
     });
 
     it("drops a non-boolean activeFileDirty", async () => {
@@ -824,7 +842,12 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
         ]),
       );
       const st = storedState(room, 500);
-      expect(st.user).toEqual({ id: 2, name: "b", role: "editor" });
+      expect(st.user).toEqual({
+        id: 2,
+        name: "b",
+        displayName: "b",
+        role: "editor",
+      });
       expect(st.activeFileDirty).toBeUndefined();
     });
   });

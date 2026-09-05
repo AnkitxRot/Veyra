@@ -1,4 +1,4 @@
-import type { TimelinePage, WhileAwayResponse } from "./types";
+import type { TimelinePage, WhileAwayResponse, UserProfile } from "./types";
 
 export interface ApiErrorBody {
   error?: { code?: string; message?: string };
@@ -205,4 +205,27 @@ export async function ackWhileAway(
     `/api/projects/${projectId}/collab/while-away/ack`,
     { method: "POST", body: JSON.stringify({ upTo }) },
   );
+}
+
+// --- M62: self-service profile identity -----------------------------------
+
+/** GET the current user's profile. Missing row → all-null fields (200). */
+export async function getProfile(): Promise<{ profile: UserProfile }> {
+  return api<{ profile: UserProfile }>("/api/auth/profile");
+}
+
+/**
+ * PUT the three writable identity fields. `null` clears a field. The server
+ * is authoritative for normalization + length validation; a 400 arrives as a
+ * thrown `Error` whose `.message` is the server's own message.
+ */
+export async function updateProfile(patch: {
+  displayName: string | null;
+  pronouns: string | null;
+  bio: string | null;
+}): Promise<{ profile: UserProfile }> {
+  return api<{ profile: UserProfile }>("/api/auth/profile", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
 }

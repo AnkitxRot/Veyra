@@ -7,6 +7,7 @@ import { IS_WINDOWS } from "../config.js";
 import { ApiError } from "../errors.js";
 import { recordAuditLog } from "../audit.js";
 import { deleteAllProjectSecrets } from "../projectsecrets/store.js";
+import { effectiveDisplayName } from "../profile/identity.js";
 
 export interface ProjectRow {
   id: string;
@@ -55,6 +56,11 @@ export function requireOwnedProject(
 export interface CollaboratorInfo {
   userId: number;
   username: string;
+  /** M62-3: effective display name — the sanitized profile displayName when
+   *  set, otherwise the username. Never a raw nullable column. userId /
+   *  username stay the technical identity for ownership, attribution and
+   *  mentions. */
+  displayName: string;
   role: "owner" | "editor" | "viewer";
   createdAt: string;
 }
@@ -112,16 +118,26 @@ export function listProjectCollaborators(
   db: Db,
   projectId: string,
 ): CollaboratorInfo[] {
+  // LEFT JOIN so a collaborator with no profile row still appears. Only
+  // `display_name` is read from user_profiles — no other (dormant) profile
+  // column is exposed.
   const rows = db
     .prepare(
-      `SELECT u.id as userId, u.username, pc.role, pc.created_at as createdAt
+      `SELECT u.id as userId, u.username, pc.role, pc.created_at as createdAt,
+              up.display_name as displayNameRaw
        FROM project_collaborators pc
        JOIN users u ON u.id = pc.user_id
+       LEFT JOIN user_profiles up ON up.user_id = u.id
        WHERE pc.project_id = ?
        ORDER BY pc.created_at ASC`,
     )
-    .all(projectId) as unknown as CollaboratorInfo[];
-  return rows;
+    .all(projectId) as unknown as Array<
+    Omit<CollaboratorInfo, "displayName"> & { displayNameRaw: string | null }
+  >;
+  return rows.map(({ displayNameRaw, ...r }) => ({
+    ...r,
+    displayName: effectiveDisplayName(displayNameRaw, r.username),
+  }));
 }
 
 export function addProjectCollaborator(

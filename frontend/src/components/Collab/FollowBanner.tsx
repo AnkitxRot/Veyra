@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import type { CollaboratorPresence } from "../../collab/client";
+import { displayLabel } from "../../collab/presence";
 import { IconClose, IconUsers } from "../common/Icons";
 
 export interface FollowBannerProps {
@@ -34,6 +35,9 @@ export default function FollowBanner({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onStopFollowing]);
 
+  // M62: label = effective display name; initials stay username-derived so a
+  // rename never churns the follow avatar.
+  const label = displayLabel(followedUser);
   const initials = followedUser.name.slice(0, 2).toUpperCase();
   const fileName = followedUser.activeFile
     ? followedUser.activeFile.split("/").pop()
@@ -54,8 +58,8 @@ export default function FollowBanner({
       aria-live="polite"
       aria-label={
         isPaused
-          ? `Follow paused for ${followedUser.name}: ${pauseReason}`
-          : `Following ${followedUser.name}`
+          ? `Follow paused for ${label}: ${pauseReason}`
+          : `Following ${label}`
       }
     >
       <div className="follow-banner-content">
@@ -73,7 +77,7 @@ export default function FollowBanner({
           <div className="follow-title">
             <span className="follow-status-dot" />
             <span className="follow-user-name">
-              {isPaused ? "Follow Paused" : `Following ${followedUser.name}`}
+              {isPaused ? "Follow Paused" : `Following ${label}`}
             </span>
           </div>
 

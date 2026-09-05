@@ -41,11 +41,16 @@ export const AWARENESS_MAX_INTENT_LEN = 120;
 export const AWARENESS_MAX_COORD = 5_000_000;
 
 /** The subset of the room's per-connection client state this module needs.
- *  Always the authenticated WS session — never anything the client asserted. */
+ *  Always the authenticated WS session — never anything the client asserted.
+ *  `displayName` is the M62-3 effective display name (sanitized profile
+ *  displayName, or the username fallback), resolved server-side from the
+ *  authenticated userId and handed in already-resolved — this module never
+ *  reads a profile or the DB. */
 export interface AwarenessClientIdentity {
   userId: number;
   username: string;
   role: "owner" | "editor" | "viewer";
+  displayName: string;
 }
 
 function isControlChar(code: number): boolean {
@@ -117,9 +122,14 @@ export function buildAuthoritativeAwarenessState(
   const out: Record<string, unknown> = {};
 
   // Identity — ALWAYS the authenticated session, never the client's claim.
+  // `name` stays the immutable technical username so every consumer keeps an
+  // unambiguous @handle; `displayName` is the server-resolved effective
+  // display name. A client-sent `user.displayName` / `user.name` / `user.id`
+  // / `user.role` is discarded here (out is rebuilt from scratch).
   const user: Record<string, unknown> = {
     id: clientState.userId,
     name: clientState.username,
+    displayName: clientState.displayName,
     role: clientState.role,
   };
   const incomingUser = incoming.user;

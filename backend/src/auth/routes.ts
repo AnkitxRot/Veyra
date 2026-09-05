@@ -13,6 +13,9 @@ import { writeProjectFile } from "../files/service.js";
 import { recordAuditLog } from "../audit.js";
 import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
 import { getUserPreferences, updateUserPreferences } from "./preferences.js";
+import { getProfile, updateProfile } from "../profile/store.js";
+import { validateProfilePatch } from "../profile/validate.js";
+import { collaborationManager } from "../collab/manager.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -488,6 +491,45 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
         });
       } catch {}
       res.json({ preferences });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // M62-2 — self-service profile identity (displayName / pronouns / bio).
+  const assertNotDemo = (req: Request): void => {
+    if (req.user!.username.startsWith("evaluator_")) {
+      throw new ApiError(
+        403,
+        "demo accounts cannot edit their profile",
+        "demo_forbidden",
+      );
+    }
+  };
+
+  router.get("/profile", requireAuth(db), (req, res, next) => {
+    try {
+      res.json({ profile: getProfile(db, req.user!.id) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put("/profile", requireAuth(db), (req, res, next) => {
+    try {
+      assertNotDemo(req);
+      const patch = validateProfilePatch(req.body);
+      const { profile, changedFields } = updateProfile(db, req.user!.id, patch);
+      try {
+        recordAuditLog(db, {
+          userId: req.user!.id,
+          eventType: "PROFILE_UPDATED",
+          details: { fields: changedFields },
+          ipAddress: req.ip,
+        });
+      } catch {}
+      collaborationManager.broadcastProfileEventForUser(req.user!.id);
+      res.json({ profile });
     } catch (err) {
       next(err);
     }

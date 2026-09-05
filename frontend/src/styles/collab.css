@@ -179,6 +179,8 @@
 .team-avail-away { background: #f9e2af; }
 .team-avail-dnd { background: #cba6f7; }
 .team-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* M62: @username disambiguation shown next to a differing display name. */
+.team-handle { font-size: 10px; color: var(--fg-muted, #a6adc8); white-space: nowrap; }
 .team-role {
   font-size: 9px;
   text-transform: uppercase;
@@ -867,6 +869,12 @@
 .comment-author {
   font-weight: 600;
   color: var(--fg-primary);
+}
+/* M62: @username disambiguation next to a differing comment-author display name. */
+.comment-author-handle {
+  color: var(--fg-muted, #9399b2);
+  font-size: 11px;
+  font-weight: 400;
 }
 .comment-time {
   color: var(--fg-muted, #9399b2);

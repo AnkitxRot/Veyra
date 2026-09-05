@@ -109,7 +109,7 @@ export default function AIVerificationCard({
           {onDismiss && (
             <button
               onClick={onDismiss}
-              className="glass-btn icon-only"
+              className="glass-btn glass-btn-icon"
               style={{ width: '20px', height: '20px', fontSize: '10px' }}
               title="Dismiss verification card"
             >

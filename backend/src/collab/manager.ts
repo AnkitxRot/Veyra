@@ -10,6 +10,8 @@ import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
 import { assertInsideWorkspace, safeResolve } from "../files/service.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
+import { getDisplayName } from "../profile/store.js";
+import { effectiveDisplayName } from "../profile/identity.js";
 import {
   parseAttentionInput,
   buildAttentionEvent,
@@ -322,6 +324,13 @@ export class CollaborationRoom {
    *  client re-seeding the room from its own lineage) — the M60
    *  afterTransaction hook skips attribution for the duration. */
   private m60SuppressAttribution = false;
+  // M62-3: per-room resolved EFFECTIVE display name, keyed by userId. Read on
+  // every server-authoritative awareness rebuild so that hot path never
+  // touches the DB. Populated once per user in addClient(), refreshed in
+  // place on a targeted profile_event, pruned when a user's last client
+  // leaves. A cache miss falls back to the username at the call site.
+  private readonly displayNameByUser = new Map<number, string>();
+
   private readonly rangeObservedFiles = new Set<string>();
   private readonly rangeStash = new WeakMap<
     Y.Transaction,
@@ -935,8 +944,12 @@ export class CollaborationRoom {
   }
 
   /**
-   * M61-C: fan out a `profile_event` invalidation ping — `{type, userId}` only.
-   * The client refetches the profile bundle for that user. Receive-only.
+   * M61-C: fan out a `profile_event` invalidation ping — `{type, userId}` only,
+   * no profile data. Every live client in the room refetches that user's
+   * identity from access-controlled REST / collaboration state. Receive-only:
+   * a client-sent `profile_event` is not in `handleMessage`'s MESSAGE_CUSTOM
+   * allowlist and is ignored. Prefer `refreshProfileIdentity` as the entry
+   * point — it self-gates on room membership and refreshes the cache first.
    */
   public broadcastProfileEvent(ev: Record<string, unknown>): void {
     if (this.disposed) return;
@@ -949,12 +962,55 @@ export class CollaborationRoom {
     }
   }
 
-  /** M60: does any OTHER live socket in this room belong to `userId`? */
-  private hasOtherSocketForUser(userId: number): boolean {
-    for (const s of this.clients.values()) {
-      if (s.userId === userId) return true;
+  /**
+   * M62-3: a member edited their profile. If this room holds a live
+   * authenticated client for `userId`, re-resolve that user's cached
+   * effective display name from the current persisted profile, then fan out
+   * ONE room `profile_event`. No-op (no event, no cache touch) when the user
+   * has no client here — that is what keeps a profile update from reaching
+   * unrelated rooms.
+   */
+  public refreshProfileIdentity(userId: number): void {
+    if (this.disposed) return;
+    const cs = this.findClientStateForUser(userId);
+    if (!cs) return;
+    this.cacheEffectiveDisplayName(userId, cs.username);
+    this.broadcastProfileEvent({ userId });
+  }
+
+  /** Resolve `userId`'s effective display name from the persisted profile and
+   *  store it in the per-room awareness cache. One narrow column read; never
+   *  called from the awareness frame path. */
+  private cacheEffectiveDisplayName(userId: number, username: string): void {
+    let raw: string | null = null;
+    try {
+      raw = getDisplayName(this.db, userId);
+    } catch {
+      raw = null; // fall back to username below; never block a join on this
     }
-    return false;
+    this.displayNameByUser.set(userId, effectiveDisplayName(raw, username));
+  }
+
+  /** The client state of any one live connection for `userId` in this room. */
+  private findClientStateForUser(
+    userId: number,
+  ): CollaboratorClientState | undefined {
+    for (const s of this.clients.values()) {
+      if (s.userId === userId) return s;
+    }
+    return undefined;
+  }
+
+  /** Does any live connection in this room belong to `userId`? */
+  private hasClientForUser(userId: number): boolean {
+    return this.findClientStateForUser(userId) !== undefined;
+  }
+
+  /** M60: back-compat alias — post-`clients.delete` this reads as "another
+   *  socket for this user remains". Single implementation lives in
+   *  {@link hasClientForUser}. */
+  private hasOtherSocketForUser(userId: number): boolean {
+    return this.hasClientForUser(userId);
   }
 
   private sendAttentionTo(userId: number, obj: unknown): void {
@@ -1346,6 +1402,13 @@ export class CollaborationRoom {
 
     this.clients.set(ws, clientState);
 
+    // M62-3: resolve this user's effective display name once, from the
+    // current persisted profile, and cache it for the awareness hot path.
+    // Idempotent — a second tab for the same user just re-resolves the same
+    // value. A reconnect re-runs this, so the cache always reflects the
+    // profile as of the latest (re)connect or profile_event.
+    this.cacheEffectiveDisplayName(clientState.userId, clientState.username);
+
     // NOTE: per-client presence arrives via each client's own awareness updates
     // (MESSAGE_AWARENESS), keyed by that client's real Yjs clientID. The server
     // is not a user in the room, so it must not write its own local awareness state.
@@ -1632,6 +1695,10 @@ export class CollaborationRoom {
         } catch {
           /* best-effort */
         }
+        // M62-3: last client for this user gone — drop the per-room display
+        // cache entry so it cannot go stale. A reconnect repopulates it from
+        // the current profile in addClient().
+        this.displayNameByUser.delete(clientState.userId);
       }
     }
 
@@ -1733,6 +1800,11 @@ export class CollaborationRoom {
           userId: clientState.userId,
           username: clientState.username,
           role: clientState.role,
+          // M62-3: cached effective display name — no DB read here. Miss
+          // (should not happen: addClient always populates) => username.
+          displayName:
+            this.displayNameByUser.get(clientState.userId) ??
+            clientState.username,
         }),
       });
     }
@@ -2235,6 +2307,7 @@ export class CollaborationRoom {
       this.runStatusSweepTimer = null;
     }
     this.runStatus.clear();
+    this.displayNameByUser.clear();
     // M58: attention teardown.
     for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
     this.attentionExpiryTimers.clear();
@@ -2356,6 +2429,22 @@ export class CollaborationManager {
     ev: Record<string, unknown>,
   ): void {
     this.rooms.get(projectId)?.broadcastProfileEvent(ev);
+  }
+
+  /**
+   * M62-2/-3: a user edited their own profile identity. Targeted — only the
+   * rooms that actually hold a live authenticated client for `userId` are
+   * touched. Each such room re-resolves that user's cached effective display
+   * name from the persisted profile, then fans out ONE existing
+   * `{type:"profile_event", userId}` frame (no profile data in the packet).
+   * Rooms without that user get nothing; zero matching rooms is a silent
+   * no-op. Targeting lives here in the collaboration layer, never on the
+   * client. No new wire message, no transport change.
+   */
+  public broadcastProfileEventForUser(userId: number): void {
+    for (const room of this.rooms.values()) {
+      room.refreshProfileIdentity(userId);
+    }
   }
 
   /**

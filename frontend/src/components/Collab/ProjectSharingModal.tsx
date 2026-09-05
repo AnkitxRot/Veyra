@@ -195,7 +195,7 @@ export default function ProjectSharingModal({
           </div>
           <button
             onClick={onClose}
-            className="glass-btn icon-only"
+            className="glass-btn glass-btn-icon"
             aria-label="Close modal"
             style={{ width: '28px', height: '28px' }}
           >
@@ -378,7 +378,7 @@ export default function ProjectSharingModal({
                           </select>
                           <button
                             onClick={() => handleRevoke(c.userId, c.username)}
-                            className="glass-btn icon-only"
+                            className="glass-btn glass-btn-icon"
                             style={{ color: '#f38ba8', width: '26px', height: '26px' }}
                             title={`Revoke access for ${c.username}`}
                             aria-label={`Revoke access for ${c.username}`}

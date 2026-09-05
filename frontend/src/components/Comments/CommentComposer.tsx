@@ -2,7 +2,12 @@ import React, { useMemo, useRef, useState } from "react";
 
 export interface ComposerMember {
   userId: number;
+  /** Immutable technical username — the mention token (`@username`) and the
+   *  identity key. Autocomplete matches and inserts THIS, never displayName. */
   username: string;
+  /** M62: effective display name for the author row. `null` / absent →
+   *  fall back to `username`. Presentation only — never a mention token. */
+  displayName?: string | null;
 }
 
 export interface CommentComposerProps {
