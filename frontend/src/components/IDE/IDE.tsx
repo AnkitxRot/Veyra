@@ -49,6 +49,7 @@ import AIVerificationCard from "../AI/AIVerificationCard";
 const Tour = React.lazy(() => import("../common/Tour"));
 import CommandPaletteModal from "../common/CommandPaletteModal";
 import { ErrorBoundary } from "../common/ErrorBoundary";
+import NoticeStack from "../common/NoticeStack";
 import WorkspaceSearchModal from "../Search/WorkspaceSearchModal";
 import FollowBanner from "../Collab/FollowBanner";
 import CollabConnectionBanner from "../Collab/CollabConnectionBanner";
@@ -108,6 +109,7 @@ import {
 } from "../../utils/recentStore";
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
+import { useNotices } from "../../hooks/useNotices";
 import { throttleLatest } from "../../utils/throttleLatest";
 import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
@@ -270,20 +272,21 @@ export default function IDE({
   const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
+  // M64: one typed transient-notice mechanism. Owns id/TTL/dedupe/cleanup for
+  // every notice; callers filter by `surface` and render each group in place
+  // (NoticeStack for "stack", the status bar for "statusbar", the editor
+  // region for "editor", nothing for "headless").
+  const {
+    notices: activeNotices,
+    notify,
+    dismiss: dismissNotice,
+    dismissKey: dismissNoticeKey,
+  } = useNotices();
   // M50: shown when a Replace All changed files on disk that were open with
   // unsaved edits (those buffers are deliberately left untouched).
   const [replaceReconcileNotice, setReplaceReconcileNotice] = useState<
     string | null
   >(null);
-  // M56: dismissible informational banner when another collaborator (or an
-  // admin operation) mutated a file this client currently has open. Metadata
-  // only — Yjs / the M50 reconciler still own the actual content.
-  const [externalMutationNotice, setExternalMutationNotice] = useState<{
-    text: string;
-    key: string;
-  } | null>(null);
-  const externalMutationTimerRef = useRef<number | null>(null);
 
   // M4: Real-Time Multiplayer Collaboration States
   const [collabClient, setCollabClient] = useState<CollaborationClient | null>(
@@ -572,16 +575,15 @@ export default function IDE({
                 (typeof n.matchCount === "number"
                   ? ` · ${n.matchCount} ${n.matchCount === 1 ? "match" : "matches"}`
                   : "");
-          const key = `${n.actor.userId}:${n.path ?? "*"}:${n.mutationType}`;
-          setExternalMutationNotice({ text, key });
-          if (externalMutationTimerRef.current) {
-            window.clearTimeout(externalMutationTimerRef.current);
-          }
-          externalMutationTimerRef.current = window.setTimeout(() => {
-            setExternalMutationNotice((cur) =>
-              cur && cur.key === key ? null : cur,
-            );
-          }, 8000);
+          // M64: single shared slot ("ext-mutation") — a newer file-mutation
+          // notice replaces the current one, matching the pre-M64 one-state
+          // behaviour. 8s TTL, stale/replacement handling owned by useNotices.
+          notify({
+            kind: "info",
+            text,
+            ttl: 8000,
+            dedupeKey: "ext-mutation",
+          });
         },
       );
 
@@ -727,13 +729,12 @@ export default function IDE({
       setTimelineLoaded(false);
       setTimelineNextBefore(null);
       setWhileAwayGroups(null);
-      if (externalMutationTimerRef.current) {
-        window.clearTimeout(externalMutationTimerRef.current);
-      }
       if (attnRateTimerRef.current) {
         window.clearTimeout(attnRateTimerRef.current);
       }
-      setExternalMutationNotice(null);
+      // M64: drop the shared file-mutation slot on project switch (its TTL
+      // timer, if any, is cleared by useNotices).
+      dismissNoticeKey("ext-mutation");
       // M59: project switch / disposal / unmount clears Follow + anchor + all
       // follow timers so nothing leaks into the next project or a stale timer
       // fires after this client is gone.
@@ -2002,17 +2003,27 @@ export default function IDE({
                 : f,
             ),
           );
-          setSaveToast(`Formatted with ${res.formatter}`);
-          setTimeout(() => setSaveToast(null), 2000);
+          notify({
+            kind: "success",
+            text: `Formatted with ${res.formatter}`,
+            ttl: 2000,
+            surface: "statusbar",
+            dedupeKey: "save-toast",
+          });
         } else if (res.warning) {
-          setSaveToast(`Format note: ${res.warning}`);
-          setTimeout(() => setSaveToast(null), 3000);
+          notify({
+            kind: "info",
+            text: `Format note: ${res.warning}`,
+            ttl: 3000,
+            surface: "statusbar",
+            dedupeKey: "save-toast",
+          });
         }
       } catch (err: any) {
         console.warn("Formatting skipped:", err.message);
       }
     },
-    [project, activeFile, resolveLiveFileContent],
+    [project, activeFile, resolveLiveFileContent, notify],
   );
 
   // M1: Ctrl+S / palette saves funnel through dispatchCanonicalSave → the
@@ -2046,7 +2057,15 @@ export default function IDE({
         finalContent = detail.content;
       }
       if (typeof finalContent !== "string") {
-        alert(`Save failed: no live content available for ${path}`);
+        // M64: non-blocking, persistent — a save that produced nothing to
+        // write must not vanish on a timer. Dismissed explicitly or by the
+        // next successful save of this path.
+        notify({
+          kind: "error",
+          text: `Save failed: no editable content available for ${path}`,
+          ttl: null,
+          dedupeKey: `save-fail:${path}`,
+        });
         return;
       }
 
@@ -2078,34 +2097,54 @@ export default function IDE({
             f.path === path ? { ...f, content: finalContent, dirty: false } : f,
           ),
         );
-        setSaveToast(`Saved ${path.split("/").pop()}`);
-        setTimeout(() => setSaveToast(null), 2000);
+        // M64: a successful save clears any standing persistent save-failure
+        // notice for this path (DECISION 1 — cleared by a state-changing path).
+        dismissNoticeKey(`save-fail:${path}`);
+        notify({
+          kind: "success",
+          text: `Saved ${path.split("/").pop()}`,
+          ttl: 2000,
+          surface: "statusbar",
+          dedupeKey: "save-toast",
+        });
       } catch (err: any) {
         handleSaveError(err, path, {
           // Not a failure: the server safely refused to overwrite a
           // collaborator's unsaved edits. Surface it as a truthful,
-          // non-blocking conflict notice (reusing the M56 banner) and leave
-          // the buffer dirty so the user can retry once the collaborator saves.
+          // non-blocking conflict notice (the shared "ext-mutation" slot) and
+          // leave the buffer dirty so the user can retry once the collaborator
+          // saves.
           onCollabConflict: (message) => {
-            const key = `save-conflict:${path}:${Date.now()}`;
-            setExternalMutationNotice({ text: message, key });
-            if (externalMutationTimerRef.current) {
-              window.clearTimeout(externalMutationTimerRef.current);
-            }
-            externalMutationTimerRef.current = window.setTimeout(() => {
-              setExternalMutationNotice((cur) =>
-                cur && cur.key === key ? null : cur,
-              );
-            }, 8000);
+            notify({
+              kind: "warning",
+              text: message,
+              ttl: 8000,
+              dedupeKey: "ext-mutation",
+            });
           },
-          onFailure: (message) => alert(`Save failed: ${message}`),
+          // M64: real save failure — non-blocking, persistent, deduped per
+          // path. No blocking dialog; it never auto-dismisses.
+          onFailure: (message) => {
+            notify({
+              kind: "error",
+              text: `Save failed: ${message}`,
+              ttl: null,
+              dedupeKey: `save-fail:${path}`,
+            });
+          },
         });
       }
     };
 
     document.addEventListener("ide-save", handleSave);
     return () => document.removeEventListener("ide-save", handleSave);
-  }, [project, formatOnSave, resolveLiveFileContent]);
+  }, [
+    project,
+    formatOnSave,
+    resolveLiveFileContent,
+    notify,
+    dismissNoticeKey,
+  ]);
 
   // Listen to ide-run event from Toolbar
   useEffect(() => {
@@ -2563,9 +2602,14 @@ export default function IDE({
           setFormatOnSave((prev) => {
             const next = !prev;
             localStorage.setItem("cloudeee_format_on_save", String(next));
-            setSaveToast(`Format on Save: ${next ? "Enabled" : "Disabled"}`);
-            setTimeout(() => setSaveToast(null), 2500);
             return next;
+          });
+          notify({
+            kind: "info",
+            text: `Format on Save: ${!formatOnSave ? "Enabled" : "Disabled"}`,
+            ttl: 2500,
+            surface: "statusbar",
+            dedupeKey: "save-toast",
           });
         },
       },
@@ -2715,6 +2759,7 @@ export default function IDE({
     handleSaveActiveFile,
     handleTriggerAIAction,
     handleOpenFile,
+    notify,
   ]);
 
   // Central Keyboard Shortcuts Dispatcher
@@ -2814,6 +2859,11 @@ export default function IDE({
   const warningCount = diagnostics.filter(
     (d) => d.severity === "warning",
   ).length;
+
+  // M64: the save/format status-bar badge (surface:"statusbar") — kept in its
+  // existing footer slot, only its lifecycle now runs through useNotices.
+  const statusbarNotice =
+    activeNotices.find((n) => n.surface === "statusbar")?.text ?? null;
 
   const ideLayout = (
     <div className="ide-layout">
@@ -3365,33 +3415,12 @@ export default function IDE({
           </div>
         )}
 
-        {/* M56: external-mutation informational notice */}
-        {externalMutationNotice && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="external-mutation-banner"
-            style={{
-              position: "fixed",
-              bottom: "40px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 9000,
-              maxWidth: "560px",
-              width: "calc(100% - 48px)",
-            }}
-          >
-            <span className="emb-text">{externalMutationNotice.text}</span>
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost emb-dismiss"
-              style={{ fontSize: "11px", padding: "2px 8px" }}
-              onClick={() => setExternalMutationNotice(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
+        {/* M64: unified transient-notice stack (save + external-mutation +,
+            from M64 commit 5, the persistent route/reconcile notices). */}
+        <NoticeStack
+          notices={activeNotices.filter((n) => n.surface === "stack")}
+          onDismiss={dismissNotice}
+        />
 
         {/* AI Verification Outcome Banner / Notification */}
         {aiVerification && (
@@ -3453,13 +3482,13 @@ export default function IDE({
           </div>
 
           <div className="ide-statusbar-section">
-            {saveToast && (
+            {statusbarNotice && (
               <span
                 className="glass-badge glass-badge-success"
                 style={{ animation: "fadeIn 150ms ease" }}
               >
                 <IconCheck size={9} />
-                <span>{saveToast}</span>
+                <span>{statusbarNotice}</span>
               </span>
             )}
             <span
@@ -3470,8 +3499,13 @@ export default function IDE({
                   "cloudeee_format_on_save",
                   String(!formatOnSave),
                 );
-                setSaveToast(`Format on Save: ${!formatOnSave ? "On" : "Off"}`);
-                setTimeout(() => setSaveToast(null), 2000);
+                notify({
+                  kind: "info",
+                  text: `Format on Save: ${!formatOnSave ? "On" : "Off"}`,
+                  ttl: 2000,
+                  surface: "statusbar",
+                  dedupeKey: "save-toast",
+                });
               }}
               style={{ cursor: "pointer" }}
               title="Click to toggle Format on Save"
