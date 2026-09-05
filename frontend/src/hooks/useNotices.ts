@@ -26,8 +26,10 @@ export interface NoticeAction {
 }
 
 export interface NoticeInput {
-  kind: NoticeKind;
-  text: string;
+  /** Defaults to "info". Carries no meaning for a headless notice. */
+  kind?: NoticeKind;
+  /** Rendered text. Omit for a headless notice (it is never displayed). */
+  text?: string;
   /** ms until auto-dismiss. Omit / null / 0 => persistent (explicit dismissal only). */
   ttl?: number | null;
   /** Defaults to "stack". */
@@ -66,11 +68,18 @@ export interface UseNotices {
 }
 
 /**
- * Hard ceiling on retained notices. Bounds queue growth under notify spam;
- * eviction takes the oldest transient entry first and only falls back to the
- * oldest overall when every entry is persistent.
+ * Soft ceiling: once the queue passes this, a `notify` sheds the oldest
+ * transient entry. Persistent notices (unresolved states the user still needs
+ * to see — a failed save, a bad route link) are NOT force-evicted here.
  */
 export const MAX_NOTICES = 6;
+
+/**
+ * Hard ceiling: an absolute bound so a pathological run of persistent notices
+ * (e.g. many files failing to save at once) still cannot grow without bound —
+ * past this the oldest entry is shed regardless of kind.
+ */
+export const MAX_NOTICES_CEILING = 12;
 
 let seq = 0;
 function nextId(): string {
@@ -121,13 +130,14 @@ export function useNotices(): UseNotices {
     (input: NoticeInput): string => {
       const id = nextId();
       const ttl = input.ttl ?? null;
+      const kind = input.kind ?? "info";
       const notice: Notice = {
         id,
-        kind: input.kind,
-        text: input.text,
+        kind,
+        text: input.text ?? "",
         ttl,
         surface: input.surface ?? "stack",
-        role: input.role ?? (input.kind === "error" ? "alert" : "status"),
+        role: input.role ?? (kind === "error" ? "alert" : "status"),
         dedupeKey: input.dedupeKey,
         actions: input.actions,
         onExpire: input.onExpire,
@@ -147,20 +157,30 @@ export function useNotices(): UseNotices {
           const oldestTransient = next.findIndex(
             (n) => n.ttl !== null && n.id !== id,
           );
-          const victimIdx = oldestTransient >= 0 ? oldestTransient : 0;
-          clearTimer(next[victimIdx].id);
-          next = next.filter((_, i) => i !== victimIdx);
+          if (oldestTransient >= 0) {
+            // normal case: shed the oldest transient
+            clearTimer(next[oldestTransient].id);
+            next = next.filter((_, i) => i !== oldestTransient);
+          } else if (next.length > MAX_NOTICES_CEILING) {
+            // all-persistent overflow past the hard ceiling — shed the oldest
+            clearTimer(next[0].id);
+            next = next.slice(1);
+          }
         }
         return next;
       });
 
       if (ttl !== null && ttl > 0) {
         const handle = setTimeout(() => {
+          // The only way this handle is still the one registered for `id` is
+          // that nothing cleared it — no dismiss / dismissKey / dedupe-replace
+          // / eviction / unmount ran. `id` is never reused, so this is an
+          // authoritative check that does not depend on render timing.
+          if (timersRef.current.get(id) !== handle) return;
           timersRef.current.delete(id);
           const live = noticesRef.current.find((n) => n.id === id);
-          if (!live) return; // already dismissed / replaced / evicted
           setNotices((prev) => prev.filter((n) => n.id !== id));
-          live.onExpire?.();
+          live?.onExpire?.();
         }, ttl);
         timersRef.current.set(id, handle);
       }

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
-import { useNotices, MAX_NOTICES } from "../src/hooks/useNotices";
+import {
+  useNotices,
+  MAX_NOTICES,
+  MAX_NOTICES_CEILING,
+} from "../src/hooks/useNotices";
 
 // M64 — unified notice lifecycle. Behaviour tests for the queue hook that
 // owns stable IDs, TTL expiry, explicit dismissal, dedupe/replacement, a
@@ -359,6 +363,125 @@ describe("useNotices — bounded queue", () => {
       vi.advanceTimersByTime(2000);
     });
     expect(onExpire).not.toHaveBeenCalled();
+  });
+});
+
+describe("useNotices — headless notices (audit)", () => {
+  it("a headless notice needs neither kind nor text", () => {
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      result.current.notify({
+        ttl: 4000,
+        surface: "headless",
+        dedupeKey: "attn-rate",
+      });
+    });
+    expect(result.current.hasKey("attn-rate")).toBe(true);
+    const n = result.current.notices[0];
+    expect(n.surface).toBe("headless");
+    expect(n.kind).toBe("info"); // default
+    expect(n.text).toBe(""); // default
+    expect(n.role).toBe("status");
+  });
+
+  it("a headless notice still auto-dismisses on its TTL", () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      result.current.notify({
+        ttl: 4000,
+        surface: "headless",
+        dedupeKey: "attn-rate",
+      });
+    });
+    expect(result.current.hasKey("attn-rate")).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(4001);
+    });
+    expect(result.current.hasKey("attn-rate")).toBe(false);
+  });
+});
+
+describe("useNotices — persistent-notice ceiling (audit)", () => {
+  it("does not force-evict persistent notices when the queue passes MAX_NOTICES", () => {
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      for (let i = 0; i < MAX_NOTICES + 3; i++) {
+        result.current.notify({
+          kind: "error",
+          text: `save-fail ${i}`,
+          ttl: null,
+          dedupeKey: `save-fail:${i}`,
+        });
+      }
+    });
+    // every persistent error is still represented — none silently dropped
+    expect(result.current.notices).toHaveLength(MAX_NOTICES + 3);
+    expect(result.current.notices.map((n) => n.text)).toContain("save-fail 0");
+  });
+
+  it("sheds the oldest only past an absolute ceiling (bounded growth)", () => {
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      for (let i = 0; i < 20; i++) {
+        result.current.notify({
+          kind: "error",
+          text: `p${i}`,
+          ttl: null,
+          dedupeKey: `p:${i}`,
+        });
+      }
+    });
+    expect(result.current.notices.length).toBeLessThanOrEqual(MAX_NOTICES_CEILING);
+    // oldest were shed, newest kept
+    expect(result.current.notices.map((n) => n.text)).toContain("p19");
+    expect(result.current.notices.map((n) => n.text)).not.toContain("p0");
+  });
+
+  it("sheds the OLDEST transient (never a persistent) when transients pile up over the cap", () => {
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      result.current.notify({
+        kind: "error",
+        text: "persistent",
+        ttl: null,
+        dedupeKey: "p",
+      });
+      for (let i = 0; i < MAX_NOTICES + 2; i++) {
+        result.current.notify({ kind: "info", text: `t${i}`, ttl: 5000 });
+      }
+    });
+    const texts = result.current.notices.map((n) => n.text);
+    expect(texts).toContain("persistent"); // never evicted
+    expect(texts).not.toContain("t0"); // oldest transient shed
+    expect(texts).not.toContain("t1");
+    expect(texts).toContain(`t${MAX_NOTICES + 1}`); // newest kept
+    expect(result.current.notices).toHaveLength(MAX_NOTICES);
+  });
+});
+
+describe("useNotices — expiry cannot act after the timer is cleared (audit)", () => {
+  it("onExpire never fires for a notice removed by dismissKey", () => {
+    vi.useFakeTimers();
+    const onExpire = vi.fn();
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      result.current.notify({
+        kind: "warning",
+        text: "x",
+        ttl: 1000,
+        dedupeKey: "k",
+        onExpire,
+      });
+    });
+    act(() => {
+      result.current.dismissKey("k");
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(onExpire).not.toHaveBeenCalled();
+    expect(result.current.notices).toHaveLength(0);
   });
 });
 

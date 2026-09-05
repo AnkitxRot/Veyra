@@ -515,14 +515,9 @@ export default function IDE({
       );
       unsubAttention = client.on("attention_change", throttledSetAttention);
       unsubAttnRate = client.on("attention_rate_limited", () => {
-        // M64: headless — no rendered text; AttentionTray owns the banner.
-        notify({
-          kind: "info",
-          text: "",
-          ttl: 4000,
-          surface: "headless",
-          dedupeKey: "attn-rate",
-        });
+        // M64: a headless notice — no kind, no text, never rendered. It is a
+        // lifecycle-managed flag; AttentionTray owns the visible banner.
+        notify({ ttl: 4000, surface: "headless", dedupeKey: "attn-rate" });
       });
 
       unsubConnection = client.on(

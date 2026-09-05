@@ -127,7 +127,9 @@ describe("M64 — IDE.tsx notice wiring", () => {
     const block = src.slice(at - 200, at + 40);
     expect(block).toContain('surface: "headless"');
     expect(block).toContain("ttl: 4000");
-    expect(block).toContain('text: ""'); // no rendered text
+    // headless: no kind, no text — it does not pretend to be a visible notice
+    expect(block).not.toContain('text:');
+    expect(block).not.toContain('kind:');
     // AttentionTray still owns the visible banner, fed from the headless flag
     expect(src).toContain('rateLimited={hasNotice("attn-rate")}');
   });
