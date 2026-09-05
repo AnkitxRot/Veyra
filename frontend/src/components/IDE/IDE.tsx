@@ -51,6 +51,7 @@ import CommandPaletteModal from "../common/CommandPaletteModal";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 import WorkspaceSearchModal from "../Search/WorkspaceSearchModal";
 import FollowBanner from "../Collab/FollowBanner";
+import CollabConnectionBanner from "../Collab/CollabConnectionBanner";
 import TeamPanel from "../Collab/TeamPanel";
 import AttentionTray from "../Collab/AttentionTray";
 import WhileYouWereAway, {
@@ -302,6 +303,13 @@ export default function IDE({
   const attnRateTimerRef = useRef<number | null>(null);
   const [collabStatus, setCollabStatus] =
     useState<CollabConnectionStatus>("disconnected");
+  // M63: local Yjs update batches not yet on the wire to the server, and
+  // whether automatic reconnection has been given up. Fed by the collab
+  // client's `pending_updates_change` / `reconnect_exhausted` events; drive the
+  // editor-region connection banner + the beforeunload guard.
+  const [pendingCollabUpdates, setPendingCollabUpdates] = useState(0);
+  const [collabReconnectExhausted, setCollabReconnectExhausted] =
+    useState(false);
   // M60: Team Activity timeline (bounded, live-merged) + While-You-Were-Away.
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [timelineNextBefore, setTimelineNextBefore] = useState<string | null>(
@@ -467,6 +475,8 @@ export default function IDE({
     let unsubCommentMention: (() => void) | undefined;
     let unsubCommentStore: (() => void) | undefined;
     let unsubProfileEvent: (() => void) | undefined;
+    let unsubPendingUpdates: (() => void) | undefined;
+    let unsubReconnectExhausted: (() => void) | undefined;
     let throttledSetCollaborators: ReturnType<
       typeof throttleLatest<CollaboratorPresence[]>
     > | null = null;
@@ -526,7 +536,21 @@ export default function IDE({
           // M59: a forbidden session (role revoked / access lost) must clear
           // Follow + anchor + timers immediately.
           if (status === "forbidden") resetFollowStateRef.current();
+          // M63: any forward motion (connecting/reconnecting/resync/connected)
+          // means we are no longer in the terminal "gave up" state.
+          if (status !== "disconnected" && status !== "forbidden") {
+            setCollabReconnectExhausted(false);
+          }
         },
+      );
+
+      // M63: editor-region connection banner + beforeunload guard inputs.
+      unsubPendingUpdates = client.on(
+        "pending_updates_change",
+        (n: number) => setPendingCollabUpdates(n),
+      );
+      unsubReconnectExhausted = client.on("reconnect_exhausted", () =>
+        setCollabReconnectExhausted(true),
       );
 
       // M56: informational notice that an external mutation touched a file.
@@ -688,6 +712,11 @@ export default function IDE({
       unsubCommentMention?.();
       unsubCommentStore?.();
       unsubProfileEvent?.();
+      unsubPendingUpdates?.();
+      unsubReconnectExhausted?.();
+      // M63: the next project starts with a clean connection-state slate.
+      setPendingCollabUpdates(0);
+      setCollabReconnectExhausted(false);
       commentStoreRef.current?.dispose();
       commentStoreRef.current = null;
       setCommentThreadsByFile([]);
@@ -2929,6 +2958,14 @@ export default function IDE({
         {/* Central Editor & Bottom Workspace */}
         <div className="ide-workspace" style={{ flexDirection: "column" }}>
           <div className="ide-editor-area" style={{ position: "relative" }}>
+            {/* M63: connection + unsynced-edit state, always in the editor
+                region and independent of the collaborator avatar stack. */}
+            <CollabConnectionBanner
+              status={collabStatus}
+              pendingLocalUpdates={pendingCollabUpdates}
+              reconnectExhausted={collabReconnectExhausted}
+              onRetry={() => collabClientRef.current?.retry()}
+            />
             {followedUser && (
               <FollowBanner
                 followedUser={followedUser}
