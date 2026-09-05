@@ -197,9 +197,6 @@ export default function IDE({
   // bad link, silently opening projects[0]).
   const routeProjectIdRef = useRef(routeProjectId);
   routeProjectIdRef.current = routeProjectId;
-  const [invalidRouteNotice, setInvalidRouteNotice] = useState<string | null>(
-    null,
-  );
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const activeFileRef = useRef<string | null>(null);
@@ -282,11 +279,6 @@ export default function IDE({
     dismiss: dismissNotice,
     dismissKey: dismissNoticeKey,
   } = useNotices();
-  // M50: shown when a Replace All changed files on disk that were open with
-  // unsaved edits (those buffers are deliberately left untouched).
-  const [replaceReconcileNotice, setReplaceReconcileNotice] = useState<
-    string | null
-  >(null);
 
   // M4: Real-Time Multiplayer Collaboration States
   const [collabClient, setCollabClient] = useState<CollaborationClient | null>(
@@ -448,7 +440,7 @@ export default function IDE({
     // the source, duplicated a source file's content on disk.
     setOpenFiles([]);
     setActiveFile(null);
-    setReplaceReconcileNotice(null);
+    dismissNoticeKey("reconcile");
     setGitBranch(null);
     setGitInitialized(false);
 
@@ -795,9 +787,13 @@ export default function IDE({
         if (invalidRoute) {
           // Explicit link to a project that isn't ours / doesn't exist — do
           // NOT open a different one and do NOT show an "opened" state.
-          setInvalidRouteNotice(
-            "That project link isn't available. It may have been deleted, or you may not have access. Pick a project to continue.",
-          );
+          notify({
+            kind: "error",
+            text: "That project link isn't available. It may have been deleted, or you may not have access. Pick a project to continue.",
+            ttl: null,
+            dedupeKey: "invalid-route",
+            role: "alert",
+          });
           onNavigateProject?.(null);
         } else if (projectId) {
           const target = res.projects.find((p) => p.id === projectId)!;
@@ -837,7 +833,7 @@ export default function IDE({
 
   // Track Recent Projects on Switch
   const handleSelectProject = (p: Project) => {
-    setInvalidRouteNotice(null);
+    dismissNoticeKey("invalid-route");
     if (p.id === project?.id) return;
     setProject(p);
     addRecentProject(p);
@@ -857,15 +853,26 @@ export default function IDE({
       setProject(target);
       addRecentProject(target);
       setLastProjectId(target.id);
-      setInvalidRouteNotice(null);
+      dismissNoticeKey("invalid-route");
     } else if (projects.length > 0) {
       // navigated (e.g. pasted a link) to a project we can't resolve
-      setInvalidRouteNotice(
-        "That project link isn't available. It may have been deleted, or you may not have access.",
-      );
+      notify({
+        kind: "error",
+        text: "That project link isn't available. It may have been deleted, or you may not have access.",
+        ttl: null,
+        dedupeKey: "invalid-route",
+        role: "alert",
+      });
       onNavigateProject?.(null);
     }
-  }, [routeProjectId, projects, project?.id, onNavigateProject]);
+  }, [
+    routeProjectId,
+    projects,
+    project?.id,
+    onNavigateProject,
+    notify,
+    dismissNoticeKey,
+  ]);
 
   // Sync Recent Files on Project Switch
   useEffect(() => {
@@ -1128,13 +1135,17 @@ export default function IDE({
       }
 
       if (dirtySkipped.length > 0) {
-        setReplaceReconcileNotice(
-          `${opts.noticeLabel} updated ${dirtySkipped.length} open ${
-            dirtySkipped.length === 1 ? "file" : "files"
-          } on disk, but your unsaved changes were left untouched: ${dirtySkipped.join(
-            ", ",
-          )}. Save or discard your edits to pick up the change.`,
-        );
+        notify({
+          kind: "warning",
+          text:
+            `${opts.noticeLabel} updated ${dirtySkipped.length} open ${
+              dirtySkipped.length === 1 ? "file" : "files"
+            } on disk, but your unsaved changes were left untouched: ${dirtySkipped.join(
+              ", ",
+            )}. Save or discard your edits to pick up the change.`,
+          ttl: null,
+          dedupeKey: "reconcile",
+        });
       }
 
       // A branch checkout can add or remove files, not just change contents —
@@ -1143,7 +1154,7 @@ export default function IDE({
         void loadTree();
       }
     },
-    [project, loadTree],
+    [project, loadTree, notify],
   );
 
   const handleReplaceApplied = useCallback(
@@ -1263,9 +1274,12 @@ export default function IDE({
       ...openFilesRef.current.map((f) => f.path),
     ]);
     if (!anchorFilePresent(anchor, known)) {
-      setReplaceReconcileNotice(
-        `Your previous file "${anchorFileBasename(anchor)}" is no longer available.`,
-      );
+      notify({
+        kind: "warning",
+        text: `Your previous file "${anchorFileBasename(anchor)}" is no longer available.`,
+        ttl: null,
+        dedupeKey: "reconcile",
+      });
       return;
     }
     await handleOpenFile(anchor.filePath);
@@ -3339,84 +3353,8 @@ export default function IDE({
           </div>
         </div>
 
-        {/* Session restore: an explicit /p/:id link could not be opened */}
-        {invalidRouteNotice && (
-          <div
-            role="alert"
-            style={{
-              position: "fixed",
-              bottom: "40px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 9000,
-              maxWidth: "620px",
-              width: "calc(100% - 48px)",
-              background: "var(--glass-surface, rgba(30,30,46,0.96))",
-              border: "1px solid #f38ba8",
-              borderRadius: "var(--radius-sm, 8px)",
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px",
-              fontSize: "12px",
-              color: "var(--fg-primary)",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
-            }}
-          >
-            <IconAlertTriangle size={14} color="#f38ba8" />
-            <span style={{ flex: 1, lineHeight: 1.4 }}>{invalidRouteNotice}</span>
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost"
-              style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
-              onClick={() => setInvalidRouteNotice(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* M50: Replace All dirty-buffer reconciliation notice */}
-        {replaceReconcileNotice && (
-          <div
-            role="status"
-            style={{
-              position: "fixed",
-              bottom: "40px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 9000,
-              maxWidth: "620px",
-              width: "calc(100% - 48px)",
-              background: "var(--glass-surface, rgba(30,30,46,0.96))",
-              border: "1px solid #fab387",
-              borderRadius: "var(--radius-sm, 8px)",
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px",
-              fontSize: "12px",
-              color: "var(--fg-primary)",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
-            }}
-          >
-            <IconAlertTriangle size={14} color="#fab387" />
-            <span style={{ flex: 1, lineHeight: 1.4 }}>
-              {replaceReconcileNotice}
-            </span>
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost"
-              style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
-              onClick={() => setReplaceReconcileNotice(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* M64: unified transient-notice stack (save + external-mutation +,
-            from M64 commit 5, the persistent route/reconcile notices). */}
+        {/* M64: unified transient-notice stack — save feedback, external
+            mutation, and the persistent invalid-route / reconcile notices. */}
         <NoticeStack
           notices={activeNotices.filter((n) => n.surface === "stack")}
           onDismiss={dismissNotice}

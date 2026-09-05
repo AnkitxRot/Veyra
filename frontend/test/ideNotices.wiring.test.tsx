@@ -74,6 +74,23 @@ describe("M64 — IDE.tsx notice wiring", () => {
     expect(footerAt).toBeLessThan(badgeAt);
   });
 
+  it("the invalid-route notice is persistent (ttl:null) and deduped", () => {
+    const at = src.indexOf('dedupeKey: "invalid-route"');
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at - 320, at + 120);
+    expect(block).toContain("ttl: null");
+    expect(block).toContain('role: "alert"');
+    // cleared explicitly when a project is picked / the route resolves
+    expect(src.match(/dismissNoticeKey\("invalid-route"\)/g) ?? []).toHaveLength(2);
+  });
+
+  it("the reconcile notice is persistent (ttl:null), deduped, cleared on project switch", () => {
+    expect(src.match(/dedupeKey: "reconcile"/g) ?? []).toHaveLength(2);
+    const at = src.indexOf('dedupeKey: "reconcile"');
+    expect(src.slice(at - 260, at)).toContain("ttl: null");
+    expect(src).toContain('dismissNoticeKey("reconcile")');
+  });
+
   it("drops the removed transient-notice state and timer refs", () => {
     for (const gone of [
       "saveToast",
@@ -81,10 +98,15 @@ describe("M64 — IDE.tsx notice wiring", () => {
       "externalMutationNotice",
       "setExternalMutationNotice",
       "externalMutationTimerRef",
+      "replaceReconcileNotice",
+      "setReplaceReconcileNotice",
+      "invalidRouteNotice",
+      "setInvalidRouteNotice",
     ]) {
       expect(src).not.toContain(gone);
     }
   });
+
 
   it("still contains only out-of-scope alert() calls (open-file + AI), none in save paths", () => {
     const alerts = src.match(/\balert\(/g) ?? [];

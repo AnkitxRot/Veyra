@@ -221,9 +221,10 @@ describe("M59 — Stop vs Return (Decisions 6, 7)", () => {
     expect(blk).toContain("anchorFilePresent");
     expect(blk).toContain("await handleOpenFile(anchor.filePath)");
     expect(blk).toContain('"ide-restore-view-state"');
-    // missing file → lightweight toast, no throw, no open
-    expect(blk).toContain("setReplaceReconcileNotice");
-    expect(blk).toMatch(/if \(!anchorFilePresent[\s\S]{0,160}return;/);
+    // missing file → lightweight notice (M64: the shared reconcile slot),
+    // no throw, no open
+    expect(blk).toContain('dedupeKey: "reconcile"');
+    expect(blk).toMatch(/if \(!anchorFilePresent[\s\S]{0,340}return;/);
   });
 });
 
