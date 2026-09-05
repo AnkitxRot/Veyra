@@ -1235,13 +1235,18 @@ export default function IDE({
         // anchor deliberately NOT touched here
       }
       if (opts.follow) {
+        // M64: a fresh follow session supersedes a pending "X left" notice —
+        // otherwise it lingers with live Return/Stay buttons and its TTL
+        // expiry would null this session's anchor. Explicit dismissal, so
+        // onExpire does not run.
+        dismissNoticeKey("follow-left");
         if (followAnchorRef.current == null) captureAnchor();
         setFollowedUserId(userId);
         const c = collaboratorsRef.current.find((x) => x.userId === userId);
         if (c) lastFollowedRef.current = { userId, name: c.name };
       }
     },
-    [captureAnchor, clearFollowAbsenceTimer],
+    [captureAnchor, clearFollowAbsenceTimer, dismissNoticeKey],
   );
 
   const handleReturnToMyLocation = useCallback(async () => {
