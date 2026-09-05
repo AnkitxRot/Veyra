@@ -762,6 +762,21 @@ export default function IDE({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, user]);
 
+  // M63: while the collaboration transport has local edits it could not send,
+  // warn before the tab unloads. Yjs still holds those edits in memory, but
+  // closing the tab now strands them until (and unless) this same browser
+  // reconnects to the room. The listener exists ONLY while edits are pending —
+  // it is removed as soon as the count returns to zero (or on unmount).
+  useEffect(() => {
+    if (pendingCollabUpdates <= 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [pendingCollabUpdates]);
+
   const loadProjects = useCallback(async () => {
     try {
       const res = await api<{ projects: Project[] }>("/api/projects");
