@@ -65,6 +65,8 @@ export interface UseNotices {
   /** Remove the entry carrying this dedupeKey. Does not fire onExpire. */
   dismissKey: (dedupeKey: string) => void;
   hasKey: (dedupeKey: string) => boolean;
+  /** Drop every notice and cancel every pending timer (e.g. on project switch). */
+  clear: () => void;
 }
 
 /**
@@ -195,6 +197,12 @@ export function useNotices(): UseNotices {
     [notices],
   );
 
+  const clear = useCallback(() => {
+    timersRef.current.forEach((handle) => clearTimeout(handle));
+    timersRef.current.clear();
+    setNotices([]);
+  }, []);
+
   useEffect(() => {
     const timers = timersRef.current;
     return () => {
@@ -203,5 +211,5 @@ export function useNotices(): UseNotices {
     };
   }, []);
 
-  return { notices, notify, dismiss, dismissKey, hasKey };
+  return { notices, notify, dismiss, dismissKey, hasKey, clear };
 }

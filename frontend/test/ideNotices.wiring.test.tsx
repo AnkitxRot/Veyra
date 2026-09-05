@@ -88,11 +88,25 @@ describe("M64 — IDE.tsx notice wiring", () => {
     expect(src.match(/dismissNoticeKey\("invalid-route"\)/g) ?? []).toHaveLength(2);
   });
 
-  it("the reconcile notice is persistent (ttl:null), deduped, cleared on project switch", () => {
+  it("the reconcile notice is persistent (ttl:null) and deduped", () => {
     expect(src.match(/dedupeKey: "reconcile"/g) ?? []).toHaveLength(2);
     const at = src.indexOf('dedupeKey: "reconcile"');
     expect(src.slice(at - 260, at)).toContain("ttl: null");
-    expect(src).toContain('dismissNoticeKey("reconcile")');
+  });
+
+  it("every notice is cleared wholesale on a project switch", () => {
+    // the collab lifecycle effect resets per-project state at its top; a single
+    // clearNotices() there drops save feedback, save failures, reconcile,
+    // route, external-mutation, attn-rate and follow-left in one move.
+    expect(src.match(/clearNotices\(\)/g) ?? []).toHaveLength(1);
+    const reset = src.slice(
+      src.indexOf("setOpenFiles([]);"),
+      src.indexOf("setOpenFiles([]);") + 400,
+    );
+    expect(reset).toContain("clearNotices()");
+    // the per-key project-switch dismissals it replaced are gone
+    expect(src).not.toContain('dismissNoticeKey("ext-mutation")');
+    expect(src).not.toContain('dismissNoticeKey("attn-rate")');
   });
 
   it("the follow-left notice is an editor-surface entry with a TTL side effect", () => {

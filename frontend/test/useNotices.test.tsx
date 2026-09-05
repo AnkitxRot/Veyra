@@ -485,6 +485,35 @@ describe("useNotices — expiry cannot act after the timer is cleared (audit)", 
   });
 });
 
+describe("useNotices — clear (audit)", () => {
+  it("clear() empties the queue and cancels every pending timer", () => {
+    vi.useFakeTimers();
+    const onExpire = vi.fn();
+    const { result } = renderHook(() => useNotices());
+    act(() => {
+      result.current.notify({ kind: "error", text: "persistent", ttl: null });
+      result.current.notify({ kind: "info", text: "t", ttl: 3000, onExpire });
+      result.current.notify({
+        surface: "headless",
+        ttl: 4000,
+        dedupeKey: "flag",
+      });
+    });
+    expect(result.current.notices).toHaveLength(3);
+
+    act(() => {
+      result.current.clear();
+    });
+    expect(result.current.notices).toHaveLength(0);
+    expect(result.current.hasKey("flag")).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(onExpire).not.toHaveBeenCalled(); // timer was cancelled
+  });
+});
+
 describe("useNotices — cleanup", () => {
   it("clears all pending timers on unmount (no stray callbacks)", () => {
     vi.useFakeTimers();

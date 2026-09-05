@@ -279,6 +279,7 @@ export default function IDE({
     dismiss: dismissNotice,
     dismissKey: dismissNoticeKey,
     hasKey: hasNotice,
+    clear: clearNotices,
   } = useNotices();
 
   // M4: Real-Time Multiplayer Collaboration States
@@ -441,7 +442,10 @@ export default function IDE({
     // the source, duplicated a source file's content on disk.
     setOpenFiles([]);
     setActiveFile(null);
-    dismissNoticeKey("reconcile");
+    // M64: every notice producer is project-scoped (save feedback, save
+    // failures, reconcile, route, external mutation, attention rate limit,
+    // follow-left) — none should survive a project switch.
+    clearNotices();
     setGitBranch(null);
     setGitInitialized(false);
 
@@ -717,10 +721,8 @@ export default function IDE({
       setTimelineLoaded(false);
       setTimelineNextBefore(null);
       setWhileAwayGroups(null);
-      // M64: drop the transient collab notices on project switch (their TTL
-      // timers, if any, are cleared by useNotices).
-      dismissNoticeKey("ext-mutation");
-      dismissNoticeKey("attn-rate");
+      // M64: notices are reset wholesale at the top of this effect for the
+      // next project; nothing collab-specific to drop in this teardown.
       // M59: project switch / disposal / unmount clears Follow + anchor + all
       // follow timers so nothing leaks into the next project or a stale timer
       // fires after this client is gone.
