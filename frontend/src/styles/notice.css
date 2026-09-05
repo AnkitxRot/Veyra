@@ -1,0 +1,83 @@
+/* ==========================================================================
+   M64 — Unified transient-notice stack (surface: "stack")
+   Fixed bottom-centre; newest notice at the bottom. Reuses existing tokens;
+   no new visual language.
+   ========================================================================== */
+
+.notice-stack {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: calc(100% - 48px);
+  max-width: 620px;
+  pointer-events: none;
+}
+
+.notice {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fg-primary);
+  background: var(--glass-surface-3);
+  border: 1px solid var(--glass-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm, 8px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  animation: fadeIn 150ms ease;
+}
+
+.notice-success {
+  border-left-color: var(--success);
+}
+.notice-info {
+  border-left-color: var(--accent);
+}
+.notice-warning {
+  border-left-color: var(--warning);
+}
+.notice-error {
+  border-left-color: var(--error);
+}
+
+.notice-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-action,
+.notice-dismiss {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.notice-dismiss {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 6px;
+}
+
+.notice-action:hover,
+.notice-dismiss:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.notice-more {
+  align-self: center;
+  font-size: 10px;
+  color: var(--fg-muted);
+}
