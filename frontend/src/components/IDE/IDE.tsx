@@ -295,8 +295,10 @@ export default function IDE({
   // One throttled state fed from the collab client's AttentionStore — no second
   // store, no per-event IDE re-render.
   const [attention, setAttention] = useState<AttentionEvent[]>([]);
-  const [attnRateNotice, setAttnRateNotice] = useState<number | null>(null);
-  const attnRateTimerRef = useRef<number | null>(null);
+  // M64: the attention rate-limit signal is a headless notice — a
+  // lifecycle-managed flag ("attn-rate", 4s TTL) with no rendered text. The
+  // user-visible rate-limit banner is owned by AttentionTray, which reads this
+  // via the `rateLimited` prop.
   const [collabStatus, setCollabStatus] =
     useState<CollabConnectionStatus>("disconnected");
   // M63: local Yjs update batches not yet on the wire to the server, and
@@ -513,14 +515,14 @@ export default function IDE({
       );
       unsubAttention = client.on("attention_change", throttledSetAttention);
       unsubAttnRate = client.on("attention_rate_limited", () => {
-        setAttnRateNotice(Date.now());
-        if (attnRateTimerRef.current) {
-          window.clearTimeout(attnRateTimerRef.current);
-        }
-        attnRateTimerRef.current = window.setTimeout(
-          () => setAttnRateNotice(null),
-          4000,
-        );
+        // M64: headless — no rendered text; AttentionTray owns the banner.
+        notify({
+          kind: "info",
+          text: "",
+          ttl: 4000,
+          surface: "headless",
+          dedupeKey: "attn-rate",
+        });
       });
 
       unsubConnection = client.on(
@@ -720,12 +722,10 @@ export default function IDE({
       setTimelineLoaded(false);
       setTimelineNextBefore(null);
       setWhileAwayGroups(null);
-      if (attnRateTimerRef.current) {
-        window.clearTimeout(attnRateTimerRef.current);
-      }
-      // M64: drop the shared file-mutation slot on project switch (its TTL
-      // timer, if any, is cleared by useNotices).
+      // M64: drop the transient collab notices on project switch (their TTL
+      // timers, if any, are cleared by useNotices).
       dismissNoticeKey("ext-mutation");
+      dismissNoticeKey("attn-rate");
       // M59: project switch / disposal / unmount clears Follow + anchor + all
       // follow timers so nothing leaks into the next project or a stale timer
       // fires after this client is gone.
@@ -738,7 +738,6 @@ export default function IDE({
       throttledSetAttention?.cancel();
       setRunStatuses([]);
       setAttention([]);
-      setAttnRateNotice(null);
       // M62: cancel a pending coalesced profile-event roster refetch and
       // drop the stale roster so the next project starts clean.
       if (profileEventTimerRef.current != null) {
@@ -2974,7 +2973,7 @@ export default function IDE({
           <AttentionTray
             events={attention}
             currentUserId={user.id}
-            rateLimited={attnRateNotice != null}
+            rateLimited={hasNotice("attn-rate")}
             onNavigate={handleAttentionGoThere}
             onDismiss={handleAttentionDismiss}
             onFollow={(e) => {

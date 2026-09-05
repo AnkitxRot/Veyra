@@ -117,6 +117,22 @@ describe("M64 — IDE.tsx notice wiring", () => {
     );
   });
 
+  it("the attention rate-limit signal is a headless notice, never a visible toast", () => {
+    const at = src.indexOf('dedupeKey: "attn-rate"');
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at - 200, at + 40);
+    expect(block).toContain('surface: "headless"');
+    expect(block).toContain("ttl: 4000");
+    expect(block).toContain('text: ""'); // no rendered text
+    // AttentionTray still owns the visible banner, fed from the headless flag
+    expect(src).toContain('rateLimited={hasNotice("attn-rate")}');
+  });
+
+  it("headless notices are excluded from every render surface", () => {
+    // NoticeStack gets surface==="stack"; the editor map gets surface==="editor"
+    expect(src).not.toMatch(/surface === "headless"/);
+  });
+
   it("drops the removed transient-notice state and timer refs", () => {
     for (const gone of [
       "saveToast",
@@ -132,6 +148,9 @@ describe("M64 — IDE.tsx notice wiring", () => {
       "setFollowLeftNotice",
       "followLeftTimerRef",
       "clearFollowLeftTimer",
+      "attnRateNotice",
+      "setAttnRateNotice",
+      "attnRateTimerRef",
     ]) {
       expect(src).not.toContain(gone);
     }
