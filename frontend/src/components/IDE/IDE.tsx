@@ -229,39 +229,57 @@ export default function IDE({
   // M2: Full Workspace Search & Problems Diagnostics States
   const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
-  const [formatOnSave, setFormatOnSave] = useState<boolean>(() => {
-    return localStorage.getItem("cloudeee_format_on_save") === "true";
-  });
-
   // M22: User Preferences & Editor Settings States
   const [preferences, setPreferences] =
     useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [showSettings, setShowSettings] = useState(false);
 
+  // M66: "format on save" is a normal typed user preference now — no longer a
+  // separate browser-only localStorage flag.
+  const formatOnSave = preferences.formatOnSave;
+
+  const handleUpdatePreferences = useCallback(
+    async (updated: Partial<UserPreferences>) => {
+      const res = await api<{ preferences: UserPreferences }>(
+        "/api/auth/preferences",
+        {
+          method: "PUT",
+          body: JSON.stringify(updated),
+        },
+      );
+      if (res && res.preferences) {
+        setPreferences(res.preferences);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     api<{ preferences: UserPreferences }>("/api/auth/preferences")
       .then((r) => {
-        if (r && r.preferences) {
-          setPreferences(r.preferences);
+        if (!r || !r.preferences) return;
+        setPreferences(r.preferences);
+
+        // M66 one-time migration: fold a pre-existing per-device
+        // `cloudeee_format_on_save` flag into the account preference, then
+        // retire the localStorage key. "true" that the server does not yet
+        // know about is pushed up; anything else is just cleared.
+        const legacy = localStorage.getItem("cloudeee_format_on_save");
+        if (legacy === null) return;
+        if (legacy === "true" && !r.preferences.formatOnSave) {
+          handleUpdatePreferences({ formatOnSave: true })
+            .then(() => localStorage.removeItem("cloudeee_format_on_save"))
+            .catch(() => {
+              /* keep the key; retry on the next load */
+            });
+        } else {
+          localStorage.removeItem("cloudeee_format_on_save");
         }
       })
       .catch((err) => {
         console.warn("Failed to load user preferences:", err);
       });
-  }, []);
-
-  const handleUpdatePreferences = async (updated: Partial<UserPreferences>) => {
-    const res = await api<{ preferences: UserPreferences }>(
-      "/api/auth/preferences",
-      {
-        method: "PUT",
-        body: JSON.stringify(updated),
-      },
-    );
-    if (res && res.preferences) {
-      setPreferences(res.preferences);
-    }
-  };
+  }, [handleUpdatePreferences]);
 
   // Layout Sizing States (Resizable Sidebar & Bottom Panel)
   const [sidebarWidth, setSidebarWidth] = useState(250);
@@ -2652,14 +2670,11 @@ export default function IDE({
         description: "Automatically format files on save",
         category: "UI",
         handler: () => {
-          setFormatOnSave((prev) => {
-            const next = !prev;
-            localStorage.setItem("cloudeee_format_on_save", String(next));
-            return next;
-          });
+          const next = !formatOnSave;
+          void handleUpdatePreferences({ formatOnSave: next });
           notify({
             kind: "info",
-            text: `Format on Save: ${!formatOnSave ? "Enabled" : "Disabled"}`,
+            text: `Format on Save: ${next ? "Enabled" : "Disabled"}`,
             ttl: 2500,
             surface: "statusbar",
             dedupeKey: "save-toast",
@@ -2808,6 +2823,7 @@ export default function IDE({
     user.role,
     onSwitchToAdmin,
     formatOnSave,
+    handleUpdatePreferences,
     handleFormatDocument,
     handleSaveActiveFile,
     handleTriggerAIAction,
@@ -3479,14 +3495,11 @@ export default function IDE({
             <span
               className="ide-statusbar-item"
               onClick={() => {
-                setFormatOnSave(!formatOnSave);
-                localStorage.setItem(
-                  "cloudeee_format_on_save",
-                  String(!formatOnSave),
-                );
+                const next = !formatOnSave;
+                void handleUpdatePreferences({ formatOnSave: next });
                 notify({
                   kind: "info",
-                  text: `Format on Save: ${!formatOnSave ? "On" : "Off"}`,
+                  text: `Format on Save: ${next ? "On" : "Off"}`,
                   ttl: 2000,
                   surface: "statusbar",
                   dedupeKey: "save-toast",

@@ -13,6 +13,9 @@ export interface UserPreferences {
   lineNumbers: "on" | "off" | "relative" | "interval";
   cursorBlinking: "blink" | "smooth" | "phase" | "expand" | "solid";
   renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
+  /** M66: run the formatter on save. Moved out of browser localStorage into
+   *  the typed, server-persisted preference store. */
+  formatOnSave: boolean;
   updatedAt?: string;
 }
 

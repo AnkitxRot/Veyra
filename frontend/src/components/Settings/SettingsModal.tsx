@@ -11,6 +11,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   lineNumbers: 'on',
   cursorBlinking: 'smooth',
   renderWhitespace: 'selection',
+  formatOnSave: false,
 };
 
 const DISPLAY_NAME_MAX = 48;
@@ -477,6 +478,36 @@ export default function SettingsModal({
                 checked={formData.minimap}
                 onChange={(e) =>
                   setFormData({ ...formData, minimap: e.target.checked })
+                }
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+            </div>
+
+            {/* Format on Save Toggle (M66) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 12px',
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 500 }}>
+                  Format on Save
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Run the editor formatter every time a file is saved
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={formData.formatOnSave}
+                onChange={(e) =>
+                  setFormData({ ...formData, formatOnSave: e.target.checked })
                 }
                 style={{ width: '18px', height: '18px', cursor: 'pointer' }}
               />
