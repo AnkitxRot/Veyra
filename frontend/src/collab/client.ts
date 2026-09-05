@@ -85,6 +85,20 @@ const EDITING_HYSTERESIS_MS = 5 * 1000; // 5 seconds
 const SELECTION_DEBOUNCE_MS = 50; // 50 milliseconds
 const NAVIGATION_HYSTERESIS_MS = 2500; // M57: "navigating" reverts to "viewing"
 
+// M63: defer the first "disconnected" signal to subscribers for this long, so a
+// transient transport blip that recovers on the first reconnect attempt never
+// flashes a terminal state. Must exceed the first scheduleReconnect() backoff
+// (~1500ms) so the natural transition to "reconnecting" pre-empts it.
+const RECONNECT_GRACE_MS = 2500;
+// M63: stop automatic reconnect scheduling after this many consecutive failed
+// attempts and surface a terminal state that only retry() leaves.
+const MAX_RECONNECT_ATTEMPTS = 8;
+// M63: if the server's Yjs SyncStep2 never arrives after a reconnect open, stop
+// showing "resynchronizing". The client already flushed its offline diff in
+// response to the server's SyncStep1, so an open socket is treated as caught up
+// (the same "a successful send is synced" model used everywhere else here).
+const RESYNC_TIMEOUT_MS = 10_000;
+
 export class CollaborationClient {
   public readonly projectId: string;
   public doc!: Y.Doc;
@@ -143,6 +157,21 @@ export class CollaborationClient {
     new Map();
   private reconnectAttempts = 0;
   private reconnectTimer: any = null;
+  // M63: true once MAX_RECONNECT_ATTEMPTS consecutive reconnects have failed.
+  // Automatic scheduling stops; retry() is the only way forward. Cleared on a
+  // successful open and by retry().
+  public reconnectExhausted = false;
+  // M63: defers the first "disconnected" connection_change emit (transient-blip
+  // grace). `this.status` still flips synchronously — only the subscriber
+  // signal waits.
+  private disconnectGraceTimer: any = null;
+  // M63: armed on a reconnect open; cleared when the server's SyncStep2 arrives
+  // (or on the RESYNC_TIMEOUT_MS fallback).
+  private resyncTimer: any = null;
+  // M63: local Yjs update events the transport could not send (socket not
+  // OPEN). NOT a keystroke count — Yjs merges edits into batched update events.
+  // Cleared to 0 when a reconnect resync completes or the lineage is discarded.
+  public pendingLocalUpdates = 0;
   private isDisposed = false;
   private user: User;
 
@@ -225,12 +254,26 @@ export class CollaborationClient {
 
     // 1. Transmit local document updates to server
     this.doc.on("update", (update: Uint8Array, origin: any) => {
-      if (origin !== this) {
+      // origin === this ⇒ a remote update this client just applied — never a
+      // local edit, never pending.
+      if (origin === this) return;
+
+      const canSend =
+        this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+      if (canSend) {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_SYNC);
         syncProtocol.writeUpdate(encoder, update);
         this.send(encoding.toUint8Array(encoder));
+        return;
       }
+
+      // M63: the transport cannot carry this local edit yet. Yjs keeps it in
+      // the doc; count it so the UI can warn that the tab must stay open until
+      // it syncs. The reconnect exchange (server SyncStep1 → our SyncStep2)
+      // flushes the whole accumulated diff; finishResync() then zeroes this.
+      this.pendingLocalUpdates += 1;
+      this.emit("pending_updates_change", this.pendingLocalUpdates);
     });
 
     // 2. Transmit local awareness updates to server
@@ -573,6 +616,13 @@ export class CollaborationClient {
     // M57: same for the intent tracker — the fresh lineage has no intent, so
     // the next setIntent() must re-emit even if the text is unchanged.
     this.localIntentText = "";
+    // M63: the discarded lineage's un-transmitted local edits are gone by
+    // design (same-source-wins). They are no longer "pending" — clear the
+    // counter so the UI stops warning about edits that will never be sent.
+    if (this.pendingLocalUpdates !== 0) {
+      this.pendingLocalUpdates = 0;
+      this.emit("pending_updates_change", 0);
+    }
     if (this.navHysteresisTimer) {
       clearTimeout(this.navHysteresisTimer);
       this.navHysteresisTimer = null;
@@ -618,7 +668,12 @@ export class CollaborationClient {
       this.ws.binaryType = "arraybuffer";
 
       this.ws.onopen = () => {
+        // M63: a reconnect (we were disconnected at least once) is not truly
+        // "connected" until the server's Yjs SyncStep2 confirms both-way doc
+        // reconciliation — capture that before disconnectedAt is cleared below.
+        const wasReconnect = this.disconnectedAt !== null;
         this.reconnectAttempts = 0;
+        this.reconnectExhausted = false;
         // M60: surface a real reconnect-after-gap so IDE.tsx can decide
         // whether to fetch While-You-Were-Away.
         if (this.disconnectedAt !== null) {
@@ -626,7 +681,21 @@ export class CollaborationClient {
           this.disconnectedAt = null;
           this.emit("reconnected_after_gap", { offlineMs });
         }
-        this.setStatus("connected");
+
+        if (wasReconnect) {
+          // M63: show "resynchronizing" until the server SyncStep2 lands (see
+          // handleMessage / finishResync), with a bounded fallback.
+          this.setStatus("resynchronizing");
+          if (this.resyncTimer) clearTimeout(this.resyncTimer);
+          this.resyncTimer = setTimeout(() => {
+            this.resyncTimer = null;
+            if (this.status === "resynchronizing" && !this.isDisposed) {
+              this.finishResync();
+            }
+          }, RESYNC_TIMEOUT_MS);
+        } else {
+          this.setStatus("connected");
+        }
 
         // 1. Send Sync Step 1 (Client state vector)
         const syncEncoder = encoding.createEncoder();
@@ -673,8 +742,12 @@ export class CollaborationClient {
         // instead surfaces as some other close code (or none at all) and
         // must keep using the existing offline delta reconciliation
         // (Class B), preserving local edits exactly as before.
+        // M63: "resynchronizing" is also an actively-connected state (the
+        // socket is open, mid post-reconnect sync) — a 1001 during it is still
+        // an unambiguous explicit server disposal, so treat it the same.
         const wasExplicitDisposal =
-          event.code === 1001 && this.status === "connected";
+          event.code === 1001 &&
+          (this.status === "connected" || this.status === "resynchronizing");
 
         // M60: record the start of an offline window (first close only — a
         // reconnect that fails again must not reset the clock).
@@ -702,6 +775,45 @@ export class CollaborationClient {
     }
   }
 
+  // M63: manual reconnect after the automatic ceiling (MAX_RECONNECT_ATTEMPTS)
+  // was hit. Resets the retry accounting and dials again immediately. A no-op
+  // once the session is forbidden (access revoked) or the client is disposed —
+  // forbidden stays terminal and is never retried as an ordinary failure.
+  public retry(): void {
+    if (this.isDisposed || this.status === "forbidden") return;
+    this.reconnectExhausted = false;
+    this.reconnectAttempts = 0;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.disconnectGraceTimer) {
+      clearTimeout(this.disconnectGraceTimer);
+      this.disconnectGraceTimer = null;
+    }
+    this.connect();
+  }
+
+  // M63: the post-reconnect resync is complete. The server's SyncStep2 has
+  // arrived (server → client reconciled) and this client already flushed its
+  // own accumulated diff in response to the server's SyncStep1 (which the
+  // server sends first, on the upgrade — see backend addClient). Every update
+  // that piled up while the transport was down is therefore on the wire, so
+  // the pending count returns to zero.
+  private finishResync(): void {
+    if (this.resyncTimer) {
+      clearTimeout(this.resyncTimer);
+      this.resyncTimer = null;
+    }
+    if (this.status === "resynchronizing") {
+      this.setStatus("connected");
+    }
+    if (this.pendingLocalUpdates !== 0) {
+      this.pendingLocalUpdates = 0;
+      this.emit("pending_updates_change", 0);
+    }
+  }
+
   private handleMessage(message: Uint8Array): void {
     try {
       const decoder = decoding.createDecoder(message);
@@ -711,9 +823,23 @@ export class CollaborationClient {
         case MESSAGE_SYNC: {
           const encoder = encoding.createEncoder();
           encoding.writeVarUint(encoder, MESSAGE_SYNC);
-          syncProtocol.readSyncMessage(decoder, encoder, this.doc, this);
+          const syncMessageType = syncProtocol.readSyncMessage(
+            decoder,
+            encoder,
+            this.doc,
+            this,
+          );
           if (encoding.length(encoder) > 1) {
             this.send(encoding.toUint8Array(encoder));
+          }
+          // M63: the server's SyncStep2 is the both-way reconciliation-complete
+          // signal for a post-reconnect resync (WebSocket OPEN is not — it only
+          // means the transport is up, not that the doc is caught up).
+          if (
+            this.status === "resynchronizing" &&
+            syncMessageType === syncProtocol.messageYjsSyncStep2
+          ) {
+            this.finishResync();
           }
           break;
         }
@@ -1144,14 +1270,58 @@ export class CollaborationClient {
 
   private setStatus(s: CollabConnectionStatus): void {
     this.status = s;
+
+    // M63: transient-blip grace. The first drop since the last successful
+    // connection (reconnectAttempts still 0, not a terminal give-up) might be a
+    // brief hiccup the first reconnect attempt fixes. Defer telling subscribers
+    // "disconnected" until the grace window elapses; any other status
+    // transition in the meantime cancels the deferred emit. `this.status` is
+    // still set synchronously above, so internal logic and tests see the truth.
+    if (
+      s === "disconnected" &&
+      this.reconnectAttempts === 0 &&
+      !this.reconnectExhausted &&
+      !this.isDisposed
+    ) {
+      if (this.disconnectGraceTimer) clearTimeout(this.disconnectGraceTimer);
+      this.disconnectGraceTimer = setTimeout(() => {
+        this.disconnectGraceTimer = null;
+        if (this.status === "disconnected" && !this.isDisposed) {
+          this.emit("connection_change", "disconnected");
+        }
+      }, RECONNECT_GRACE_MS);
+      return;
+    }
+
+    if (this.disconnectGraceTimer) {
+      clearTimeout(this.disconnectGraceTimer);
+      this.disconnectGraceTimer = null;
+    }
     this.emit("connection_change", s);
   }
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+
+    // M63: once we have given up, a further close must not restart scheduling.
+    if (this.reconnectExhausted) return;
+
+    // M63: bounded automatic reconnection. After the ceiling, stop scheduling
+    // and surface a terminal state that only retry() leaves. The "disconnected"
+    // emit here bypasses the grace (reconnectExhausted is set first), so the UI
+    // learns immediately that automatic retries have stopped.
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.reconnectExhausted = true;
+      this.setStatus("disconnected");
+      this.emit("reconnect_exhausted");
+      return;
+    }
+
     this.reconnectAttempts++;
     const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10000);
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect();
     }, delay);
   }
@@ -1178,6 +1348,12 @@ export class CollaborationClient {
   public dispose(): void {
     this.isDisposed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    // M63: the connection-state timers must not outlive the client.
+    if (this.disconnectGraceTimer) clearTimeout(this.disconnectGraceTimer);
+    this.disconnectGraceTimer = null;
+    if (this.resyncTimer) clearTimeout(this.resyncTimer);
+    this.resyncTimer = null;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.blurTimer) clearTimeout(this.blurTimer);
     if (this.editHysteresisTimer) clearTimeout(this.editHysteresisTimer);
