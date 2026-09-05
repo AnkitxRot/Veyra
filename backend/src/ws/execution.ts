@@ -193,10 +193,24 @@ export async function handleExecutionConnection(
             onStdout: (data) => {
               if (ws.readyState === ws.OPEN)
                 ws.send(JSON.stringify({ type: "stdout", data }));
+              // M65: mirror to the collaboration room's bounded, ephemeral
+              // shared-output buffer (owner/editor only — enforced room-side).
+              collaborationManager.notifyRunOutput(
+                projectId,
+                executionId,
+                "stdout",
+                data,
+              );
             },
             onStderr: (data) => {
               if (ws.readyState === ws.OPEN)
                 ws.send(JSON.stringify({ type: "stderr", data }));
+              collaborationManager.notifyRunOutput(
+                projectId,
+                executionId,
+                "stderr",
+                data,
+              );
             },
             onStatus: (data) => {
               if (ws.readyState === ws.OPEN)
