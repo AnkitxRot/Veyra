@@ -6889,3 +6889,90 @@ interactive auth.
 stdin / kill / shared interactive terminal, no external AI provider, no change to
 the runner's own `/ws/execute` stream, no new REST endpoint, no M66 preference
 work.
+
+## M66 — unified preferences: classification + formatOnSave migration
+
+**Objective (bounded slice of the "Unified Preferences Foundation"):** make the
+editor-preference surface coherent by moving the one genuine editor setting that
+bypassed the single source of truth into it, and record the full classification
+of every persisted client-side value so later customization milestones have a
+verified inventory to build on. **NOT** a preference-framework rewrite — one
+already exists and works.
+
+**Commit range:** `029cc7f..e18e6b4` (2 commits)
+
+| Commit | Purpose |
+|---|---|
+| `acd547c` feat(settings): persist formatOnSave in the typed user preference store | backend `auth/preferences.ts` + migration v13 + tests |
+| `e18e6b4` refactor(ide): move format-on-save off localStorage onto the preference store | `types.ts`, `SettingsModal`, `IDE.tsx` + one-time migration + tests |
+
+### Preference-mechanism inventory (verified against source)
+
+| Mechanism | Holds | Classification | M66 action |
+|---|---|---|---|
+| `user_preferences` table + `auth/preferences.ts` + `GET/PUT /api/auth/preferences` (M22) | 7 editor settings (fontSize, tabSize, wordWrap, minimap, lineNumbers, cursorBlinking, renderWhitespace) | **USER-SCOPED** — typed columns, strict per-field validation, defaults, partial-merge, unknown-key rejection, safe fallback to defaults, single source of truth. Migration path proven (db.ts v8 → v12). | **This is the foundation.** Extended with `formatOnSave`. |
+| `user_settings` table (M61 Track C, "dormant") — `{user_id, version, data JSON, updated_at}`, seeded once from `user_preferences` with `editor.*` keys | nothing (no reader, no writer, no route, no UI) | **USER-SCOPED (intended)** — a generic versioned KV store built for the eventual extensible preference layer. | **Left untouched** — see "Architecture decision deferred". |
+| `localStorage cloudeee_format_on_save` (IDE.tsx) | format-on-save boolean | **USER-SCOPED** — a genuine editor preference that was per-browser instead of per-account. | **Migrated** into `user_preferences.format_on_save`; one-time client migration retires the key. |
+| `localStorage cloudeee_demo_tour_seen` (IDE.tsx) | "has this browser seen the demo tour" | **SESSION-ONLY / per-device** — a first-run flag that is genuinely device-local. | Left as-is (correct). |
+| `utils/recentStore.ts` — `cloudeee_recent_files_<pid>`, `cloudeee_recent_projects` | MRU lists | **TRANSIENT / per-device convenience.** | Left as-is (correct). |
+| `utils/sessionStore.ts` — `cloudeee_session_<pid>` (open tabs, active file, bottom tab), `cloudeee_last_project` | session-restore UI state | **TRANSIENT UI STATE** — explicitly frontend-only; sanitised; never authorization. | Left as-is (correct — "do not persist transient state"). |
+| `IDE.tsx` `useState` — `sidebarWidth` (250), `bottomHeight` (260), `isSidebarHidden`, `isBottomCollapsed` | panel layout | **USER-SCOPED preference, currently NOT persisted at all** (reset every reload). | **Not touched** — persisting it is a new feature, not a migration; deferred to a later customization milestone that can build on the foundation. |
+
+### What landed
+
+- `UserPreferences` (backend + frontend) gains `formatOnSave: boolean`, default
+  `false` — identical to the prior client default, so no user's behaviour
+  changes. `ALLOWED_KEYS` + `invalid_format_on_save` validation + the
+  SELECT / INSERT / merge paths.
+- **Migration v13** — `ALTER TABLE user_preferences ADD COLUMN format_on_save
+  INTEGER NOT NULL DEFAULT 0`, guarded by a `PRAGMA table_info` existence check
+  (idempotent; also added to the inline `openDb` schema for fresh DBs). Existing
+  rows → `0` (off). No data touched, no other column altered.
+- **Client one-time migration** (in the preference-load effect): a pre-existing
+  `cloudeee_format_on_save === "true"` the server does not yet know about is
+  `PUT` once, then the localStorage key is removed; any other value is just
+  removed. Each user keeps their existing per-device choice, promoted to their
+  account.
+- Both toggles (command palette `editor.action.toggleFormatOnSave`, status-bar
+  `Format: On/Off` item) now persist via `handleUpdatePreferences({ formatOnSave
+  })` (now a stable `useCallback`). SettingsModal gains a matching toggle in the
+  editor tab.
+
+### Architecture decision DEFERRED (not executed — flagged for the user)
+
+The repo has **two** user-preference persistence systems: the active typed
+`user_preferences` (M22) and the **dormant** generic `user_settings` JSON store
+(M61 Track C). "Fully unifying" preferences means choosing:
+
+- **(A)** keep extending `user_preferences` (typed columns; each new setting =
+  one migration) — what M66 did for `formatOnSave`;
+- **(B)** activate `user_settings` as the single store, build its
+  service/validation/routes, migrate the M22 consumers onto it, retire the
+  `user_preferences` table.
+
+(B) is a migration of a working, wired, tested system and squarely hits the
+STOP condition "a migration could corrupt user/workspace settings". It is a
+product/architecture decision, not a bounded task, so it was **not** attempted
+tonight. Recommendation on the table: adopt (A) as policy and either remove the
+dormant `user_settings` table in its own dedicated migration or leave it for a
+future explicit customization milestone.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1067 passed / 9 skipped / 0 failed** (84 files, 345 s); Docker-gated suites executed. +6 vs. the M65 baseline = the M66 backend tests |
+| M66 backend tests | `m66-format-on-save-pref.test.ts` (6) + `preferences.test.ts` (13, test 1 updated) + `migrations.test.ts` (7, v12 -> v13 assertions) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` -> **744 passed / 0 failed** (90 files); +7 (SettingsModal.formatOnSave 3, ideFormatOnSave.wiring 4) |
+| Frontend build | `vite build` exit 0 |
+| Frontend eslint | `eslint .` -> 0 errors / 35 warnings (baseline unchanged) |
+| `git diff --check` | clean |
+| Live browser (single session — this IS a user-scoped setting, no second user needed) | **PASS:** one-time migration (`localStorage cloudeee_format_on_save="true"` -> after reload, server `formatOnSave:true` + the key removed); status-bar toggle -> `PUT /api/auth/preferences` persists (server `true` -> `false`); reload -> value restored from the server; zero console errors |
+| Revert-sensitivity | validation, default, column, merge, migration guard, client one-time migration, both toggle paths, useCallback stability each break >=1 test when reverted |
+
+**Not done / out of scope (M66):** the `user_preferences` vs `user_settings`
+consolidation (flagged above), panel-layout persistence, theme / keybinding
+customization, any change to the 7 pre-existing editor settings, `user_settings`
+activation, removal of the dormant M61 tables.
