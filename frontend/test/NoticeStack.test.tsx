@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import * as React from "react";
+import { act } from "@testing-library/react";
 import NoticeStack from "../src/components/common/NoticeStack";
-import type { Notice } from "../src/hooks/useNotices";
+import { useNotices, type Notice } from "../src/hooks/useNotices";
 
 // M64 — shared renderer for surface:"stack" notices. Behaviour tests only;
 // lifecycle/timers live in useNotices.
@@ -124,5 +125,58 @@ describe("NoticeStack", () => {
       <NoticeStack notices={[makeNotice()]} onDismiss={() => {}} />,
     );
     expect(screen.getByRole("region", { name: /notification/i })).toBeTruthy();
+  });
+});
+
+// Integration: the real useNotices hook driving a real NoticeStack, wired the
+// way IDE.tsx wires them (surface:"stack" slice + dismiss). Covers the
+// persistent-survives-transient + explicit-dismiss flow end to end.
+function StackHarness() {
+  const { notices, notify, dismiss } = useNotices();
+  return (
+    <div>
+      <button
+        onClick={() =>
+          notify({ kind: "error", text: "save failed", ttl: null, dedupeKey: "sf" })
+        }
+      >
+        fail
+      </button>
+      <button
+        onClick={() =>
+          notify({ kind: "success", text: "saved", ttl: 2000, surface: "statusbar" })
+        }
+      >
+        ok
+      </button>
+      <NoticeStack
+        notices={notices.filter((n) => n.surface === "stack")}
+        onDismiss={dismiss}
+      />
+    </div>
+  );
+}
+
+describe("NoticeStack + useNotices integration", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("a persistent notice survives a transient one's whole lifecycle, then dismisses on click", () => {
+    vi.useFakeTimers();
+    render(<StackHarness />);
+
+    fireEvent.click(screen.getByText("fail"));
+    expect(screen.getByText("save failed")).toBeTruthy();
+
+    // a statusbar transient is fired and expires — must not disturb the stack
+    fireEvent.click(screen.getByText("ok"));
+    act(() => {
+      vi.advanceTimersByTime(2500);
+    });
+    expect(screen.getByText("save failed")).toBeTruthy();
+
+    // explicit dismissal via the stack's control
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByText("save failed")).toBeNull();
+    expect(screen.queryByRole("region", { name: /notification/i })).toBeNull();
   });
 });
