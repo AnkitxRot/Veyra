@@ -312,6 +312,7 @@ export function openDb(dbPath: string): Db {
       bottom_height      INTEGER NOT NULL DEFAULT 260,
       sidebar_hidden     INTEGER NOT NULL DEFAULT 0,
       bottom_collapsed   INTEGER NOT NULL DEFAULT 0,
+      theme              TEXT NOT NULL DEFAULT 'system',
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -741,6 +742,23 @@ const MIGRATIONS: Migration[] = [
       add("bottom_height", "bottom_height INTEGER NOT NULL DEFAULT 260");
       add("sidebar_hidden", "sidebar_hidden INTEGER NOT NULL DEFAULT 0");
       add("bottom_collapsed", "bottom_collapsed INTEGER NOT NULL DEFAULT 0");
+    },
+  },
+  {
+    version: 15,
+    description:
+      "M69: add user_preferences.theme — the unified appearance preference ('system' | 'dark' | 'light'). 'system' follows the OS prefers-color-scheme; the IDE no longer has a hardcoded dark visual mode. Existing rows default to 'system', which resolves to the prior dark appearance on a dark OS and to the new light theme on a light OS — the closest match to the pre-M69 behaviour without pinning anyone.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      if (!cols.includes("theme")) {
+        db.exec(
+          "ALTER TABLE user_preferences ADD COLUMN theme TEXT NOT NULL DEFAULT 'system'",
+        );
+      }
     },
   },
 ];

@@ -59,6 +59,7 @@ describe("Milestone 22 — User Preferences & Editor Settings Persistence", () =
       bottomHeight: DEFAULT_USER_PREFERENCES.bottomHeight,
       sidebarHidden: DEFAULT_USER_PREFERENCES.sidebarHidden,
       bottomCollapsed: DEFAULT_USER_PREFERENCES.bottomCollapsed,
+      theme: DEFAULT_USER_PREFERENCES.theme,
     });
   });
 

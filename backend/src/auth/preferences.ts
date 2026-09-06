@@ -18,6 +18,9 @@ export interface UserPreferences {
   bottomHeight: number;
   sidebarHidden: boolean;
   bottomCollapsed: boolean;
+  /** M69: the unified appearance preference. "system" follows the OS
+   *  `prefers-color-scheme`; "dark" / "light" pin the effective theme. */
+  theme: "system" | "dark" | "light";
   updatedAt?: string;
 }
 
@@ -45,6 +48,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   bottomHeight: 260,
   sidebarHidden: false,
   bottomCollapsed: false,
+  theme: "system",
 };
 
 const ALLOWED_KEYS = new Set([
@@ -60,9 +64,11 @@ const ALLOWED_KEYS = new Set([
   "bottomHeight",
   "sidebarHidden",
   "bottomCollapsed",
+  "theme",
 ]);
 
 const VALID_TAB_SIZES = [2, 4, 8];
+const VALID_THEMES = ["system", "dark", "light"] as const;
 const VALID_WORD_WRAPS = ["off", "on", "wordWrapColumn", "bounded"] as const;
 const VALID_LINE_NUMBERS = ["on", "off", "relative", "interval"] as const;
 const VALID_CURSOR_BLINKING = [
@@ -88,7 +94,7 @@ export function getUserPreferences(db: Db, userId: number): UserPreferences {
   const row = db
     .prepare(
       `SELECT font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save,
-              sidebar_width, bottom_height, sidebar_hidden, bottom_collapsed, updated_at
+              sidebar_width, bottom_height, sidebar_hidden, bottom_collapsed, theme, updated_at
        FROM user_preferences WHERE user_id = ?`,
     )
     .get(userId) as any;
@@ -110,6 +116,7 @@ export function getUserPreferences(db: Db, userId: number): UserPreferences {
     bottomHeight: Number(row.bottom_height),
     sidebarHidden: Boolean(row.sidebar_hidden),
     bottomCollapsed: Boolean(row.bottom_collapsed),
+    theme: row.theme,
     updatedAt: row.updated_at,
   };
 }
@@ -289,6 +296,19 @@ export function updateUserPreferences(
     }
   }
 
+  if (updates.theme !== undefined) {
+    if (
+      typeof updates.theme !== "string" ||
+      !VALID_THEMES.includes(updates.theme as any)
+    ) {
+      throw new ApiError(
+        400,
+        `theme must be one of: ${VALID_THEMES.join(", ")}`,
+        "invalid_theme",
+      );
+    }
+  }
+
   // Get current preferences to preserve unspecified fields
   const current = getUserPreferences(db, userId);
   const merged: UserPreferences = {
@@ -326,14 +346,15 @@ export function updateUserPreferences(
       updates.bottomCollapsed !== undefined
         ? updates.bottomCollapsed
         : current.bottomCollapsed,
+    theme: updates.theme !== undefined ? updates.theme : current.theme,
   };
 
   db.prepare(
     `INSERT INTO user_preferences (
        user_id, font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save,
-       sidebar_width, bottom_height, sidebar_hidden, bottom_collapsed, updated_at
+       sidebar_width, bottom_height, sidebar_hidden, bottom_collapsed, theme, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(user_id) DO UPDATE SET
        font_size = excluded.font_size,
        tab_size = excluded.tab_size,
@@ -347,6 +368,7 @@ export function updateUserPreferences(
        bottom_height = excluded.bottom_height,
        sidebar_hidden = excluded.sidebar_hidden,
        bottom_collapsed = excluded.bottom_collapsed,
+       theme = excluded.theme,
        updated_at = datetime('now')`,
   ).run(
     userId,
@@ -362,6 +384,7 @@ export function updateUserPreferences(
     merged.bottomHeight,
     merged.sidebarHidden ? 1 : 0,
     merged.bottomCollapsed ? 1 : 0,
+    merged.theme,
   );
 
   return getUserPreferences(db, userId);

@@ -258,7 +258,7 @@ describe("M67 — persistent IDE layout preferences", () => {
       raw.close();
 
       const migrated = openDb(dbPath);
-      expect(getSchemaVersion(migrated)).toBe(14);
+      expect(getSchemaVersion(migrated)).toBe(15);
       const cols = (
         migrated.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
           name: string;
@@ -283,14 +283,14 @@ describe("M67 — persistent IDE layout preferences", () => {
 
       // Idempotent: reopening applies nothing new and does not error.
       const reopened = openDb(dbPath);
-      expect(getSchemaVersion(reopened)).toBe(14);
+      expect(getSchemaVersion(reopened)).toBe(15);
       const versions = (
         reopened
           .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
           .all() as Array<{ version: number }>
       ).map((r) => r.version);
       expect(versions).toEqual([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
       ]);
       reopened.close();
     } finally {
