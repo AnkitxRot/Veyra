@@ -7544,3 +7544,180 @@ the settings select binding, and every token-coverage assertion each break
    not reproduce in this milestone's backend run.
 2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
    correct; not touched.
+
+## M70 — configurable keybindings
+
+**Objective (bounded):** make the IDE-chrome command set remappable without
+breaking Monaco, browser-reserved shortcuts, text entry, or existing command
+semantics.
+
+### Command inventory
+
+The five commands `useKeyboardShortcuts` dispatches — the exact
+`CommandRegistry` IDs (no second registry):
+
+| Command ID | Title | Default (canonical) | Text-input policy | Monaco | Browser |
+|---|---|---|---|---|---|
+| `workbench.action.showCommands` | Command Palette | `mod+shift+p` | global | Monaco's F1 palette is in-editor only; the window capture listener wins | — |
+| `workbench.action.quickOpen` | Quick Open File | `mod+p` | global | — | Ctrl+P print — intercepted (always-suppressed) |
+| `workbench.action.saveFile` | Save Active File | `mod+s` | global | Monaco save action, re-registered from the resolved chord (below) | Ctrl+S save-page — intercepted (always-suppressed) |
+| `workbench.action.toggleSidebar` | Toggle Sidebar | `mod+b` | **skipped in INPUT/TEXTAREA/contentEditable** (Ctrl+B = bold) | — | — |
+| `workbench.action.toggleBottomPanel` | Toggle Bottom Console Drawer | `mod+j` | global | — | Firefox Ctrl+J downloads (not Chrome) |
+
+`mod` = the platform primary modifier (Cmd on macOS, Ctrl elsewhere) — the
+convention `useKeyboardShortcuts` has always used. **Not configurable
+(preserved as-is):** Ctrl+Shift+F (workspace search) and Shift+Alt+F (format
+document) in IDE.tsx's second listener; every Monaco-internal binding; all
+component-local Enter/Escape/arrow handlers; the command-palette navigation
+keys.
+
+### Keymap model
+
+The typed `keymap` preference is a `Record<commandId, chord>` storing **only
+the commands the user has remapped** — `{}` means "all defaults". Reset-one
+deletes a key; reset-all sends `{}` — no stale override can survive.
+
+Canonical chord grammar (identical strings on both sides —
+`backend/src/auth/preferences.ts` and `frontend/src/keymap/keymap.ts`):
+`mod` required, optional `alt` then `shift` in fixed order, one key (letter /
+digit / F-key / a little punctuation), lowercase. One shortcut → exactly one
+representation. `chordFromEvent` builds it from `e.code` (layout- and
+shift-stable — Digit1+Shift is `mod+shift+1`, not `mod+shift+!`), falling
+back to `e.key` for synthetic events, and returns `null` for a bare
+modifier, an unmappable key, or no primary modifier (so plain typing never
+matches).
+
+### Conflict policy
+
+Explicit, never last-write-wins. The resolved keymap (defaults + the
+candidate override) must have every chord owned by exactly one command:
+
+- **backend** rejects a PUT with `duplicate_shortcut` (a straight two-command
+  swap is allowed — evaluated together);
+- **the settings UI** runs `findConflict` on every capture and names the
+  owning command inline, keeping **Apply disabled** until it is resolved;
+- invalid grammar or a browser-reserved combination (`mod+w`/`t`/`n`/`q`/`r`,
+  `mod+shift+w`/`t`/`n`/`q`/`r`/`i`/`j`/`c`) → `invalid_shortcut` /
+  a red inline message + Apply disabled.
+
+### Browser / Monaco safety
+
+- The window dispatcher is a **capture-phase** listener. It handles a
+  keystroke only if the resolved keymap owns the built chord; otherwise it
+  returns without `preventDefault` — so **copy/paste/cut/undo/redo/select-all
+  (Ctrl+C/V/X/Z/Y/A) and browser navigation are completely untouched** (none
+  are in the keymap). The sole exception: `mod+s` / `mod+p` stay
+  `preventDefault`ed even when unbound, so a remap never lets the browser
+  save-page / print dialog appear (doing nothing is better for an IDE).
+- **`save` ownership:** the window dispatcher owns `save` for IDE chrome. The
+  in-editor Monaco binding is a disposable `addAction("cloudeee.action.save")`
+  **registered from the resolved save chord** and re-registered in place on a
+  remap — so `Ctrl+S` in a focused editor stops saving once `save` is moved,
+  and its `run` still reads the live model (the BUG-1 data-loss guarantee).
+  The window listener's capture-phase `stopPropagation` shadows the Monaco
+  action when both would match — no double dispatch.
+- Browser-reserved combos are **disallowed** at capture and validation time,
+  not silently claimed.
+- The Keybindings **capture field carries `data-keybinding-capture`**; while
+  it is focused the window dispatcher stands fully down, so capturing Ctrl+S
+  (or Ctrl+B) never also fires its command. It never hijacks ordinary keys in
+  other modal fields.
+
+### Persistence + reset
+
+Same pipeline as M66/M67/M69: `onSave({ keymap }) -> PUT /api/auth/preferences
+-> setPreferences(server response)`. The tab persists **only an accepted
+mapping change** (Apply, reset-one, reset-all) — never during chord capture.
+Migration **v16** adds `keymap TEXT NOT NULL DEFAULT '{}'`; existing rows get
+`{}`, so no user's shortcuts change. On reload the persisted overrides
+hydrate through `preferences.keymap -> resolveKeymap` before the dispatcher
+registers.
+
+### Architecture
+
+```
+user_preferences.keymap
+      -> resolveKeymap (memoised in IDE.tsx: byCommand + reverse byChord)
+      -> useKeyboardShortcuts (reads it via a ref — no listener re-register)
+      -> command dispatch (the five existing handlers / the ide-save event)
+```
+
+The same resolved keymap also drives the Editor's Monaco save binding and the
+five command-palette shortcut labels. No second command registry, no new
+event bus — `save` keeps its `ide-save` CustomEvent.
+
+### What landed
+
+**Commit range:** `7b08064..HEAD` (5 commits + this doc)
+
+| Commit | Purpose |
+|---|---|
+| `5fd0e93` feat(settings): add typed keymap preference | `auth/preferences.ts` (`keymap` field + `CONFIGURABLE_COMMAND_IDS` + `DEFAULT_KEYMAP` + `isValidChord` + `invalid_keymap`/`invalid_command_id`/`invalid_shortcut`/`duplicate_shortcut` + JSON column); `db.ts` v16; `m70-keybindings.test.ts` (15); schema-version bumps in `migrations` / `preferences` / `m67` / `m69` tests |
+| `41d5844` feat(ide): centralize resolved keymap handling | `src/keymap/keymap.ts` (new); `useKeyboardShortcuts` rewritten to keymap dispatch (ref-read, bound to `enabled`, always-suppress, text-input skip); `IDE.tsx` memoised `resolveKeymap` + hook + Editor `saveChord` + palette labels; `Editor.tsx` hardcoded `addCommand(Ctrl+S)` → disposable `addAction` from the resolved chord; `types.ts`; `mocks/monaco.ts`; `keymap.test.ts` (15) + `useKeyboardShortcuts.test.ts` (+6) + `Editor.saveTruthfulness.test.tsx` (updated + 1) + `ideKeybindings.wiring.test.tsx` (5) |
+| `ab7f2a7` feat(settings): add the keybindings settings UI | `SettingsModal.tsx` Keybindings tab — rows, capture field (`data-keybinding-capture`), inline conflict/invalid messages, Apply gating, reset one/all; `SettingsModal.keybindings.test.tsx` (9) |
+| `e1908cc` test(ide): harden keyboard lifecycle coverage | `ideKeybindingLifecycle.test.tsx` (5) — hydration, re-resolve without listener stacking, copy/paste/undo untouched, plain typing, single-listener |
+| `32712aa` fix(settings): keep the active tab when a save re-issues preferences | split the modal's per-open reset off `[isOpen, preferences]` so an in-modal save (keybinding Apply/Reset, and already the M69 theme select) no longer bounces to the Editor tab; +1 regression test |
+
+New surfaces: `src/keymap/keymap.ts`; `Editor` `saveChord` prop;
+`useKeyboardShortcuts` 3rd arg (`resolvedKeymap`, default = empty); the
+Keybindings settings tab. No new dependency, no event-bus change. One
+migration (v16).
+
+### Deterministic test results
+
+| Suite | n | Coverage |
+|---|---|---|
+| `m70-keybindings.test.ts` (backend) | 15 | default `{}`; the configurable set + default chords; valid override round-trip; whole-map replace + other prefs untouched; `invalid_command_id`; `invalid_shortcut` (bare / shift-only / reserved / uppercase / raw-ctrl / no-key / empty); `duplicate_shortcut` (onto a default, two overrides) + swap allowed; reset to `{}`; `invalid_preference_key` + `invalid_keymap`; theme/fontSize/layout intact; domain round-trip; **v16 migration** idempotent + defaults existing rows; audit log |
+| `keymap.test.ts` | 15 | the five commands + `skipInTextInput`; `isValidChord` accept / reject / reserved; `chordFromEvent` canonical order, layout-stable, key fallback, null cases; `chordToDisplay` both platforms; `resolveKeymap` (byCommand + byChord + unknown-id ignore); `findConflict` (owner / free / self / swap); `chordToMonacoKeybinding` |
+| `useKeyboardShortcuts.test.ts` | 11 | M1 save path unchanged (5) + M70: remapped fires / default no longer / always-suppress on unbound `mod+s`&`mod+p` / toggle-sidebar text-input skip vs. elsewhere / save+quick-open not skipped in inputs / no re-register across keymap changes / removed on unmount |
+| `SettingsModal.keybindings.test.tsx` | 10 | lists all commands with current shortcut / reflects an override / capture-show-Apply-only-saves / invalid rejected + Apply disabled / conflict named + Apply disabled / reset-one / reset-all / `data-keybinding-capture` present / editor payload omits keymap / tab persists after a save |
+| `ideKeybindingLifecycle.test.tsx` | 5 | persisted override hydrates + default freed / re-resolve without listener stacking / Ctrl+C/V/X/Z/Y/A never preventDefaulted or dispatched / plain typing never triggers a command / one window listener across re-renders, removed on unmount |
+| `ideKeybindings.wiring.test.tsx` | 5 | one `resolveKeymap` fed to the one dispatcher / palette labels from the keymap / hook dispatches by lookup not hardcoded checks / Editor disposable save action / `keymap` typed + out of `EDITOR_PREFERENCE_KEYS` |
+| `Editor.saveTruthfulness.test.tsx` | 5 | the in-editor save action dispatches live content (not stale props); re-registers with a new keybinding on a chord change, no leak; + the 3 pre-existing `getLiveContent` / read-only guards |
+
+Adjusted for the v16 schema bump (assertion values only, no behaviour
+change): `migrations.test.ts`, `preferences.test.ts` (exact-defaults object),
+`m67-layout-preferences.test.ts` / `m69-theme-preference.test.ts` migration
+tests.
+
+Revert-sensitivity: the chord grammar + reserved set, the four backend
+error codes + resolved-conflict check, the v16 migration, `chordFromEvent`
+order/fallback/null rules, `resolveKeymap` reverse index, the hook's
+lookup dispatch + ref-read + always-suppress + text-input skip + capture
+bail-out, the Editor disposable save action, the settings capture/conflict/
+reset flow, and the tab-persistence split each break >=1 test when reverted.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **896 passed / 0 failed** (109 files); +42 vs. M69 |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `IS_MAC` moved to `src/keymap/` and re-exported, so no new import churn) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1105 passed / 9 skipped / 0 failed** (87 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +15 vs. M69 (1090) = the 15 M70 backend tests. Backend byte-identical `e1908cc..HEAD`, so this run is the final state. |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Live Chrome (`m61_userA`; `m65-browser-demo` / `M61Verify`; real OS keystrokes via the automation `key` action for capture/dispatch, real Settings UI) | **PASS, A–P:** (A) Settings -> Keybindings opens; (B) all five commands show their current defaults (Ctrl+Shift+P / Ctrl+P / Ctrl+S / Ctrl+B / Ctrl+J), Reset disabled at default; (C) Edit Save, press **Ctrl+Alt+S**, "Ctrl+Alt+S" shown, Apply -> `PUT` persists `{saveFile: mod+alt+s}`, **0 WebSockets** created; (D) Ctrl+Alt+S in the IDE fires one `ide-save`; (E) **Ctrl+S no longer saves** — `preventDefault`ed (no browser dialog), 0 `ide-save` even with the editor focused (Monaco action moved); (F) full reload -> Ctrl+Alt+S still saves, keymap persisted; (G) press **Ctrl+B** while remapping Command Palette -> inline `Ctrl+B is already bound to "Toggle Sidebar"`, **Apply disabled**, and the sidebar did **not** toggle (capture guard); Ctrl+W -> "not usable" + Apply disabled; (H/I) Reset the Save row -> server `{}`, UI back to `Ctrl+S`; (J) two overrides then **Reset all** -> server `{}`, every row back to default, **stayed on the Keybindings tab**; (K) capture while the field is focused never triggers the captured command; (L) pressing s/p/b/j with no modifier in a text field -> no command, sidebar unchanged; (M) Monaco edit / undo / redo / select-all all work normally; (N) `theme` still `system`, `sidebarWidth` still 250 — M69/M67 prefs intact; (O) **zero console errors/warnings** across the whole session; (P) set an override, switch M61Verify <-> m65-browser-demo -> keymap unchanged (user-global). Test account reset to `keymap:{}` afterwards. |
+
+### Not done / out of scope (M70)
+
+- Workspace search (Ctrl+Shift+F) and format document (Shift+Alt+F) stay
+  hardcoded (not in `useKeyboardShortcuts`); every Monaco-internal binding is
+  unchanged.
+- No Vim/Emacs mode, no macro recording, no multi-stroke sequences, no
+  per-project keymaps, no command scripting, no command-palette redesign, no
+  event-bus replacement, no `IDE.tsx` decomposition, no `React.memo`, no
+  `user_settings` activation.
+- On macOS, plain Ctrl (not ⌘) and the Meta/Windows key are not recognised
+  modifiers — every real IDE shortcut carries the primary modifier; a
+  deliberate simplification, not a cross-platform abstraction.
+
+### Remaining known P3s (unchanged from M68/M69, NOT touched in M70)
+
+1. `m4-collab.test.ts` #33 — pre-existing intermittent fixed-timeout
+   test-infra flake, zero M70 causality (M70 changed no collab code); did
+   not reproduce in this milestone's backend run.
+2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
+   correct; not touched.
