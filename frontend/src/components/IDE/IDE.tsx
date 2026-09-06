@@ -979,24 +979,30 @@ export default function IDE({
     "loading",
   );
   const loadTreeRef = useRef<() => void>(() => {});
-  const treeLoadInFlightRef = useRef(false);
+  // Which project's tree fetch is in flight, and a generation counter. A
+  // second call for the SAME project (a doubled Retry click) is dropped; a
+  // call for a DIFFERENT project (a switch mid-flight) proceeds and the
+  // stale fetch's result is discarded by the generation check.
+  const treeLoadingPidRef = useRef<string | null>(null);
+  const treeLoadGenRef = useRef(0);
   const loadTree = useCallback(async () => {
     if (!project) return;
-    // One tree fetch at a time — a doubled Retry click (or a refresh racing
-    // the mount effect) must not overlap into out-of-order `setTree` calls.
-    if (treeLoadInFlightRef.current) return;
-    treeLoadInFlightRef.current = true;
     const pid = project.id;
+    if (treeLoadingPidRef.current === pid) return;
+    const gen = ++treeLoadGenRef.current;
+    treeLoadingPidRef.current = pid;
     if (treeLoadedForRef.current !== pid) setTreeStatus("loading");
     try {
       const res = await api<{ tree: TreeNode[] }>(
         `/api/projects/${pid}/tree`,
       );
+      if (gen !== treeLoadGenRef.current) return;
       setTree(res.tree);
       treeLoadedForRef.current = pid;
       setTreeStatus("ready");
       dismissNoticeKey("tree-load");
     } catch {
+      if (gen !== treeLoadGenRef.current) return;
       setTreeStatus("error");
       notify({
         kind: "error",
@@ -1007,7 +1013,7 @@ export default function IDE({
         actions: [{ label: "Retry", onClick: () => loadTreeRef.current() }],
       });
     } finally {
-      treeLoadInFlightRef.current = false;
+      if (treeLoadingPidRef.current === pid) treeLoadingPidRef.current = null;
     }
   }, [project, notify, dismissNoticeKey]);
   useEffect(() => {

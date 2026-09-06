@@ -111,14 +111,16 @@ describe("M68 — file tree load state & retry", () => {
     expect(block).toContain('if (treeLoadedForRef.current !== pid) setTreeStatus("loading")');
   });
 
-  it("guards against overlapping tree fetches (one request per Retry click)", () => {
+  it("dedupes a same-project Retry but lets a project switch supersede the load", () => {
     const block = src.slice(
       src.indexOf("const loadTree = useCallback"),
-      src.indexOf("const loadTree = useCallback") + 1100,
+      src.indexOf("const loadTree = useCallback") + 1200,
     );
-    expect(block).toContain("if (treeLoadInFlightRef.current) return;");
-    expect(block).toContain("treeLoadInFlightRef.current = true;");
-    expect(block).toContain("treeLoadInFlightRef.current = false;");
+    // same project already loading → drop the duplicate
+    expect(block).toContain("if (treeLoadingPidRef.current === pid) return;");
+    // a stale fetch's result is discarded by the generation check
+    expect(block).toContain("const gen = ++treeLoadGenRef.current;");
+    expect(block.match(/if \(gen !== treeLoadGenRef\.current\) return;/g) ?? []).toHaveLength(2);
   });
 });
 

@@ -7160,7 +7160,7 @@ confirms access.
 
 ### What landed
 
-**Commit range:** `8a06398..606c07f` (6 commits)
+**Commit range:** `8a06398..HEAD` (7 commits + this doc)
 
 | Commit | Purpose |
 |---|---|
@@ -7168,8 +7168,9 @@ confirms access.
 | `a961463` feat(ide): surface file tree loading and retryable failures | `IDE.tsx` `treeStatus` + notice; `Sidebar.tsx` / `FileTree` loading / error / retry states; `Sidebar.treeLoadState.test.tsx` (5) + wiring guards |
 | `0d9172b` feat(ide): surface project list load failures | `IDE.tsx` `loadProjects` notice + retry ref + wiring guards |
 | `076a388` feat(ide): surface roster, timeline, and while-away load failures | `IDE.tsx` roster / while-away / timeline-initial / timeline-more notices + retries; `IDE.profileEvent.test.tsx` window widened; wiring guards |
-| `de297c6` test(ide): harden load/retry regression coverage | `ideLoadRecovery.mediation.test.tsx` (3, real `useNotices` + `NoticeStack` + mocked api) + `treeLoadInFlightRef` guard on `loadTree` |
+| `de297c6` test(ide): harden load/retry regression coverage | `ideLoadRecovery.mediation.test.tsx` (real `useNotices` + `NoticeStack` + mocked api) + an in-flight guard on `loadTree` |
 | `606c07f` fix(ide): clear the file tree on project switch | `IDE.tsx` `setTree([])` / `setTreeStatus("loading")` in the per-project reset block + wiring guard (found during browser verification) |
+| `HEAD` fix(ide): key the tree-load guard by project id | the `loadTree` in-flight guard became `treeLoadingPidRef` + a `treeLoadGenRef` generation check — a same-project doubled Retry is still one request, but a project switch mid-flight now supersedes the stale fetch instead of blocking the new one; +1 mediation test |
 
 New surfaces: `useProjectRole` hook; `Sidebar` `treeStatus` / `onRetryTree`
 props; `FileTree` `status` / `onRetry` props with `data-testid="file-tree-loading"`
@@ -7181,12 +7182,13 @@ props; `FileTree` `status` / `onRetry` props with `data-testid="file-tree-loadin
 |---|---|
 | `useProjectRole.test.tsx` (10) | null project → no fetch / viewer; viewer+loading in flight; server role on success; **failure → viewer + error**; **failure never yields owner/editor**; role-less body → viewer; retry refetches → real role; **triple retry while in flight → 1 request**; stale response after id change discarded; id change → resets to viewer+loading |
 | `Sidebar.treeLoadState.test.tsx` (5) | loading state (not empty state) during first load; retryable error state (`onRetryTree` fired once); genuine empty state after a real empty load; already-loaded tree kept on a failed refresh; already-loaded tree kept during a background refresh |
-| `ideLoadRecovery.mediation.test.tsx` (3) | real-render: failed load → retryable error notice; **one Retry click → exactly one more request + error cleared**; rapid double Retry → no overlapping requests |
-| `ideLoadRecovery.wiring.test.tsx` (19) | role: from `useProjectRole` not a local `"owner"` default, no in-effect role fetch, persistent alert notice keyed on `roleStatus === "error"` with `retryProjectRole`, cleared on non-error, read-only/owner UI keys off the fail-closed role; tree: lifecycle status, persistent retryable notice, cleared on success, Sidebar wiring, no loading-flash on background refresh, in-flight guard, `setTree([])`/`setTreeStatus` on switch; projects/roster/whileaway/timeline notice keys, retries, success-clears, and the M63 threshold gate intact; the immediate `.catch(() => setTimelineLoaded(false))` retry loop is gone |
+| `ideLoadRecovery.mediation.test.tsx` (4) | real-render: failed load → retryable error notice; **one Retry click → exactly one more request + error cleared**; rapid double Retry → no overlapping requests; a project switch mid-flight discards the previous project's tree |
+| `ideLoadRecovery.wiring.test.tsx` (20) | role: from `useProjectRole` not a local `"owner"` default, no in-effect role fetch, persistent alert notice keyed on `roleStatus === "error"` with `retryProjectRole`, cleared on non-error, read-only/owner UI keys off the fail-closed role; tree: lifecycle status, persistent retryable notice, cleared on success, Sidebar wiring, no loading-flash on background refresh, same-project Retry deduped + generation check supersedes on switch, `setTree([])`/`setTreeStatus` on switch; projects/roster/whileaway/timeline notice keys, retries, success-clears, and the M63 threshold gate intact; the immediate `.catch(() => setTimelineLoaded(false))` retry loop is gone |
 | Adjusted | `ideNotices.wiring.test.tsx` + `IDE.profileEvent.test.tsx` — source-slice windows widened for the enlarged reset block / roster fn body (assertions unchanged) |
 
-Revert-sensitivity: fail-closed default, stale-generation guard, in-flight
-guard (role + tree), each notice `dedupeKey` + its success-path
+Revert-sensitivity: the fail-closed `viewer` default, the role stale-
+generation guard, the role in-flight guard, the tree same-project dedupe +
+generation check, each notice `dedupeKey` + its success-path
 `dismissNoticeKey`, the tree lifecycle transitions, the `setTree([])` on
 switch, and the timeline no-loop change each break at least one test when
 reverted.
@@ -7195,7 +7197,7 @@ reverted.
 
 | Gate | Evidence |
 |---|---|
-| Frontend full suite | `vitest run` -> **803 passed / 0 failed** (97 files); +38 vs. M67 (765) = `useProjectRole` 10, `Sidebar.treeLoadState` 5, `ideLoadRecovery.mediation` 3, `ideLoadRecovery.wiring` 20 |
+| Frontend full suite | `vitest run` -> **804 passed / 0 failed** (97 files); +39 vs. M67 (765) = `useProjectRole` 10, `Sidebar.treeLoadState` 5, `ideLoadRecovery.mediation` 4, `ideLoadRecovery.wiring` 20 |
 | Frontend typecheck | `tsc --noEmit` exit 0 |
 | Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
 | Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged) |
