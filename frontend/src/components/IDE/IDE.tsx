@@ -111,6 +111,10 @@ import {
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import { useNotices } from "../../hooks/useNotices";
+import {
+  useLayoutPreferences,
+  type LayoutPreferences,
+} from "../../hooks/useLayoutPreferences";
 import { throttleLatest } from "../../utils/throttleLatest";
 import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
@@ -232,6 +236,9 @@ export default function IDE({
   // M22: User Preferences & Editor Settings States
   const [preferences, setPreferences] =
     useState<UserPreferences>(DEFAULT_PREFERENCES);
+  // M67: flipped true once GET /api/auth/preferences resolves, so the layout
+  // hook can tell a real stored layout from the pre-load defaults.
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   // M66: "format on save" is a normal typed user preference now — no longer a
@@ -259,6 +266,7 @@ export default function IDE({
       .then((r) => {
         if (!r || !r.preferences) return;
         setPreferences(r.preferences);
+        setPreferencesLoaded(true);
 
         // M66 one-time migration: fold a pre-existing per-device
         // `cloudeee_format_on_save` flag into the account preference, then
@@ -281,11 +289,48 @@ export default function IDE({
       });
   }, [handleUpdatePreferences]);
 
-  // Layout Sizing States (Resizable Sidebar & Bottom Panel)
-  const [sidebarWidth, setSidebarWidth] = useState(250);
-  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
-  const [bottomHeight, setBottomHeight] = useState(260);
-  const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
+  // Layout Sizing States (Resizable Sidebar & Bottom Panel) — M67: the four
+  // dimensions below are now persisted through the typed user_preferences
+  // store (see `useLayoutPreferences`); a reload restores the exact layout.
+  const persistLayout = useCallback(
+    (patch: Partial<UserPreferences>) => {
+      handleUpdatePreferences(patch).catch(() => {
+        /* layout persistence is best-effort — mirrors the existing silent
+           failure handling for the other editor preferences */
+      });
+    },
+    [handleUpdatePreferences],
+  );
+  const layoutLoaded = useMemo<LayoutPreferences | null>(
+    () =>
+      preferencesLoaded
+        ? {
+            sidebarWidth: preferences.sidebarWidth,
+            bottomHeight: preferences.bottomHeight,
+            sidebarHidden: preferences.sidebarHidden,
+            bottomCollapsed: preferences.bottomCollapsed,
+          }
+        : null,
+    [
+      preferencesLoaded,
+      preferences.sidebarWidth,
+      preferences.bottomHeight,
+      preferences.sidebarHidden,
+      preferences.bottomCollapsed,
+    ],
+  );
+  const {
+    sidebarWidth,
+    bottomHeight,
+    isSidebarHidden,
+    isBottomCollapsed,
+    setSidebarWidth,
+    setBottomHeight,
+    persistSidebarWidth,
+    persistBottomHeight,
+    setIsSidebarHidden,
+    setIsBottomCollapsed,
+  } = useLayoutPreferences(layoutLoaded, persistLayout);
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
   // M64: one typed transient-notice mechanism. Owns id/TTL/dedupe/cleanup for
@@ -2278,7 +2323,7 @@ export default function IDE({
 
     document.addEventListener("ide-run", handleRunRequest);
     return () => document.removeEventListener("ide-run", handleRunRequest);
-  }, [project, openFiles, resolveLiveFileContent]);
+  }, [project, openFiles, resolveLiveFileContent, setIsBottomCollapsed]);
 
   // M43/M44: Output (which owns the actual install request/stream) only
   // exists in the DOM while bottomTab === "output" and the panel isn't
@@ -2305,7 +2350,7 @@ export default function IDE({
     document.addEventListener("ide-install", handleInstallRequest);
     return () =>
       document.removeEventListener("ide-install", handleInstallRequest);
-  }, [project]);
+  }, [project, setIsBottomCollapsed]);
 
   // Listen for execution completion events to parse compiler/runtime diagnostics
   useEffect(() => {
@@ -2339,7 +2384,7 @@ export default function IDE({
         "ide-execution-result",
         handleExecutionResult,
       );
-  }, []);
+  }, [setIsBottomCollapsed]);
 
   // M5: AI Action Trigger Handler
   const handleTriggerAIAction = useCallback(
@@ -2829,6 +2874,8 @@ export default function IDE({
     handleTriggerAIAction,
     handleOpenFile,
     notify,
+    setIsSidebarHidden,
+    setIsBottomCollapsed,
   ]);
 
   // Central Keyboard Shortcuts Dispatcher
@@ -2910,6 +2957,10 @@ export default function IDE({
     };
 
     const handleMouseUp = () => {
+      // M67: persist the settled dimension once per completed drag gesture —
+      // never on the individual mousemoves above.
+      if (isDraggingSidebar) persistSidebarWidth();
+      if (isDraggingBottom) persistBottomHeight();
       setIsDraggingSidebar(false);
       setIsDraggingBottom(false);
     };
@@ -2922,7 +2973,14 @@ export default function IDE({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDraggingSidebar, isDraggingBottom]);
+  }, [
+    isDraggingSidebar,
+    isDraggingBottom,
+    persistSidebarWidth,
+    persistBottomHeight,
+    setSidebarWidth,
+    setBottomHeight,
+  ]);
 
   const errorCount = diagnostics.filter((d) => d.severity === "error").length;
   const warningCount = diagnostics.filter(

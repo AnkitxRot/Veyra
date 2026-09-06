@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { UserPreferences, UserProfile, ProfileDraft } from '../../types';
+import {
+  UserPreferences,
+  UserProfile,
+  ProfileDraft,
+  EDITOR_PREFERENCE_KEYS,
+} from '../../types';
 import { getProfile, updateProfile } from '../../api';
 import { IconClose, IconSettings, IconRefresh } from '../common/Icons';
 
@@ -12,7 +17,24 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   cursorBlinking: 'smooth',
   renderWhitespace: 'selection',
   formatOnSave: false,
+  // M67 layout keys — carried for type completeness only; the modal never
+  // renders or submits them (see `pickEditorPrefs`).
+  sidebarWidth: 250,
+  bottomHeight: 260,
+  sidebarHidden: false,
+  bottomCollapsed: false,
 };
+
+/** The editor-tab payload: only the keys this modal owns. Layout keys persist
+ *  through direct IDE interaction, so "Reset Defaults" + Save here must never
+ *  rewrite the user's panel layout. */
+function pickEditorPrefs(p: UserPreferences): Partial<UserPreferences> {
+  const out: Partial<UserPreferences> = {};
+  for (const k of EDITOR_PREFERENCE_KEYS) {
+    (out as Record<string, unknown>)[k] = p[k];
+  }
+  return out;
+}
 
 const DISPLAY_NAME_MAX = 48;
 const PRONOUNS_MAX = 24;
@@ -136,7 +158,7 @@ export default function SettingsModal({
     setSaving(true);
     setError(null);
     try {
-      await onSave(formData);
+      await onSave(pickEditorPrefs(formData));
       onClose();
     } catch (err: any) {
       setError(err.message || 'Failed to save preferences');

@@ -16,8 +16,28 @@ export interface UserPreferences {
   /** M66: run the formatter on save. Moved out of browser localStorage into
    *  the typed, server-persisted preference store. */
   formatOnSave: boolean;
+  /** M67: IDE panel layout — the four user-scoped layout dimensions that used
+   *  to be throwaway IDE.tsx component state (reset on every reload). */
+  sidebarWidth: number;
+  bottomHeight: number;
+  sidebarHidden: boolean;
+  bottomCollapsed: boolean;
   updatedAt?: string;
 }
+
+/** The editor-tab subset of {@link UserPreferences} — the keys the settings
+ *  modal owns. Layout keys persist through direct IDE interaction, never the
+ *  modal, so a "Reset Defaults" there must not rewrite the user's layout. */
+export const EDITOR_PREFERENCE_KEYS = [
+  "fontSize",
+  "tabSize",
+  "wordWrap",
+  "minimap",
+  "lineNumbers",
+  "cursorBlinking",
+  "renderWhitespace",
+  "formatOnSave",
+] as const;
 
 export interface Project {
   id: string;
