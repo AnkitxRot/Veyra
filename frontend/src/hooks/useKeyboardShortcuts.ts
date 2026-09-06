@@ -1,6 +1,15 @@
 import { useEffect, useRef } from 'react';
+import {
+  chordFromEvent,
+  getCommand,
+  resolveKeymap,
+  IS_MAC,
+  type CommandId,
+  type ResolvedKeymap,
+} from '../keymap/keymap';
 
-export const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+// Re-exported for the many call sites that import IS_MAC from this module.
+export { IS_MAC };
 
 export interface ShortcutHandlers {
   onOpenCommandPalette: () => void;
@@ -16,73 +25,94 @@ export interface ShortcutHandlers {
   onToggleBottomPanel?: () => void;
 }
 
-export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true) {
+/** `mod+s` / `mod+p` are always suppressed at the window level (they are the
+ *  IDE's save / quick-open defaults). Even when remapped away, letting the
+ *  browser "save page" / "print" dialog appear on those chords is worse for an
+ *  IDE than doing nothing. */
+const ALWAYS_SUPPRESS = new Set(['mod+s', 'mod+p']);
+
+const EMPTY_RESOLVED = resolveKeymap({});
+
+function isTextInput(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return (
+    el.tagName === 'INPUT' ||
+    el.tagName === 'TEXTAREA' ||
+    el.isContentEditable === true
+  );
+}
+
+function dispatch(id: CommandId, h: ShortcutHandlers): void {
+  switch (id) {
+    case 'workbench.action.showCommands':
+      h.onOpenCommandPalette();
+      break;
+    case 'workbench.action.quickOpen':
+      h.onOpenQuickOpen();
+      break;
+    case 'workbench.action.saveFile':
+      // M1 canonical save dispatch — path only; IDE re-resolves live content.
+      document.dispatchEvent(
+        new CustomEvent('ide-save', {
+          detail: { path: h.getActiveFile?.() ?? null },
+        }),
+      );
+      break;
+    case 'workbench.action.toggleSidebar':
+      h.onToggleSidebar?.();
+      break;
+    case 'workbench.action.toggleBottomPanel':
+      h.onToggleBottomPanel?.();
+      break;
+  }
+}
+
+/**
+ * M70: the window-level dispatcher for the five configurable IDE-chrome
+ * commands. `resolvedKeymap` is read through a ref so a remap never
+ * re-registers the listener (no churn, no leak, no double-fire); the listener
+ * lifecycle is bound only to `enabled`.
+ */
+export function useKeyboardShortcuts(
+  handlers: ShortcutHandlers,
+  enabled = true,
+  resolvedKeymap: ResolvedKeymap = EMPTY_RESOLVED,
+) {
   const handlersRef = useRef(handlers);
-  useEffect(() => {
-    handlersRef.current = handlers;
-  });
+  handlersRef.current = handlers;
+  const keymapRef = useRef(resolvedKeymap);
+  keymapRef.current = resolvedKeymap;
 
   useEffect(() => {
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = IS_MAC ? e.metaKey : e.ctrlKey;
-      const key = e.key.toLowerCase();
-      const currentHandlers = handlersRef.current;
+      // M70: while the keybinding-capture field is focused it owns every
+      // keystroke — the global dispatcher stands fully down so capturing a
+      // chord (Ctrl+S included) never also triggers its command.
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("[data-keybinding-capture]")) return;
 
-      // 1. Command Palette: Ctrl+Shift+P / Cmd+Shift+P
-      if (isMod && e.shiftKey && key === 'p') {
-        e.preventDefault();
-        e.stopPropagation();
-        currentHandlers.onOpenCommandPalette();
+      const chord = chordFromEvent(e);
+      if (!chord) return;
+
+      const id = keymapRef.current.byChord.get(chord);
+      if (!id) {
+        if (ALWAYS_SUPPRESS.has(chord)) e.preventDefault();
         return;
       }
 
-      // 2. Quick Open: Ctrl+P / Cmd+P (Must intercept over browser print)
-      if (isMod && !e.shiftKey && !e.altKey && key === 'p') {
-        e.preventDefault();
-        e.stopPropagation();
-        currentHandlers.onOpenQuickOpen();
-        return;
-      }
+      const cmd = getCommand(id);
+      if (cmd?.skipInTextInput && isTextInput(e.target)) return;
 
-      // 3. Save File: Ctrl+S / Cmd+S → canonical ide-save dispatch.
-      //    preventDefault suppresses the browser "save page" dialog;
-      //    stopPropagation keeps Monaco's own Ctrl+S command from double-
-      //    firing: both paths converge on the same listener, but only one
-      //    event must be dispatched per keystroke.
-      if (isMod && !e.shiftKey && key === 's') {
-        e.preventDefault();
-        e.stopPropagation();
-        document.dispatchEvent(
-          new CustomEvent('ide-save', {
-            detail: { path: currentHandlers.getActiveFile?.() ?? null },
-          }),
-        );
-        return;
-      }
-
-      // 4. Toggle Sidebar: Ctrl+B / Cmd+B
-      if (isMod && !e.shiftKey && key === 'b') {
-        // Only trigger if not typing inside an editable field that needs bold
-        const target = e.target as HTMLElement | null;
-        const isEditable = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-        if (!isEditable) {
-          e.preventDefault();
-          if (currentHandlers.onToggleSidebar) currentHandlers.onToggleSidebar();
-        }
-        return;
-      }
-
-      // 5. Toggle Bottom Drawer: Ctrl+J / Cmd+J
-      if (isMod && !e.shiftKey && key === 'j') {
-        e.preventDefault();
-        if (currentHandlers.onToggleBottomPanel) currentHandlers.onToggleBottomPanel();
-        return;
-      }
+      e.preventDefault();
+      e.stopPropagation();
+      dispatch(id, handlersRef.current);
     };
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [enabled]);
 }

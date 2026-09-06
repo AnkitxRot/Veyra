@@ -13,8 +13,40 @@ export interface UserPreferences {
   lineNumbers: "on" | "off" | "relative" | "interval";
   cursorBlinking: "blink" | "smooth" | "phase" | "expand" | "solid";
   renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
+  /** M66: run the formatter on save. Moved out of browser localStorage into
+   *  the typed, server-persisted preference store. */
+  formatOnSave: boolean;
+  /** M67: IDE panel layout — the four user-scoped layout dimensions that used
+   *  to be throwaway IDE.tsx component state (reset on every reload). */
+  sidebarWidth: number;
+  bottomHeight: number;
+  sidebarHidden: boolean;
+  bottomCollapsed: boolean;
+  /** M69: unified appearance. "system" follows the OS `prefers-color-scheme`;
+   *  "dark" / "light" pin the effective theme. */
+  theme: "system" | "dark" | "light";
+  /** M70: configurable keybindings — command ID -> canonical chord, storing
+   *  ONLY the commands the user has remapped (`{}` = all defaults). The
+   *  command set + chord grammar live in `src/keymap/`. */
+  keymap: Record<string, string>;
   updatedAt?: string;
 }
+
+/** The editor-tab subset of {@link UserPreferences} — the keys the settings
+ *  modal owns. Layout keys persist through direct IDE interaction, never the
+ *  modal, so a "Reset Defaults" there must not rewrite the user's layout. */
+export const EDITOR_PREFERENCE_KEYS = [
+  "fontSize",
+  "tabSize",
+  "wordWrap",
+  "minimap",
+  "lineNumbers",
+  "cursorBlinking",
+  "renderWhitespace",
+  "formatOnSave",
+  // M69: the appearance preference is edited in the same modal.
+  "theme",
+] as const;
 
 export interface Project {
   id: string;
@@ -100,6 +132,21 @@ export interface RunStatusEntry {
   startedAt: number;
   endedAt: number | null;
   exitCode: number | null;
+}
+
+// M65: Shared Run Output. A bounded, ephemeral replay of another collaborator's
+// run stdout/stderr, delivered to owner/editor room members only (never
+// viewers, never sent by the browser). Carries no command/env/secret content.
+export interface RunOutputChunk {
+  stream: "stdout" | "stderr";
+  data: string;
+}
+
+export interface SharedRunOutput {
+  executionId: string;
+  chunks: RunOutputChunk[];
+  /** True once the server or the client dropped older output past its bound. */
+  truncated: boolean;
 }
 
 export interface SnapshotRecord {

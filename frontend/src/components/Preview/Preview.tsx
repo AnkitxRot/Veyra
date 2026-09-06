@@ -274,7 +274,7 @@ export default function Preview({ project }: any) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: 'rgba(15, 18, 26, 0.85)',
+                background: 'var(--surface-recessed)',
                 color: 'var(--fg-primary)',
                 zIndex: 10,
                 backdropFilter: 'blur(4px)',

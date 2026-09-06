@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useCallback } from "react";
 import { monaco } from "../../monacoSetup";
+import { chordToMonacoKeybinding } from "../../keymap/keymap";
 import { getLanguageInfo } from "../../utils/language";
 import { Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
@@ -125,6 +126,12 @@ export interface EditorProps {
   onViewCollaborator?: (userId: number) => void;
   onUserEdit?: () => void;
   isReadOnly?: boolean;
+  /** M69: the resolved appearance ("dark" | "light") from `useAppearance`.
+   *  Drives the Monaco theme; a change updates the live editor in place. */
+  resolvedTheme?: "dark" | "light";
+  /** M70: the resolved `save` chord (canonical, e.g. "mod+s"). Registers the
+   *  in-editor Monaco save keybinding; a remap re-registers it in place. */
+  saveChord?: string;
   liveApiRef?: React.MutableRefObject<LiveContentApi | null>;
   /** M59: model-safe view-state save/restore for the follow anchor. */
   editorViewApiRef?: React.MutableRefObject<EditorViewApi | null>;
@@ -157,6 +164,8 @@ export default function Editor({
   onViewCollaborator,
   onUserEdit,
   isReadOnly = false,
+  resolvedTheme = "dark",
+  saveChord = "mod+s",
   liveApiRef,
   editorViewApiRef,
   preferences,
@@ -181,6 +190,17 @@ export default function Editor({
   const onUserEditRef = useRef(onUserEdit);
   const onCreateCommentRef = useRef(onCreateComment);
   const isReadOnlyRef = useRef(isReadOnly);
+  // M69: Monaco built-in theme id for the resolved appearance. Kept in a ref
+  // so the mount-time create() closure reads the current value; a later
+  // change is applied in place by the effect below (never a remount).
+  const monacoThemeRef = useRef(
+    resolvedTheme === "light" ? "vs" : "vs-dark",
+  );
+  monacoThemeRef.current = resolvedTheme === "light" ? "vs" : "vs-dark";
+  // M70: the resolved save chord + the live Monaco save action's disposable.
+  const saveChordRef = useRef(saveChord);
+  saveChordRef.current = saveChord;
+  const saveActionRef = useRef<{ dispose: () => void } | null>(null);
   // M58: current local selection (zero-width when just a cursor) for spatial
   // overlap; refs so the Monaco action closures see fresh values.
   const [localSelection, setLocalSelection] = React.useState<AttentionRange>({
@@ -306,6 +326,48 @@ export default function Editor({
     );
   }, [activeFile, collaborators, currentUserId]);
 
+  // M70: (re)register the in-editor Monaco save keybinding from the resolved
+  // save chord. Disposable + re-added on change — no remount. `run` reads
+  // refs so it always saves the live model content (BUG-1 guarantee).
+  const registerSaveAction = useCallback(() => {
+    const ed = monacoRef.current;
+    if (!ed) return;
+    saveActionRef.current?.dispose();
+    saveActionRef.current = null;
+    const kb = chordToMonacoKeybinding(saveChordRef.current, monaco);
+    saveActionRef.current = ed.addAction({
+      id: "cloudeee.action.save",
+      label: "Save File",
+      keybindings: kb != null ? [kb] : [],
+      run: async () => {
+        const val = monacoRef.current?.getValue();
+        const currentPath = activeFileRef.current;
+        if (currentPath && val !== undefined) {
+          document.dispatchEvent(
+            new CustomEvent("ide-save", {
+              detail: { path: currentPath, content: val },
+            }),
+          );
+        }
+      },
+    });
+  }, []);
+
+  // Re-register on a save-chord change (after mount — the create effect does
+  // the initial registration since it owns the editor instance).
+  useEffect(() => {
+    if (monacoRef.current) registerSaveAction();
+  }, [saveChord, registerSaveAction]);
+
+  // M69: apply the resolved appearance to the LIVE editor without remounting
+  // it or replacing any model. `monaco.editor.setTheme` swaps the global
+  // theme in place — view state, cursor, selection, collaboration bindings
+  // and the model registry are all untouched.
+  useEffect(() => {
+    if (!monacoRef.current) return;
+    monaco.editor.setTheme(monacoThemeRef.current);
+  }, [resolvedTheme]);
+
   // Dynamically apply preferences changes without remounting editor or replacing models
   useEffect(() => {
     if (!monacoRef.current || !preferences) return;
@@ -324,7 +386,7 @@ export default function Editor({
   useEffect(() => {
     if (editorRef.current && !monacoRef.current) {
       monacoRef.current = monaco.editor.create(editorRef.current, {
-        theme: "vs-dark",
+        theme: monacoThemeRef.current,
         automaticLayout: true,
         minimap: { enabled: preferences?.minimap ?? false },
         fontSize: preferences?.fontSize ?? 13.5,
@@ -437,20 +499,12 @@ export default function Editor({
         });
       });
 
-      monacoRef.current.addCommand(
-        monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
-        async () => {
-          const val = monacoRef.current?.getValue();
-          const currentPath = activeFileRef.current;
-          if (currentPath && val !== undefined) {
-            document.dispatchEvent(
-              new CustomEvent("ide-save", {
-                detail: { path: currentPath, content: val },
-              }),
-            );
-          }
-        },
-      );
+      // M70: the in-editor save keybinding, from the resolved `save` chord
+      // (not a hardcoded Ctrl+S) so a remap moves it. The window-level
+      // dispatcher (useKeyboardShortcuts) owns save for the rest of the IDE
+      // chrome; its capture-phase stopPropagation shadows this one when both
+      // would match — no double dispatch.
+      registerSaveAction();
 
       // Register AI Context Menu Actions in Monaco
       const editorInstance = monacoRef.current;
@@ -656,6 +710,8 @@ export default function Editor({
         editorViewApiRef.current = null;
       }
       liveModels.clear();
+      saveActionRef.current?.dispose();
+      saveActionRef.current = null;
       if (monacoRef.current) {
         monacoRef.current.dispose();
         monacoRef.current = null;
@@ -664,7 +720,7 @@ export default function Editor({
     };
     // liveApiRef / editorViewApiRef are stable ref objects passed down from
     // IDE; including them satisfies exhaustive-deps without changing cadence.
-  }, [setOpenFiles, liveApiRef, editorViewApiRef]);
+  }, [setOpenFiles, liveApiRef, editorViewApiRef, registerSaveAction]);
 
   // Sync read-only status with Monaco options
   useEffect(() => {

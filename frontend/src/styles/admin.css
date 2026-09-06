@@ -96,7 +96,7 @@
 .admin-subnav {
   height: 44px;
   min-height: 44px;
-  background: rgba(15, 18, 26, 0.6);
+  background: var(--surface-recessed);
   border-bottom: 1px solid var(--glass-border-subtle);
   display: flex;
   align-items: center;

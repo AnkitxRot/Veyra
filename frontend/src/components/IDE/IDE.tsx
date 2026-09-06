@@ -14,6 +14,7 @@ import {
   ContainerStats,
   UserPreferences,
   RunStatusEntry,
+  SharedRunOutput,
 } from "../../types";
 import {
   api,
@@ -109,8 +110,20 @@ import {
 } from "../../utils/recentStore";
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
+import {
+  resolveKeymap,
+  chordToDisplay,
+  type CommandId,
+} from "../../keymap/keymap";
 import { useNotices } from "../../hooks/useNotices";
+import { useProjectRole } from "../../hooks/useProjectRole";
+import { useAppearance } from "../../hooks/useAppearance";
+import {
+  useLayoutPreferences,
+  type LayoutPreferences,
+} from "../../hooks/useLayoutPreferences";
 import { throttleLatest } from "../../utils/throttleLatest";
+import { useStableCollaborators } from "../../utils/useStableCollaborators";
 import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
 import { appendOpenFile } from "../../utils/openFiles";
@@ -197,6 +210,12 @@ export default function IDE({
   // bad link, silently opening projects[0]).
   const routeProjectIdRef = useRef(routeProjectId);
   routeProjectIdRef.current = routeProjectId;
+  // M68: render-time mirror of the currently-open project id, so a slow
+  // collaboration fetch (timeline page, timeline head-refetch) that resolves
+  // after a project switch can drop its result instead of merging a previous
+  // project's events into the current project's timeline.
+  const activeProjectIdRef = useRef<string | null>(null);
+  activeProjectIdRef.current = project?.id ?? null;
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const activeFileRef = useRef<string | null>(null);
@@ -228,45 +247,124 @@ export default function IDE({
   // M2: Full Workspace Search & Problems Diagnostics States
   const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
-  const [formatOnSave, setFormatOnSave] = useState<boolean>(() => {
-    return localStorage.getItem("cloudeee_format_on_save") === "true";
-  });
-
   // M22: User Preferences & Editor Settings States
   const [preferences, setPreferences] =
     useState<UserPreferences>(DEFAULT_PREFERENCES);
+  // M67: flipped true once GET /api/auth/preferences resolves, so the layout
+  // hook can tell a real stored layout from the pre-load defaults.
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+
+  // M66: "format on save" is a normal typed user preference now — no longer a
+  // separate browser-only localStorage flag.
+  const formatOnSave = preferences.formatOnSave;
+
+  const handleUpdatePreferences = useCallback(
+    async (updated: Partial<UserPreferences>) => {
+      const res = await api<{ preferences: UserPreferences }>(
+        "/api/auth/preferences",
+        {
+          method: "PUT",
+          body: JSON.stringify(updated),
+        },
+      );
+      if (res && res.preferences) {
+        setPreferences(res.preferences);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     api<{ preferences: UserPreferences }>("/api/auth/preferences")
       .then((r) => {
-        if (r && r.preferences) {
-          setPreferences(r.preferences);
+        if (!r || !r.preferences) return;
+        setPreferences(r.preferences);
+        setPreferencesLoaded(true);
+
+        // M66 one-time migration: fold a pre-existing per-device
+        // `cloudeee_format_on_save` flag into the account preference, then
+        // retire the localStorage key. "true" that the server does not yet
+        // know about is pushed up; anything else is just cleared.
+        const legacy = localStorage.getItem("cloudeee_format_on_save");
+        if (legacy === null) return;
+        if (legacy === "true" && !r.preferences.formatOnSave) {
+          handleUpdatePreferences({ formatOnSave: true })
+            .then(() => localStorage.removeItem("cloudeee_format_on_save"))
+            .catch(() => {
+              /* keep the key; retry on the next load */
+            });
+        } else {
+          localStorage.removeItem("cloudeee_format_on_save");
         }
       })
       .catch((err) => {
         console.warn("Failed to load user preferences:", err);
       });
-  }, []);
+  }, [handleUpdatePreferences]);
 
-  const handleUpdatePreferences = async (updated: Partial<UserPreferences>) => {
-    const res = await api<{ preferences: UserPreferences }>(
-      "/api/auth/preferences",
-      {
-        method: "PUT",
-        body: JSON.stringify(updated),
-      },
-    );
-    if (res && res.preferences) {
-      setPreferences(res.preferences);
-    }
-  };
+  // Layout Sizing States (Resizable Sidebar & Bottom Panel) — M67: the four
+  // dimensions below are now persisted through the typed user_preferences
+  // store (see `useLayoutPreferences`); a reload restores the exact layout.
+  const persistLayout = useCallback(
+    (patch: Partial<UserPreferences>) => {
+      handleUpdatePreferences(patch).catch(() => {
+        /* layout persistence is best-effort — mirrors the existing silent
+           failure handling for the other editor preferences */
+      });
+    },
+    [handleUpdatePreferences],
+  );
+  const layoutLoaded = useMemo<LayoutPreferences | null>(
+    () =>
+      preferencesLoaded
+        ? {
+            sidebarWidth: preferences.sidebarWidth,
+            bottomHeight: preferences.bottomHeight,
+            sidebarHidden: preferences.sidebarHidden,
+            bottomCollapsed: preferences.bottomCollapsed,
+          }
+        : null,
+    [
+      preferencesLoaded,
+      preferences.sidebarWidth,
+      preferences.bottomHeight,
+      preferences.sidebarHidden,
+      preferences.bottomCollapsed,
+    ],
+  );
+  const {
+    sidebarWidth,
+    bottomHeight,
+    isSidebarHidden,
+    isBottomCollapsed,
+    setSidebarWidth,
+    setBottomHeight,
+    persistSidebarWidth,
+    persistBottomHeight,
+    setIsSidebarHidden,
+    setIsBottomCollapsed,
+  } = useLayoutPreferences(layoutLoaded, persistLayout);
 
-  // Layout Sizing States (Resizable Sidebar & Bottom Panel)
-  const [sidebarWidth, setSidebarWidth] = useState(250);
-  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
-  const [bottomHeight, setBottomHeight] = useState(260);
-  const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
+  // M69: the single resolved-appearance source. Stamps `<html data-theme>`
+  // from the typed `theme` preference and — only in "system" mode — follows
+  // the OS `prefers-color-scheme`. `resolvedTheme` is threaded to the Editor
+  // and Terminal, which update Monaco / xterm in place (never remount).
+  const { resolvedTheme } = useAppearance(preferences.theme);
+
+  // M70: the resolved keybinding map (defaults + the user's typed overrides).
+  // One source of truth — fed to `useKeyboardShortcuts`, the Editor's Monaco
+  // save binding, and the command-palette shortcut labels.
+  const resolvedKeymap = useMemo(
+    () => resolveKeymap(preferences.keymap),
+    [preferences.keymap],
+  );
+  const kbLabel = useCallback(
+    (id: CommandId, mac: boolean) =>
+      chordToDisplay(resolvedKeymap.byCommand[id], mac),
+    [resolvedKeymap],
+  );
+
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
   // M64: one typed transient-notice mechanism. Owns id/TTL/dedupe/cleanup for
@@ -290,8 +388,21 @@ export default function IDE({
   const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>(
     [],
   );
+  // M71: a referentially-stable projection of `collaborators` for the memoized
+  // <Sidebar>. Its identity only changes when a Sidebar-relevant field
+  // (userId / activeFile / activity.type / name / color) changes — NOT on the
+  // cursor/selection/lastActive churn that fires on every remote keystroke.
+  // BASELINE A/C: that churn was costing 5–90 ms of FileTree reconciliation
+  // per throttled tick. Every OTHER collaborator surface (Editor spatial
+  // awareness, TeamPanel, avatar stack) still gets the full `collaborators`.
+  const collaboratorsForTree = useStableCollaborators(collaborators, user.id);
   // M54: collaborative run awareness — server-authoritative, ephemeral.
   const [runStatuses, setRunStatuses] = useState<RunStatusEntry[]>([]);
+  // M65: shared run output — the bounded, ephemeral stdout/stderr replay that
+  // rides alongside a run status for owner/editor collaborators (RECEIVE-only).
+  const [sharedRunOutputs, setSharedRunOutputs] = useState<SharedRunOutput[]>(
+    [],
+  );
   // M58: transient attention events (Point / Callout / targeted "Come look").
   // One throttled state fed from the collab client's AttentionStore — no second
   // store, no per-event IDE re-render.
@@ -345,9 +456,33 @@ export default function IDE({
 
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSecretsModalOpen, setIsSecretsModalOpen] = useState(false);
-  const [projectRole, setProjectRole] = useState<"owner" | "editor" | "viewer">(
-    "owner",
-  );
+  // M68: the access-role lookup fails CLOSED — a failed / in-flight
+  // `GET /api/projects/:id` leaves `projectRole` at the read-only `viewer`
+  // state, surfaced as a retryable notice below. It is never raised to
+  // editor/owner except by a response that explicitly says so.
+  const {
+    role: projectRole,
+    status: roleStatus,
+    retry: retryProjectRole,
+  } = useProjectRole(project?.id ?? null);
+
+  // M68: a failed role lookup is visible and retryable. While it stands the
+  // editor is read-only (fail closed); a successful retry clears it and the
+  // real role takes effect. A project switch drops it with every other notice.
+  useEffect(() => {
+    if (roleStatus === "error") {
+      notify({
+        kind: "warning",
+        text: "Couldn't confirm your access level for this project. You're in read-only mode until this resolves.",
+        ttl: null,
+        dedupeKey: "role-fetch",
+        role: "alert",
+        actions: [{ label: "Retry", onClick: retryProjectRole }],
+      });
+    } else {
+      dismissNoticeKey("role-fetch");
+    }
+  }, [roleStatus, retryProjectRole, notify, dismissNoticeKey]);
 
   // M48 Follow Mode & DND states
   const [followedUserId, setFollowedUserId] = useState<number | null>(null);
@@ -442,6 +577,15 @@ export default function IDE({
     // the source, duplicated a source file's content on disk.
     setOpenFiles([]);
     setActiveFile(null);
+    // M68: the previous project's file tree must not linger under the new
+    // project's identity — a failed load for the new project would otherwise
+    // render the old project's files. Reset to a loading state and free the
+    // in-flight marker + bump the generation so any still-pending fetch for
+    // the previous project is discarded; `loadTree` (its own effect) refills.
+    setTree([]);
+    setTreeStatus("loading");
+    treeLoadingPidRef.current = null;
+    treeLoadGenRef.current++;
     // M64: every notice producer is project-scoped (save feedback, save
     // failures, reconcile, route, external mutation, attention rate limit,
     // follow-left) — none should survive a project switch.
@@ -457,6 +601,7 @@ export default function IDE({
       }
       setCollaborators([]);
       setRunStatuses([]);
+      setSharedRunOutputs([]);
       setCollabStatus("disconnected");
       return;
     }
@@ -465,6 +610,7 @@ export default function IDE({
     let client: CollaborationClient | null = null;
     let unsubAwareness: (() => void) | undefined;
     let unsubRunStatus: (() => void) | undefined;
+    let unsubRunOutput: (() => void) | undefined;
     let unsubConnection: (() => void) | undefined;
     let unsubExternalMutation: (() => void) | undefined;
     let unsubAttention: (() => void) | undefined;
@@ -509,6 +655,14 @@ export default function IDE({
       unsubRunStatus = client.on(
         "run_status_change",
         (entries: RunStatusEntry[]) => setRunStatuses(entries),
+      );
+
+      // M65: shared run output — batched by the server (RUN_OUTPUT_FLUSH_MS)
+      // and additionally cheap here (only owner/editor peers' runs, capped at
+      // 256 KB). No throttle; the console view renders it read-only.
+      unsubRunOutput = client.on(
+        "run_output_change",
+        (outs: SharedRunOutput[]) => setSharedRunOutputs(outs),
       );
 
       // M58: attention events are human-frequency but still throttled to avoid
@@ -610,7 +764,10 @@ export default function IDE({
           void commentStore.loadUnresolved();
           // The comment lifecycle also feeds the M60 timeline — refetch its head.
           void fetchCollabTimeline(project.id, { limit: 40 })
-            .then((r) => setTimeline((prev) => mergeTimeline(prev, r.events, 200)))
+            .then((r) => {
+              if (cancelled || project.id !== activeProjectIdRef.current) return;
+              setTimeline((prev) => mergeTimeline(prev, r.events, 200));
+            })
             .catch(() => {});
         },
       );
@@ -644,8 +801,21 @@ export default function IDE({
               });
             }
             setCommentRoster(next);
+            dismissNoticeKey("roster-load");
           })
-          .catch(() => {});
+          .catch(() => {
+            if (cancelled) return;
+            // M68: a failed roster fetch leaves the last-known roster in place
+            // (comment author names just may be stale) — but say so, and let
+            // the user retry, instead of failing silently.
+            notify({
+              kind: "warning",
+              text: "Couldn't refresh collaborator names — some may be out of date.",
+              ttl: null,
+              dedupeKey: "roster-load",
+              actions: [{ label: "Retry", onClick: () => loadCommentRoster() }],
+            });
+          });
       };
       loadCommentRoster();
       unsubProfileEvent = client.on(
@@ -662,40 +832,53 @@ export default function IDE({
 
       // M60: on a real reconnect-after-gap, ask the server (authoritative
       // last-seen boundary) whether there is anything meaningful to show.
+      const loadWhileAway = () => {
+        void fetchWhileAway(project.id)
+          .then((r) => {
+            if (cancelled) return;
+            dismissNoticeKey("whileaway-load");
+            if (r.events.length === 0) return;
+            setWhileAwayGroups(
+              groupWhileAway(r.events).map((g) => ({
+                userId: g.userId,
+                username: g.username,
+                lines: g.lines,
+                events: g.events,
+              })),
+            );
+          })
+          .catch(() => {
+            if (cancelled) return;
+            // M68: the reconnect itself already succeeded (M63 semantics
+            // unchanged); only the "what changed while you were away" summary
+            // failed to load. Make that visible and retryable.
+            notify({
+              kind: "warning",
+              text: "Couldn't load what changed while you were away.",
+              ttl: null,
+              dedupeKey: "whileaway-load",
+              actions: [{ label: "Retry", onClick: () => loadWhileAway() }],
+            });
+          });
+      };
       unsubReconnGap = client.on(
         "reconnected_after_gap",
         (info: { offlineMs: number }) => {
           if (info.offlineMs < COLLAB_AWAY_THRESHOLD_MS) return;
-          void fetchWhileAway(project.id)
-            .then((r) => {
-              if (cancelled || r.events.length === 0) return;
-              setWhileAwayGroups(
-                groupWhileAway(r.events).map((g) => ({
-                  userId: g.userId,
-                  username: g.username,
-                  lines: g.lines,
-                  events: g.events,
-                })),
-              );
-            })
-            .catch(() => {});
+          loadWhileAway();
         },
       );
     })();
 
-    // Fetch project access role
-    api<{ project: Project; role?: "owner" | "editor" | "viewer" }>(
-      `/api/projects/${project.id}`,
-    )
-      .then((res) => {
-        if (res.role) setProjectRole(res.role);
-      })
-      .catch(() => {});
+    // M68: the project access-role lookup lives in `useProjectRole` now — it
+    // fails closed to `viewer` and is retryable, instead of the swallowed
+    // fetch that used to sit here and leave a failed lookup at owner.
 
     return () => {
       cancelled = true;
       unsubAwareness?.();
       unsubRunStatus?.();
+      unsubRunOutput?.();
       unsubConnection?.();
       unsubExternalMutation?.();
       unsubAttention?.();
@@ -734,6 +917,7 @@ export default function IDE({
       throttledSetCollaborators?.cancel();
       throttledSetAttention?.cancel();
       setRunStatuses([]);
+      setSharedRunOutputs([]);
       setAttention([]);
       // M62: cancel a pending coalesced profile-event roster refetch and
       // drop the stale roster so the next project starts clean.
@@ -765,10 +949,15 @@ export default function IDE({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [pendingCollabUpdates]);
 
+  // M68: a total `GET /api/projects` failure is no longer swallowed — it is a
+  // persistent, retryable notice instead of a blank IDE with no explanation.
+  // An already-loaded `projects` list is preserved across a failed refresh.
+  const loadProjectsRef = useRef<() => void>(() => {});
   const loadProjects = useCallback(async () => {
     try {
       const res = await api<{ projects: Project[] }>("/api/projects");
       setProjects(res.projects);
+      dismissNoticeKey("projects-load");
 
       if (!didInitialResolveRef.current) {
         // First load after mount / hard reload: honour a `/p/:id` deep link,
@@ -808,33 +997,108 @@ export default function IDE({
         setLastProjectId(res.projects[0].id);
         onNavigateProject?.(res.projects[0].id);
       }
-    } catch {}
+    } catch {
+      notify({
+        kind: "error",
+        text: "Couldn't load your projects. Check your connection and try again.",
+        ttl: null,
+        dedupeKey: "projects-load",
+        role: "alert",
+        actions: [{ label: "Retry", onClick: () => loadProjectsRef.current() }],
+      });
+    }
     // routeProjectId is read via routeProjectIdRef; onNavigateProject is a
-    // stable useCallback from App. Keeping deps at [project] preserves the
-    // original loader lifecycle.
+    // stable useCallback from App. Keeping deps minimal preserves the original
+    // loader lifecycle; notify / dismissNoticeKey are stable useNotices refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project]);
+  }, [project, notify, dismissNoticeKey]);
+  useEffect(() => {
+    loadProjectsRef.current = () => {
+      void loadProjects();
+    };
+  }, [loadProjects]);
 
+  // M68: the file-tree fetch is no longer a swallowed `catch {}`. An empty
+  // `tree` now reads as loading / failed / genuinely empty in the Sidebar,
+  // and a failure is a persistent, retryable notice. An already-loaded tree
+  // is kept on screen through a background refresh or a failed refresh.
+  const [treeStatus, setTreeStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const loadTreeRef = useRef<() => void>(() => {});
+  // Which project's tree fetch is in flight, and a generation counter. A
+  // second call for the SAME project (a doubled Retry click) is dropped; a
+  // call for a DIFFERENT project (a switch mid-flight) proceeds and the
+  // stale fetch's result is discarded by the generation check.
+  const treeLoadingPidRef = useRef<string | null>(null);
+  const treeLoadGenRef = useRef(0);
   const loadTree = useCallback(async () => {
     if (!project) return;
+    const pid = project.id;
+    if (treeLoadingPidRef.current === pid) return;
+    const gen = ++treeLoadGenRef.current;
+    treeLoadingPidRef.current = pid;
+    if (treeLoadedForRef.current !== pid) setTreeStatus("loading");
     try {
       const res = await api<{ tree: TreeNode[] }>(
-        `/api/projects/${project.id}/tree`,
+        `/api/projects/${pid}/tree`,
       );
+      if (gen !== treeLoadGenRef.current) return;
       setTree(res.tree);
-      treeLoadedForRef.current = project.id;
-    } catch {}
-  }, [project]);
+      treeLoadedForRef.current = pid;
+      setTreeStatus("ready");
+      dismissNoticeKey("tree-load");
+    } catch {
+      if (gen !== treeLoadGenRef.current) return;
+      setTreeStatus("error");
+      notify({
+        kind: "error",
+        text: "Couldn't load this project's files.",
+        ttl: null,
+        dedupeKey: "tree-load",
+        role: "alert",
+        actions: [{ label: "Retry", onClick: () => loadTreeRef.current() }],
+      });
+    } finally {
+      // Only the current generation's settle clears the in-flight marker — a
+      // superseded fetch (switch away and back) must not free it while the
+      // newer fetch for the same project is still running.
+      if (
+        gen === treeLoadGenRef.current &&
+        treeLoadingPidRef.current === pid
+      ) {
+        treeLoadingPidRef.current = null;
+      }
+    }
+  }, [project, notify, dismissNoticeKey]);
+  useEffect(() => {
+    loadTreeRef.current = () => {
+      void loadTree();
+    };
+  }, [loadTree]);
 
-  // Track Recent Projects on Switch
-  const handleSelectProject = (p: Project) => {
-    dismissNoticeKey("invalid-route");
-    if (p.id === project?.id) return;
-    setProject(p);
-    addRecentProject(p);
-    setLastProjectId(p.id);
-    onNavigateProject?.(p.id);
-  };
+  // Track Recent Projects on Switch.
+  // M71: stable identity — <Sidebar> is memoized; an inline handler here would
+  // defeat the memo and re-render the whole file tree on every IDE render.
+  const handleSelectProject = useCallback(
+    (p: Project) => {
+      dismissNoticeKey("invalid-route");
+      if (p.id === project?.id) return;
+      setProject(p);
+      addRecentProject(p);
+      setLastProjectId(p.id);
+      onNavigateProject?.(p.id);
+    },
+    [project?.id, dismissNoticeKey, onNavigateProject],
+  );
+
+  // M71: stable identities for the remaining memoized-<Sidebar> handler props.
+  const handleRetryTree = useCallback(() => loadTreeRef.current(), []);
+  const handleOpenTour = useCallback(() => setShowTour(true), []);
+  const handleOpenSettingsFromSidebar = useCallback(
+    () => setShowSettings(true),
+    [],
+  );
 
   // Browser Back / Forward (and any external `/p/:id` change after the initial
   // resolve): move the open project to match the URL. The very first resolve
@@ -1734,13 +1998,22 @@ export default function IDE({
       before: timelineNextBefore,
     })
       .then((r) => {
+        if (pid !== activeProjectIdRef.current) return;
         setTimeline((prev) => mergeTimeline(prev, r.events, 400));
         setTimelineNextBefore(r.nextBefore);
       })
-      .catch(() => {})
+      .catch(() => {
+        // M68: the "Load more" control stays visible, so it is the retry.
+        notify({
+          kind: "warning",
+          text: "Couldn't load older activity. Try again.",
+          ttl: 6000,
+          dedupeKey: "timeline-more",
+        });
+      })
       .finally(() => setTimelineLoadingMore(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, timelineNextBefore, timelineLoadingMore]);
+  }, [project?.id, timelineNextBefore, timelineLoadingMore, notify]);
 
   const handleWhileAwayDismiss = useCallback(() => {
     const groups = whileAwayGroups;
@@ -1780,12 +2053,28 @@ export default function IDE({
     setTimelineLoaded(true);
     void fetchCollabTimeline(pid, { limit: 40 })
       .then((r) => {
+        // M68: a slow page for a project the user has since switched away
+        // from must not merge into the now-current project's timeline.
+        if (pid !== activeProjectIdRef.current) return;
         setTimeline((prev) => mergeTimeline(prev, r.events, 200));
         setTimelineNextBefore(r.nextBefore);
+        dismissNoticeKey("timeline-load");
       })
-      .catch(() => setTimelineLoaded(false));
+      .catch(() => {
+        if (pid !== activeProjectIdRef.current) return;
+        // M68: keep `timelineLoaded` true so the effect does not immediately
+        // refetch in a tight loop against a down server. The failure is a
+        // persistent, retryable notice; Retry flips the flag once.
+        notify({
+          kind: "warning",
+          text: "Couldn't load team activity.",
+          ttl: null,
+          dedupeKey: "timeline-load",
+          actions: [{ label: "Retry", onClick: () => setTimelineLoaded(false) }],
+        });
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamPanelOpen, timelineLoaded, collabClient, project?.id]);
+  }, [teamPanelOpen, timelineLoaded, collabClient, project?.id, notify, dismissNoticeKey]);
 
   // M58: every attention gesture (Point / Callout / request "Go there")
   // navigates through the SAME open-then-reveal primitive.
@@ -2242,7 +2531,7 @@ export default function IDE({
 
     document.addEventListener("ide-run", handleRunRequest);
     return () => document.removeEventListener("ide-run", handleRunRequest);
-  }, [project, openFiles, resolveLiveFileContent]);
+  }, [project, openFiles, resolveLiveFileContent, setIsBottomCollapsed]);
 
   // M43/M44: Output (which owns the actual install request/stream) only
   // exists in the DOM while bottomTab === "output" and the panel isn't
@@ -2269,7 +2558,7 @@ export default function IDE({
     document.addEventListener("ide-install", handleInstallRequest);
     return () =>
       document.removeEventListener("ide-install", handleInstallRequest);
-  }, [project]);
+  }, [project, setIsBottomCollapsed]);
 
   // Listen for execution completion events to parse compiler/runtime diagnostics
   useEffect(() => {
@@ -2303,7 +2592,7 @@ export default function IDE({
         "ide-execution-result",
         handleExecutionResult,
       );
-  }, []);
+  }, [setIsBottomCollapsed]);
 
   // M5: AI Action Trigger Handler
   const handleTriggerAIAction = useCallback(
@@ -2454,8 +2743,8 @@ export default function IDE({
         title: "Quick Open File",
         description: "Search and open workspace files by name",
         category: "Navigation",
-        shortcut: "Ctrl+P",
-        macShortcut: "⌘P",
+        shortcut: kbLabel("workbench.action.quickOpen", false),
+        macShortcut: kbLabel("workbench.action.quickOpen", true),
         handler: () => {
           setPaletteMode("files");
           setIsPaletteOpen(true);
@@ -2466,8 +2755,8 @@ export default function IDE({
         title: "Command Palette",
         description: "Show and run IDE commands",
         category: "Navigation",
-        shortcut: "Ctrl+Shift+P",
-        macShortcut: "⇧⌘P",
+        shortcut: kbLabel("workbench.action.showCommands", false),
+        macShortcut: kbLabel("workbench.action.showCommands", true),
         handler: () => {
           setPaletteMode("commands");
           setIsPaletteOpen(true);
@@ -2634,14 +2923,11 @@ export default function IDE({
         description: "Automatically format files on save",
         category: "UI",
         handler: () => {
-          setFormatOnSave((prev) => {
-            const next = !prev;
-            localStorage.setItem("cloudeee_format_on_save", String(next));
-            return next;
-          });
+          const next = !formatOnSave;
+          void handleUpdatePreferences({ formatOnSave: next });
           notify({
             kind: "info",
-            text: `Format on Save: ${!formatOnSave ? "Enabled" : "Disabled"}`,
+            text: `Format on Save: ${next ? "Enabled" : "Disabled"}`,
             ttl: 2500,
             surface: "statusbar",
             dedupeKey: "save-toast",
@@ -2653,8 +2939,8 @@ export default function IDE({
         title: "Toggle Sidebar",
         description: "Show or hide the workspace file tree",
         category: "UI",
-        shortcut: "Ctrl+B",
-        macShortcut: "⌘B",
+        shortcut: kbLabel("workbench.action.toggleSidebar", false),
+        macShortcut: kbLabel("workbench.action.toggleSidebar", true),
         handler: () => setIsSidebarHidden((prev) => !prev),
       },
       {
@@ -2662,8 +2948,8 @@ export default function IDE({
         title: "Toggle Bottom Console Drawer",
         description: "Expand or collapse the output/terminal drawer",
         category: "UI",
-        shortcut: "Ctrl+J",
-        macShortcut: "⌘J",
+        shortcut: kbLabel("workbench.action.toggleBottomPanel", false),
+        macShortcut: kbLabel("workbench.action.toggleBottomPanel", true),
         handler: () => setIsBottomCollapsed((prev) => !prev),
       },
       {
@@ -2671,8 +2957,8 @@ export default function IDE({
         title: "Save Active File",
         description: "Save dirty buffer to workspace disk storage",
         category: "UI",
-        shortcut: "Ctrl+S",
-        macShortcut: "⌘S",
+        shortcut: kbLabel("workbench.action.saveFile", false),
+        macShortcut: kbLabel("workbench.action.saveFile", true),
         available: () => !!activeFile,
         handler: () => handleSaveActiveFile(),
       },
@@ -2790,33 +3076,42 @@ export default function IDE({
     user.role,
     onSwitchToAdmin,
     formatOnSave,
+    handleUpdatePreferences,
     handleFormatDocument,
     handleSaveActiveFile,
     handleTriggerAIAction,
     handleOpenFile,
     notify,
+    setIsSidebarHidden,
+    setIsBottomCollapsed,
+    resolvedKeymap,
+    kbLabel,
   ]);
 
-  // Central Keyboard Shortcuts Dispatcher
-  useKeyboardShortcuts({
-    onOpenCommandPalette: () => {
-      setPaletteMode("commands");
-      setIsPaletteOpen(true);
+  // Central Keyboard Shortcuts Dispatcher (M70: keymap-driven)
+  useKeyboardShortcuts(
+    {
+      onOpenCommandPalette: () => {
+        setPaletteMode("commands");
+        setIsPaletteOpen(true);
+      },
+      onOpenQuickOpen: () => {
+        setPaletteMode("files");
+        setIsPaletteOpen(true);
+      },
+      // M1: the hook dispatches the canonical ide-save event itself using this
+      // path accessor; the listener below resolves live content and persists.
+      getActiveFile: () => activeFile,
+      onToggleSidebar: () => {
+        setIsSidebarHidden((prev) => !prev);
+      },
+      onToggleBottomPanel: () => {
+        setIsBottomCollapsed((prev) => !prev);
+      },
     },
-    onOpenQuickOpen: () => {
-      setPaletteMode("files");
-      setIsPaletteOpen(true);
-    },
-    // M1: the hook dispatches the canonical ide-save event itself using this
-    // path accessor; the listener below resolves live content and persists.
-    getActiveFile: () => activeFile,
-    onToggleSidebar: () => {
-      setIsSidebarHidden((prev) => !prev);
-    },
-    onToggleBottomPanel: () => {
-      setIsBottomCollapsed((prev) => !prev);
-    },
-  });
+    true,
+    resolvedKeymap,
+  );
 
   // Global key listener for Ctrl+Shift+F (Workspace Search) and Shift+Alt+F (Format Document)
   useEffect(() => {
@@ -2876,6 +3171,10 @@ export default function IDE({
     };
 
     const handleMouseUp = () => {
+      // M67: persist the settled dimension once per completed drag gesture —
+      // never on the individual mousemoves above.
+      if (isDraggingSidebar) persistSidebarWidth();
+      if (isDraggingBottom) persistBottomHeight();
       setIsDraggingSidebar(false);
       setIsDraggingBottom(false);
     };
@@ -2888,7 +3187,14 @@ export default function IDE({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDraggingSidebar, isDraggingBottom]);
+  }, [
+    isDraggingSidebar,
+    isDraggingBottom,
+    persistSidebarWidth,
+    persistBottomHeight,
+    setSidebarWidth,
+    setBottomHeight,
+  ]);
 
   const errorCount = diagnostics.filter((d) => d.severity === "error").length;
   const warningCount = diagnostics.filter(
@@ -2912,14 +3218,16 @@ export default function IDE({
           onCreateProject={loadProjects}
           onProjectBootstrapped={handleProjectBootstrapped}
           tree={tree}
+          treeStatus={treeStatus}
+          onRetryTree={handleRetryTree}
           onOpenFile={handleOpenFile}
           activeFile={activeFile}
           onLogout={onLogout}
           refreshTree={loadTree}
           width={sidebarWidth}
-          onOpenTour={() => setShowTour(true)}
-          onOpenSettings={() => setShowSettings(true)}
-          collaborators={collaborators}
+          onOpenTour={handleOpenTour}
+          onOpenSettings={handleOpenSettingsFromSidebar}
+          collaborators={collaboratorsForTree}
           runStatuses={runStatuses}
           currentUserId={user.id}
           commentCountsByFile={commentCountsByFile}
@@ -3130,6 +3438,8 @@ export default function IDE({
                   setOpenFiles={setOpenFiles}
                   activeFile={activeFile}
                   setActiveFile={setActiveFile}
+                  resolvedTheme={resolvedTheme}
+                  saveChord={resolvedKeymap.byCommand["workbench.action.saveFile"]}
                   diagnostics={diagnostics}
                   collabClient={collabClient}
                   collaborators={collaborators}
@@ -3313,7 +3623,14 @@ export default function IDE({
                 }}
               >
                 {bottomTab === "output" && (
-                  <Output project={project} onRefreshTree={loadTree} />
+                  <Output
+                    project={project}
+                    onRefreshTree={loadTree}
+                    sharedRunOutputs={sharedRunOutputs}
+                    runStatuses={runStatuses}
+                    currentUserId={user.id}
+                    collabConnected={collabStatus === "connected"}
+                  />
                 )}
                 {bottomTab === "problems" && (
                   <ProblemsPanel
@@ -3354,7 +3671,9 @@ export default function IDE({
                 {bottomTab === "resources" && (
                   <ResourcesView project={project} />
                 )}
-                {bottomTab === "terminal" && <Terminal project={project} />}
+                {bottomTab === "terminal" && (
+                  <Terminal project={project} resolvedTheme={resolvedTheme} />
+                )}
                 {bottomTab === "preview" && project && (
                   <Preview key={project.id} project={project} />
                 )}
@@ -3454,14 +3773,11 @@ export default function IDE({
             <span
               className="ide-statusbar-item"
               onClick={() => {
-                setFormatOnSave(!formatOnSave);
-                localStorage.setItem(
-                  "cloudeee_format_on_save",
-                  String(!formatOnSave),
-                );
+                const next = !formatOnSave;
+                void handleUpdatePreferences({ formatOnSave: next });
                 notify({
                   kind: "info",
-                  text: `Format on Save: ${!formatOnSave ? "On" : "Off"}`,
+                  text: `Format on Save: ${next ? "On" : "Off"}`,
                   ttl: 2000,
                   surface: "statusbar",
                   dedupeKey: "save-toast",

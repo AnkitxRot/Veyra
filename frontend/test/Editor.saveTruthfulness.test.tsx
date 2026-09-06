@@ -77,18 +77,22 @@ describe("Editor — save truthfulness (M1 regression: BUG-1) and read-only sync
     expect(liveApiRef.current!.get("main.py")).not.toBe("print('open-time')");
   });
 
-  it("Monaco's own Ctrl+S command dispatches ide-save with the live content, not stale props", async () => {
+  it("the in-editor Monaco save action dispatches ide-save with the live content, not stale props", async () => {
     renderEditor();
     const editorInstance = __getLastEditorInstance()!;
     const model = editorInstance.getModel()!;
     model.setValue("edited-before-save");
 
-    const handler = editorInstance.commands.get("__last__")!;
+    // M70: save is a keymap-registered action, not a hardcoded addCommand.
+    const action = editorInstance.actions.get("cloudeee.action.save") as {
+      run: () => Promise<void>;
+    };
+    expect(action).toBeDefined();
     const events: CustomEvent[] = [];
     const listener = (e: Event) => events.push(e as CustomEvent);
     document.addEventListener("ide-save", listener);
     try {
-      await handler();
+      await action.run();
     } finally {
       document.removeEventListener("ide-save", listener);
     }
@@ -96,6 +100,35 @@ describe("Editor — save truthfulness (M1 regression: BUG-1) and read-only sync
     expect(events).toHaveLength(1);
     expect(events[0].detail.path).toBe("main.py");
     expect(events[0].detail.content).toBe("edited-before-save");
+  });
+
+  it("re-registers the Monaco save action when the save chord changes (no leak)", () => {
+    const setOpenFiles = () => {};
+    const liveApiRef = { current: null } as React.MutableRefObject<any>;
+    const props = {
+      openFiles: [{ path: "main.py", content: "x" }],
+      setOpenFiles,
+      activeFile: "main.py",
+      setActiveFile: () => {},
+      liveApiRef,
+      collaborators: [],
+      currentUserId: 1,
+    };
+    const { rerender } = render(
+      React.createElement(Editor, { ...props, saveChord: "mod+s" } as any),
+    );
+    const inst = __getLastEditorInstance()!;
+    expect(inst.actions.has("cloudeee.action.save")).toBe(true);
+    const kb1 = (inst.actions.get("cloudeee.action.save") as any).keybindings;
+
+    rerender(
+      React.createElement(Editor, { ...props, saveChord: "mod+alt+s" } as any),
+    );
+    // still exactly one save action, re-registered with a new keybinding
+    expect(inst.actions.has("cloudeee.action.save")).toBe(true);
+    expect(inst.disposedActions.filter((id) => id === "cloudeee.action.save").length).toBeGreaterThanOrEqual(1);
+    const kb2 = (inst.actions.get("cloudeee.action.save") as any).keybindings;
+    expect(kb2).not.toEqual(kb1);
   });
 
   it("getLiveContent returns null once the editor unmounts (never reads from a dead editor)", () => {

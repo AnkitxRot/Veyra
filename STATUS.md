@@ -6272,11 +6272,13 @@ instance only (env var, no code change).
    project-data egress, prompt-injection trust boundary, demo-account policy);
    (b) ~~local-only Git repository support~~ — **shipped in M51** (local-only,
    no remotes; see the M51 section); this line is stale;
-   (c) shared execution output / summon-terminal for collaborators
-   (`ws/execution.ts` has no room broadcast today) — still open, but note M54
-   deliberately broadcasts run *status* only and never stdout/stderr because
-   run output can contain injected project secrets (M47); widening that is a
-   security/product decision, not a plain bounded task; (d) native
+   (c) ~~shared execution output for collaborators~~ — **shipped in M65** (see
+   the M65 section): stdout/stderr broadcast to owner/editor room clients only,
+   bounded 256 KB ephemeral buffer, no viewer stdin/kill, no shared interactive
+   terminal ("summon-terminal" remains out of scope). The M47 injected-secret
+   concern is handled by the owner/editor-only access gate + the fact that
+   secrets are only injected into the run's env, not echoed to stdout;
+   (d) native
    workspace-backup scheduler + admin "backup all now" (`deploy/README.md`
    explicitly defers the scheduler — "distinct concern (queue design, shutdown
    lifecycle, per-project overlap-skipping)"); the "backup all now" admin
@@ -6776,3 +6778,1203 @@ of every M64 commit) — the M63 connection wiring is untouched.
 `tsc --noEmit` 0, `vite build` 0, `eslint .` 0 errors / 35 warnings (baseline);
 backend `tsc --noEmit` 0, full suite 1039 / 9 skip / 0 (Docker up);
 `git diff --check` clean; tree clean.
+
+## M65 — shared run output (bounded, ephemeral, owner/editor)
+
+**Objective:** an authorized collaborator can watch another member's run output
+(stdout/stderr) inside the IDE, read-only, without collaboration ever becoming
+an interactive shared terminal. Server-authoritative, ephemeral, bounded.
+
+**Commit range:** `91202ff..820ef26` (4 commits)
+
+| Commit | Purpose |
+|---|---|
+| `d4a4720` feat(collab): add bounded ephemeral shared run output buffer | `CollaborationRoom` run-output ring + broadcast + snapshot + teardown |
+| `2e701da` feat(run): publish execution output to the collaboration room | `ws/execution.ts` onStdout/onStderr calls `notifyRunOutput`; auth integration tests |
+| `c0219ad` feat(collab): receive shared run output on the client | `CollaborationClient.runOutputs` receive-only transport + seq de-dupe |
+| `820ef26` feat(ide): surface read-only shared run output in the console | `SharedRunOutputPanel` + IDE/Output wiring |
+
+**Architecture (server-authoritative, ephemeral — mirrors M54 run status):**
+
+```
+runProject onStdout/onStderr (ws/execution.ts, authenticated editor+ socket)
+  -> collaborationManager.notifyRunOutput(projectId, executionId, stream, data)
+  -> CollaborationRoom.handleRunOutput  — rejected unless a live M54 run_status
+      entry exists for executionId (buffer cannot predate or outlive its run)
+  -> per-execution ring: chunks[], bytes, truncated, seq, pending, flushTimer
+      - RUN_OUTPUT_MAX_BYTES = 256 KB, enforced on every append
+      - overflow -> drop OLDEST whole chunks (a lone oversized chunk is
+        head-truncated), truncated latches true
+      - chunks within RUN_OUTPUT_FLUSH_MS (60 ms) coalesce into one batch,
+        monotonic per-execution seq
+  -> broadcastRunOutput -> MESSAGE_CUSTOM {type:"run_output", executionId, seq,
+      truncated, chunks} to room clients whose role is owner OR editor ONLY
+  -> addClient(): an owner/editor joiner gets the buffered tail as
+      {..., snapshot:true} frames (viewers get nothing)
+  -> CollaborationClient: snapshot replaces the buffer + sets lastSeq; live
+      frames append, ignored when seq <= lastSeq (reconnect de-dupe); a
+      256 KB client-side char cap mirrors the server; buffer dropped with its
+      run_status ("cleared"), on reconnect reset, and on dispose()
+  -> IDE.tsx sharedRunOutputs state (run_output_change) -> <Output>
+  -> SharedRunOutputPanel: read-only, above the local console, only for OTHER
+      users' runs with a matching status. Header (who + file + running/
+      completed/failed/stopped badge), "earlier output truncated" marker,
+      "Output unavailable — reconnecting" when the collab link is down. No
+      stdin field, no stop control.
+```
+
+**256 KB truncation choice — drop OLDEST, mark explicitly.** The shared buffer
+is a bounded *replay tail* for late joiners and reconnecting clients; the newest
+output (current progress, latest error, exit banner) is the most relevant, which
+matches terminal scrollback / `tail` semantics and M54's "latest state wins,
+linger briefly" treatment. The runner's own `/ws/execute` stream is unaffected —
+it consumed every chunk live. Truncation is surfaced (`truncated` flag -> UI
+marker), never silent, and the buffer never grows unbounded.
+
+**Product decision — viewer access (spec was ambiguous: "owner/editor-only
+access" vs "read-only for viewers").** Resolved conservatively: shared run
+*output* goes to **owner + editor room clients only**. Viewers keep M54 run
+*status* (who / what / state) but never receive the output stream. The role gate
+lives in one place (`broadcastRunOutput` recipient filter + the `addClient`
+snapshot guard); including viewers later is a one-predicate change. Rationale:
+"owner/editor-only access" is an explicit hard-requirement bullet, and
+under-sharing code-execution output is the safe failure mode.
+
+**Security (server-side, not frontend-role):**
+
+| Guarantee | Enforcement |
+|---|---|
+| viewer / non-member cannot run, stdin, or kill | `/ws/execute` upgrade `requireProjectAccess(minRole:"editor")` — unchanged; integration test asserts 403 for viewer + stranger |
+| non-member cannot subscribe to output | `/ws/collab` upgrade `requireProjectAccess(minRole:"viewer")` — stranger 403 |
+| viewer cannot see output | `broadcastRunOutput` / snapshot filter on `CollaboratorClientState.role` |
+| client cannot inject or forge output | inbound `MESSAGE_CUSTOM` allowlist unchanged (no `run_output`); the client has no code path that authors the frame |
+| output cannot accumulate unbounded | 256 KB ring on the server, 256 KB char cap on the client |
+| nothing persisted | in-memory only; the `runs` table is written solely by the existing M54 status path (test asserts 0 rows from the output path) |
+
+**Lifecycle / cleanup:** the output buffer is bound to its M54 `run_status`
+entry. Terminal state -> retained through `RUN_STATUS_LINGER_MS` (late chunks
+still flow), then dropped with the status entry (`cleared` frame). The 30-min
+stale-run sweep and `dispose()` both drop the buffer + its flush timer. No
+per-execution subscription object exists, so a reconnect cannot create a
+duplicate subscription; a reconnecting owner/editor just gets one fresh snapshot
+and the `seq` guard suppresses any duplicated in-flight batch.
+
+**Verification gates (2026-09-06):**
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1061 passed / 9 skipped / 0 failed** (83 files, 345 s); Docker-gated suites (`python-deps` 42 s, `templates.exec`, `m16-optimization`, `sandbox`) actually executed. +22 vs. M64 baseline = the M65 backend tests |
+| M65 backend room tests | `m65-shared-run-output.test.ts` — 17: stdout/stderr delivery, owner delivery, viewer exclusion (x2), no-status rejection, coalescing + seq, 256 KB bound + oldest-drop + latch, single-oversized head-truncate, mid-run snapshot, linger retention then drop, stale-sweep drop, `dispose()` timer + buffer clear, disposed-room no-op, no `runs` persistence, manager routing, non-OPEN skip |
+| M65 backend integration | `m65-shared-run-output.integration.test.ts` — 5: viewer -> `/ws/execute` 403, stranger -> `/ws/execute` 403, stranger -> `/ws/collab` 403, editor -> `/ws/execute` 101, owner run streams stdout+stderr to an editor and never to a viewer (viewer still gets `run_status`) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` -> **737 passed / 0 failed** (88 files); +19 (collab.runOutput.client 8, SharedRunOutputPanel 6, ideSharedRunOutput.wiring 5) |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint .` -> 0 errors / 35 warnings (baseline unchanged) |
+| `git diff --check` | clean |
+| Live browser — TWO real sessions | owner (`m65own_7684`, script-driven `/ws/execute`) + editor (`m61_userA`, real IDE tab). **PASS:** live stdout streaming into `SharedRunOutputPanel` ("running" badge, "m65own_7684 is running main.py", lines 0-5); stderr interleaved; "completed" state (past-tense header, badge); read-only (no stdin form, no stop control — DOM-confirmed); 256 KB truncation with "earlier output truncated" marker + oldest rows dropped (body 261 961 chars <= 262 144, first visible line `row 2312:`); ephemeral teardown — panel gone ~10 s after the run terminal state; zero console errors |
+| Revert-sensitivity | 256 KB trim, oldest-drop, `truncated` latch, no-status rejection, viewer exclusion, snapshot-on-join, linger teardown, `dispose()` clear, client seq de-dupe, client `run_status`-cleared teardown, IDE `run_output_change` wiring each break >=1 test when reverted |
+
+**NOT run in the live browser** (deterministically covered): viewer *exclusion*
+from output (needs a third authenticated session — covered by
+`m65-shared-run-output.test.ts` x2 + the integration test), the
+"unavailable — reconnecting" notice on a forced disconnect, and reconnect
+snapshot de-dupe (`collab.runOutput.client.test.ts`). A second/third
+authenticated browser session could not be created because that needs account
+creation / password entry, which is outside what this agent may do; the two
+sessions used were driven from pre-existing / API-created credentials without
+interactive auth.
+
+**Not done / out of scope (M65):** no durable run-output history, no viewer
+stdin / kill / shared interactive terminal, no external AI provider, no change to
+the runner's own `/ws/execute` stream, no new REST endpoint, no M66 preference
+work.
+
+## M66 — unified preferences: classification + formatOnSave migration
+
+**Objective (bounded slice of the "Unified Preferences Foundation"):** make the
+editor-preference surface coherent by moving the one genuine editor setting that
+bypassed the single source of truth into it, and record the full classification
+of every persisted client-side value so later customization milestones have a
+verified inventory to build on. **NOT** a preference-framework rewrite — one
+already exists and works.
+
+**Commit range:** `029cc7f..e18e6b4` (2 commits)
+
+| Commit | Purpose |
+|---|---|
+| `acd547c` feat(settings): persist formatOnSave in the typed user preference store | backend `auth/preferences.ts` + migration v13 + tests |
+| `e18e6b4` refactor(ide): move format-on-save off localStorage onto the preference store | `types.ts`, `SettingsModal`, `IDE.tsx` + one-time migration + tests |
+
+### Preference-mechanism inventory (verified against source)
+
+| Mechanism | Holds | Classification | M66 action |
+|---|---|---|---|
+| `user_preferences` table + `auth/preferences.ts` + `GET/PUT /api/auth/preferences` (M22) | 7 editor settings (fontSize, tabSize, wordWrap, minimap, lineNumbers, cursorBlinking, renderWhitespace) | **USER-SCOPED** — typed columns, strict per-field validation, defaults, partial-merge, unknown-key rejection, safe fallback to defaults, single source of truth. Migration path proven (db.ts v8 → v12). | **This is the foundation.** Extended with `formatOnSave`. |
+| `user_settings` table (M61 Track C, "dormant") — `{user_id, version, data JSON, updated_at}`, seeded once from `user_preferences` with `editor.*` keys | nothing (no reader, no writer, no route, no UI) | **USER-SCOPED (intended)** — a generic versioned KV store built for the eventual extensible preference layer. | **Left untouched** — see "Architecture decision deferred". |
+| `localStorage cloudeee_format_on_save` (IDE.tsx) | format-on-save boolean | **USER-SCOPED** — a genuine editor preference that was per-browser instead of per-account. | **Migrated** into `user_preferences.format_on_save`; one-time client migration retires the key. |
+| `localStorage cloudeee_demo_tour_seen` (IDE.tsx) | "has this browser seen the demo tour" | **SESSION-ONLY / per-device** — a first-run flag that is genuinely device-local. | Left as-is (correct). |
+| `utils/recentStore.ts` — `cloudeee_recent_files_<pid>`, `cloudeee_recent_projects` | MRU lists | **TRANSIENT / per-device convenience.** | Left as-is (correct). |
+| `utils/sessionStore.ts` — `cloudeee_session_<pid>` (open tabs, active file, bottom tab), `cloudeee_last_project` | session-restore UI state | **TRANSIENT UI STATE** — explicitly frontend-only; sanitised; never authorization. | Left as-is (correct — "do not persist transient state"). |
+| `IDE.tsx` `useState` — `sidebarWidth` (250), `bottomHeight` (260), `isSidebarHidden`, `isBottomCollapsed` | panel layout | **USER-SCOPED preference, currently NOT persisted at all** (reset every reload). | **Not touched** — persisting it is a new feature, not a migration; deferred to a later customization milestone that can build on the foundation. |
+
+### What landed
+
+- `UserPreferences` (backend + frontend) gains `formatOnSave: boolean`, default
+  `false` — identical to the prior client default, so no user's behaviour
+  changes. `ALLOWED_KEYS` + `invalid_format_on_save` validation + the
+  SELECT / INSERT / merge paths.
+- **Migration v13** — `ALTER TABLE user_preferences ADD COLUMN format_on_save
+  INTEGER NOT NULL DEFAULT 0`, guarded by a `PRAGMA table_info` existence check
+  (idempotent; also added to the inline `openDb` schema for fresh DBs). Existing
+  rows → `0` (off). No data touched, no other column altered.
+- **Client one-time migration** (in the preference-load effect): a pre-existing
+  `cloudeee_format_on_save === "true"` the server does not yet know about is
+  `PUT` once, then the localStorage key is removed; any other value is just
+  removed. Each user keeps their existing per-device choice, promoted to their
+  account.
+- Both toggles (command palette `editor.action.toggleFormatOnSave`, status-bar
+  `Format: On/Off` item) now persist via `handleUpdatePreferences({ formatOnSave
+  })` (now a stable `useCallback`). SettingsModal gains a matching toggle in the
+  editor tab.
+
+### Architecture decision DEFERRED (not executed — flagged for the user)
+
+The repo has **two** user-preference persistence systems: the active typed
+`user_preferences` (M22) and the **dormant** generic `user_settings` JSON store
+(M61 Track C). "Fully unifying" preferences means choosing:
+
+- **(A)** keep extending `user_preferences` (typed columns; each new setting =
+  one migration) — what M66 did for `formatOnSave`;
+- **(B)** activate `user_settings` as the single store, build its
+  service/validation/routes, migrate the M22 consumers onto it, retire the
+  `user_preferences` table.
+
+(B) is a migration of a working, wired, tested system and squarely hits the
+STOP condition "a migration could corrupt user/workspace settings". It is a
+product/architecture decision, not a bounded task, so it was **not** attempted
+tonight. Recommendation on the table: adopt (A) as policy and either remove the
+dormant `user_settings` table in its own dedicated migration or leave it for a
+future explicit customization milestone.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1067 passed / 9 skipped / 0 failed** (84 files, 345 s); Docker-gated suites executed. +6 vs. the M65 baseline = the M66 backend tests |
+| M66 backend tests | `m66-format-on-save-pref.test.ts` (6) + `preferences.test.ts` (13, test 1 updated) + `migrations.test.ts` (7, v12 -> v13 assertions) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` -> **744 passed / 0 failed** (90 files); +7 (SettingsModal.formatOnSave 3, ideFormatOnSave.wiring 4) |
+| Frontend build | `vite build` exit 0 |
+| Frontend eslint | `eslint .` -> 0 errors / 35 warnings (baseline unchanged) |
+| `git diff --check` | clean |
+| Live browser (single session — this IS a user-scoped setting, no second user needed) | **PASS:** one-time migration (`localStorage cloudeee_format_on_save="true"` -> after reload, server `formatOnSave:true` + the key removed); status-bar toggle -> `PUT /api/auth/preferences` persists (server `true` -> `false`); reload -> value restored from the server; zero console errors |
+| Revert-sensitivity | validation, default, column, merge, migration guard, client one-time migration, both toggle paths, useCallback stability each break >=1 test when reverted |
+
+**Not done / out of scope (M66):** the `user_preferences` vs `user_settings`
+consolidation (flagged above), panel-layout persistence, theme / keybinding
+customization, any change to the 7 pre-existing editor settings, `user_settings`
+activation, removal of the dormant M61 tables.
+
+## Preference-architecture decision (2026-09-06) — OPTION A
+
+The M66 section flagged an unresolved choice between two user-preference
+persistence systems. **Decision: adopt Option A.**
+
+- **KEEP** the active, typed `user_preferences` table + `auth/preferences.ts` +
+  `GET/PUT /api/auth/preferences` as the single authoritative preference path.
+  Every new persisted user-scoped customization extends this typed contract:
+  one typed column per field, strict per-field validation, an explicit default,
+  partial-merge semantics, unknown-key rejection, and a guarded
+  `PRAGMA table_info` migration.
+- **DO NOT** activate or migrate onto the dormant generic M61 `user_settings`
+  JSON store. It has no active reader, writer, route, or UI. Replatforming a
+  working, wired, tested system onto dormant storage is unnecessary migration
+  risk and squarely hits the STOP condition ("a migration could corrupt
+  user/workspace settings").
+- **Rationale:** `user_preferences` is active, typed, validated, tested, and
+  already the authoritative path; `formatOnSave` was migrated into it
+  successfully in M66; `user_settings` carries nothing and is referenced by no
+  code path.
+
+**`user_settings` is treated as dormant legacy/deferred architecture. It is NOT
+deleted here.** Retiring it is a separate future cleanup item:
+
+> **Future cleanup — retire the dormant `user_settings` store.** Only after
+> confirming nothing reads or writes it (currently true: `rg user_settings`
+> hits `db.ts` schema + the one-time v12 seed copy + `migrations.test.ts`
+> only), drop `user_settings` and the unused M61 profile-adjacent tables in
+> their own dedicated, reversible migration. Not urgent; no correctness or
+> security impact while it sits unused.
+
+## M67 — persistent IDE layout preferences (user-global)
+
+**Objective (bounded customization slice, builds directly on the Option A
+foundation):** stop discarding the user's IDE panel layout on every reload.
+Persist the four genuinely user-scoped layout dimensions through the typed
+`user_preferences` contract so they survive a reload and follow the user across
+devices.
+
+**Persisted (4 new typed `user_preferences` fields):**
+
+| Field | Type | Server bounds | Default | Was |
+|---|---|---|---|---|
+| `sidebarWidth` | integer px | `[180, 500]` | `250` | `IDE.tsx` `useState(250)`, never persisted |
+| `bottomHeight` | integer px | `[120, 600]` | `260` | `IDE.tsx` `useState(260)`, never persisted |
+| `sidebarHidden` | boolean | — | `false` | `IDE.tsx` `useState(false)`, never persisted |
+| `bottomCollapsed` | boolean | — | `false` | `IDE.tsx` `useState(false)`, never persisted |
+
+Bounds are lifted verbatim from the existing drag-resize clamps in `IDE.tsx`
+(`Math.max(180, Math.min(clientX, 500))` for the sidebar,
+`Math.max(120, Math.min(innerHeight - clientY, 600))` for the bottom panel).
+The client clamps (and rounds) to the same shared constants before persisting;
+the server independently range-checks and rejects an out-of-range value with a
+`400` (`invalid_sidebar_width` / `invalid_bottom_height`), not a silent clamp —
+mirrors the existing `fontSize` contract exactly.
+
+**Scope decision — active bottom tab stays project-scoped, NOT persisted here.**
+The milestone brief listed "active bottom tab" as a fifth value. Repository
+evidence shows the IDE already treats it as **project-specific**: it is stored
+per-project in `localStorage cloudeee_session_<pid>` via `sessionStore.ts`
+(session restore: open tabs + active file + bottom tab, keyed by project id),
+and `sessionStore.ts`'s own type documents it as *"which bottom panel was
+selected, or null for the default"*. The M66 inventory classified that store as
+transient per-device UI state, correctly left alone. Promoting the bottom tab to
+a user-global preference would contradict that existing per-project semantic and
+the brief's own rule ("use USER-GLOBAL persistence unless repository evidence
+proves the existing UX treats these values as project-specific"). It is
+therefore **left on its existing per-project session mechanism, unchanged.**
+Only the four dimensions above — which have zero existing persistence and no
+project scoping — move into `user_preferences`.
+
+**User-global, not workspace-scoped.** The four values are plain `IDE.tsx`
+component state today with no project dependency and no reset on project switch.
+There is no workspace-preference infrastructure and this milestone does not
+invent any.
+
+**Not in scope:** themes, keybindings, custom themes, preference import/export,
+workspace-scoped preferences, preference sync across workspace members, any
+broad settings-UX redesign, `user_settings` activation or retirement,
+the bottom-tab scope change described above.
+
+### What landed
+
+**Commit range:** `f2ccbf4..381d8a3` (4 commits; `f2ccbf4` is the shared
+architecture-decision doc above)
+
+| Commit | Purpose |
+|---|---|
+| `389ccba` feat(settings): add typed layout preference schema | `auth/preferences.ts` — 4 typed fields + `LAYOUT_BOUNDS` + per-field validation (`invalid_sidebar_width` / `invalid_bottom_height` / `invalid_sidebar_hidden` / `invalid_bottom_collapsed`) + merge + SELECT/INSERT; `db.ts` migration v14 (`PRAGMA table_info` guard, idempotent) + inline schema; backend tests |
+| `9a8cff5` feat(ide): persist sidebar and bottom panel layout | `frontend/src/hooks/useLayoutPreferences.ts` (new) + `types.ts` (`UserPreferences` + 4 fields, `EDITOR_PREFERENCE_KEYS`) + `IDE.tsx` wiring + `SettingsModal.tsx` (`pickEditorPrefs` payload filter) + hook tests |
+| `381d8a3` test(ide): harden layout persistence regression coverage | `ideLayoutPersistence.wiring.test.tsx` + `SettingsModal.layout.test.tsx` |
+
+- **`useLayoutPreferences(loaded, persist)`** owns the four values' local state
+  plus the persistence policy. Widths update locally on every drag mousemove
+  and persist **once**, on drag end (`persistSidebarWidth` /
+  `persistBottomHeight`, one PUT per gesture). The hidden / collapsed toggle
+  setters (`setIsSidebarHidden` / `setIsBottomCollapsed`, accepting the
+  value-or-updater form so all 18 existing IDE.tsx call sites are unchanged)
+  update optimistically and persist through the same path, but only when the
+  value actually changes. Nothing persists until `GET /api/auth/preferences`
+  has hydrated the hook (a one-time `hydratedRef` guard), so the pre-load
+  window never writes defaults over a stored layout. Client clamps + rounds to
+  the same bounds the server enforces. Persistence failures stay silent
+  (`persistLayout` = `handleUpdatePreferences(patch).catch(() => {})`),
+  matching the existing editor-preference behaviour.
+- **`SettingsModal`** now submits only `EDITOR_PREFERENCE_KEYS`
+  (`pickEditorPrefs`), so "Reset Defaults" there can never rewrite the user's
+  panel layout. `DEFAULT_PREFERENCES` carries the layout keys for type
+  completeness only.
+- **Bottom tab** untouched — still per-project via `sessionStore.ts`
+  (`cloudeee_session_<pid>.bottomTab`); `user_preferences` has no `bottomTab`
+  key.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` → **1080 passed / 9 skipped / 0 failed** (85 files, 349 s); Docker-gated suites (`templates.exec`, `python-deps`, `m16-optimization`, `sandbox`) executed. +13 vs. the M66 baseline (1067) = the 13 M67 backend tests |
+| M67 backend tests | `m67-layout-preferences.test.ts` (13: defaults, persisted layout, valid update, out-of-range width/height → 400, non-boolean toggle → 400, boundary values, partial merge, unknown key, domain round-trip, fresh-db columns, v14 migration idempotent + defaults existing rows, audit log) + `preferences.test.ts` (test 1 key list) + `migrations.test.ts` (v13 → v14 assertions) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` → **765 passed / 0 failed** (93 files); +21 (`useLayoutPreferences` 14, `ideLayoutPersistence.wiring` 4, `SettingsModal.layout` 3) |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` → **0 errors / 27 warnings** (baseline unchanged — the new hook-returned setters were added to the five affected IDE.tsx dependency arrays) |
+| `git diff --check` | clean |
+| Live browser (single session — user-scoped setting, no second user needed; `m61_userA` on `m65-browser-demo`) | **PASS:** drag sidebar 250 → 372 → `PUT` persists → reload restores 372; drag bottom panel → 350 → persists → reload restores (inline `height` style honoured; the empty-state "No Open Files" placeholder cosmetically caps the *rendered* height via a pre-existing flex `min-content` on `.ide-editor-area`, unrelated to persistence — the stored value round-trips exactly); Ctrl+B hide sidebar + Ctrl+J collapse panel → both persist (`sidebarHidden:true` / `bottomCollapsed:true`) → reload restores both collapsed; toggle back → persists `false`; bottom-tab change → `user_preferences` has **no** `bottomTab` key, `cloudeee_session_<pid>.bottomTab` = `"problems"`, reload restores the tab per-project; navigate to another project and back → sidebar 372 / bottom 350 unchanged (user-global, no project-switch reset); out-of-range `PUT {sidebarWidth:9999}` → `400 invalid_sidebar_width`; **zero console errors/warnings** across the whole session (only vite HMR + React DevTools notices). Test account's layout reset to defaults afterwards. |
+| Revert-sensitivity | server validation (×4 codes), defaults, columns, merge, v14 guard, hook hydration-once, drag-end single persist, mousemove-no-persist, optimistic toggle, change-only persist, pre-hydration no-write, clamp+round, `pickEditorPrefs` filter each break ≥1 test when reverted |
+
+### Not done / out of scope (M67)
+
+No settings-modal controls for the layout values (they persist through direct
+IDE interaction only); no themes / keybindings / custom themes; no
+import/export; no workspace-scoped preferences or cross-member sync; no change
+to the bottom-tab's per-project `sessionStore` mechanism; no `user_settings`
+activation or retirement (still deferred — see the cleanup item above); no
+fix for the pre-existing empty-state flex `min-content` clamp on the rendered
+bottom-panel height (cosmetic, persistence-independent, predates M67).
+
+
+## M68 — project/workspace load reliability & error recovery
+
+**Objective (bounded):** make project loading, workspace hydration,
+collaborator-roster loading, timeline loading, role resolution, and
+while-away recovery truthful, visible, retryable, and fail-safe. Not a UX
+redesign — only the swallowed-failure and fail-open paths on the
+project/workspace load surface.
+
+### Exact scope
+
+Seven load paths in `IDE.tsx` that previously swallowed their failures (or,
+for the role fetch, failed *open*):
+
+| Path | Before | After |
+|---|---|---|
+| Project access role (`GET /api/projects/:id`) | swallowed `.catch(() => {})` inside the collab effect; `projectRole` defaulted to `"owner"` — a failed/slow lookup rendered owner UI (editable editor, Secrets button, owner commands) | extracted to `useProjectRole`, **fails closed** to `viewer` (read-only) until a response explicitly says otherwise; stale responses for a previous project id discarded; `retry()` inert while in flight; persistent retryable notice while errored |
+| File tree (`GET /api/projects/:id/tree`) | `catch {}`; empty `tree` rendered as "Workspace is empty" + Add File — a failed load looked identical to an empty project | `loading / ready / error` status; Sidebar shows a compact loading state, a retryable inline error, or the genuine empty state only after a real empty load; persistent retryable notice; in-flight guard so a doubled Retry is one request |
+| Project list (`GET /api/projects`) | trailing `catch {}` — a transport failure left a blank IDE with no projects and no explanation | persistent retryable notice; an already-loaded list is preserved across a failed refresh |
+| Collaborator roster (`GET /api/projects/:id/collaborators`) | `.catch(() => {})` | last-known roster kept; retryable notice ("names may be out of date") |
+| While-you-were-away summary (`GET .../collab/while-away`) | `.catch(() => {})` | retryable notice; **M63 reconnect semantics and the `COLLAB_AWAY_THRESHOLD_MS` gate unchanged** — only the summary-fetch feedback changed |
+| Timeline initial page (`GET .../collab/timeline`) | `.catch(() => setTimelineLoaded(false))` — re-armed the effect and refetched in a **tight loop** against a down server | holds (`timelineLoaded` stays true), shows a retryable notice; Retry flips the flag once |
+| Timeline "load more" | `.catch(() => {})` | transient notice; the visible "Load more" control is the retry |
+
+Plus: the collab lifecycle effect now resets `tree` / `treeStatus` on a
+project switch (it already reset open tabs, notices, git state) — a failed
+tree load for the newly-opened project no longer renders the *previous*
+project's files.
+
+All notices route through the existing **M64 `useNotices` / `NoticeStack`**
+infrastructure. No second notification system, no reintroduced one-off notice
+state. Every M68 notice is dropped with the rest by the existing
+`clearNotices()` on project switch.
+
+### Safety invariant
+
+A permission/role-fetch failure **fails closed**: `useProjectRole` starts at
+`viewer` and is only ever raised to `editor`/`owner` by a 2xx response whose
+body carries that exact role. Network error, 5xx, a role-less body, and the
+in-flight window all resolve to `viewer`. Backend authorization is
+**untouched** — this only governs what the client renders before the server
+confirms access.
+
+### What landed
+
+**Commit range:** `8a06398..HEAD` (7 commits + this doc)
+
+| Commit | Purpose |
+|---|---|
+| `b7b60de` feat(ide): fail closed on project role fetch errors | `frontend/src/hooks/useProjectRole.ts` (new) + `IDE.tsx` wiring + `useProjectRole.test.tsx` (10) + `ideLoadRecovery.wiring.test.tsx` role block |
+| `a961463` feat(ide): surface file tree loading and retryable failures | `IDE.tsx` `treeStatus` + notice; `Sidebar.tsx` / `FileTree` loading / error / retry states; `Sidebar.treeLoadState.test.tsx` (5) + wiring guards |
+| `0d9172b` feat(ide): surface project list load failures | `IDE.tsx` `loadProjects` notice + retry ref + wiring guards |
+| `076a388` feat(ide): surface roster, timeline, and while-away load failures | `IDE.tsx` roster / while-away / timeline-initial / timeline-more notices + retries; `IDE.profileEvent.test.tsx` window widened; wiring guards |
+| `de297c6` test(ide): harden load/retry regression coverage | `ideLoadRecovery.mediation.test.tsx` (real `useNotices` + `NoticeStack` + mocked api) + an in-flight guard on `loadTree` |
+| `606c07f` fix(ide): clear the file tree on project switch | `IDE.tsx` `setTree([])` / `setTreeStatus("loading")` in the per-project reset block + wiring guard (found during browser verification) |
+| `HEAD` fix(ide): key the tree-load guard by project id | the `loadTree` in-flight guard became `treeLoadingPidRef` + a `treeLoadGenRef` generation check — a same-project doubled Retry is still one request, but a project switch mid-flight now supersedes the stale fetch instead of blocking the new one; +1 mediation test |
+
+New surfaces: `useProjectRole` hook; `Sidebar` `treeStatus` / `onRetryTree`
+props; `FileTree` `status` / `onRetry` props with `data-testid="file-tree-loading"`
+/ `"file-tree-error"`. No backend change, no new dependency, no migration.
+
+### Tests
+
+| Suite | Coverage |
+|---|---|
+| `useProjectRole.test.tsx` (10) | null project → no fetch / viewer; viewer+loading in flight; server role on success; **failure → viewer + error**; **failure never yields owner/editor**; role-less body → viewer; retry refetches → real role; **triple retry while in flight → 1 request**; stale response after id change discarded; id change → resets to viewer+loading |
+| `Sidebar.treeLoadState.test.tsx` (5) | loading state (not empty state) during first load; retryable error state (`onRetryTree` fired once); genuine empty state after a real empty load; already-loaded tree kept on a failed refresh; already-loaded tree kept during a background refresh |
+| `ideLoadRecovery.mediation.test.tsx` (4) | real-render: failed load → retryable error notice; **one Retry click → exactly one more request + error cleared**; rapid double Retry → no overlapping requests; a project switch mid-flight discards the previous project's tree |
+| `ideLoadRecovery.wiring.test.tsx` (20) | role: from `useProjectRole` not a local `"owner"` default, no in-effect role fetch, persistent alert notice keyed on `roleStatus === "error"` with `retryProjectRole`, cleared on non-error, read-only/owner UI keys off the fail-closed role; tree: lifecycle status, persistent retryable notice, cleared on success, Sidebar wiring, no loading-flash on background refresh, same-project Retry deduped + generation check supersedes on switch, `setTree([])`/`setTreeStatus` on switch; projects/roster/whileaway/timeline notice keys, retries, success-clears, and the M63 threshold gate intact; the immediate `.catch(() => setTimelineLoaded(false))` retry loop is gone |
+| Adjusted | `ideNotices.wiring.test.tsx` + `IDE.profileEvent.test.tsx` — source-slice windows widened for the enlarged reset block / roster fn body (assertions unchanged) |
+
+Revert-sensitivity: the fail-closed `viewer` default, the role stale-
+generation guard, the role in-flight guard, the tree same-project dedupe +
+generation check, each notice `dedupeKey` + its success-path
+`dismissNoticeKey`, the tree lifecycle transitions, the `setTree([])` on
+switch, and the timeline no-loop change each break at least one test when
+reverted.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **804 passed / 0 failed** (97 files); +39 vs. M67 (765) = `useProjectRole` 10, `Sidebar.treeLoadState` 5, `ideLoadRecovery.mediation` 4, `ideLoadRecovery.wiring` 20 |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged) |
+| Backend typecheck | `tsc --noEmit` exit 0 (no backend files touched) |
+| Backend full suite (Docker up) | `vitest run` -> **1079 passed / 9 skipped / 1 failed** (85 files, 395 s); Docker-gated suites executed. The 1 failure is `m4-collab.test.ts` #33 (`file_open` -> `file_ready` DISK-seeding race, `expected '' to be 'DISK'`) — a **known-flaky M52 timing test under full-suite load**: it passed 48/48 in isolation immediately after, and a full-suite run 10 min earlier on the same tree passed it (exit 0, 1080/1080). M68 is frontend-only (zero backend files changed). |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Live browser (`m61_userA`; `m65-browser-demo` = non-owner, `M61Verify` = owner; `fetch` shim to inject 503s on `GET /api/projects/:id` and `.../tree`) | **PASS:** (A) initial + every post-retry project load renders the correct project's tree; (B/C) role 503 on switch -> persistent "Couldn't confirm your access level... read-only mode" notice + **Secrets button hidden** + editor read-only; tree 503 on switch -> inline `file-tree-error` ("Couldn't load the file tree." + Retry) **and** a stack notice, `tree` empty (no stale previous-project files); (D/E) role Retry -> 1 role request -> notice cleared -> real role restored (Secrets reappears on `M61Verify`); tree Retry -> 1 tree request -> files load -> both error surfaces clear; (F) an in-page `error` / `unhandledrejection` / `console.error` / `console.warn` collector caught **zero** entries across the full role+tree fail/recover cycle (the injected 503s are handled by `api()`'s throw, not surfaced as uncaught errors); (G) role failure **never** produced owner/editor UI — Secrets stayed hidden, role stayed `viewer` for the whole error window; (H) switching projects with an active error dropped the stale notice (`clearNotices()`) and cleared the stale tree; (I) triple-clicking the tree Retry while still failing produced **1** request (in-flight guard); role Retry produced **1** request per click |
+
+### Not done / out of scope (M68)
+
+- Roster / timeline / while-away failure notices were **not** exercised in
+  the live browser (they need a staged collab-peer profile change, a
+  timeline server error, and a real reconnect-after-gap respectively) —
+  covered by the unit + wiring tests only.
+- No loading state was added for the project-list fetch or the role fetch
+  (both resolve fast; the role fetch's fail-closed `viewer` window is itself
+  the safe state). Loading states added only where content dimensions are
+  known (the file tree).
+- Backend authorization, the collaboration protocol, M63/M64 reconnect
+  semantics, the preference architecture, and IDE.tsx decomposition are all
+  untouched. No speculative render optimization.
+- The `m4-collab.test.ts` #33 flakiness under full-suite load predates M68
+  and is not addressed here.
+
+### M68 release-hardening pass (2026-09-06)
+
+A dedicated verification pass on the M68 branch (`c231edb`): reproduce the
+one full-suite backend failure, prove or disprove M68 causality, exercise the
+three not-yet-browser-verified recovery paths, and adversarially review the
+M68 diff.
+
+#### 1. Backend flaky test — `m4-collab.test.ts` #33
+
+**Test:** `33. file_open triggers a \`file_ready\` custom frame back to the
+requesting client once the file is loaded from disk`. Failure signature:
+`expected '' to be 'DISK'` — `room.doc.getText("notes.txt")` is still empty
+when the assertion runs.
+
+**Reproducibility (this pass, HEAD `c231edb`, Docker up):**
+
+| Harness | Runs | Fails |
+|---|---|---|
+| `-t "33. file_open"` isolated | 25 | 0 |
+| whole `m4-collab.test.ts` file isolated | 15 | 0 |
+| full backend suite (`vitest run`, 85 files) | 5 | 0 |
+
+Plus the original M68-closeout run: 1 failure in 1 full-suite run, and a
+second full-suite run on the same tree ~10 min earlier passed 1080/1080.
+
+**Classification: B — intermittent, low frequency, full-suite only.** It
+never reproduced in isolation (40/40) or in this pass's 5 back-to-back
+full-suite runs; it has been seen to fail roughly 1 in ~7 full-suite runs
+historically.
+
+**Root cause (pre-existing test-infrastructure timing):**
+`test/m4-collab.test.ts`'s `flushAsync()` helper is a hardcoded
+`setTimeout(resolve, 50)`. `handleMessage(file_open)` dispatches
+`CollaborationRoom.ensureFileLoaded()` as a floating promise chain that does
+**two** libuv-threadpool round-trips — `realpath` (`assertInsideWorkspace`)
+then `fs.readFile` — before the Yjs `doc.transact` seed and the `file_ready`
+send. Under full-suite CPU + threadpool contention (84 other suites,
+`singleThread` pool, Docker-gated exec suites, `node:sqlite`), those two I/O
+continuations do not always finish inside the fixed 50 ms window. The 50 ms
+`flushAsync` predates M52/M64/M67/M68 (`4452f8f`, 2026-08-23).
+
+**M68 causality: none.** `git diff 8a06398..HEAD -- backend/` is empty — M68
+changed zero backend files. The test file was last touched at `91f6e08`
+(pre-M67); test #33 itself lands at `8bc1ead` (M52, 2026-08-28). The backend
+test imports `CollaborationRoom` directly; no frontend code, no shared
+module, no timing change since the last green baseline reaches it. Product
+code is correct — the client waits for the real `file_ready` signal with no
+fixed timeout; only the test's fixed wait is fragile.
+
+**Not fixed here** (per the release-hardening brief: pre-existing flaky test,
+do not touch collaboration code to silence it). Documented for a future
+test-hardening item: replace `flushAsync`'s fixed 50 ms with a bounded poll
+for the settled condition.
+
+#### 2. Live-Chrome coverage for the remaining M68 recovery paths
+
+Exercised with a `fetch` shim injecting `503`s and a fiber-walked
+`CollaborationClient` handle to fire `reconnected_after_gap`. Account
+`m61_userA`; `m65-browser-demo` / `M61Verify`.
+
+| Path | Result |
+|---|---|
+| **Roster** (`GET .../collaborators` 503 on project open) | notice "Couldn't refresh collaborator names — some may be out of date." + Retry; exactly 1 request (no storm); file tree + editor unaffected; Retry → 1 request → notice clears; notice dropped on project switch; console clean |
+| **Timeline** (`GET .../collab/timeline` 503 on Team-panel open) | notice "Couldn't load team activity." + Retry; **1 request over a 6 s observation window — the old `.catch(() => setTimelineLoaded(false))` retry storm is gone**; Retry → 1 request → notice clears; dropped on switch; console clean |
+| **While-away** (`reconnected_after_gap` with `offlineMs` 200 000 → `GET .../collab/while-away` 503) | notice "Couldn't load what changed while you were away." + Retry; M63 threshold gate unchanged; Retry → 1 request → notice clears; dropped on switch; console clean |
+
+#### 3. Adversarial review of the M68 diff — one real defect found & fixed
+
+**P2 — stale collaboration fetch merged into the wrong project** (commit
+`9cd60eb`). The M60 initial-timeline effect captured `pid` but never
+re-checked it: a slow timeline page for project A, resolving after a switch
+to B, merged A's events into B's timeline. **Reproduced in Chrome** (project
+A's activity rows rendered under project B; `IDE.timeline` state held the
+marker event) and **fixed** — `activeProjectIdRef` (render-time mirror of the
+open project id) now guards all three `fetchCollabTimeline` `.then`/`.catch`
+callbacks (initial page, load-more, comment-triggered head refetch).
+Re-verified in Chrome post-fix: the stale page is dropped. Regression:
+`ideTimelineStale.test.tsx` (fails `'b1,STALE-A'` vs `'b1'` when reverted).
+
+Also hardened in the same commit: the M68 tree in-flight guard now only lets
+the current generation free `treeLoadingPidRef`, and a project switch frees
+it + bumps the generation — a switch-away-and-back can no longer strand the
+marker or let a superseded fetch clear it early (P3, would at worst have cost
+one redundant `GET /tree`; no stale data — the generation check already
+blocked that).
+
+**Reviewed and found sound:**
+
+- **Wrong-role / permissive window:** `useProjectRole` starts `viewer`, only
+  raised by an explicit valid role in a 2xx body; generation guard discards a
+  stale response after a switch; in-flight guard makes a doubled Retry one
+  request. Every `projectRole` consumer gates on `=== "owner"` /
+  `=== "viewer"` (fail-closed direction); `SourceControlPanel`'s
+  `canWrite = projectRole !== "viewer"` correctly goes read-only. Browser G
+  re-confirmed: Secrets button hidden and editor read-only for the whole
+  role-error window.
+- **Role notice vs `clearNotices()` ordering:** the role-notice effect is
+  declared before the collab lifecycle effect, and `roleStatus` only reaches
+  `"error"` a render *after* the switch-time `clearNotices()` — the notice is
+  always created after the clear, never leaked. `dismissNoticeKey` on every
+  non-error transition is a no-op when the key is absent (no re-render).
+- **Stale async → previous project:** tree (generation + `setTree([])` on
+  switch + `treeLoadedForRef`), role (generation), roster / while-away
+  (`cancelled` flag), timeline (now `activeProjectIdRef`) all guarded.
+- **Silent catches in covered paths:** none remain. The one remaining
+  `.catch(() => {})` on a timeline call (line ~728, comment-event head
+  refetch) is an optimistic incremental merge, not a load — now also
+  `activeProjectIdRef`-guarded against a cross-project merge; a notice there
+  would be UX noise for a self-healing background op (same rationale as the
+  M60 `collab_change` live merge). `ackWhileAway`, `/stats` polling, and
+  `getCapabilities` silent catches are pre-existing and out of scope.
+
+#### 4. Pre-existing, dev-only, out-of-scope defect (documented, not fixed)
+
+**P3 — a `/p/:id` deep link is silently substituted on initial load in the
+Vite dev server.** A fresh load of `/p/<M61Verify-id>` opens
+`m65-browser-demo` (`projects[0]`) and rewrites the URL.
+
+- **Production build is correct** — `vite preview` of the M68 `dist/` opens
+  the linked project and keeps the URL. Verified in Chrome.
+- **Pre-existing** — reproduces identically on `8a06398` (pre-M68), with
+  `localStorage` cleared.
+- **Root cause:** `<React.StrictMode>` double-invokes the mount effect in
+  dev; both `loadProjects()` calls close over `project === null`. The first
+  does the correct route resolve and sets `didInitialResolveRef`; the second,
+  seeing that ref set but its own stale `project === null`, falls into the
+  "auto-open `projects[0]` when nothing is open" branch and clobbers.
+- M68 did not touch route resolution. `handleSelectProject` (sidebar click)
+  switching works correctly in dev throughout M68's own verification.
+- **Follow-up item:** make the `loadProjects` "later refreshes" fallback
+  branch StrictMode-safe (guard against firing on the same lifecycle as the
+  initial resolve). Its own scoped fix — not opportunistically bundled here.
+
+#### Verification (release-hardening pass, 2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` → **808 passed / 0 failed** (98 files); +4 vs. the M68 closeout (804) = `ideTimelineStale` 2 + 2 wiring guards |
+| Frontend typecheck / build / eslint | `tsc --noEmit` exit 0; `vite build` exit 0 (Monaco chunk warning only); `eslint src` → 0 errors / 27 warnings (baseline) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | 5 consecutive `vitest run` → **5 × 1080 passed / 9 skipped / 0 failed**; `m4-collab` #33 did not reproduce (see §1) |
+| `git diff --check` / working tree | clean |
+| Live browser | roster / timeline / while-away failure + retry + no-leak + clean console (§2); stale-timeline P2 reproduced then fixed & re-verified (§3); role fail-closed + Secrets-hidden re-confirmed; dev-only deep-link substitution characterised (§4) |
+
+**Commit added:** `9cd60eb` fix(ide): drop stale collaboration fetches after
+a project switch.
+
+### M68 final classification
+
+- **PROVEN for M68's scope** — role fail-closed, tree loading/error/retry,
+  project-list failure, roster / timeline / while-away failure + retry, no
+  cross-project stale state, no leaked notices, clean console. Core paths
+  covered by hook + component + mediation + source-guard tests **and** live
+  Chrome.
+- **Repository release gate: PROVEN, with one documented pre-existing
+  condition** — the backend full suite is green across 5 consecutive runs;
+  the historically-intermittent `m4-collab.test.ts` #33 is a pre-existing
+  fixed-timeout test-infra flake with zero M68 causality (§1), tracked for a
+  separate test-hardening fix. One pre-existing dev-only P3 (deep-link
+  substitution under StrictMode, §4) — no production impact, tracked as a
+  follow-up. No P0/P1/P2 open.
+
+## M69 — unified theme & appearance
+
+**Objective (bounded):** give the IDE a coherent, persistent appearance
+system so it no longer has a hardcoded dark visual mode. One typed
+preference, one resolved-appearance source, a light theme derived from the
+existing design language, live switching with no editor / terminal /
+collaboration teardown.
+
+### Architecture
+
+**One typed preference** — `theme: "system" | "dark" | "light"` in the
+existing `user_preferences` store (M66/M67 Option-A contract): one typed
+column, strict validation (`invalid_theme`), partial-merge, unknown-key
+rejection unchanged, guarded `PRAGMA table_info` migration **v15**. Default
+`"system"`. The dormant `user_settings` store is untouched.
+
+**One resolved-appearance source** — `frontend/src/hooks/useAppearance.ts`:
+
+```
+useAppearance(preference: ThemePreference)
+  -> { preference, resolvedTheme: "dark" | "light" }
+```
+
+- pure `resolveTheme(preference, systemPrefersLight)` — `dark`/`light` pin
+  the theme; `system` follows the OS flag;
+- stamps the resolved theme onto `<html data-theme>` and
+  `<html style="color-scheme">`;
+- consults `prefers-color-scheme` **only while the preference is "system"**,
+  through **exactly one** `matchMedia` listener, removed on unmount and when
+  the preference becomes explicit (no leak, no duplicate);
+- no `localStorage`; the persisted preference is authoritative;
+- `IDE.tsx` calls it **once** from `preferences.theme` and threads
+  `resolvedTheme` to the Editor and Terminal. No scattered `matchMedia`
+  calls, no per-component theme conditionals.
+
+**IDE / core chrome** — the light palette lives in `tokens.css` under
+`:root[data-theme="light"]`: all ~45 theme-variant colour / elevation tokens
+redefined (geometry / timing / type tokens are theme-invariant). Derived
+from Catppuccin Latte (the light counterpart of the Mocha palette the dark
+theme already uses); frosted-glass character preserved with a white-tint
+translucency; `color-scheme` switches with the theme. The base `:root` block
+stays the dark palette — `data-theme="dark"` falls through to it, so the
+dark appearance is unchanged.
+
+**Monaco** — `Editor.tsx` creates the editor with the resolved built-in
+theme (`vs` / `vs-dark`) instead of a hardcoded `"vs-dark"`, and a
+`useEffect([resolvedTheme])` calls `monaco.editor.setTheme` to swap the
+theme on the **live** editor. The instance, model registry, view state,
+cursor, selection and collaboration bindings are all untouched — create
+count stays 1.
+
+**xterm** — `TERMINAL_THEMES` (its own module) keyed by resolved
+appearance: dark unchanged, light is the matching Latte palette.
+`initTerminal` still keys on `project.id` only and reads the theme through a
+ref; a dedicated `useEffect([resolvedTheme])` sets `xterm.options.theme` on
+the live instance. The xterm instance and its WebSocket session are never
+recreated by a theme change.
+
+**Settings** — the Editor tab gains a Theme select (System / Dark / Light)
+bound to `formData.theme`, saved through the existing `pickEditorPrefs` ->
+`onSave` -> `PUT /api/auth/preferences` path (`theme` is in
+`EDITOR_PREFERENCE_KEYS`). "Reset Defaults" returns it to "system".
+
+### Hardcoded-surface tokenisation (found in live browser verification)
+
+The light theme's first browser pass showed ~11 surface backgrounds
+hardcoded as dark `rgba()` rather than reading a token, so they stayed dark
+on a light ground — form inputs / selects (`.glass-input` + hover + focus),
+the settings tab bar, the Problems and Resources panels, the capability HUD,
+the Preview loading scrim, the share / secrets modal bodies, and the modal
+backdrop. Five new tokens carry these (`--input-bg`, `--input-bg-hover`,
+`--input-bg-focus`, `--surface-recessed`, `--modal-backdrop`), **dark values
+verbatim** so dark stays pixel-identical, light overridden in the
+`[data-theme="light"]` block. The additive `rgba(255,255,255,…)` glass
+*highlights* (specular sheen, hover glints, hairline dividers) are left
+alone — cosmetic, invisible-but-harmless on light, and rewriting them would
+be the broad CSS cleanup this milestone excludes.
+
+### What landed
+
+**Commit range:** `d567062..HEAD` (7 commits + this doc)
+
+| Commit | Purpose |
+|---|---|
+| `6ee5b80` feat(settings): add typed theme preference | `auth/preferences.ts` (typed field + `invalid_theme` + merge + SELECT/INSERT); `db.ts` v15 migration + inline schema; `m69-theme-preference.test.ts` (10); `migrations` / `preferences` / `m67-layout` test assertions bumped to v15 |
+| `102ad48` feat(ide): resolve appearance and theme Monaco in place | `hooks/useAppearance.ts` (new) + `useAppearance.test.tsx` (11); `types.ts` (`theme` + `EDITOR_PREFERENCE_KEYS`); `IDE.tsx` wiring; `Editor.tsx` create-theme + live `setTheme` effect; `mocks/monaco.ts` (`setTheme` / create-count); `Editor.theme.test.tsx` (5); `ideAppearance.wiring.test.tsx` |
+| `84700f5` feat(ide): add the light theme palette | `tokens.css` `[data-theme="light"]` block + scrollbar token + reduced-transparency light variant + pre-hydration `color-scheme` hint; `index.css` scrollbar tokens; `lightTheme.tokens.test.ts` (7) |
+| `44eb160` feat(terminal): synchronize terminal theme in place | `Terminal/terminalThemes.ts` (new); `Terminal.tsx` prop + ref + live theme effect; `Terminal.theme.test.tsx` (4) |
+| `ed40258` feat(settings): add theme selector | `SettingsModal.tsx` Theme select; `SettingsModal.theme.test.tsx` (5) |
+| `8271d28` test(ide): harden theme lifecycle coverage | `ideThemeLifecycle.test.tsx` (7 — real hook + real Editor integration) + a layout-independence wiring guard |
+| `e7ab719` feat(ide): tokenise hardcoded panel surfaces for the light theme | 5 tokens in `tokens.css`; `glass.css` / `output.css` / `toolbar.css` / `admin.css` + `ProblemsPanel` / `ResourcesView` / `Preview` / `ProjectSharingModal` / `ProjectSecretsModal` inline styles -> `var(--…)`; `lightTheme.tokens.test.ts` +2 |
+
+New surfaces: `useAppearance` hook; `TERMINAL_THEMES`; `Editor` /
+`Terminal` `resolvedTheme` prop; SettingsModal Theme control; 5 form/surface
+tokens + the light palette block. No new dependency. One migration (v15).
+
+### Tests
+
+| Suite | Coverage |
+|---|---|
+| `m69-theme-preference.test.ts` (10) | default `"system"`; every valid value round-trips; `invalid_theme` for `"Dark"`/`"auto"`/`""`/number/bool/null; persisted survives GET; partial PUT keeps theme + editor + layout keys; unknown key (`themeMode`…) still `invalid_preference_key`; domain fn round-trip; fresh-db column; **v15 migration** adds `theme` to a pre-v15 db, idempotent, defaults existing rows to `"system"`; audit log |
+| `useAppearance.test.tsx` (11) | `resolveTheme` all 6 combos; explicit dark/light stamps `data-theme` + `color-scheme`; system resolves to dark / light per OS; live `prefers-color-scheme` change followed in system mode; **ignored** under explicit dark and explicit light; listener registered **only** in system mode (0 in explicit, exactly 1 in system, no dup across toggles); removed on unmount; no throw when `matchMedia` is absent |
+| `Editor.theme.test.tsx` (5) | create with `vs` / `vs-dark` from the prop; a theme change calls `setTheme` with **create count 1** (same instance, same model); back-and-forth -> `["vs","vs-dark"]`; saved view state restorable across a switch |
+| `Terminal.theme.test.tsx` (4) | opens with dark / light palette; a theme change updates `xterm.options.theme` with **no new xterm, no new socket**; a project change still recreates (guard is theme-only) |
+| `SettingsModal.theme.test.tsx` (5) | control reflects the current preference; offers System/Dark/Light; a change is in the Save payload; Reset Defaults -> `"system"`; payload still omits the layout keys |
+| `ideThemeLifecycle.test.tsx` (7) | real `useAppearance` -> real `<Editor>`: hydrates `data-theme` immediately; explicit change **and** live `prefers-color-scheme` change both re-theme Monaco with instance/model/view-state intact (create count 1); explicit ignores the OS; one listener in system mode, dropped on unmount and on becoming explicit; a theme change leaves an unrelated preference untouched |
+| `lightTheme.tokens.test.ts` (7) | light block keyed off `[data-theme="light"]`; **every theme-variant `:root` colour token** redefined for light; scrollbar tokenised + overridden; `color-scheme` switches; reduced-transparency light variant; the 5 form/surface tokens present in both blocks; no core surface CSS still uses a raw dark `rgba()` background |
+| `ideAppearance.wiring.test.tsx` (8) | one `useAppearance(preferences.theme)`; `resolvedTheme` threaded to Editor + Terminal; typed preference + `EDITOR_PREFERENCE_KEYS`; Editor themes Monaco from the prop with no hardcoded `vs-dark` and a `[resolvedTheme]` effect that never calls `create`; Terminal themes xterm from the prop with `initTerminal` still keyed on project; `useLayoutPreferences` (M67) untouched; the settings select is bound + saves through `pickEditorPrefs` |
+
+Adjusted (schema bump v14 -> v15): `migrations.test.ts`, `preferences.test.ts`
+(exact-defaults object), `m67-layout-preferences.test.ts` test 12 — assertion
+values only, no behaviour change.
+
+Revert-sensitivity: the `invalid_theme` validation, the v15 migration, the
+`resolveTheme` mapping, the system-only listener guard + its cleanup, the
+`data-theme` stamp, the Monaco `setTheme` effect + non-hardcoded create
+theme, the xterm in-place theme effect + project-only `initTerminal` key,
+the settings select binding, and every token-coverage assertion each break
+>=1 test when reverted.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **854 passed / 0 failed** (105 files); +42 vs. M68 hardening (854 total incl. adjusted-count files) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `TERMINAL_THEMES` lives in its own module so `Terminal.tsx` keeps a clean react-refresh lint) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1090 passed / 9 skipped / 0 failed** (86 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +10 vs. M68 (1080) = the 10 M69 backend tests. Backend byte-identical `8271d28..HEAD`, so this run is the final state. |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Live browser (`m61_userA`; `m65-browser-demo`; a controllable `matchMedia` fake for the OS-change scenarios, real Settings UI for everything else) | **PASS, all 17:** (1) start System, OS dark -> `data-theme="dark"`; (2-3) `matchMedia` "change" -> IDE follows to light and back, Monaco re-themes, exactly 1 listener; (4-5) select Dark -> OS change **ignored**, listener removed (0); (6) select Light -> `data-theme="light"`; (7) Monaco `vs` light, syntax legible; (8) sidebar light; (9) bottom panel + Problems panel light (after the tokenisation commit); (10) Settings modal + Theme control light; (11) notice text legible on light; (12) open Terminal -> `xterm.options.theme.background === "#eff1f5"`, foreground `#4c4f69`, **session stays connected**; (13-14) switch theme with `main.py` open -> **same editor instance, same model `$model3`, cursor `{3,9}` preserved, content length unchanged, create count 1**; (15) switch projects -> theme preference persists (user-global); (16) full reload -> persisted theme re-applied from the server; (17) **zero console errors/warnings** across the whole session. Resource safety: **0 WebSockets created** during any theme switch — no collaboration or terminal reconnect. Test account reset to `theme:"system"` afterwards. |
+
+### Not done / out of scope (M69)
+
+- The pre-login **Auth screen** is not in the enumerated M69 surfaces; it
+  renders in whatever theme is stamped (the last IDE theme lingers after
+  logout — harmless, and a light Auth screen is coherent). No hardcoded dark
+  there either.
+- A one-frame dark flash is possible before React mounts and `useAppearance`
+  stamps `data-theme` (the preference is server-side, not in localStorage —
+  same pre-hydration window as M67's layout). A `@media
+  (prefers-color-scheme: light)` `color-scheme` hint softens it for
+  system-mode light-OS users.
+- The additive `rgba(255,255,255,…)` glass **highlights** (~45 of them) are
+  left at their white values — cosmetic sheen, invisible on light. Not a
+  broad CSS cleanup.
+- No custom themes, no font / per-colour customization, no workspace-scoped
+  themes, no keybindings, no design-system package, no `IDE.tsx`
+  decomposition, no `React.memo`, no `user_settings` activation.
+
+### Remaining known P3s (unchanged from M68, NOT touched in M69)
+
+1. `m4-collab.test.ts` #33 — pre-existing intermittent fixed-timeout
+   test-infra flake, zero M69 causality (M69 changed no collab code); did
+   not reproduce in this milestone's backend run.
+2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
+   correct; not touched.
+
+## M70 — configurable keybindings
+
+**Objective (bounded):** make the IDE-chrome command set remappable without
+breaking Monaco, browser-reserved shortcuts, text entry, or existing command
+semantics.
+
+### Command inventory
+
+The five commands `useKeyboardShortcuts` dispatches — the exact
+`CommandRegistry` IDs (no second registry):
+
+| Command ID | Title | Default (canonical) | Text-input policy | Monaco | Browser |
+|---|---|---|---|---|---|
+| `workbench.action.showCommands` | Command Palette | `mod+shift+p` | global | Monaco's F1 palette is in-editor only; the window capture listener wins | — |
+| `workbench.action.quickOpen` | Quick Open File | `mod+p` | global | — | Ctrl+P print — intercepted (always-suppressed) |
+| `workbench.action.saveFile` | Save Active File | `mod+s` | global | Monaco save action, re-registered from the resolved chord (below) | Ctrl+S save-page — intercepted (always-suppressed) |
+| `workbench.action.toggleSidebar` | Toggle Sidebar | `mod+b` | **skipped in INPUT/TEXTAREA/contentEditable** (Ctrl+B = bold) | — | — |
+| `workbench.action.toggleBottomPanel` | Toggle Bottom Console Drawer | `mod+j` | global | — | Firefox Ctrl+J downloads (not Chrome) |
+
+`mod` = the platform primary modifier (Cmd on macOS, Ctrl elsewhere) — the
+convention `useKeyboardShortcuts` has always used. **Not configurable
+(preserved as-is):** Ctrl+Shift+F (workspace search) and Shift+Alt+F (format
+document) in IDE.tsx's second listener; every Monaco-internal binding; all
+component-local Enter/Escape/arrow handlers; the command-palette navigation
+keys.
+
+### Keymap model
+
+The typed `keymap` preference is a `Record<commandId, chord>` storing **only
+the commands the user has remapped** — `{}` means "all defaults". Reset-one
+deletes a key; reset-all sends `{}` — no stale override can survive.
+
+Canonical chord grammar (identical strings on both sides —
+`backend/src/auth/preferences.ts` and `frontend/src/keymap/keymap.ts`):
+`mod` required, optional `alt` then `shift` in fixed order, one key (letter /
+digit / F-key / a little punctuation), lowercase. One shortcut → exactly one
+representation. `chordFromEvent` builds it from `e.code` (layout- and
+shift-stable — Digit1+Shift is `mod+shift+1`, not `mod+shift+!`), falling
+back to `e.key` for synthetic events, and returns `null` for a bare
+modifier, an unmappable key, or no primary modifier (so plain typing never
+matches).
+
+### Conflict policy
+
+Explicit, never last-write-wins. The resolved keymap (defaults + the
+candidate override) must have every chord owned by exactly one command:
+
+- **backend** rejects a PUT with `duplicate_shortcut` (a straight two-command
+  swap is allowed — evaluated together);
+- **the settings UI** runs `findConflict` on every capture and names the
+  owning command inline, keeping **Apply disabled** until it is resolved;
+- invalid grammar or a browser-reserved combination (`mod+w`/`t`/`n`/`q`/`r`,
+  `mod+shift+w`/`t`/`n`/`q`/`r`/`i`/`j`/`c`) → `invalid_shortcut` /
+  a red inline message + Apply disabled.
+
+### Browser / Monaco safety
+
+- The window dispatcher is a **capture-phase** listener. It handles a
+  keystroke only if the resolved keymap owns the built chord; otherwise it
+  returns without `preventDefault` — so **copy/paste/cut/undo/redo/select-all
+  (Ctrl+C/V/X/Z/Y/A) and browser navigation are completely untouched** (none
+  are in the keymap). The sole exception: `mod+s` / `mod+p` stay
+  `preventDefault`ed even when unbound, so a remap never lets the browser
+  save-page / print dialog appear (doing nothing is better for an IDE).
+- **`save` ownership:** the window dispatcher owns `save` for IDE chrome. The
+  in-editor Monaco binding is a disposable `addAction("cloudeee.action.save")`
+  **registered from the resolved save chord** and re-registered in place on a
+  remap — so `Ctrl+S` in a focused editor stops saving once `save` is moved,
+  and its `run` still reads the live model (the BUG-1 data-loss guarantee).
+  The window listener's capture-phase `stopPropagation` shadows the Monaco
+  action when both would match — no double dispatch.
+- Browser-reserved combos are **disallowed** at capture and validation time,
+  not silently claimed.
+- The Keybindings **capture field carries `data-keybinding-capture`**; while
+  it is focused the window dispatcher stands fully down, so capturing Ctrl+S
+  (or Ctrl+B) never also fires its command. It never hijacks ordinary keys in
+  other modal fields.
+
+### Persistence + reset
+
+Same pipeline as M66/M67/M69: `onSave({ keymap }) -> PUT /api/auth/preferences
+-> setPreferences(server response)`. The tab persists **only an accepted
+mapping change** (Apply, reset-one, reset-all) — never during chord capture.
+Migration **v16** adds `keymap TEXT NOT NULL DEFAULT '{}'`; existing rows get
+`{}`, so no user's shortcuts change. On reload the persisted overrides
+hydrate through `preferences.keymap -> resolveKeymap` before the dispatcher
+registers.
+
+### Architecture
+
+```
+user_preferences.keymap
+      -> resolveKeymap (memoised in IDE.tsx: byCommand + reverse byChord)
+      -> useKeyboardShortcuts (reads it via a ref — no listener re-register)
+      -> command dispatch (the five existing handlers / the ide-save event)
+```
+
+The same resolved keymap also drives the Editor's Monaco save binding and the
+five command-palette shortcut labels. No second command registry, no new
+event bus — `save` keeps its `ide-save` CustomEvent.
+
+### What landed
+
+**Commit range:** `7b08064..HEAD` (5 commits + this doc)
+
+| Commit | Purpose |
+|---|---|
+| `5fd0e93` feat(settings): add typed keymap preference | `auth/preferences.ts` (`keymap` field + `CONFIGURABLE_COMMAND_IDS` + `DEFAULT_KEYMAP` + `isValidChord` + `invalid_keymap`/`invalid_command_id`/`invalid_shortcut`/`duplicate_shortcut` + JSON column); `db.ts` v16; `m70-keybindings.test.ts` (15); schema-version bumps in `migrations` / `preferences` / `m67` / `m69` tests |
+| `41d5844` feat(ide): centralize resolved keymap handling | `src/keymap/keymap.ts` (new); `useKeyboardShortcuts` rewritten to keymap dispatch (ref-read, bound to `enabled`, always-suppress, text-input skip); `IDE.tsx` memoised `resolveKeymap` + hook + Editor `saveChord` + palette labels; `Editor.tsx` hardcoded `addCommand(Ctrl+S)` → disposable `addAction` from the resolved chord; `types.ts`; `mocks/monaco.ts`; `keymap.test.ts` (15) + `useKeyboardShortcuts.test.ts` (+6) + `Editor.saveTruthfulness.test.tsx` (updated + 1) + `ideKeybindings.wiring.test.tsx` (5) |
+| `ab7f2a7` feat(settings): add the keybindings settings UI | `SettingsModal.tsx` Keybindings tab — rows, capture field (`data-keybinding-capture`), inline conflict/invalid messages, Apply gating, reset one/all; `SettingsModal.keybindings.test.tsx` (9) |
+| `e1908cc` test(ide): harden keyboard lifecycle coverage | `ideKeybindingLifecycle.test.tsx` (5) — hydration, re-resolve without listener stacking, copy/paste/undo untouched, plain typing, single-listener |
+| `32712aa` fix(settings): keep the active tab when a save re-issues preferences | split the modal's per-open reset off `[isOpen, preferences]` so an in-modal save (keybinding Apply/Reset, and already the M69 theme select) no longer bounces to the Editor tab; +1 regression test |
+
+New surfaces: `src/keymap/keymap.ts`; `Editor` `saveChord` prop;
+`useKeyboardShortcuts` 3rd arg (`resolvedKeymap`, default = empty); the
+Keybindings settings tab. No new dependency, no event-bus change. One
+migration (v16).
+
+### Deterministic test results
+
+| Suite | n | Coverage |
+|---|---|---|
+| `m70-keybindings.test.ts` (backend) | 15 | default `{}`; the configurable set + default chords; valid override round-trip; whole-map replace + other prefs untouched; `invalid_command_id`; `invalid_shortcut` (bare / shift-only / reserved / uppercase / raw-ctrl / no-key / empty); `duplicate_shortcut` (onto a default, two overrides) + swap allowed; reset to `{}`; `invalid_preference_key` + `invalid_keymap`; theme/fontSize/layout intact; domain round-trip; **v16 migration** idempotent + defaults existing rows; audit log |
+| `keymap.test.ts` | 15 | the five commands + `skipInTextInput`; `isValidChord` accept / reject / reserved; `chordFromEvent` canonical order, layout-stable, key fallback, null cases; `chordToDisplay` both platforms; `resolveKeymap` (byCommand + byChord + unknown-id ignore); `findConflict` (owner / free / self / swap); `chordToMonacoKeybinding` |
+| `useKeyboardShortcuts.test.ts` | 11 | M1 save path unchanged (5) + M70: remapped fires / default no longer / always-suppress on unbound `mod+s`&`mod+p` / toggle-sidebar text-input skip vs. elsewhere / save+quick-open not skipped in inputs / no re-register across keymap changes / removed on unmount |
+| `SettingsModal.keybindings.test.tsx` | 10 | lists all commands with current shortcut / reflects an override / capture-show-Apply-only-saves / invalid rejected + Apply disabled / conflict named + Apply disabled / reset-one / reset-all / `data-keybinding-capture` present / editor payload omits keymap / tab persists after a save |
+| `ideKeybindingLifecycle.test.tsx` | 5 | persisted override hydrates + default freed / re-resolve without listener stacking / Ctrl+C/V/X/Z/Y/A never preventDefaulted or dispatched / plain typing never triggers a command / one window listener across re-renders, removed on unmount |
+| `ideKeybindings.wiring.test.tsx` | 5 | one `resolveKeymap` fed to the one dispatcher / palette labels from the keymap / hook dispatches by lookup not hardcoded checks / Editor disposable save action / `keymap` typed + out of `EDITOR_PREFERENCE_KEYS` |
+| `Editor.saveTruthfulness.test.tsx` | 5 | the in-editor save action dispatches live content (not stale props); re-registers with a new keybinding on a chord change, no leak; + the 3 pre-existing `getLiveContent` / read-only guards |
+
+Adjusted for the v16 schema bump (assertion values only, no behaviour
+change): `migrations.test.ts`, `preferences.test.ts` (exact-defaults object),
+`m67-layout-preferences.test.ts` / `m69-theme-preference.test.ts` migration
+tests.
+
+Revert-sensitivity: the chord grammar + reserved set, the four backend
+error codes + resolved-conflict check, the v16 migration, `chordFromEvent`
+order/fallback/null rules, `resolveKeymap` reverse index, the hook's
+lookup dispatch + ref-read + always-suppress + text-input skip + capture
+bail-out, the Editor disposable save action, the settings capture/conflict/
+reset flow, and the tab-persistence split each break >=1 test when reverted.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **896 passed / 0 failed** (109 files); +42 vs. M69 |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `IS_MAC` moved to `src/keymap/` and re-exported, so no new import churn) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1105 passed / 9 skipped / 0 failed** (87 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +15 vs. M69 (1090) = the 15 M70 backend tests. Backend byte-identical `e1908cc..HEAD`, so this run is the final state. |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Live Chrome (`m61_userA`; `m65-browser-demo` / `M61Verify`; real OS keystrokes via the automation `key` action for capture/dispatch, real Settings UI) | **PASS, A–P:** (A) Settings -> Keybindings opens; (B) all five commands show their current defaults (Ctrl+Shift+P / Ctrl+P / Ctrl+S / Ctrl+B / Ctrl+J), Reset disabled at default; (C) Edit Save, press **Ctrl+Alt+S**, "Ctrl+Alt+S" shown, Apply -> `PUT` persists `{saveFile: mod+alt+s}`, **0 WebSockets** created; (D) Ctrl+Alt+S in the IDE fires one `ide-save`; (E) **Ctrl+S no longer saves** — `preventDefault`ed (no browser dialog), 0 `ide-save` even with the editor focused (Monaco action moved); (F) full reload -> Ctrl+Alt+S still saves, keymap persisted; (G) press **Ctrl+B** while remapping Command Palette -> inline `Ctrl+B is already bound to "Toggle Sidebar"`, **Apply disabled**, and the sidebar did **not** toggle (capture guard); Ctrl+W -> "not usable" + Apply disabled; (H/I) Reset the Save row -> server `{}`, UI back to `Ctrl+S`; (J) two overrides then **Reset all** -> server `{}`, every row back to default, **stayed on the Keybindings tab**; (K) capture while the field is focused never triggers the captured command; (L) pressing s/p/b/j with no modifier in a text field -> no command, sidebar unchanged; (M) Monaco edit / undo / redo / select-all all work normally; (N) `theme` still `system`, `sidebarWidth` still 250 — M69/M67 prefs intact; (O) **zero console errors/warnings** across the whole session; (P) set an override, switch M61Verify <-> m65-browser-demo -> keymap unchanged (user-global). Test account reset to `keymap:{}` afterwards. |
+
+### Not done / out of scope (M70)
+
+- Workspace search (Ctrl+Shift+F) and format document (Shift+Alt+F) stay
+  hardcoded (not in `useKeyboardShortcuts`); every Monaco-internal binding is
+  unchanged.
+- No Vim/Emacs mode, no macro recording, no multi-stroke sequences, no
+  per-project keymaps, no command scripting, no command-palette redesign, no
+  event-bus replacement, no `IDE.tsx` decomposition, no `React.memo`, no
+  `user_settings` activation.
+- On macOS, plain Ctrl (not ⌘) and the Meta/Windows key are not recognised
+  modifiers — every real IDE shortcut carries the primary modifier; a
+  deliberate simplification, not a cross-platform abstraction.
+
+### Remaining known P3s (unchanged from M68/M69, NOT touched in M70)
+
+1. `m4-collab.test.ts` #33 — pre-existing intermittent fixed-timeout
+   test-infra flake, zero M70 causality (M70 changed no collab code); did
+   not reproduce in this milestone's backend run.
+2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
+   correct; not touched.
+
+## M71 — measured frontend performance & resource optimization
+
+**Objective (measurement-gated):** establish reproducible render measurements
+for the real IDE hot paths, fix only the measured/high-confidence
+bottlenecks, prove the fixes with regression tests, preserve behavior exactly.
+No speculative performance refactoring.
+
+### Phase 0 — baseline harness
+
+`frontend/test/perf/` (new). A deterministic `<Profiler>`-based recorder
+(`harness.tsx`): commit counts + React `actualDuration` (ms of
+reconciliation/commit work — **not** browser paint; jsdom has no layout
+engine), min/median/max over repeats, synthetic tree + collaborator-presence
+factories. All numbers are machine-relative and only ever compared
+before/after on the same machine in the same run.
+
+Four baseline suites (committed at `0bac3c7`):
+
+| Suite | What it drives | Result |
+|---|---|---|
+| `baseline.collab` | collaborator-awareness cursor churn (remote keystroke) against the real `<Sidebar>` / `<Toolbar>` / `<Editor>`, fed `throttleLatest(setCollaborators, 200)` exactly as `IDE.tsx` wires it | see table below |
+| `baseline.execution` | 500 stdout frames through `useExecutionSession` + `<Output>` | 500 frames -> **~20 commits** (1 per animation frame — rAF batching already works); the **only** context consumer is `<Output>` |
+| `baseline.tree` | mount + one unrelated-parent-re-render per tree size | see table below |
+| `baseline.awareness` | `getOnlineCollaborators` projection + Sidebar map derivation, 20 000 iterations | **0.0001-0.006 ms/change** — 4-6 orders of magnitude below the render cost |
+
+**BASELINE A — collaborator cursor-churn** (20 throttled ticks, 5 repeats;
+median React work over the whole 20-tick window):
+
+| tree files | rendered `<li>` | Sidebar commits | Sidebar React ms /20 ticks | Toolbar ms | Editor ms |
+|---|---|---|---|---|---|
+| 100 | 110 | 20 | 101 | 7.4 | 6.7 |
+| 500 | 522 | 20 | 450 | 8.6 | 7.7 |
+| 1000 | 1032 | 20 | 983 | 10.6 | 10.0 |
+| 2000 | 2044 | 20 | 1812 | 9.4 | 7.2 |
+
+Per throttled tick (realistic max 5/s during collaboration): Sidebar
+**~5 ms (100 files) to ~90 ms (2000 files)** of React reconciliation, purely
+for a remote collaborator cursor moving. Toolbar/Editor ~0.4-0.5 ms/tick.
+
+**BASELINE C — workspace tree** (5 repeats):
+
+| tree files | mount React ms | one unrelated re-render React ms |
+|---|---|---|
+| 100 | 52 | 11 |
+| 500 | 154 | 36 |
+| 1000 | 242 | 74 |
+| 2000 | 437 | 108 |
+
+Every unrelated IDE re-render (the `setStats` poll every 2.5 s; any state
+change) cost the file tree **11 ms (100 files) to 108 ms (2000 files)** of
+React work.
+
+### Classification
+
+| Candidate | Verdict | Evidence |
+|---|---|---|
+| Sidebar/FileTree re-render on collaborator cursor-churn | **PROVEN HOT** | BASELINE A: 20 commits / 20 ticks, 5-90 ms React work per throttled tick, linear in tree size |
+| Sidebar/FileTree re-render on the `setStats` poll (every 2.5 s) + any IDE state change | **PROVEN HOT** | BASELINE C: 11-108 ms React work per unrelated re-render |
+| Toolbar re-render on collaborator churn | NOT A BOTTLENECK | ~0.5 ms/tick |
+| Editor React-side re-render on collaborator churn | NOT A BOTTLENECK | ~0.5 ms/tick (Monaco is imperative; the React reconciliation is cheap) |
+| `useExecutionSession` context — a controls-only consumer re-rendering per log batch | **NOT A BOTTLENECK / suspicion disproved** | BASELINE B: no controls-only consumer exists in the codebase (grep — `<Output>` is the sole `useExecutionSession()` caller; Toolbar mirrors run state via `document` events). The log path is already rAF-batched. A context split would be a speculative refactor with no measured beneficiary — **not done**. |
+| `getOnlineCollaborators` / Sidebar map derivation cost | NOT A BOTTLENECK | BASELINE D: sub-microsecond; the cost is 100 % FileTree DOM reconciliation |
+| Diagnostic markers | NOT MEASURED (classified by frequency) | `setDiagnostics` fires only on `ide-execution-result` (run completion) — not a tick hot path |
+| Workspace-tree virtualization | MEASURABLE BUT NOT JUSTIFIED | After the fix below, the tree no longer reconciles on any hot path. Remaining tree cost is mount-time (437 ms @ 2000 files, once per project open) and genuine-change-time (branch checkout, file create/delete, AI patch) — all user-action-gated and infrequent. Virtualization of a collapsible nested tree with reveal/context-menu/collaborator-indicator behavior is a new dependency (CLAUDE.md bars arbitrary deps; no virtualization dep present) + significant complexity for a cost that is no longer on a hot path. **Not done.** |
+
+### The one optimization that landed
+
+Both PROVEN-HOT rows share one root cause: `<Sidebar>` (which owns the whole
+file tree, fully reconciled on every render) was not memoized, and its
+`collaborators` prop got a fresh array reference on every IDE render.
+
+Committed at `d826ca9` / locked at `51b1060`:
+
+- **`frontend/src/utils/useStableCollaborators.ts` (new)** — returns a
+  referentially-stable `CollaboratorPresence[]` whose identity changes only
+  when a Sidebar-relevant field (`userId` / `activeFile` / `activity.type` /
+  `name` / `color`) changes. The `cursor` / `selection` / `lastActive` churn
+  that fires on every remote keystroke no longer produces a new reference.
+- **`Sidebar` default export is now `React.memo(Sidebar)`** (shallow).
+- **`IDE.tsx`** feeds `collaboratorsForTree` to `<Sidebar>` and gives the
+  four previously-inline handler props (`onSelectProject`, `onRetryTree`,
+  `onOpenTour`, `onOpenSettings`) stable `useCallback` identities so the memo
+  can bail. `Editor` / `TeamPanel` / the avatar stack still receive the full
+  unprojected `collaborators`.
+
+Toolbar and Editor were left untouched — measured negligible, and the HARD
+RULE forbids optimizing a non-bottleneck.
+
+### Before / after (`frontend/test/perf/collab.afterFix.test.tsx`)
+
+Same BASELINE-A workload, NAIVE (pre-M71 wiring) vs STABILIZED (shipped),
+8 throttled cursor-churn ticks, real memoized `<Sidebar>`:
+
+| tree files | NAIVE Sidebar commits | NAIVE React ms | STABILIZED commits | STABILIZED React ms |
+|---|---|---|---|---|
+| 100 | 8 | ~83 | **0** | **0** |
+| 2000 | 8 | ~1216 | **0** | **0** |
+
+Cursor-only collaborator churn: **8 wasted Sidebar re-renders -> 0**;
+**~83 ms (100 files) / ~1216 ms (2000 files) of React work -> 0 ms.**
+An unrelated IDE state change (the `setStats` poll): **Sidebar commits 5 -> 0.**
+
+### Regression coverage (`frontend/test/perf/sidebar.renderLock.test.tsx`)
+
+Deterministic, timing-independent commit-count assertions:
+
+1. cursor-only awareness churn => **0** Sidebar commits
+2. an unrelated IDE state change (stats poll) => **0** Sidebar commits
+3. a collaborator actually changing file => **exactly 1**
+4. a tree change => **exactly 1**
+5. an `activeFile` change => **exactly 1**
+6. a `runStatuses` change => **exactly 1**
+7. a `commentCountsByFile` change => **exactly 1**
+8. the default export is a `React.memo` boundary (so the test harness own
+   memo wrapper cannot mask a missing inner memo)
+
+3-7 prove the memo does not swallow real updates — behavior preserved. The
+harness gained `profiledMemo()` — a memo boundary with a `<Profiler>`
+attached — because a plain `<Profiler>` fires `onRender` even when a
+memoized child bails (verified), which would over-count.
+
+The M68 source-string wiring test (`ideLoadRecovery.wiring.test.tsx`) was
+updated: it now asserts `onRetryTree={handleRetryTree}` + the stable
+`useCallback` definition (the M68 intent — "a stable retry into the Sidebar"
+— is now literally satisfied).
+
+### Resource-lifecycle audit (inspect-only, no change)
+
+Grep of every hot-path/in-scope component
+(`IDE.tsx`, `Editor.tsx`, `Sidebar.tsx`, `Toolbar.tsx`, `Output.tsx`,
+`collab/client.ts`): `addEventListener` count == `removeEventListener` count
+in every file; `setInterval` == `clearInterval`; `requestAnimationFrame` ==
+`cancelAnimationFrame`. Each pairing actually read (`useExecutionSession`
+teardown, `useNotices` timer map, `Toolbar` 5 effects, `Sidebar` FileTree
+document-click listener) is correctly balanced. **No leak finding** —
+lifecycle evidence does not support one. M71 introduces **zero** new
+listeners / timers / observers / subscriptions: `useStableCollaborators` is
+pure (`useRef` only, holds one array reference that is *replaced*, never
+accumulated); the three new `useCallback`s hold no resources.
+
+### Memory — NOT_PROVEN
+
+A reliable long-session heap-growth measurement could not be built in the
+available environment (jsdom / vitest: `process.memoryUsage()` deltas across
+mount/unmount cycles are dominated by V8 heap sizing and GC scheduling noise,
+not retention). Per the milestone own instruction, this is marked
+**NOT_PROVEN** rather than improvised. Source evidence stands in its place:
+the one new retained reference (`useStableCollaborators`'s `valueRef`) is a
+single array that is swapped, not grown; the audit above found no unbalanced
+subscription.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **906 passed / 0 failed** (115 files) on 6 of 7 runs; includes the M71 perf suites (6 files, 10 tests). One run during peak machine contention (backend Docker suite running concurrently) failed one test once; it did not reproduce in 6 further clean runs and the M71 perf suites passed 10/10 in isolation 4x. |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint .` -> **0 errors** (warnings only, baseline style) |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Backend changes | **production source: none** — `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`. The only `backend/` change is a one-line test-infra timeout (`backend/test/python-deps.test.ts`, `96c5426`). |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | **GREEN — 3 consecutive `vitest run` → `1105 passed / 9 skipped / 0 failed` each** (87 files, 363 / 376 / 384 s). Docker-gated suites executed every run: `sandbox`, `exec` (13.6 s), `git` (17.8 s), `templates.exec` (11.5 s), `m11`/`m12`/`m13`/`m16-optimization`, `python-deps`. `test/python-deps.test.ts` executes in **45.0 / 47.3 / 49.4 s** and no longer times out — its per-test timeout was raised `60000 → 120000` in `96c5426` (test-infra only; see below). `test/git.test.ts` runs its whole file in ~17 s uncontended across all 3 runs — its single earlier full-suite 60 s timeout was pure contention, not fixed-timeout fragility, so it was left unchanged. **Backend production source byte-identical to the M70 baseline:** `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`; the only `backend/` change in M71 is the one-line `python-deps` timeout + its comment (`backend/test/python-deps.test.ts`, +8/−1). No assertion weakened, no test skipped, no global Vitest timeout touched. |
+| Live Chrome (`m61_userA`, project `m65-browser-demo`, real Chrome) | **PASS:** app loads with **zero console errors/warnings** across three page loads (only vite HMR + the React DevTools info line); file tree renders; file open / tab-switch / tree-selection all work; **theme switch to Light applies to both the editor and the sidebar** — the memoized `<Sidebar>` does not block the CSS re-theme — and the choice persists across reload; the `/api/.../stats` poll still fires every 2.5 s (all `200`) — behavior unchanged; no error network responses; no WebSocket reconnect storm. Account restored to `theme: system` afterwards. (During this pass the in-IDE terminal showed "Terminal Session Ended" from a transient Docker-networking fault — `network ide-net-... not found` — which later recovered; not caused by and not in scope for M71.) |
+
+### Final review
+
+1. **What was measured?** Collaborator-awareness cursor churn, execution-log
+   streaming, workspace-tree mount + re-render (4 sizes), pure awareness
+   computation — all as deterministic `<Profiler>` commit counts + React
+   `actualDuration`, 5 repeats, min/median/max.
+2. **Which earlier suspicions were false?** (a) The `useExecutionSession`
+   "controls-only consumers re-render per log batch" concern — there is no
+   controls-only consumer, and the log path is already rAF-batched.
+   (b) Awareness *computation* cost — sub-microsecond, irrelevant.
+   (c) Toolbar/Editor collaborator-churn cost — negligible (~0.5 ms/tick).
+3. **Which hotspots were proven?** The file-tree `<Sidebar>` reconciling on
+   (a) every throttled collaborator-awareness tick and (b) every `setStats`
+   poll / unrelated IDE state change — 5-108 ms of React work each, scaling
+   linearly to ~90-108 ms at 2000 files.
+4. **What did we optimize?** `React.memo(Sidebar)` + a stable collaborator
+   projection (`useStableCollaborators`) + stable identities for four
+   handler props. One bounded change; Editor/Toolbar untouched.
+5. **Exact before/after.** Collaborator cursor-churn, 8 throttled ticks:
+   Sidebar commits **8 -> 0**; React work **~83 ms -> 0** (100 files),
+   **~1216 ms -> 0** (2000 files). Unrelated IDE state change: Sidebar
+   commits **5 -> 0**.
+6. **Regression tests added.** `sidebar.renderLock.test.tsx` (8 assertions),
+   `collab.afterFix.test.tsx` (before/after matrix), plus the four Phase-0
+   baseline suites as living baselines. `profiledMemo` harness helper.
+7. **Browser verified?** Yes — real Chrome, zero console errors, tree +
+   editor + theme + stats-poll behavior all intact, no WS reconnect.
+8. **Docker verification repeated?** Yes. After Docker networking recovered,
+   the full suite ran **3 consecutive times with Docker up → `1105 passed /
+   9 skipped / 0 failed` every run**, Docker-gated suites executing each time.
+   The one prior failure (`test/python-deps.test.ts`, a real PyPI `pip
+   install` that had drifted from ~42–46 s at M65/M67 to ~45–67 s) was
+   resolved by raising **only that test's** per-test timeout `60000 → 120000`
+   (`96c5426`, test-infra, no assertion/skip/global change); it now runs
+   45.0–49.4 s. `test/git.test.ts`'s single earlier 60 s timeout was pure
+   full-suite contention — ~17 s per whole file uncontended across all 3 runs
+   — left unchanged. **Backend production source byte-identical to the M70
+   baseline:** `backend/src` tree object `a261a8c…` at both `443ae81` and
+   HEAD.
+9. **Remaining resource risks?** None found. M71 adds no listeners/timers/
+   subscriptions. Long-session memory growth: NOT_PROVEN (no reliable
+   measurement method in this environment).
+10. **Verdict: M71 implementation PROVEN; repository release gate GREEN.**
+    The collaborator/stats-poll Sidebar hotspot is measured, fixed,
+    regression-locked, before/after-quantified and browser-clean; frontend
+    gates green; backend production source byte-identical to the M70 baseline;
+    backend full suite green ×3 with Docker (after a bounded test-infra
+    timeout fix that changed no behavior). Targets #2 (context split) and #3
+    (tree virtualization) were **measured and deliberately not pursued** — a
+    valid measurement-gated outcome.
+
+### Not done / out of scope (M71)
+
+- No `useExecutionSession` context split (BASELINE B disproved the need).
+- No workspace-tree virtualization (no hot-path cost remains; new dependency
+  + complexity not justified).
+- No `React.memo` on Toolbar / Editor / Output / collaboration panels
+  (measured negligible; the HARD RULE forbids optimizing non-bottlenecks).
+- No `useCallback`/`useMemo` sprinkling beyond the four Sidebar handler
+  props actually required for the memo to bail.
+- No `setStats` poll-interval / mechanism change; no `IDE.tsx`
+  decomposition; no CSS cleanup; no backend production code.
+- The two pre-existing P3s (`m4-collab` #33 timing flake; dev-only
+  StrictMode `/p/:id` deep-link substitution) are untouched.
+
+### `test/python-deps.test.ts` timeout — resolved (`96c5426`)
+
+`test/python-deps.test.ts` runs a real `pip install six==1.17.0` from PyPI
+inside the Docker runner plus a real run. Recorded at ~42–46 s at M65/M67;
+PyPI latency drift on this host pushed it to ~45–49 s uncontended and
+~60–67 s under full-suite Docker load, past its fixed **60 000 ms** per-test
+timeout — it timed out in three consecutive full backend runs and in
+isolation. Raised **only this test's** per-test timeout (`60000 → 120000`,
+~2× the worst observed, still bounded): no global Vitest timeout change, no
+assertion weakened, no skip, no production code. Post-fix: 3 consecutive full
+Docker backend runs → `1105 / 9 skip / 0 fail` each; `python-deps` executes
+45.0 / 47.3 / 49.4 s. `test/git.test.ts`'s one earlier full-suite 60 s
+timeout was pure contention (~17 s per whole file across all 3 post-fix runs)
+and was **left unchanged** — no genuine fixed-timeout fragility.
+
+### Remaining known P3s (updated for M71)
+
+1. `m4-collab.test.ts` #33 — pre-existing intermittent fixed-timeout
+   test-infra flake. Did not reproduce this milestone.
+2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
+   correct; not touched.
+3. This machine's Docker networking was briefly broken mid-M71 verification
+   (`network ide-net-… not found` in the in-IDE terminal); it recovered
+   (`docker network create` + container→PyPI reachability both OK).
+   Environmental, not an M71 concern.

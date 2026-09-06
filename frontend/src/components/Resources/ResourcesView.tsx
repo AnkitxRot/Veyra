@@ -125,7 +125,7 @@ export default function ResourcesView({ project }: ResourcesViewProps) {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        background: 'rgba(10, 12, 18, 0.7)',
+        background: 'var(--surface-recessed)',
         overflowY: 'auto',
         padding: '14px 18px',
         gap: '14px',

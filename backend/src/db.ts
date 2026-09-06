@@ -307,6 +307,13 @@ export function openDb(dbPath: string): Db {
       line_numbers       TEXT NOT NULL DEFAULT 'on',
       cursor_blinking    TEXT NOT NULL DEFAULT 'smooth',
       render_whitespace  TEXT NOT NULL DEFAULT 'selection',
+      format_on_save     INTEGER NOT NULL DEFAULT 0,
+      sidebar_width      INTEGER NOT NULL DEFAULT 250,
+      bottom_height      INTEGER NOT NULL DEFAULT 260,
+      sidebar_hidden     INTEGER NOT NULL DEFAULT 0,
+      bottom_collapsed   INTEGER NOT NULL DEFAULT 0,
+      theme              TEXT NOT NULL DEFAULT 'system',
+      keymap             TEXT NOT NULL DEFAULT '{}',
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -698,6 +705,78 @@ const MIGRATIONS: Migration[] = [
       // upgraded one. The legacy-preferences copy runs only here.
       db.exec(M61_SCHEMA_SQL);
       copyLegacyPreferencesIntoSettings(db);
+    },
+  },
+  {
+    version: 13,
+    description:
+      "M66: add user_preferences.format_on_save — the 'format on save' editor setting moves from browser localStorage into the typed server-persisted preference store (single source of truth). Existing rows default to 0 (off), matching the prior client default.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      if (!cols.includes("format_on_save")) {
+        db.exec(
+          "ALTER TABLE user_preferences ADD COLUMN format_on_save INTEGER NOT NULL DEFAULT 0",
+        );
+      }
+    },
+  },
+  {
+    version: 14,
+    description:
+      "M67: add user_preferences.{sidebar_width,bottom_height,sidebar_hidden,bottom_collapsed} — the four genuinely user-scoped IDE panel-layout dimensions move from throwaway IDE.tsx component state into the typed server-persisted preference store so a reload no longer discards them. Existing rows default to the prior in-memory defaults (250 / 260 / off / off), so no user's layout changes.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      const add = (name: string, ddl: string) => {
+        if (!cols.includes(name)) {
+          db.exec(`ALTER TABLE user_preferences ADD COLUMN ${ddl}`);
+        }
+      };
+      add("sidebar_width", "sidebar_width INTEGER NOT NULL DEFAULT 250");
+      add("bottom_height", "bottom_height INTEGER NOT NULL DEFAULT 260");
+      add("sidebar_hidden", "sidebar_hidden INTEGER NOT NULL DEFAULT 0");
+      add("bottom_collapsed", "bottom_collapsed INTEGER NOT NULL DEFAULT 0");
+    },
+  },
+  {
+    version: 15,
+    description:
+      "M69: add user_preferences.theme — the unified appearance preference ('system' | 'dark' | 'light'). 'system' follows the OS prefers-color-scheme; the IDE no longer has a hardcoded dark visual mode. Existing rows default to 'system', which resolves to the prior dark appearance on a dark OS and to the new light theme on a light OS — the closest match to the pre-M69 behaviour without pinning anyone.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      if (!cols.includes("theme")) {
+        db.exec(
+          "ALTER TABLE user_preferences ADD COLUMN theme TEXT NOT NULL DEFAULT 'system'",
+        );
+      }
+    },
+  },
+  {
+    version: 16,
+    description:
+      "M70: add user_preferences.keymap — the configurable-keybinding override map (command ID -> canonical chord), storing only the commands the user has remapped. Existing rows default to '{}' (all commands at their built-in default), so no user's shortcuts change.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      if (!cols.includes("keymap")) {
+        db.exec(
+          "ALTER TABLE user_preferences ADD COLUMN keymap TEXT NOT NULL DEFAULT '{}'",
+        );
+      }
     },
   },
 ];

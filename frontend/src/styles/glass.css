@@ -127,7 +127,7 @@
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   color: var(--fg-primary);
-  background: rgba(15, 18, 26, 0.6);
+  background: var(--input-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -141,12 +141,12 @@
 
 .glass-input:hover {
   border-color: var(--glass-border-light);
-  background: rgba(15, 18, 26, 0.8);
+  background: var(--input-bg-hover);
 }
 
 .glass-input:focus {
   border-color: var(--accent);
-  background: rgba(21, 26, 38, 0.9);
+  background: var(--input-bg-focus);
   box-shadow: 0 0 0 3px var(--accent-glow), inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
@@ -194,7 +194,7 @@
   display: flex;
   align-items: center;
   padding: 3px;
-  background: rgba(15, 18, 26, 0.5);
+  background: var(--surface-recessed);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   gap: 2px;
@@ -240,7 +240,7 @@
 .glass-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(9, 11, 16, 0.75);
+  background: var(--modal-backdrop);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   display: flex;

@@ -36,7 +36,8 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
     );
     // called once outside the event handler for the initial populate
     const loadDef = src.indexOf("const loadCommentRoster = () => {");
-    const afterDef = src.slice(loadDef, loadDef + 900);
+    // window widened in M68: the fn body gained a notifying `.catch`
+    const afterDef = src.slice(loadDef, loadDef + 1500);
     expect(afterDef).toContain("loadCommentRoster();");
   });
 

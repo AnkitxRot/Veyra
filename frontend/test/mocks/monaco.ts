@@ -143,8 +143,22 @@ export class FakeEditorInstance {
     return id;
   }
 
-  addAction(action: { id: string }) {
+  // Records the action and returns an IDisposable, mirroring the real API.
+  // Editor.tsx (M70) adds/disposes the save action as the resolved keybinding
+  // changes; tests read `actions` / `disposedActions` to assert that.
+  public disposedActions: string[] = [];
+  addAction(action: {
+    id: string;
+    keybindings?: number[];
+    run?: (...args: unknown[]) => unknown;
+  }) {
     this.actions.set(action.id, action);
+    return {
+      dispose: () => {
+        this.actions.delete(action.id);
+        this.disposedActions.push(action.id);
+      },
+    };
   }
 
   setModel(model: FakeModel | null) {
@@ -227,11 +241,20 @@ export class FakeDecorationsCollection {
 
 let modelRegistry = new Map<string, FakeModel>();
 let lastEditorInstance: FakeEditorInstance | null = null;
+let editorCreateCount = 0;
+let setThemeCalls: string[] = [];
 
 const editor = {
   create: (_el: unknown, options: Record<string, unknown>) => {
+    editorCreateCount += 1;
     lastEditorInstance = new FakeEditorInstance(options);
     return lastEditorInstance;
+  },
+  // M69: global theme swap — the real API updates every live editor in place
+  // without recreating anything.
+  setTheme: (theme: string) => {
+    setThemeCalls.push(theme);
+    if (lastEditorInstance) lastEditorInstance.options.theme = theme;
   },
   createModel: (
     value: string,
@@ -265,7 +288,16 @@ const Uri = {
 };
 
 const KeyMod = { CtrlCmd: 2048, Shift: 1024, Alt: 512 };
-const KeyCode = { KeyS: 49 };
+const KeyCode = {
+  KeyS: 49,
+  KeyP: 46,
+  KeyB: 32,
+  KeyJ: 40,
+  KeyK: 41,
+  KeyO: 45,
+  Digit1: 22,
+  Slash: 90,
+};
 const MarkerSeverity = { Error: 8, Warning: 4, Info: 2, Hint: 1 };
 
 class Range {
@@ -308,8 +340,20 @@ export const monaco = {
 export function __resetMonacoMocks() {
   modelRegistry = new Map();
   lastEditorInstance = null;
+  editorCreateCount = 0;
+  setThemeCalls = [];
 }
 
 export function __getLastEditorInstance(): FakeEditorInstance | null {
   return lastEditorInstance;
+}
+
+/** M69: how many times `monaco.editor.create` has been called this test. */
+export function __getEditorCreateCount(): number {
+  return editorCreateCount;
+}
+
+/** M69: the sequence of `monaco.editor.setTheme` arguments this test. */
+export function __getSetThemeCalls(): string[] {
+  return [...setThemeCalls];
 }

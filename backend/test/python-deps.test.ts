@@ -66,6 +66,13 @@ describe('Python dependency installation and execution inside Docker runner', ()
       expect(runRes.data.stdout).toContain('SIX_LOADED:True');
       expect(runRes.data.exitCode).toBe(0);
     },
-    60000
+    // This test performs a REAL `pip install six==1.17.0` from PyPI inside the
+    // Docker runner, then a real run. Recorded wall time was ~42-46s at
+    // M65/M67; PyPI latency drift since then puts it at ~45-49s uncontended and
+    // ~60-67s under full-suite Docker load — over the previous 60s per-test
+    // timeout. 120s is ~2x the current worst observation: bounded headroom for
+    // a slow PyPI day, still far from unlimited (a genuinely wedged
+    // install/run fails at 2m).
+    120000
   );
 });
