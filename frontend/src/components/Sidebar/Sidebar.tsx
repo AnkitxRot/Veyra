@@ -32,6 +32,10 @@ interface SidebarProps {
   onCreateProject: () => void;
   onProjectBootstrapped?: (project: Project, entryFile: string) => void;
   tree: TreeNode[];
+  /** M68: file-tree fetch lifecycle, so an empty `tree` reads as loading /
+   *  failed / genuinely empty rather than always "Workspace is empty". */
+  treeStatus?: "loading" | "ready" | "error";
+  onRetryTree?: () => void;
   onOpenFile: (path: string) => void;
   activeFile: string | null;
   onLogout: () => void;
@@ -53,6 +57,8 @@ export default function Sidebar({
   onCreateProject,
   onProjectBootstrapped,
   tree,
+  treeStatus = "ready",
+  onRetryTree,
   onOpenFile,
   activeFile,
   onLogout,
@@ -736,6 +742,8 @@ export default function Sidebar({
             <div className="file-tree-container">
               <FileTree
                 nodes={tree}
+                status={treeStatus}
+                onRetry={onRetryTree}
                 filter={searchFilter}
                 onSelect={onOpenFile}
                 selected={activeFile}
@@ -860,6 +868,8 @@ export default function Sidebar({
 
 function FileTree({
   nodes,
+  status = "ready",
+  onRetry,
   filter,
   onSelect,
   selected,
@@ -926,12 +936,58 @@ function FileTree({
 
   const filtered = filterNodes(nodes);
 
+  // M68: with no loaded nodes yet, an empty `tree` is ambiguous — say which
+  // it is. An already-loaded tree stays visible through a background refresh
+  // or a failed refresh (the error is surfaced as a notice, not here).
+  const bare = nodes.length === 0;
+
   return (
     <div
       onContextMenu={handleContextBg}
       style={{ minHeight: "100%", paddingBottom: "20px" }}
     >
-      {filtered.length === 0 ? (
+      {bare && status === "loading" ? (
+        <div
+          data-testid="file-tree-loading"
+          style={{
+            padding: "24px 12px",
+            textAlign: "center",
+            color: "var(--fg-muted)",
+            fontSize: "var(--text-xs)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <span
+            className="spinner"
+            style={{ width: "12px", height: "12px", borderWidth: "1.5px" }}
+          />
+          <span>Loading files…</span>
+        </div>
+      ) : bare && status === "error" ? (
+        <div
+          data-testid="file-tree-error"
+          style={{
+            padding: "24px 12px",
+            textAlign: "center",
+            color: "var(--fg-muted)",
+            fontSize: "var(--text-xs)",
+          }}
+        >
+          <p style={{ margin: "0 0 12px 0" }}>
+            Couldn&apos;t load the file tree.
+          </p>
+          <button
+            className="glass-btn glass-btn-primary"
+            style={{ fontSize: "11px", padding: "4px 10px" }}
+            onClick={() => onRetry?.()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : filtered.length === 0 ? (
         <div
           style={{
             padding: "24px 12px",

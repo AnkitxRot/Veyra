@@ -916,16 +916,43 @@ export default function IDE({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
+  // M68: the file-tree fetch is no longer a swallowed `catch {}`. An empty
+  // `tree` now reads as loading / failed / genuinely empty in the Sidebar,
+  // and a failure is a persistent, retryable notice. An already-loaded tree
+  // is kept on screen through a background refresh or a failed refresh.
+  const [treeStatus, setTreeStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const loadTreeRef = useRef<() => void>(() => {});
   const loadTree = useCallback(async () => {
     if (!project) return;
+    const pid = project.id;
+    if (treeLoadedForRef.current !== pid) setTreeStatus("loading");
     try {
       const res = await api<{ tree: TreeNode[] }>(
-        `/api/projects/${project.id}/tree`,
+        `/api/projects/${pid}/tree`,
       );
       setTree(res.tree);
-      treeLoadedForRef.current = project.id;
-    } catch {}
-  }, [project]);
+      treeLoadedForRef.current = pid;
+      setTreeStatus("ready");
+      dismissNoticeKey("tree-load");
+    } catch {
+      setTreeStatus("error");
+      notify({
+        kind: "error",
+        text: "Couldn't load this project's files.",
+        ttl: null,
+        dedupeKey: "tree-load",
+        role: "alert",
+        actions: [{ label: "Retry", onClick: () => loadTreeRef.current() }],
+      });
+    }
+  }, [project, notify, dismissNoticeKey]);
+  useEffect(() => {
+    loadTreeRef.current = () => {
+      void loadTree();
+    };
+  }, [loadTree]);
 
   // Track Recent Projects on Switch
   const handleSelectProject = (p: Project) => {
@@ -3024,6 +3051,8 @@ export default function IDE({
           onCreateProject={loadProjects}
           onProjectBootstrapped={handleProjectBootstrapped}
           tree={tree}
+          treeStatus={treeStatus}
+          onRetryTree={() => loadTreeRef.current()}
           onOpenFile={handleOpenFile}
           activeFile={activeFile}
           onLogout={onLogout}

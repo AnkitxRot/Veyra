@@ -55,3 +55,49 @@ describe("M68 — role fetch fails closed", () => {
     expect(src).toContain('projectRole === "owner"');
   });
 });
+
+describe("M68 — file tree load state & retry", () => {
+  it("tracks the tree fetch lifecycle instead of swallowing failures", () => {
+    expect(src).not.toMatch(/\/api\/projects\/\$\{pid\}\/tree`,\n\s*\);\n\s*setTree\(res\.tree\);\n\s*treeLoadedForRef\.current = pid;\n\s*\} catch \{\}/);
+    expect(src).toContain(
+      'const [treeStatus, setTreeStatus] = useState<"loading" | "ready" | "error">',
+    );
+    const block = src.slice(
+      src.indexOf("const loadTree = useCallback"),
+      src.indexOf("const loadTree = useCallback") + 900,
+    );
+    expect(block).toContain('setTreeStatus("loading")');
+    expect(block).toContain('setTreeStatus("ready")');
+    expect(block).toContain('setTreeStatus("error")');
+  });
+
+  it("a failed tree load is a persistent, retryable error notice", () => {
+    const at = src.indexOf('dedupeKey: "tree-load"');
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at - 260, at + 160);
+    expect(block).toContain('kind: "error"');
+    expect(block).toContain("ttl: null");
+    expect(block).toContain("onClick: () => loadTreeRef.current()");
+  });
+
+  it("a successful (re)load clears the standing tree-load notice", () => {
+    const block = src.slice(
+      src.indexOf("const loadTree = useCallback"),
+      src.indexOf("const loadTree = useCallback") + 900,
+    );
+    expect(block).toContain('dismissNoticeKey("tree-load")');
+  });
+
+  it("feeds the tree status and a stable retry into the Sidebar", () => {
+    expect(src).toContain("treeStatus={treeStatus}");
+    expect(src).toContain("onRetryTree={() => loadTreeRef.current()}");
+  });
+
+  it("does not flash loading over an already-loaded tree on a background refresh", () => {
+    const block = src.slice(
+      src.indexOf("const loadTree = useCallback"),
+      src.indexOf("const loadTree = useCallback") + 900,
+    );
+    expect(block).toContain('if (treeLoadedForRef.current !== pid) setTreeStatus("loading")');
+  });
+});
