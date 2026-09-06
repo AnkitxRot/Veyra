@@ -166,6 +166,27 @@ describe("readPresenceState", () => {
     expect(p.displayName).toBeUndefined();
   });
 
+  it("M73: parses a non-empty user.pronouns, ignores blank / non-string", () => {
+    expect(
+      readPresenceState(1, {
+        user: { id: 1, name: "x", pronouns: "she/her" },
+      })!.pronouns,
+    ).toBe("she/her");
+    expect(
+      readPresenceState(1, {
+        user: { id: 1, name: "x", pronouns: "   " },
+      })!.pronouns,
+    ).toBeUndefined();
+    expect(
+      readPresenceState(1, {
+        user: { id: 1, name: "x", pronouns: 42 },
+      })!.pronouns,
+    ).toBeUndefined();
+    expect(
+      readPresenceState(1, { user: { id: 1, name: "x" } })!.pronouns,
+    ).toBeUndefined();
+  });
+
   it("defaults activity to 'viewing' when absent", () => {
     const p = readPresenceState(1, {
       user: { id: 1, name: "x" },

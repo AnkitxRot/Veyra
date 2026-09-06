@@ -59,6 +59,12 @@ export interface CollaboratorPresence {
    * only — never a key.
    */
   avatarVersion?: number;
+  /**
+   * M73: the collaborator's sanitized pronouns, as resolved server-side from
+   * their profile. `undefined` when unset (or an older/mixed-version peer).
+   * Presentation only — never a key.
+   */
+  pronouns?: string;
   role: "owner" | "editor" | "viewer";
   color: string;
   /** Availability — how reachable the collaborator is. Independent of `activity`. */
@@ -226,6 +232,13 @@ export function readPresenceState(
       state.user.avatarVersion > 0
         ? Math.floor(state.user.avatarVersion)
         : 0,
+    // M73: server-authored sanitized pronouns. Only a non-empty string
+    // counts; anything else (absent, blank, non-string) → undefined.
+    pronouns:
+      typeof state.user.pronouns === "string" &&
+      state.user.pronouns.trim().length > 0
+        ? state.user.pronouns.slice(0, 24)
+        : undefined,
     role:
       state.user.role === "owner" || state.user.role === "viewer"
         ? state.user.role

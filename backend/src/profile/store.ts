@@ -98,6 +98,19 @@ export function getDisplayName(db: Db, userId: number): string | null {
   return row?.display_name ?? null;
 }
 
+/**
+ * M73: the raw `pronouns` column for `userId` (nullable). Used by the
+ * collaboration layer to (re)populate its per-room identity cache — one
+ * narrow column read, never run inside an awareness frame. Resolve to a
+ * safe presentation string via `sanitizeStoredPronouns`.
+ */
+export function getPronouns(db: Db, userId: number): string | null {
+  const row = db
+    .prepare("SELECT pronouns FROM user_profiles WHERE user_id = ?")
+    .get(userId) as { pronouns: string | null } | undefined;
+  return row?.pronouns ?? null;
+}
+
 export interface ProfileUpdateResult {
   profile: ProfileResponse;
   /** Field names that were present in the patch — for the audit row only. */
