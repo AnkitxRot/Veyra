@@ -7883,9 +7883,9 @@ subscription.
 | Frontend eslint | `eslint .` -> **0 errors** (warnings only, baseline style) |
 | `git diff --check` | clean |
 | Working tree | clean |
-| Backend changes | **none** — `git diff 443ae81..HEAD --name-only` is 100 % `frontend/`. Backend cannot have regressed. |
+| Backend changes | **production source: none** — `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`. The only `backend/` change is a one-line test-infra timeout (`backend/test/python-deps.test.ts`, `96c5426`). |
 | Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | **NOT fully green in this environment — release gate PARTIAL.** Three Docker-up `vitest run`s: `1104/9skip/1fail`, `1103/9skip/2fail`, `1104/9skip/1fail` (87 files, 560–685 s). The one failure common to all three is `test/python-deps.test.ts` ("installs a real Python package via requirements.txt and executes code importing it") — **`Test timed out in 60000ms`**. It is a real `pip install` from PyPI inside the Docker runner; historical STATUS records it at ~42–46 s (M65/M67), it now runs ~62–67 s and **fails the fixed 60 s `testTimeout` even in isolation** (`timeout 200 npx vitest run test/python-deps.test.ts` → FAIL, 64.7 s). Root cause: PyPI/network latency drift on this host vs. the M70 verification, against a too-tight fixed timeout — **not** an M71 change. The 2nd failure in run 2 was `test/git.test.ts` ("checkout reports conflictedPaths for a live collaborator's unsaved version") — one-off 60 s timeout under load; **passes in isolation (64.9 s)**, did not recur in runs 1 or 3. Both failing tests are network/Docker-latency-bound with fixed 60 s timeouts they now sit close to. **Zero M71 causality:** `git rev-parse 443ae81:backend` == `git rev-parse HEAD:backend` == `77fed46635389d523ae8b56d4738adb6342fa8e9` (backend tree object byte-identical to the M70 green baseline); `git diff 443ae81..HEAD` touches no backend/docker/scripts byte. No backend code was altered to silence the failure. |
+| Backend full suite (Docker up) | **GREEN — 3 consecutive `vitest run` → `1105 passed / 9 skipped / 0 failed` each** (87 files, 363 / 376 / 384 s). Docker-gated suites executed every run: `sandbox`, `exec` (13.6 s), `git` (17.8 s), `templates.exec` (11.5 s), `m11`/`m12`/`m13`/`m16-optimization`, `python-deps`. `test/python-deps.test.ts` executes in **45.0 / 47.3 / 49.4 s** and no longer times out — its per-test timeout was raised `60000 → 120000` in `96c5426` (test-infra only; see below). `test/git.test.ts` runs its whole file in ~17 s uncontended across all 3 runs — its single earlier full-suite 60 s timeout was pure contention, not fixed-timeout fragility, so it was left unchanged. **Backend production source byte-identical to the M70 baseline:** `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`; the only `backend/` change in M71 is the one-line `python-deps` timeout + its comment (`backend/test/python-deps.test.ts`, +8/−1). No assertion weakened, no test skipped, no global Vitest timeout touched. |
 | Live Chrome (`m61_userA`, project `m65-browser-demo`, real Chrome) | **PASS:** app loads with **zero console errors/warnings** across three page loads (only vite HMR + the React DevTools info line); file tree renders; file open / tab-switch / tree-selection all work; **theme switch to Light applies to both the editor and the sidebar** — the memoized `<Sidebar>` does not block the CSS re-theme — and the choice persists across reload; the `/api/.../stats` poll still fires every 2.5 s (all `200`) — behavior unchanged; no error network responses; no WebSocket reconnect storm. Account restored to `theme: system` afterwards. (During this pass the in-IDE terminal showed "Terminal Session Ended" from a transient Docker-networking fault — `network ide-net-... not found` — which later recovered; not caused by and not in scope for M71.) |
 
 ### Final review
@@ -7915,29 +7915,29 @@ subscription.
    baseline suites as living baselines. `profiledMemo` harness helper.
 7. **Browser verified?** Yes — real Chrome, zero console errors, tree +
    editor + theme + stats-poll behavior all intact, no WS reconnect.
-8. **Docker verification repeated?** Yes — Docker networking recovered and the
-   suite was run three times with Docker up. It is **not fully green**:
-   `test/python-deps.test.ts` times out at 60 000 ms in all three runs *and*
-   in isolation (its real PyPI `pip install` now takes ~62–67 s vs. the
-   ~42–46 s recorded at M65/M67 — network drift against a fixed timeout).
-   `test/git.test.ts` timed out once under load, passes in isolation. Both
-   are network/Docker-latency-bound. The backend tree object is
-   byte-identical to the M70 green baseline (`77fed46…`); no backend code was
-   touched. Release gate is **PARTIAL (environment)**, M71 implementation is
-   unaffected.
+8. **Docker verification repeated?** Yes. After Docker networking recovered,
+   the full suite ran **3 consecutive times with Docker up → `1105 passed /
+   9 skipped / 0 failed` every run**, Docker-gated suites executing each time.
+   The one prior failure (`test/python-deps.test.ts`, a real PyPI `pip
+   install` that had drifted from ~42–46 s at M65/M67 to ~45–67 s) was
+   resolved by raising **only that test's** per-test timeout `60000 → 120000`
+   (`96c5426`, test-infra, no assertion/skip/global change); it now runs
+   45.0–49.4 s. `test/git.test.ts`'s single earlier 60 s timeout was pure
+   full-suite contention — ~17 s per whole file uncontended across all 3 runs
+   — left unchanged. **Backend production source byte-identical to the M70
+   baseline:** `backend/src` tree object `a261a8c…` at both `443ae81` and
+   HEAD.
 9. **Remaining resource risks?** None found. M71 adds no listeners/timers/
    subscriptions. Long-session memory growth: NOT_PROVEN (no reliable
    measurement method in this environment).
-10. **Verdict: M71 implementation PROVEN; repository release gate PARTIAL
-    (environment).** The collaborator/stats-poll Sidebar hotspot is measured,
-    fixed, regression-locked, before/after-quantified and browser-clean;
-    frontend gates are green; the backend is byte-identical to the M70
-    baseline so no backend regression is possible. The release gate is
-    PARTIAL only because two network/Docker-latency-bound backend tests
-    (`python-deps`, and once `git`) exceed their fixed 60 s timeouts on this
-    host — pre-existing fragility, zero M71 causality. Targets #2 (context
-    split) and #3 (tree virtualization) were **measured and deliberately not
-    pursued** — a valid measurement-gated outcome.
+10. **Verdict: M71 implementation PROVEN; repository release gate GREEN.**
+    The collaborator/stats-poll Sidebar hotspot is measured, fixed,
+    regression-locked, before/after-quantified and browser-clean; frontend
+    gates green; backend production source byte-identical to the M70 baseline;
+    backend full suite green ×3 with Docker (after a bounded test-infra
+    timeout fix that changed no behavior). Targets #2 (context split) and #3
+    (tree virtualization) were **measured and deliberately not pursued** — a
+    valid measurement-gated outcome.
 
 ### Not done / out of scope (M71)
 
@@ -7949,9 +7949,24 @@ subscription.
 - No `useCallback`/`useMemo` sprinkling beyond the four Sidebar handler
   props actually required for the memo to bail.
 - No `setStats` poll-interval / mechanism change; no `IDE.tsx`
-  decomposition; no CSS cleanup; no backend work.
+  decomposition; no CSS cleanup; no backend production code.
 - The two pre-existing P3s (`m4-collab` #33 timing flake; dev-only
   StrictMode `/p/:id` deep-link substitution) are untouched.
+
+### `test/python-deps.test.ts` timeout — resolved (`96c5426`)
+
+`test/python-deps.test.ts` runs a real `pip install six==1.17.0` from PyPI
+inside the Docker runner plus a real run. Recorded at ~42–46 s at M65/M67;
+PyPI latency drift on this host pushed it to ~45–49 s uncontended and
+~60–67 s under full-suite Docker load, past its fixed **60 000 ms** per-test
+timeout — it timed out in three consecutive full backend runs and in
+isolation. Raised **only this test's** per-test timeout (`60000 → 120000`,
+~2× the worst observed, still bounded): no global Vitest timeout change, no
+assertion weakened, no skip, no production code. Post-fix: 3 consecutive full
+Docker backend runs → `1105 / 9 skip / 0 fail` each; `python-deps` executes
+45.0 / 47.3 / 49.4 s. `test/git.test.ts`'s one earlier full-suite 60 s
+timeout was pure contention (~17 s per whole file across all 3 post-fix runs)
+and was **left unchanged** — no genuine fixed-timeout fragility.
 
 ### Remaining known P3s (updated for M71)
 
@@ -7959,19 +7974,7 @@ subscription.
    test-infra flake. Did not reproduce this milestone.
 2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
    correct; not touched.
-3. `test/python-deps.test.ts` — real PyPI `pip install` inside the Docker
-   runner against a fixed 60 s `testTimeout`. Recorded at ~42–46 s at
-   M65/M67; now ~62–67 s (network drift on this host), so it **times out in
-   all three M71 backend runs and in isolation**. Zero M71 causality
-   (backend byte-identical). Fix is a one-line `testTimeout` bump in
-   `backend/test/python-deps.test.ts` or `backend/vitest.config.ts` — a
-   backend-only change, out of M71 (frontend perf) scope; left for a
-   backend-hygiene pass.
-4. `test/git.test.ts` "checkout reports conflictedPaths for a live
-   collaborator's unsaved version" — 60 s timeout once under full-suite load
-   (M71 run 2 of 3); passes in isolation (64.9 s, also close to its budget).
-   Same class as #1/#3.
-5. This machine's Docker networking was briefly broken during M71
-   verification (`network ide-net-… not found` in the in-IDE terminal); it
-   recovered (`docker network create` + container→PyPI reachability both
-   OK). Environmental, not an M71 concern.
+3. This machine's Docker networking was briefly broken mid-M71 verification
+   (`network ide-net-… not found` in the in-IDE terminal); it recovered
+   (`docker network create` + container→PyPI reachability both OK).
+   Environmental, not an M71 concern.
