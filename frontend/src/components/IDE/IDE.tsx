@@ -26,6 +26,7 @@ import {
   fetchCollabTimeline,
   fetchWhileAway,
   ackWhileAway,
+  getProfile,
 } from "../../api";
 import Sidebar from "../Sidebar/Sidebar";
 import Toolbar from "../Toolbar/Toolbar";
@@ -836,9 +837,32 @@ export default function IDE({
           });
       };
       loadCommentRoster();
+
+      // M73: keep THIS client's own awareness identity (the "You" row / self
+      // avatar) in step with the user's profile — once now, and again on a
+      // self `profile_event`. No reconnect, no new socket; peers converge via
+      // the server's per-room identity cache exactly as before.
+      const selfIdentityClient = client;
+      const syncSelfIdentity = () => {
+        void getProfile()
+          .then((r) => {
+            if (cancelled || collabClientRef.current !== selfIdentityClient) {
+              return;
+            }
+            selfIdentityClient.updateLocalIdentity({
+              displayName: r.profile.displayName,
+              avatarVersion: r.profile.avatarVersion,
+              pronouns: r.profile.pronouns,
+            });
+          })
+          .catch(() => {});
+      };
+      syncSelfIdentity();
+
       unsubProfileEvent = client.on(
         "profile_event",
-        (_ev: ProfileEventWire) => {
+        (ev: ProfileEventWire) => {
+          if (user && ev.userId === user.id) syncSelfIdentity();
           // coalesce: while a refetch is already scheduled, drop the event.
           if (profileEventTimerRef.current != null) return;
           profileEventTimerRef.current = window.setTimeout(() => {
