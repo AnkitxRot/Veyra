@@ -6,9 +6,11 @@ import {
   displayLabel,
   secondaryHandle,
 } from "../../collab/presence";
+import type { CollabConnectionStatus } from "../../collab/client";
+import { rosterStalenessNote } from "../../collab/connectionPresentation";
 import type { RunStatusEntry, TimelineEvent } from "../../types";
 import { pickRunForUser, formatRunText } from "./runActivity";
-import ActivityTimeline from "./ActivityTimeline";
+import ActivityTimeline, { type ActorIdentityMap } from "./ActivityTimeline";
 import UserAvatar from "../common/UserAvatar";
 
 export interface TeamPanelProps {
@@ -18,6 +20,9 @@ export interface TeamPanelProps {
   currentUserId: number;
   isDnd: boolean;
   followingUserId: number | null;
+  /** M73: the canonical collaboration connection status — drives the
+   *  "this list may be out of date" caveat. Defaults to "connected". */
+  collabStatus?: CollabConnectionStatus;
   onClose: () => void;
   onSetIntent: (text: string) => void;
   onToggleDnd: (dnd: boolean) => void;
@@ -31,6 +36,8 @@ export interface TeamPanelProps {
   onTimelineNavigate: (ev: TimelineEvent) => void;
   /** M60: newest edit/callout per userId, for the per-collaborator "last change" line. */
   lastChangeByUser?: Map<number, TimelineEvent>;
+  /** M73: userId → presentation identity for timeline actor rows. */
+  actorIdentity?: ActorIdentityMap;
 }
 
 const ACTIVITY_LABEL: Record<string, string> = {
@@ -66,6 +73,7 @@ export default function TeamPanel({
   currentUserId,
   isDnd,
   followingUserId,
+  collabStatus = "connected",
   onClose,
   onSetIntent,
   onToggleDnd,
@@ -77,6 +85,7 @@ export default function TeamPanel({
   onTimelineLoadMore,
   onTimelineNavigate,
   lastChangeByUser,
+  actorIdentity,
 }: TeamPanelProps) {
   // 1 Hz relative-time ticker — LOCAL to this mounted panel, cleared on unmount.
   const [now, setNow] = useState(() => Date.now());
@@ -110,6 +119,8 @@ export default function TeamPanel({
     if (next !== (self?.intent?.text ?? "")) onSetIntent(next);
   };
 
+  const staleNote = rosterStalenessNote(collabStatus);
+
   return (
     <div className="team-panel liquid-card" role="dialog" aria-label="Team">
       <div className="team-panel-header">
@@ -125,6 +136,12 @@ export default function TeamPanel({
           ×
         </button>
       </div>
+
+      {staleNote && (
+        <div className="team-stale-note" role="status">
+          {staleNote}
+        </div>
+      )}
 
       {self && (
         <div className="team-row team-row-self">
@@ -270,6 +287,7 @@ export default function TeamPanel({
         loadingMore={timelineLoadingMore}
         onLoadMore={onTimelineLoadMore}
         onNavigate={onTimelineNavigate}
+        actorIdentity={actorIdentity}
       />
     </div>
   );

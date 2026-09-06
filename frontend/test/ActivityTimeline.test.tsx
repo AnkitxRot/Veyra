@@ -92,6 +92,62 @@ describe("ActivityTimeline", () => {
     expect(screen.queryByText(/show more/i)).toBeNull();
   });
 
+  it("M73: renders the actor's display name + avatar from the identity map", () => {
+    render(
+      <ActivityTimeline
+        events={[ev({ actor: { userId: 7, username: "rahul" } })]}
+        hasMore={false}
+        onLoadMore={() => {}}
+        onNavigate={() => {}}
+        actorIdentity={
+          new Map([[7, { displayName: "Rahul K.", avatarVersion: 4 }]])
+        }
+      />,
+    );
+    expect(screen.getByText("Rahul K.")).toBeTruthy();
+    expect(screen.queryByText("rahul")).toBeNull();
+    const img = document.querySelector("img.tat-avatar") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe("/api/auth/profile/7/avatar?v=4");
+  });
+
+  it("M73: falls back to the username when the actor is not in the map", () => {
+    render(
+      <ActivityTimeline
+        events={[ev({ actor: { userId: 7, username: "rahul" } })]}
+        hasMore={false}
+        onLoadMore={() => {}}
+        onNavigate={() => {}}
+        actorIdentity={new Map()}
+      />,
+    );
+    expect(screen.getByText("rahul")).toBeTruthy();
+    // no avatar image → initials span still rendered for the known userId
+    expect(document.querySelector(".tat-avatar")).toBeTruthy();
+  });
+
+  it("M73: a null-actor event (commit/snapshot) keeps the kind icon, no avatar", () => {
+    render(
+      <ActivityTimeline
+        events={[
+          ev({
+            id: "git:1",
+            kind: "commit",
+            actor: { userId: null, username: "system" },
+            title: 'committed "x"',
+            navigable: false,
+            filePath: undefined,
+          }),
+        ]}
+        hasMore={false}
+        onLoadMore={() => {}}
+        onNavigate={() => {}}
+        actorIdentity={new Map()}
+      />,
+    );
+    expect(document.querySelector(".tat-avatar")).toBeNull();
+    expect(document.querySelector(".tat-icon")).toBeTruthy();
+  });
+
   it("shows an empty state when there are no events", () => {
     render(
       <ActivityTimeline

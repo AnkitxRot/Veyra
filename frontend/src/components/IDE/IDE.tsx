@@ -26,6 +26,7 @@ import {
   fetchCollabTimeline,
   fetchWhileAway,
   ackWhileAway,
+  getProfile,
 } from "../../api";
 import Sidebar from "../Sidebar/Sidebar";
 import Toolbar from "../Toolbar/Toolbar";
@@ -91,6 +92,7 @@ import {
   anchorFileBasename,
   type FollowAnchor,
 } from "../../collab/followAnchor";
+import { FollowGeneration } from "../../collab/followGeneration";
 import type { EditorViewApi } from "../Editor/Editor";
 import type {
   CollaborationClient,
@@ -505,6 +507,15 @@ export default function IDE({
   const followAnchorRef = useRef<FollowAnchor | null>(null);
   const followAbsenceTimerRef = useRef<number | null>(null);
   const followedUserIdRef = useRef<number | null>(null);
+  // M73: the follow-session generation token. Every transition that ends or
+  // switches the current follow (Stop, Return, target switch, new follow,
+  // reset) bumps it. Any async / deferred continuation captured under an
+  // earlier generation — a resolved `handleReturnToMyLocation` await, a
+  // fired absence timer, a "follow-left" notice action / onExpire — checks
+  // its captured generation and no-ops when it is stale, so a prior target's
+  // lifecycle can never navigate, clear a new target's anchor, or expire
+  // into the new session.
+  const followGenRef = useRef(new FollowGeneration());
   const collaboratorsRef = useRef<CollaboratorPresence[]>([]);
   const lastFollowedRef = useRef<{ userId: number; name: string } | null>(null);
   const editorViewApiRef = useRef<EditorViewApi | null>(null);
@@ -826,9 +837,32 @@ export default function IDE({
           });
       };
       loadCommentRoster();
+
+      // M73: keep THIS client's own awareness identity (the "You" row / self
+      // avatar) in step with the user's profile — once now, and again on a
+      // self `profile_event`. No reconnect, no new socket; peers converge via
+      // the server's per-room identity cache exactly as before.
+      const selfIdentityClient = client;
+      const syncSelfIdentity = () => {
+        void getProfile()
+          .then((r) => {
+            if (cancelled || collabClientRef.current !== selfIdentityClient) {
+              return;
+            }
+            selfIdentityClient.updateLocalIdentity({
+              displayName: r.profile.displayName,
+              avatarVersion: r.profile.avatarVersion,
+              pronouns: r.profile.pronouns,
+            });
+          })
+          .catch(() => {});
+      };
+      syncSelfIdentity();
+
       unsubProfileEvent = client.on(
         "profile_event",
-        (_ev: ProfileEventWire) => {
+        (ev: ProfileEventWire) => {
+          if (user && ev.userId === user.id) syncSelfIdentity();
           // coalesce: while a refetch is already scheduled, drop the event.
           if (profileEventTimerRef.current != null) return;
           profileEventTimerRef.current = window.setTimeout(() => {
@@ -1501,6 +1535,11 @@ export default function IDE({
   const focusOn = useCallback(
     (userId: number, opts: { follow: boolean }) => {
       const cur = followedUserIdRef.current;
+      // M73: a real transition (switch target / start a follow) ends the prior
+      // session — invalidate every token captured under it.
+      if (opts.follow || (cur !== null && cur !== userId)) {
+        followGenRef.current.bump();
+      }
       if (cur !== null && cur !== userId) {
         setFollowedUserId(null);
         setFollowPaused(false);
@@ -1525,6 +1564,9 @@ export default function IDE({
 
   const handleReturnToMyLocation = useCallback(async () => {
     const anchor = followAnchorRef.current;
+    // M73: token for this return — a new follow starting during the open below
+    // must not have its target navigated away by the resolved continuation.
+    const gen = followGenRef.current.bump();
     clearFollowAbsenceTimer();
     // M64: explicit dismissal — clears the notice + its TTL timer, and does
     // NOT run onExpire (the anchor is discarded here directly instead).
@@ -1549,6 +1591,8 @@ export default function IDE({
       return;
     }
     await handleOpenFile(anchor.filePath);
+    // A new follow session superseded this return while the file opened.
+    if (!followGenRef.current.isCurrent(gen)) return;
     document.dispatchEvent(
       new CustomEvent("ide-restore-view-state", {
         detail: {
@@ -1562,6 +1606,7 @@ export default function IDE({
   }, [clearFollowAbsenceTimer, dismissNoticeKey]);
 
   const handleStopFollowing = useCallback(() => {
+    followGenRef.current.bump();
     clearFollowAbsenceTimer();
     dismissNoticeKey("follow-left");
     setFollowedUserId(null);
@@ -1572,6 +1617,7 @@ export default function IDE({
 
   // M59: full reset — project switch / disposal / session expiry / unmount.
   const resetFollowState = useCallback(() => {
+    followGenRef.current.bump();
     clearFollowAbsenceTimer();
     dismissNoticeKey("follow-left");
     followAnchorRef.current = null;
@@ -1589,8 +1635,13 @@ export default function IDE({
   useEffect(() => {
     if (!followedUser) {
       if (followedUserId !== null && followAbsenceTimerRef.current === null) {
+        // M73: this absence timer belongs to the follow session live now.
+        const gen = followGenRef.current.current();
         followAbsenceTimerRef.current = window.setTimeout(() => {
           followAbsenceTimerRef.current = null;
+          // A newer follow session started while the grace ran out — this
+          // timer's target is history; do not drop the new follow or notify.
+          if (!followGenRef.current.isCurrent(gen)) return;
           const targetId = followedUserIdRef.current;
           const stillAbsent =
             targetId !== null &&
@@ -1611,7 +1662,11 @@ export default function IDE({
               surface: "editor",
               dedupeKey: "follow-left",
               onExpire: () => {
-                followAnchorRef.current = null;
+                // M73: only this session's "stay here" default may drop the
+                // anchor — a session that started since must keep its own.
+                if (followGenRef.current.isCurrent(gen)) {
+                  followAnchorRef.current = null;
+                }
               },
               actions: [
                 {
@@ -1624,7 +1679,9 @@ export default function IDE({
                   label: "Stay here",
                   onClick: () => {
                     dismissNoticeKey("follow-left");
-                    followAnchorRef.current = null;
+                    if (followGenRef.current.isCurrent(gen)) {
+                      followAnchorRef.current = null;
+                    }
                   },
                 },
               ],
@@ -1791,6 +1848,22 @@ export default function IDE({
     }
     return [...m.values()];
   }, [commentRoster, collaborators, user]);
+
+  // M73: userId → presentation identity for the activity timeline / while-away
+  // actor rows. Same canonical source as comment author rows (commentMembers).
+  const actorIdentityMap = useMemo(() => {
+    const m = new Map<
+      number,
+      { displayName?: string | null; avatarVersion?: number }
+    >();
+    for (const info of commentMembers) {
+      m.set(info.userId, {
+        displayName: info.displayName,
+        avatarVersion: info.avatarVersion,
+      });
+    }
+    return m;
+  }, [commentMembers]);
 
   const commentCountsByFile = useMemo(() => countsByFile(unresolvedComments), [unresolvedComments]);
 
@@ -3327,6 +3400,7 @@ export default function IDE({
               currentUserId={user.id}
               isDnd={isDnd}
               followingUserId={followedUserId}
+              collabStatus={collabStatus}
               onClose={() => setTeamPanelOpen(false)}
               onSetIntent={(t) => collabClientRef.current?.setIntent(t)}
               onToggleDnd={handleToggleDnd}
@@ -3338,6 +3412,7 @@ export default function IDE({
               onTimelineLoadMore={handleTimelineLoadMore}
               onTimelineNavigate={handleTimelineNavigate}
               lastChangeByUser={lastChangeByUser}
+              actorIdentity={actorIdentityMap}
             />
             <CommentsPanel
               activeFile={activeFile}
@@ -3379,6 +3454,7 @@ export default function IDE({
               collaboratorsRef.current.find((c) => c.userId === uid)?.color ??
               "#89b4fa"
             }
+            actorIdentity={actorIdentityMap}
             onNavigate={handleTimelineNavigate}
             onDismiss={handleWhileAwayDismiss}
             autoDismissMs={20000}
@@ -3652,6 +3728,7 @@ export default function IDE({
                     runStatuses={runStatuses}
                     currentUserId={user.id}
                     collabConnected={collabStatus === "connected"}
+                    actorIdentity={actorIdentityMap}
                   />
                 )}
                 {bottomTab === "problems" && (

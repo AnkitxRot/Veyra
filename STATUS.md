@@ -8115,3 +8115,199 @@ persist / remove / broken-image fallback / no-path-leak / no-WS-churn. The
 authenticated multi-session browser slice is PARTIAL, covered by deterministic
 integration and identity-consistency coverage as noted above. No backend
 production code outside the profile/collab/admin identity path was touched.
+
+
+## M73 - seamless multiplayer / presence UX
+
+**Objective:** make multiplayer feel native - one coherent mental model where a
+collaborator is `avatar + display name + @username + presence + activity +
+follow + profile context`, built entirely on the M72 canonical identity model.
+No Yjs protocol change, no new connection-state enum, no new WebSocket message
+type, no authorization change, no new dependency, no migration.
+
+### Phase 0 audit - the architecture M73 built on
+
+- **Connection state:** one owner, `CollaborationClient.status`
+  (`connecting | connected | reconnecting | resynchronizing | disconnected |
+  forbidden`, M63). Already sufficient - M73 added no enum. The M63
+  editor-region `CollabConnectionBanner` and the toolbar sync badge both read
+  it, so they cannot contradict.
+- **Identity:** `userId` + `username` stable keys; `displayName` (M62) +
+  `avatarVersion` (M72) presentation, resolved server-side into a per-room
+  cache (`displayNameByUser` / `avatarVersionByUser`), emitted on the awareness
+  `user` frame, refreshed on `profile_event`, pruned on last-client-leave.
+  `collab/presence.ts` `readPresenceState` + `displayLabel` / `secondaryHandle`
+  are the one parse + one label rule. `UserAvatar` / `ProfileCard` are the M72
+  primitives.
+- **Follow:** owned by IDE.tsx - `followedUserId`, one null-guarded
+  `followAnchorRef` per session, one userId-keyed `followAbsenceTimerRef`
+  (`FOLLOW_ABSENCE_GRACE_MS` 6s), an M64 editor-surface "X left" notice
+  (`FOLLOW_LEFT_NOTICE_MS` 8s). `focusOn` is the single transition controller.
+- **Reconnect/resync:** M63 machinery unchanged; `resetLocalCollabState`
+  discards the lineage on explicit server disposal (close 1001 while
+  connected/resyncing); awareness is clientID-keyed so resync never duplicates
+  a collaborator, and the identity caches are refreshed-in-place not appended.
+
+### Findings and what M73 changed
+
+| # | Finding (audit) | Fix |
+|---|---|---|
+| P2-B | Activity timeline + While-You-Were-Away rendered `actor.username` as bare text - the two surfaces M72 explicitly deferred | both take an `actorIdentity` map (userId -> {displayName, avatarVersion}); render `UserAvatar` + `displayLabel`, username fallback, kind-icon kept for null-actor rows |
+| P1-C | The avatar-stack quick popover re-implemented the identity block instead of reusing `ProfileCard` (M73's stated consolidation objective) | popover now renders `<ProfileCard>` (avatar + label + @handle + pronouns + presence chip); role chip + Follow/Jump stay as chrome |
+| - | `ProfileCard` needed pronouns for collaborators, but pronouns were not propagated | `pronouns` now rides the same per-room identity cache + awareness `user` frame as displayName/avatarVersion - same lifecycle, forged value discarded, awareness hot path still no DB read. bio deliberately NOT propagated |
+| P1-E | `handleReturnToMyLocation` is async; starting a new follow during its `await handleOpenFile` let the resolved continuation navigate off the new target | `collab/followGeneration.ts` - a monotonic token bumped on every follow boundary; the async return re-checks after the await, the absence timer bails when superseded, and a stale "follow-left" notice's onExpire / "Stay here" cannot clear a newer session's anchor |
+| P2-D | a client only ever seeded its own awareness `user` with the stable identity - its own "You" row / self avatar never showed displayName/avatar and never reflected a self edit | `CollaborationClient.updateLocalIdentity({displayName, avatarVersion, pronouns})` folds presentation identity into the local `user` field (self-render only, no reconnect, no new socket, survives lineage reset); IDE.tsx calls it on client create and on a self `profile_event` |
+| P2-A | during reconnecting/disconnected the avatar stack showed a last-known roster with live-looking dots; TeamPanel had no connection cue at all | `collab/connectionPresentation.ts` (`collaborationIsLive`, `rosterStalenessNote`) - the one roster-staleness copy owner; the stack dims its row + speaks the caveat in its group aria-label, TeamPanel renders a `role="status"` note; reads the same canonical status |
+| P3-H | avatar-stack activity text said "Editing foo.ts" for an idle/away collaborator | gate on availability after the server-run check (matches TeamPanel) |
+| P2-I | M65 shared run output named the owner with the bare `run_status.username`, no avatar | optional `actorIdentity` threaded from IDE.tsx through Output; `UserAvatar` + `displayLabel`, username fallback |
+
+### Commits (`master`..`HEAD`, 8)
+
+| hash | message | tests |
+|---|---|---|
+| `6d0546b` | feat(collab): propagate collaborator pronouns through presence identity | `m73-collab-pronouns` (6), `sanitizeStoredPronouns` matrix (3), FE `collab.presence` parse (+1) |
+| `3407ea3` | feat(collab): reuse ProfileCard for collaborator identity in the avatar stack | `CollaboratorAvatarStack.profileCard` (5); identity-consistency unchanged |
+| `98459f5` | fix(collab): generation-token the follow lifecycle against target races | `collab.followGeneration` (4); `collab.focus.follow` source-contract (+6, windows widened) |
+| `90d4941` | feat(collab): re-stamp local awareness identity on a self profile change | `collab.selfIdentity` (7); `IDE.profileEvent` source-contract (+1, revised) |
+| `f54a6ef` | feat(collab): surface connection staleness on the roster surfaces | `collab.connectionPresentation` (3); avatar-stack dim (+1); TeamPanel note (+1) |
+| `6346248` | feat(collab): render identity on the activity timeline and while-you-were-away | `ActivityTimeline` (+3), `WhileYouWereAway` (+2) |
+| `1a238db` | fix(collab): gate avatar-stack activity text on availability | `CollaboratorAvatarStack` (+2) |
+| `d71f909` | feat(collab): unify shared run output identity with UserAvatar | `SharedRunOutputPanel` (+2) |
+
+32 files, +1297 / -116.
+
+### Verification (2026-09-07)
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1173 passed / 9 skipped / 0 failed** (93 files, 398s); Docker-gated suites executed (`templates.exec` 11.3s, `m16-optimization`, `exec`, `sandbox`, `python-deps`, `git`). +9 vs M72 (1164) = the M73 pronoun tests |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` -> **965 passed / 0 failed** (121 files). +37 vs M72 (928). Includes the M71 perf suites (10/10) |
+| Frontend build | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged) |
+| Backend eslint | 0 errors |
+| `git diff --check` | clean |
+| Revert-sensitivity | every changed boundary breaks >=1 test on revert: pronoun awareness emit + forged-value discard + no-DB-read + reconnect repopulate; `ProfileCard` reuse (.profile-card present, pronouns shown/omitted, presence tone); follow generation token bump sites + post-await recheck ordering + stale-notice anchor guard; `updateLocalIdentity` fold/clear/no-op/no-new-socket/survives-reset; roster staleness note per status; timeline/while-away actor avatar + username fallback; idle -> "Idle" not "Editing"; shared-run-output owner avatar |
+
+### Live two-session browser verification (2026-09-07, release pass)
+
+**Environment.** One connected Chrome extension ("Browser 1"), no incognito
+reachable by the MCP tools. The pre-existing Vite dev server on :5173 has a
+**dead `/api` proxy** (forwards GET, 404s every POST -- this, not a disabled
+endpoint, was the earlier "demo 404"); a fresh `vite --port 5175` from
+`frontend/` with the repo own config proxies correctly and was used for the
+pass. No application code, auth, or config was changed.
+
+**Sessions.**
+- **Session A** = `m61_userA` (real pre-existing test account, id 15, has an
+  uploaded avatar), driven live in the browser on :5175.
+- **Session B / C** = ephemeral `/api/auth/demo` users (`evaluator_88826a` id
+  26 owner; `evaluator_8fa39c` id 28), each a **real authenticated collaborator**
+  connected to the real `/ws/collab` room over the exact wire protocol of
+  `frontend/src/collab/client.ts` (real session cookie, real SyncStep1/2, real
+  awareness frames the server rebuilds and broadcasts). Not mocks. Demo users
+  cannot edit their own profile (`assertNotDemo`), so **A** was the
+  profile-change subject and B/C the observers; B/C render no DOM, so their
+  received-awareness contents were inspected directly for the observer half.
+- Session B/C were logged out and their headless clients killed at the end;
+  the demo user rows + their projects expire on the existing 2 h demo GC.
+
+**Matrix (live unless marked).**
+
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| A | Both users in same project | PASS | A + B in room "CloudShowcase" (B demo project, A added editor) |
+| B | Collaborator appears | PASS | count chip "2", avatar-stack "EV", TeamPanel row |
+| C | Correct avatar | PASS | B/C demo -> initials "EV" on `getUserColor(26)` peach (no avatar); A self row -> `/api/auth/profile/avatar?v=N` image |
+| D | Correct display name | PASS | B/C -> username fallback (no displayName, correct); A -> "Ada Lovelace" propagated to B/C awareness |
+| E | Correct pronouns | PASS | A set "she/her" then "she/they" -> B/C received `user.pronouns` live; demo B/C cannot set (shown correctly absent) |
+| F | Collaborator profile card / popover | PASS | `.collab-popover .profile-card` present (ProfileCard reused); label + @handle rule + presence chip `profile-card__presence--online` + role chip + Follow |
+| G | Session A profile edit | PASS | `PUT /api/auth/profile` 200 via real Settings UI |
+| H | A local surfaces update | PASS | self-row `<img ?v=4>` then `?v=5` immediately after save; sync badge stayed "Synced" |
+| I | B receives via existing propagation | PASS | B/C awareness for A: displayName + avatarVersion + pronouns updated **in place, same clientID** |
+| J | No WS reconnect from profile change | PASS | `window.WebSocket` instrumented -> **0** new sockets across two profile edits; A clientID unchanged, no resync |
+| K-M | idle / away / active-again | PASS | B `status=idle` -> stack aria "...idle. Idle.", TeamPanel "Idle" not "editing"; back online -> "Editing" restored |
+| N-Q | A disconnect / reconnecting / resynchronizing / restored | PARTIAL-live | observed the initial connect transient ("Disconnected -- trying to reconnect..." -> "Synced"); a forced drop of only A socket was not possible without disrupting the pass -- covered by M63 tests + `IDE.connectionVisibility` |
+| R-S | B changes file, A sees truthful activity | PASS | stack aria "Editing 1_welcome.py L12"; TeamPanel "Editing / 1_welcome.py L12 / Jump" |
+| T | Idle collaborator not shown editing | PASS | see K-M -- M73 gate on availability |
+| U | Disconnect clears stale live state | PASS | B off -> count 1, TeamPanel row gone, no stale dot |
+| V | Reconnect rebuilds state | PASS | B/C reconnect within grace -> single row, correct file/cursor, no dup |
+| W | A follows B | PASS | FollowBanner "Following evaluator_88826a / 1_welcome.py Line 12 / Return / Stop"; button -> "Unfollow" |
+| X-Y | B changes file, follower tracks | PASS | banner + A editor navigated 1_welcome.py -> 2_benchmark.c L25 |
+| Z | B disconnects | PASS | count 1, banner gone |
+| AA | Follow-left notice | PASS | editor-region "evaluator_88826a left / Return to your location / Stay here", anchor preserved |
+| AB | Return | PARTIAL-live | notice + both actions rendered and the anchor-restore path verified; the explicit click kept racing the 8 s TTL vs MCP latency -- deterministic-covered (`collab.focus.follow`) |
+| AC | Stay / expiry | PASS | notice auto-expired ("Stay" default) -> follow + anchor fully cleared, no residue |
+| AD | Follow another collaborator while old follow-left exists | PASS | A followed C while "B left" notice live -> **B notice vanished**, FollowBanner cleanly became "Following evaluator_8fa39c", no navigation to B obsolete file |
+| AE | Stale notice / timer cannot affect new target | PASS | after the switch, past B original TTL: "B left" never reappeared, C follow + anchor intact, C file-change then tracked (M73 generation token) |
+| AF | Reconnect while following | PASS | C disconnect+reconnect within grace -> follow survived, tracked C new cursor (L8->L20), count 2, one row |
+| AG | Project switch while following | PASS | A -> "m65-browser-demo" while following C -> FollowBanner cleared, **no follow-left / stale notice leaked**, count 1 |
+| AH | No stale follow/anchor leak | PASS | see AG; switching back showed clean 2-collaborator state |
+| AI | Shared run output identity | PASS | C ran `main.py` via real `/ws/execute` -> A Output console `.shared-run-output` "running / EV / evaluator_8fa39c is running" + live stdout (UserAvatar + displayLabel, username fallback) |
+| AJ | No duplicate run/identity after reconnect | PASS | observer reconnected mid-run -> 1 executionId, 1 snapshot + continued frames, 63 bytes (not doubled), "success" once |
+| AK | No duplicate collaborator rows | PASS | steady state always one row/avatar per user across every reconnect / switch (one transient "3" during a switch tick, self-healed) |
+| AL | No contradictory presence indicators | PASS | sync badge, stale-note absence, count chip, TeamPanel agreed at every step |
+| AM | Zero / one / many states coherent | PASS | fresh room = count 1, clean "No Open Files"; 2 collaborators clean; 10+ not exercised (NOT_AVAILABLE) |
+| AN | Clean console | PASS | fresh full load with collaboration active -> only Vite HMR + React DevTools info; no error/warning across the pass |
+| AO | No unexpected WebSocket / session recreation | PASS | instrumented `window.WebSocket` -> 0 spurious sockets from profile / presence / follow ops |
+| AP | No unauthorized identity/activity visibility | PASS | unrelated demo user -> `/ws/collab` upgrade **403**, `/collaborators` and `/project` **404** (existence not disclosed) |
+
+**Resource / lifecycle (Phase 5, live).** `window.WebSocket` instrumented: **0**
+new sockets from any profile change / awareness churn / follow / target-switch.
+No reconnect storm. Collaborator count correct after every reconnect. Follow
+state fully cleared on project switch. Follow-left timer expired cleanly. No
+profile-change-triggered reconnect (A and B/C clientIDs stable across A edits).
+
+**One SUSPECTED pre-existing issue (not M73, not user-visible).** The
+heavily-churned "CloudShowcase" room accumulated **2 empty `{}` awareness
+entries** (server `awareness.getStates()` size 4 with 2 real users); a
+**freshly created room showed 0**. `git diff master...HEAD` touches no
+awareness-lifecycle code (`removeClient`, `dispose`,
+`sanitizeIncomingAwarenessUpdate` all unchanged), and the frontend
+`readPresenceState` returns `null` for a stateless entry, so the count chip,
+avatar stack and TeamPanel all rendered the correct 2 throughout. Classified
+**SUSPECTED pre-existing P3** -- dead-client awareness entries not GC'd when a
+socket closes without the removal frame reaching the server (dev
+StrictMode / HMR / project-switch churn). Left for a separate backend pass.
+
+**Pre-existing, not M73 (observed, out of scope):** (1) Vite :5173 dead `/api`
+proxy; (2) Toolbar quick-open hint text visually overlaps the project name
+(no `Toolbar.tsx` change in M73).
+
+
+### Not done / out of scope (M73)
+
+- **Two-session live Chrome** - DONE (operator authorized the ephemeral demo-session path; matrix above). Remaining live gaps: N-Q (forced mid-session drop of only A's socket), AB (explicit Return-button click vs the 8 s TTL), AM 10+ collaborators, and the B-side DOM render (B/C were headless real clients - their received awareness was inspected instead). All are deterministic-covered and marked PARTIAL-live / NOT_AVAILABLE, never PASS.
+- **bio in collaboration presence** - deliberately not propagated (privacy/noise); stays a Settings/`ProfileCard` concern.
+- **Idle-user awareness latency** - the M62/M72 decision is retained: a fully idle collaborator's presentation identity lags until their next heartbeat / reconnect / REST refetch.
+- **Monaco remote-cursor label** - still the `@handle` at the caret (M72 decision), untouched.
+- **M71 perf** - verified not regressed (perf suites 10/10); no new memoization added.
+- **No M74 work started.**
+
+### Verdict
+
+**M73 implementation PROVEN.** Every deterministic gate is green (backend
+1173/9-skip/0 with Docker, frontend 965/0, build + eslint + `diff --check`), and
+the **live two-session runtime was exercised** (2026-09-07 release pass, table
+above): a real browser session + two real authenticated `/api/auth/demo`
+collaborators on the real `/ws/collab` room and real `/ws/execute`. 33 of the
+36 A-AP scenarios PASS live; N-Q, AB and AM are PARTIAL-live / NOT_AVAILABLE
+(forced A-only socket drop, Return-click vs 8 s TTL, 10+ collaborators) and are
+deterministic-covered - none promoted to PASS.
+
+Verified live: collaborator identity is the M72 canonical model end to end
+(avatar / displayName / pronouns / ProfileCard reused, username fallback
+correct); a self profile edit propagates to peers **in place with zero new
+WebSockets** and updates the local self surface immediately; idle collaborators
+are not shown editing; the follow lifecycle is **generation-token race-safe**
+(following a new target while a stale "X left" notice is live cannot navigate,
+clear the new anchor, or expire into the new session); reconnect and project
+switch leave no stale follow / collaborator / run state; shared run output
+carries the correct identity and does not duplicate on reconnect; permission
+boundaries hold (unrelated user -> 403/404). One **SUSPECTED pre-existing P3**
+(non-M73, non-user-visible): stale `{}` awareness entries in a heavily-churned
+room (fresh room clean) - left for a separate backend pass.
+
+M73 remains **NOT merged** pending the operator's merge decision; no M74 work
+has started.

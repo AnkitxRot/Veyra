@@ -36,6 +36,8 @@ export interface OutputProps {
   runStatuses?: RunStatusEntry[];
   currentUserId?: number;
   collabConnected?: boolean;
+  /** M73: userId → presentation identity for the shared run output owner. */
+  actorIdentity?: import("../Collab/ActivityTimeline").ActorIdentityMap;
 }
 
 export default function Output({
@@ -45,6 +47,7 @@ export default function Output({
   runStatuses = [],
   currentUserId,
   collabConnected = false,
+  actorIdentity,
 }: OutputProps) {
   const [activeTab, setActiveTab] = useState<
     "console" | "history" | "snapshots"
@@ -324,6 +327,7 @@ export default function Output({
                   output={output}
                   status={status}
                   connected={collabConnected}
+                  actorIdentity={actorIdentity}
                 />
               ))}
             </div>

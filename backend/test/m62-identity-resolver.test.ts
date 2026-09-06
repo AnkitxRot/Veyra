@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   effectiveDisplayName,
   sanitizeStoredDisplayName,
+  sanitizeStoredPronouns,
   normalizeSingleLineIdentity,
 } from "../src/profile/identity.js";
 
@@ -48,6 +49,26 @@ describe("M62-3 sanitizeStoredDisplayName", () => {
   it("hard-caps length at 48", () => {
     const long = "x".repeat(80);
     expect(sanitizeStoredDisplayName(long)!.length).toBe(48);
+  });
+});
+
+describe("M73 sanitizeStoredPronouns", () => {
+  it("null for non-string / empty / whitespace-only / all-control", () => {
+    expect(sanitizeStoredPronouns(null)).toBeNull();
+    expect(sanitizeStoredPronouns(undefined)).toBeNull();
+    expect(sanitizeStoredPronouns("")).toBeNull();
+    expect(sanitizeStoredPronouns("   ")).toBeNull();
+    expect(sanitizeStoredPronouns(`${c(1)}${c(9)}`)).toBeNull();
+    expect(sanitizeStoredPronouns(42 as unknown as string)).toBeNull();
+  });
+
+  it("strips control chars, collapses whitespace, trims", () => {
+    expect(sanitizeStoredPronouns("  she/her ")).toBe("she/her");
+    expect(sanitizeStoredPronouns(`they${c(10)}/them`)).toBe("they/them");
+  });
+
+  it("hard-caps at 24 characters", () => {
+    expect(sanitizeStoredPronouns("x".repeat(50))).toHaveLength(24);
   });
 });
 

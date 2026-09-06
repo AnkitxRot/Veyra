@@ -65,3 +65,20 @@ export function effectiveDisplayName(
 ): string {
   return sanitizeStoredDisplayName(displayNameRaw) ?? username;
 }
+
+/**
+ * M73 — defensive sanitize of the stored `pronouns` column for presentation
+ * in the collaboration surfaces. Same single-line rule as a display name
+ * (strip C0/DEL, collapse whitespace, trim) but hard-capped at 24 to match
+ * `PRONOUNS_MAX`. Returns `null` when nothing usable remains — pronouns are
+ * genuinely optional, so there is no username-style fallback. Presentation
+ * only: never a key, never a lookup.
+ */
+export function sanitizeStoredPronouns(
+  raw: string | null | undefined,
+): string | null {
+  if (typeof raw !== "string") return null;
+  const n = normalizeSingleLineIdentity(raw);
+  if (n.length === 0) return null;
+  return n.length > 24 ? n.slice(0, 24) : n;
+}

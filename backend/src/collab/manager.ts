@@ -10,8 +10,11 @@ import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
 import { assertInsideWorkspace, safeResolve } from "../files/service.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
-import { getDisplayName, getAvatarVersion } from "../profile/store.js";
-import { effectiveDisplayName } from "../profile/identity.js";
+import { getDisplayName, getAvatarVersion, getPronouns } from "../profile/store.js";
+import {
+  effectiveDisplayName,
+  sanitizeStoredPronouns,
+} from "../profile/identity.js";
 import {
   parseAttentionInput,
   buildAttentionEvent,
@@ -373,6 +376,10 @@ export class CollaborationRoom {
   // as displayNameByUser — populated in addClient, refreshed on a targeted
   // profile_event, pruned when a user's last client leaves. 0 = no avatar.
   private readonly avatarVersionByUser = new Map<number, number>();
+  // M73: per-room sanitized pronouns, keyed by userId. Exact same lifecycle
+  // as displayNameByUser / avatarVersionByUser. `null` = unset (the awareness
+  // frame then carries no `user.pronouns` key at all).
+  private readonly pronounsByUser = new Map<number, string | null>();
 
   private readonly rangeObservedFiles = new Set<string>();
   private readonly rangeStash = new WeakMap<
@@ -1189,8 +1196,15 @@ export class CollaborationRoom {
     } catch {
       avatarVersion = 0;
     }
+    let pronounsRaw: string | null = null;
+    try {
+      pronounsRaw = getPronouns(this.db, userId);
+    } catch {
+      pronounsRaw = null;
+    }
     this.displayNameByUser.set(userId, effectiveDisplayName(raw, username));
     this.avatarVersionByUser.set(userId, avatarVersion);
+    this.pronounsByUser.set(userId, sanitizeStoredPronouns(pronounsRaw));
   }
 
   /** The client state of any one live connection for `userId` in this room. */
@@ -1913,6 +1927,7 @@ export class CollaborationRoom {
         // repopulates them from the current profile in addClient().
         this.displayNameByUser.delete(clientState.userId);
         this.avatarVersionByUser.delete(clientState.userId);
+        this.pronounsByUser.delete(clientState.userId);
       }
     }
 
@@ -2022,6 +2037,9 @@ export class CollaborationRoom {
           // M72: cached avatar cache-buster — no DB read here. Miss => 0.
           avatarVersion:
             this.avatarVersionByUser.get(clientState.userId) ?? 0,
+          // M73: cached sanitized pronouns — no DB read here. Miss => null.
+          pronouns:
+            this.pronounsByUser.get(clientState.userId) ?? null,
         }),
       });
     }
@@ -2531,6 +2549,7 @@ export class CollaborationRoom {
     this.runOutput.clear();
     this.displayNameByUser.clear();
     this.avatarVersionByUser.clear();
+    this.pronounsByUser.clear();
     // M58: attention teardown.
     for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
     this.attentionExpiryTimers.clear();

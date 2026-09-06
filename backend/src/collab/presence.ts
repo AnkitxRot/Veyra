@@ -55,6 +55,11 @@ export interface AwarenessClientIdentity {
    *  the persisted profile and handed in already-resolved — same discipline
    *  as `displayName`. A client-sent `user.avatarVersion` is discarded. */
   avatarVersion: number;
+  /** M73: the collaborator's sanitized pronouns for presentation in the
+   *  collaboration surfaces, or `null` when unset. Resolved server-side from
+   *  the persisted profile and handed in already-resolved — same discipline
+   *  as `displayName`. A client-sent `user.pronouns` is discarded. */
+  pronouns: string | null;
 }
 
 function isControlChar(code: number): boolean {
@@ -137,6 +142,15 @@ export function buildAuthoritativeAwarenessState(
     avatarVersion: clientState.avatarVersion,
     role: clientState.role,
   };
+  // M73: sanitized pronouns ride the same server-authoritative `user` frame
+  // as displayName/avatarVersion. Emitted only when set — an unset value adds
+  // no key rather than a null, matching how the client treats absence.
+  if (
+    typeof clientState.pronouns === "string" &&
+    clientState.pronouns.length > 0
+  ) {
+    user.pronouns = clientState.pronouns;
+  }
   const incomingUser = incoming.user;
   if (incomingUser && typeof incomingUser === "object") {
     const color = (incomingUser as Record<string, unknown>).color;

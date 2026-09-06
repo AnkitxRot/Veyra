@@ -23,10 +23,27 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
 
   it("coalesces a burst of events into one refetch via a single pending timer", () => {
     const at = src.indexOf('"profile_event",');
-    const sub = src.slice(at, at + 400);
+    const sub = src.slice(at, at + 600);
     expect(sub).toContain("if (profileEventTimerRef.current != null) return;");
     expect(sub).toContain("profileEventTimerRef.current = window.setTimeout(");
     expect(sub).toContain("loadCommentRoster();");
+  });
+
+  it("M73: a self profile_event also re-syncs this client's own awareness identity", () => {
+    const at = src.indexOf('"profile_event",');
+    const sub = src.slice(at, at + 600);
+    expect(sub).toContain("ev.userId === user.id");
+    expect(sub).toContain("syncSelfIdentity()");
+    // syncSelfIdentity fetches the self profile and folds it into awareness —
+    // no reconnect, no new socket
+    const sync = src.slice(
+      src.indexOf("const syncSelfIdentity = () => {"),
+      src.indexOf("const syncSelfIdentity = () => {") + 600,
+    );
+    expect(sync).toContain("getProfile()");
+    expect(sync).toContain("updateLocalIdentity({");
+    expect(sync).not.toContain("new CollaborationClient");
+    expect(sync).not.toContain(".connect(");
   });
 
   it("does the initial roster load and fetches /collaborators", () => {
@@ -43,12 +60,13 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
 
   it("treats the event as invalidation-only — the handler ignores the payload", () => {
     expect(src).toMatch(
-      /"profile_event",\s*\r?\n\s*\(_ev: ProfileEventWire\) =>/,
+      /"profile_event",\s*\r?\n\s*\(ev: ProfileEventWire\) =>/,
     );
-    // no reading of a name/displayName off the wire event
+    // the handler may key off ev.userId (self-detection, M73) but never reads
+    // a name / displayName / pronouns / profile bundle off the wire event
     const at = src.indexOf('"profile_event",');
-    const sub = src.slice(at, at + 400);
-    expect(sub).not.toMatch(/_ev\.(displayName|name|username|profile)/);
+    const sub = src.slice(at, at + 600);
+    expect(sub).not.toMatch(/ev\.(displayName|name|username|pronouns|profile)/);
   });
 
   it("tears down the subscription and cancels the pending refetch", () => {

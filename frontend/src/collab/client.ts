@@ -190,6 +190,17 @@ export class CollaborationClient {
   private isDisposed = false;
   private user: User;
 
+  // M73: the local user's own presentation identity, mirrored into this
+  // client's awareness `user` field so its OWN presence entry (the "You" row,
+  // the self avatar) renders the same displayName / avatar / pronouns every
+  // peer sees. Peers still receive the server-stamped identity regardless of
+  // what is sent here; this is only for the self-render. Re-applied after an
+  // explicit-disposal lineage reset. A self `profile_event` refreshes it —
+  // NOT a reconnect, NOT a new socket.
+  private localDisplayName: string | null = null;
+  private localAvatarVersion = 0;
+  private localPronouns: string | null = null;
+
   // M60: epoch ms of the most recent transition to "disconnected", so the
   // next successful reconnect can emit `reconnected_after_gap` with how long
   // the client was offline (only the TRIGGER for While-You-Were-Away — the
@@ -245,12 +256,7 @@ export class CollaborationClient {
     // before rebroadcast (only `user.color` and the ephemeral fields survive
     // as sent). This local state is still set for the client's own instant
     // self-render; peers only ever see the server-stamped identity.
-    this.awareness.setLocalStateField("user", {
-      id: this.user.id,
-      name: this.user.username,
-      color: getUserColor(this.user.id),
-      role: this.user.role === "admin" ? "owner" : "editor",
-    });
+    this.awareness.setLocalStateField("user", this.buildLocalUser());
     this.awareness.setLocalStateField("status", this.availability);
     this.awareness.setLocalStateField("activity", this.currentActivity);
     this.awareness.setLocalStateField("lastActive", Date.now());
@@ -317,6 +323,71 @@ export class CollaborationClient {
         }
       },
     );
+  }
+
+  /** The local `user` awareness object: the stable identity plus whatever
+   *  presentation identity this client currently knows about itself. Peers
+   *  only ever see the server-stamped version; this drives the self-render. */
+  private buildLocalUser(): Record<string, unknown> {
+    const u: Record<string, unknown> = {
+      id: this.user.id,
+      name: this.user.username,
+      color: getUserColor(this.user.id),
+      role: this.user.role === "admin" ? "owner" : "editor",
+    };
+    if (this.localDisplayName) u.displayName = this.localDisplayName;
+    if (this.localAvatarVersion > 0) u.avatarVersion = this.localAvatarVersion;
+    if (this.localPronouns) u.pronouns = this.localPronouns;
+    return u;
+  }
+
+  /**
+   * M73: the local user edited their own profile. Fold the new presentation
+   * identity into this client's awareness `user` field so the self surfaces
+   * (the "You" row, the self avatar) update immediately — with NO reconnect,
+   * NO new socket. Peers converge via the existing server-side per-room
+   * identity cache + `profile_event`; nothing forged here reaches them. A
+   * no-op when every provided field already matches.
+   */
+  public updateLocalIdentity(patch: {
+    displayName?: string | null;
+    avatarVersion?: number;
+    pronouns?: string | null;
+  }): void {
+    if (this.isDisposed) return;
+    let changed = false;
+    if ("displayName" in patch) {
+      const next =
+        typeof patch.displayName === "string" && patch.displayName.trim()
+          ? patch.displayName.trim().slice(0, 48)
+          : null;
+      if (next !== this.localDisplayName) {
+        this.localDisplayName = next;
+        changed = true;
+      }
+    }
+    if ("avatarVersion" in patch) {
+      const v = patch.avatarVersion;
+      const next =
+        typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+      if (next !== this.localAvatarVersion) {
+        this.localAvatarVersion = next;
+        changed = true;
+      }
+    }
+    if ("pronouns" in patch) {
+      const next =
+        typeof patch.pronouns === "string" && patch.pronouns.trim()
+          ? patch.pronouns.trim().slice(0, 24)
+          : null;
+      if (next !== this.localPronouns) {
+        this.localPronouns = next;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    this.awareness.setLocalStateField("user", this.buildLocalUser());
+    this.awareness.setLocalStateField("lastActive", Date.now());
   }
 
   // --- Local Activity & Availability State Machine ---

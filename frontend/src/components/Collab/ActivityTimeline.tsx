@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from "react";
 import type { TimelineEvent } from "../../types";
 import { formatTimelineEvent } from "../../collab/timeline";
+import { displayLabel } from "../../collab/presence";
+import UserAvatar from "../common/UserAvatar";
+
+/** M73: userId → presentation identity, so a timeline actor renders the same
+ *  avatar + display name as every other collaboration surface. `username`
+ *  stays the fallback and the stable attribution key. */
+export type ActorIdentityMap = Map<
+  number,
+  { displayName?: string | null; avatarVersion?: number }
+>;
 
 export interface ActivityTimelineProps {
   events: TimelineEvent[];
@@ -8,6 +18,8 @@ export interface ActivityTimelineProps {
   loadingMore?: boolean;
   onLoadMore: () => void;
   onNavigate: (ev: TimelineEvent) => void;
+  /** M73: optional identity lookup for actor rows. */
+  actorIdentity?: ActorIdentityMap;
 }
 
 /**
@@ -22,6 +34,7 @@ export default function ActivityTimeline({
   loadingMore = false,
   onLoadMore,
   onNavigate,
+  actorIdentity,
 }: ActivityTimelineProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -38,6 +51,14 @@ export default function ActivityTimeline({
         <ul className="tat-list">
           {events.map((ev) => {
             const f = formatTimelineEvent(ev, now);
+            const id =
+              ev.actor.userId != null
+                ? actorIdentity?.get(ev.actor.userId)
+                : undefined;
+            const actorName = displayLabel({
+              name: f.actor,
+              displayName: id?.displayName ?? null,
+            });
             return (
               <li
                 key={ev.id}
@@ -58,11 +79,20 @@ export default function ActivityTimeline({
                 title={ev.filePath ?? undefined}
               >
                 <span className="tat-time">{f.time}</span>
+                {ev.actor.userId != null && (
+                  <UserAvatar
+                    userId={ev.actor.userId}
+                    username={f.actor}
+                    avatarVersion={id?.avatarVersion}
+                    size={16}
+                    className="tat-avatar"
+                  />
+                )}
                 <span className="tat-icon" aria-hidden="true">
                   {f.icon}
                 </span>
                 <span className="tat-body">
-                  <span className="tat-actor">{f.actor}</span>{" "}
+                  <span className="tat-actor">{actorName}</span>{" "}
                   <span className="tat-text">{f.text}</span>
                   {ev.filePath && ev.kind !== "commit" && ev.kind !== "snapshot" && (
                     <span className="tat-file"> · {ev.filePath.split("/").pop()}</span>
