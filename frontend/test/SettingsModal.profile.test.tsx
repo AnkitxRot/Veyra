@@ -11,9 +11,15 @@ import type { UserProfile } from "../src/types";
 
 const getProfileMock = vi.fn();
 const updateProfileMock = vi.fn();
+const uploadAvatarMock = vi.fn();
+const removeAvatarMock = vi.fn();
 vi.mock("../src/api", () => ({
   getProfile: () => getProfileMock(),
   updateProfile: (patch: unknown) => updateProfileMock(patch),
+  uploadAvatar: (file: File) => uploadAvatarMock(file),
+  removeAvatar: () => removeAvatarMock(),
+  avatarUrl: (userId: number, v: number, self?: boolean) =>
+    self ? `/api/auth/profile/avatar?v=${v}` : `/api/auth/profile/${userId}/avatar?v=${v}`,
 }));
 
 import SettingsModal, {
@@ -57,6 +63,8 @@ describe("M62-4 — SettingsModal Profile tab", () => {
   beforeEach(() => {
     getProfileMock.mockReset();
     updateProfileMock.mockReset();
+    uploadAvatarMock.mockReset();
+    removeAvatarMock.mockReset();
     getProfileMock.mockResolvedValue({ profile: profile() });
     updateProfileMock.mockImplementation((patch: any) =>
       Promise.resolve({
@@ -289,5 +297,120 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     renderModal();
     fireEvent.click(screen.getByRole("tab", { name: "Profile" }));
     expect(await screen.findByText("network down")).toBeTruthy();
+  });
+
+  // --- M72: avatar ----------------------------------------------------------
+
+  const png = () =>
+    new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "a.png", {
+      type: "image/png",
+    });
+
+  it("hydrates the avatar from the loaded profile's avatarVersion", async () => {
+    getProfileMock.mockResolvedValue({
+      profile: profile({ avatarVersion: 4 }),
+    });
+    renderModal();
+    await openProfileTab();
+    expect(document.querySelector("img")!.getAttribute("src")).toBe(
+      "/api/auth/profile/avatar?v=4",
+    );
+    expect(screen.getByText("Replace")).toBeTruthy();
+  });
+
+  it("shows initials (no <img>) when the user has no avatar", async () => {
+    renderModal();
+    await openProfileTab();
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.getByText("Upload")).toBeTruthy();
+    expect(screen.queryByText("Remove")).toBeNull();
+  });
+
+  it("uploads a picked image and adopts the returned version", async () => {
+    uploadAvatarMock.mockResolvedValue({
+      avatarVersion: 1,
+      mime: "image/png",
+      width: 64,
+      height: 64,
+    });
+    const { container } = renderModal();
+    await openProfileTab();
+    const input = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [png()] } });
+    await waitFor(() => expect(uploadAvatarMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(document.querySelector("img")!.getAttribute("src")).toBe(
+        "/api/auth/profile/avatar?v=1",
+      ),
+    );
+  });
+
+  it("rejects an oversized file client-side without calling the API", async () => {
+    const big = new File([new Uint8Array(600 * 1024)], "big.png", {
+      type: "image/png",
+    });
+    const { container } = renderModal();
+    await openProfileTab();
+    fireEvent.change(
+      container.querySelector('input[type="file"]') as HTMLInputElement,
+      { target: { files: [big] } },
+    );
+    expect(await screen.findByText(/512 KB or smaller/)).toBeTruthy();
+    expect(uploadAvatarMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-image type client-side", async () => {
+    const pdf = new File(["x"], "cv.pdf", { type: "application/pdf" });
+    const { container } = renderModal();
+    await openProfileTab();
+    fireEvent.change(
+      container.querySelector('input[type="file"]') as HTMLInputElement,
+      { target: { files: [pdf] } },
+    );
+    expect(await screen.findByText(/PNG, JPEG or WebP/)).toBeTruthy();
+    expect(uploadAvatarMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the server's rejection message on a failed upload", async () => {
+    uploadAvatarMock.mockRejectedValue(new Error("image has trailing garbage"));
+    const { container } = renderModal();
+    await openProfileTab();
+    fireEvent.change(
+      container.querySelector('input[type="file"]') as HTMLInputElement,
+      { target: { files: [png()] } },
+    );
+    expect(
+      await screen.findByText("image has trailing garbage"),
+    ).toBeTruthy();
+  });
+
+  it("removes the avatar and falls back to initials", async () => {
+    getProfileMock.mockResolvedValue({
+      profile: profile({ avatarVersion: 2 }),
+    });
+    removeAvatarMock.mockResolvedValue({ avatarVersion: 0 });
+    renderModal();
+    await openProfileTab();
+    fireEvent.click(screen.getByText("Remove"));
+    await waitFor(() => expect(removeAvatarMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.querySelector("img")).toBeNull());
+    expect(screen.getByText("Upload")).toBeTruthy();
+  });
+
+  it("disables the avatar controls for a demo session", async () => {
+    getProfileMock.mockResolvedValue({
+      profile: profile({ avatarVersion: 1 }),
+    });
+    const { container } = renderModal({ isDemo: true });
+    await openProfileTab();
+    expect(
+      (container.querySelector('input[type="file"]') as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByText("Remove") as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });

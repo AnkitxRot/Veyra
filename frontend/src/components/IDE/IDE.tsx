@@ -3931,6 +3931,7 @@ export default function IDE({
         onSave={handleUpdatePreferences}
         onClose={() => setShowSettings(false)}
         username={user.username}
+        userId={user.id}
         isDemo={isDemo}
       />
     </div>
