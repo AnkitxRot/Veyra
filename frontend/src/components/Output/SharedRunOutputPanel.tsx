@@ -1,6 +1,9 @@
 import React from "react";
 import type { RunStatusEntry, SharedRunOutput } from "../../types";
 import { IconCheck, IconClose } from "../common/Icons";
+import UserAvatar from "../common/UserAvatar";
+import { displayLabel } from "../../collab/presence";
+import type { ActorIdentityMap } from "../Collab/ActivityTimeline";
 
 /**
  * M65 — read-only view of another collaborator's run output, shown inside the
@@ -14,6 +17,9 @@ export interface SharedRunOutputPanelProps {
   status?: RunStatusEntry;
   /** Whether the collaboration link is currently up. */
   connected: boolean;
+  /** M73: userId → presentation identity, so the run owner shows the same
+   *  avatar + display name as every other collaboration surface. */
+  actorIdentity?: ActorIdentityMap;
 }
 
 type Phase = "running" | "completed" | "failed" | "stopped";
@@ -44,10 +50,15 @@ export default function SharedRunOutputPanel({
   output,
   status,
   connected,
+  actorIdentity,
 }: SharedRunOutputPanelProps) {
   const phase = phaseOf(status);
-  const who = status?.username?.trim() || "A collaborator";
-  const file = status?.file ?? null;
+  const username = status?.username?.trim() || "";
+  const id =
+    status?.userId != null ? actorIdentity?.get(status.userId) : undefined;
+  const who = username
+    ? displayLabel({ name: username, displayName: id?.displayName ?? null })
+    : "A collaborator";
 
   return (
     <div className="shared-run-output" data-testid="shared-run-output">
@@ -61,9 +72,18 @@ export default function SharedRunOutputPanel({
           {phase === "failed" && <IconClose size={10} />}
           <span>{PHASE_LABEL[phase]}</span>
         </span>
+        {status?.userId != null && username && (
+          <UserAvatar
+            userId={status.userId}
+            username={username}
+            avatarVersion={id?.avatarVersion}
+            size={16}
+            className="shared-run-output-avatar"
+          />
+        )}
         <span className="shared-run-output-title">
           {who} {phase === "running" ? "is running" : "ran"}
-          {file ? ` ${file}` : ""}
+          {status?.file ? ` ${status.file}` : ""}
         </span>
       </div>
 

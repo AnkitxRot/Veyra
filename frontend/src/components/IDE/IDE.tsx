@@ -3728,6 +3728,7 @@ export default function IDE({
                     runStatuses={runStatuses}
                     currentUserId={user.id}
                     collabConnected={collabStatus === "connected"}
+                    actorIdentity={actorIdentityMap}
                   />
                 )}
                 {bottomTab === "problems" && (

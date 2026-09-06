@@ -101,6 +101,33 @@ describe("SharedRunOutputPanel", () => {
     expect(screen.queryByRole("button", { name: /stop|kill|send/i })).toBeNull();
   });
 
+  it("M73: shows the run owner's display name + avatar from the identity map", () => {
+    render(
+      <SharedRunOutputPanel
+        output={output()}
+        status={status({ userId: 2, username: "bob99" })}
+        connected
+        actorIdentity={new Map([[2, { displayName: "Bob R.", avatarVersion: 7 }]])}
+      />,
+    );
+    expect(screen.getByText(/Bob R\./)).toBeTruthy();
+    const img = document.querySelector(
+      "img.shared-run-output-avatar",
+    ) as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe("/api/auth/profile/2/avatar?v=7");
+  });
+
+  it("M73: falls back to the run-status username with no identity map", () => {
+    render(
+      <SharedRunOutputPanel
+        output={output()}
+        status={status({ userId: 2, username: "bob99" })}
+        connected
+      />,
+    );
+    expect(screen.getByText(/bob99/)).toBeTruthy();
+  });
+
   it("still renders output with no matching status entry (status lingered out)", () => {
     render(
       <SharedRunOutputPanel
