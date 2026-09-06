@@ -973,8 +973,13 @@ export default function IDE({
     "loading",
   );
   const loadTreeRef = useRef<() => void>(() => {});
+  const treeLoadInFlightRef = useRef(false);
   const loadTree = useCallback(async () => {
     if (!project) return;
+    // One tree fetch at a time — a doubled Retry click (or a refresh racing
+    // the mount effect) must not overlap into out-of-order `setTree` calls.
+    if (treeLoadInFlightRef.current) return;
+    treeLoadInFlightRef.current = true;
     const pid = project.id;
     if (treeLoadedForRef.current !== pid) setTreeStatus("loading");
     try {
@@ -995,6 +1000,8 @@ export default function IDE({
         role: "alert",
         actions: [{ label: "Retry", onClick: () => loadTreeRef.current() }],
       });
+    } finally {
+      treeLoadInFlightRef.current = false;
     }
   }, [project, notify, dismissNoticeKey]);
   useEffect(() => {

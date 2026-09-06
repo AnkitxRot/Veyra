@@ -97,9 +97,19 @@ describe("M68 — file tree load state & retry", () => {
   it("does not flash loading over an already-loaded tree on a background refresh", () => {
     const block = src.slice(
       src.indexOf("const loadTree = useCallback"),
-      src.indexOf("const loadTree = useCallback") + 900,
+      src.indexOf("const loadTree = useCallback") + 1100,
     );
     expect(block).toContain('if (treeLoadedForRef.current !== pid) setTreeStatus("loading")');
+  });
+
+  it("guards against overlapping tree fetches (one request per Retry click)", () => {
+    const block = src.slice(
+      src.indexOf("const loadTree = useCallback"),
+      src.indexOf("const loadTree = useCallback") + 1100,
+    );
+    expect(block).toContain("if (treeLoadInFlightRef.current) return;");
+    expect(block).toContain("treeLoadInFlightRef.current = true;");
+    expect(block).toContain("treeLoadInFlightRef.current = false;");
   });
 });
 
