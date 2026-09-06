@@ -49,7 +49,7 @@ interface SidebarProps {
   commentCountsByFile?: Map<string, number>;
 }
 
-export default function Sidebar({
+function Sidebar({
   user,
   projects,
   project,
@@ -865,6 +865,16 @@ export default function Sidebar({
     </aside>
   );
 }
+
+/**
+ * M71 — the Sidebar owns the whole file tree, which fully reconciles on every
+ * render (BASELINE C: 11 ms at 100 files to ~108 ms at 2000). It was
+ * re-rendering on every throttled collaborator-awareness tick and every
+ * `setStats` poll. `React.memo` (shallow) skips those; the callers (IDE +
+ * tests) keep the collaborator prop referentially stable via
+ * `useStableCollaborators` and hand stable handler identities.
+ */
+export default React.memo(Sidebar);
 
 function FileTree({
   nodes,

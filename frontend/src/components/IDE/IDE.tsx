@@ -123,6 +123,7 @@ import {
   type LayoutPreferences,
 } from "../../hooks/useLayoutPreferences";
 import { throttleLatest } from "../../utils/throttleLatest";
+import { useStableCollaborators } from "../../utils/useStableCollaborators";
 import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
 import { appendOpenFile } from "../../utils/openFiles";
@@ -387,6 +388,14 @@ export default function IDE({
   const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>(
     [],
   );
+  // M71: a referentially-stable projection of `collaborators` for the memoized
+  // <Sidebar>. Its identity only changes when a Sidebar-relevant field
+  // (userId / activeFile / activity.type / name / color) changes — NOT on the
+  // cursor/selection/lastActive churn that fires on every remote keystroke.
+  // BASELINE A/C: that churn was costing 5–90 ms of FileTree reconciliation
+  // per throttled tick. Every OTHER collaborator surface (Editor spatial
+  // awareness, TeamPanel, avatar stack) still gets the full `collaborators`.
+  const collaboratorsForTree = useStableCollaborators(collaborators, user.id);
   // M54: collaborative run awareness — server-authoritative, ephemeral.
   const [runStatuses, setRunStatuses] = useState<RunStatusEntry[]>([]);
   // M65: shared run output — the bounded, ephemeral stdout/stderr replay that
@@ -1068,15 +1077,28 @@ export default function IDE({
     };
   }, [loadTree]);
 
-  // Track Recent Projects on Switch
-  const handleSelectProject = (p: Project) => {
-    dismissNoticeKey("invalid-route");
-    if (p.id === project?.id) return;
-    setProject(p);
-    addRecentProject(p);
-    setLastProjectId(p.id);
-    onNavigateProject?.(p.id);
-  };
+  // Track Recent Projects on Switch.
+  // M71: stable identity — <Sidebar> is memoized; an inline handler here would
+  // defeat the memo and re-render the whole file tree on every IDE render.
+  const handleSelectProject = useCallback(
+    (p: Project) => {
+      dismissNoticeKey("invalid-route");
+      if (p.id === project?.id) return;
+      setProject(p);
+      addRecentProject(p);
+      setLastProjectId(p.id);
+      onNavigateProject?.(p.id);
+    },
+    [project?.id, dismissNoticeKey, onNavigateProject],
+  );
+
+  // M71: stable identities for the remaining memoized-<Sidebar> handler props.
+  const handleRetryTree = useCallback(() => loadTreeRef.current(), []);
+  const handleOpenTour = useCallback(() => setShowTour(true), []);
+  const handleOpenSettingsFromSidebar = useCallback(
+    () => setShowSettings(true),
+    [],
+  );
 
   // Browser Back / Forward (and any external `/p/:id` change after the initial
   // resolve): move the open project to match the URL. The very first resolve
@@ -3197,15 +3219,15 @@ export default function IDE({
           onProjectBootstrapped={handleProjectBootstrapped}
           tree={tree}
           treeStatus={treeStatus}
-          onRetryTree={() => loadTreeRef.current()}
+          onRetryTree={handleRetryTree}
           onOpenFile={handleOpenFile}
           activeFile={activeFile}
           onLogout={onLogout}
           refreshTree={loadTree}
           width={sidebarWidth}
-          onOpenTour={() => setShowTour(true)}
-          onOpenSettings={() => setShowSettings(true)}
-          collaborators={collaborators}
+          onOpenTour={handleOpenTour}
+          onOpenSettings={handleOpenSettingsFromSidebar}
+          collaborators={collaboratorsForTree}
           runStatuses={runStatuses}
           currentUserId={user.id}
           commentCountsByFile={commentCountsByFile}

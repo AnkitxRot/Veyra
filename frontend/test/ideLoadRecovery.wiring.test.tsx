@@ -91,7 +91,12 @@ describe("M68 — file tree load state & retry", () => {
 
   it("feeds the tree status and a stable retry into the Sidebar", () => {
     expect(src).toContain("treeStatus={treeStatus}");
-    expect(src).toContain("onRetryTree={() => loadTreeRef.current()}");
+    // M71: <Sidebar> is memoized, so the retry handler must be a stable
+    // identity, not an inline arrow (which would defeat the memo).
+    expect(src).toContain("onRetryTree={handleRetryTree}");
+    expect(src).toContain(
+      "const handleRetryTree = useCallback(() => loadTreeRef.current(), []);",
+    );
   });
 
   it("drops the previous project's tree on a project switch (no stale files under a failed load)", () => {
