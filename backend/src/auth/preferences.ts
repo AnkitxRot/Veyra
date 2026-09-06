@@ -12,8 +12,25 @@ export interface UserPreferences {
   /** M66: run the editor formatter on every save. Previously a browser-only
    *  localStorage flag; now part of the single typed source of truth. */
   formatOnSave: boolean;
+  /** M67: IDE panel layout — the four genuinely user-scoped layout dimensions
+   *  that were throwaway IDE.tsx component state (reset on every reload). */
+  sidebarWidth: number;
+  bottomHeight: number;
+  sidebarHidden: boolean;
+  bottomCollapsed: boolean;
   updatedAt?: string;
 }
+
+/**
+ * M67 layout bounds — lifted verbatim from the existing drag-resize clamps in
+ * `frontend/src/components/IDE/IDE.tsx`. The frontend keeps a matching copy of
+ * these numbers in `frontend/src/hooks/useLayoutPreferences.ts` and clamps
+ * before persisting; the server rejects an out-of-range value outright.
+ */
+export const LAYOUT_BOUNDS = {
+  sidebarWidth: { min: 180, max: 500 },
+  bottomHeight: { min: 120, max: 600 },
+} as const;
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   fontSize: 13.5,
@@ -24,6 +41,10 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   cursorBlinking: "smooth",
   renderWhitespace: "selection",
   formatOnSave: false,
+  sidebarWidth: 250,
+  bottomHeight: 260,
+  sidebarHidden: false,
+  bottomCollapsed: false,
 };
 
 const ALLOWED_KEYS = new Set([
@@ -35,6 +56,10 @@ const ALLOWED_KEYS = new Set([
   "cursorBlinking",
   "renderWhitespace",
   "formatOnSave",
+  "sidebarWidth",
+  "bottomHeight",
+  "sidebarHidden",
+  "bottomCollapsed",
 ]);
 
 const VALID_TAB_SIZES = [2, 4, 8];
@@ -62,7 +87,8 @@ const VALID_RENDER_WHITESPACE = [
 export function getUserPreferences(db: Db, userId: number): UserPreferences {
   const row = db
     .prepare(
-      `SELECT font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save, updated_at
+      `SELECT font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save,
+              sidebar_width, bottom_height, sidebar_hidden, bottom_collapsed, updated_at
        FROM user_preferences WHERE user_id = ?`,
     )
     .get(userId) as any;
@@ -80,6 +106,10 @@ export function getUserPreferences(db: Db, userId: number): UserPreferences {
     cursorBlinking: row.cursor_blinking,
     renderWhitespace: row.render_whitespace,
     formatOnSave: Boolean(row.format_on_save),
+    sidebarWidth: Number(row.sidebar_width),
+    bottomHeight: Number(row.bottom_height),
+    sidebarHidden: Boolean(row.sidebar_hidden),
+    bottomCollapsed: Boolean(row.bottom_collapsed),
     updatedAt: row.updated_at,
   };
 }
@@ -209,6 +239,56 @@ export function updateUserPreferences(
     }
   }
 
+  if (updates.sidebarWidth !== undefined) {
+    if (
+      typeof updates.sidebarWidth !== "number" ||
+      !Number.isFinite(updates.sidebarWidth) ||
+      updates.sidebarWidth < LAYOUT_BOUNDS.sidebarWidth.min ||
+      updates.sidebarWidth > LAYOUT_BOUNDS.sidebarWidth.max
+    ) {
+      throw new ApiError(
+        400,
+        `sidebarWidth must be a number between ${LAYOUT_BOUNDS.sidebarWidth.min} and ${LAYOUT_BOUNDS.sidebarWidth.max}`,
+        "invalid_sidebar_width",
+      );
+    }
+  }
+
+  if (updates.bottomHeight !== undefined) {
+    if (
+      typeof updates.bottomHeight !== "number" ||
+      !Number.isFinite(updates.bottomHeight) ||
+      updates.bottomHeight < LAYOUT_BOUNDS.bottomHeight.min ||
+      updates.bottomHeight > LAYOUT_BOUNDS.bottomHeight.max
+    ) {
+      throw new ApiError(
+        400,
+        `bottomHeight must be a number between ${LAYOUT_BOUNDS.bottomHeight.min} and ${LAYOUT_BOUNDS.bottomHeight.max}`,
+        "invalid_bottom_height",
+      );
+    }
+  }
+
+  if (updates.sidebarHidden !== undefined) {
+    if (typeof updates.sidebarHidden !== "boolean") {
+      throw new ApiError(
+        400,
+        "sidebarHidden must be a boolean",
+        "invalid_sidebar_hidden",
+      );
+    }
+  }
+
+  if (updates.bottomCollapsed !== undefined) {
+    if (typeof updates.bottomCollapsed !== "boolean") {
+      throw new ApiError(
+        400,
+        "bottomCollapsed must be a boolean",
+        "invalid_bottom_collapsed",
+      );
+    }
+  }
+
   // Get current preferences to preserve unspecified fields
   const current = getUserPreferences(db, userId);
   const merged: UserPreferences = {
@@ -230,13 +310,30 @@ export function updateUserPreferences(
       updates.formatOnSave !== undefined
         ? updates.formatOnSave
         : current.formatOnSave,
+    sidebarWidth:
+      updates.sidebarWidth !== undefined
+        ? updates.sidebarWidth
+        : current.sidebarWidth,
+    bottomHeight:
+      updates.bottomHeight !== undefined
+        ? updates.bottomHeight
+        : current.bottomHeight,
+    sidebarHidden:
+      updates.sidebarHidden !== undefined
+        ? updates.sidebarHidden
+        : current.sidebarHidden,
+    bottomCollapsed:
+      updates.bottomCollapsed !== undefined
+        ? updates.bottomCollapsed
+        : current.bottomCollapsed,
   };
 
   db.prepare(
     `INSERT INTO user_preferences (
-       user_id, font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save, updated_at
+       user_id, font_size, tab_size, word_wrap, minimap, line_numbers, cursor_blinking, render_whitespace, format_on_save,
+       sidebar_width, bottom_height, sidebar_hidden, bottom_collapsed, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(user_id) DO UPDATE SET
        font_size = excluded.font_size,
        tab_size = excluded.tab_size,
@@ -246,6 +343,10 @@ export function updateUserPreferences(
        cursor_blinking = excluded.cursor_blinking,
        render_whitespace = excluded.render_whitespace,
        format_on_save = excluded.format_on_save,
+       sidebar_width = excluded.sidebar_width,
+       bottom_height = excluded.bottom_height,
+       sidebar_hidden = excluded.sidebar_hidden,
+       bottom_collapsed = excluded.bottom_collapsed,
        updated_at = datetime('now')`,
   ).run(
     userId,
@@ -257,6 +358,10 @@ export function updateUserPreferences(
     merged.cursorBlinking,
     merged.renderWhitespace,
     merged.formatOnSave ? 1 : 0,
+    merged.sidebarWidth,
+    merged.bottomHeight,
+    merged.sidebarHidden ? 1 : 0,
+    merged.bottomCollapsed ? 1 : 0,
   );
 
   return getUserPreferences(db, userId);

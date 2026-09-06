@@ -308,6 +308,10 @@ export function openDb(dbPath: string): Db {
       cursor_blinking    TEXT NOT NULL DEFAULT 'smooth',
       render_whitespace  TEXT NOT NULL DEFAULT 'selection',
       format_on_save     INTEGER NOT NULL DEFAULT 0,
+      sidebar_width      INTEGER NOT NULL DEFAULT 250,
+      bottom_height      INTEGER NOT NULL DEFAULT 260,
+      sidebar_hidden     INTEGER NOT NULL DEFAULT 0,
+      bottom_collapsed   INTEGER NOT NULL DEFAULT 0,
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -716,6 +720,27 @@ const MIGRATIONS: Migration[] = [
           "ALTER TABLE user_preferences ADD COLUMN format_on_save INTEGER NOT NULL DEFAULT 0",
         );
       }
+    },
+  },
+  {
+    version: 14,
+    description:
+      "M67: add user_preferences.{sidebar_width,bottom_height,sidebar_hidden,bottom_collapsed} — the four genuinely user-scoped IDE panel-layout dimensions move from throwaway IDE.tsx component state into the typed server-persisted preference store so a reload no longer discards them. Existing rows default to the prior in-memory defaults (250 / 260 / off / off), so no user's layout changes.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      const add = (name: string, ddl: string) => {
+        if (!cols.includes(name)) {
+          db.exec(`ALTER TABLE user_preferences ADD COLUMN ${ddl}`);
+        }
+      };
+      add("sidebar_width", "sidebar_width INTEGER NOT NULL DEFAULT 250");
+      add("bottom_height", "bottom_height INTEGER NOT NULL DEFAULT 260");
+      add("sidebar_hidden", "sidebar_hidden INTEGER NOT NULL DEFAULT 0");
+      add("bottom_collapsed", "bottom_collapsed INTEGER NOT NULL DEFAULT 0");
     },
   },
 ];
