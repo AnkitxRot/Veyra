@@ -28,6 +28,7 @@ describe("M62-2 profile store", () => {
       pronouns: null,
       bio: null,
       updatedAt: null,
+      avatarVersion: 0,
     });
     // and no row was created by a read
     expect(rawRow(db, 1)).toBeUndefined();
@@ -107,6 +108,7 @@ describe("M62-2 profile store", () => {
       pronouns: null,
       bio: null,
       updatedAt: null,
+      avatarVersion: 0,
     });
   });
 
@@ -123,9 +125,9 @@ describe("M62-2 profile store", () => {
   it("never selects or exposes dormant profile columns", () => {
     updateProfile(db, 1, { displayName: "Alice" });
     // dormant columns keep their schema defaults, and getProfile's shape is
-    // exactly the four identity fields.
+    // exactly the identity fields plus the derived avatarVersion.
     expect(Object.keys(getProfile(db, 1)).sort()).toEqual(
-      ["bio", "displayName", "pronouns", "updatedAt"].sort(),
+      ["avatarVersion", "bio", "displayName", "pronouns", "updatedAt"].sort(),
     );
     const row = rawRow(db, 1);
     expect(row.avatar_media_id).toBeNull();

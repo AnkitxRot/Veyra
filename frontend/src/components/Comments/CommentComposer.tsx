@@ -8,6 +8,8 @@ export interface ComposerMember {
   /** M62: effective display name for the author row. `null` / absent →
    *  fall back to `username`. Presentation only — never a mention token. */
   displayName?: string | null;
+  /** M72: avatar cache-buster (0 / absent → initials). Presentation only. */
+  avatarVersion?: number;
 }
 
 export interface CommentComposerProps {

@@ -5,8 +5,14 @@ import {
   ProfileDraft,
   EDITOR_PREFERENCE_KEYS,
 } from '../../types';
-import { getProfile, updateProfile } from '../../api';
+import {
+  getProfile,
+  updateProfile,
+  uploadAvatar,
+  removeAvatar,
+} from '../../api';
 import { IconClose, IconSettings, IconRefresh } from '../common/Icons';
+import UserAvatar from '../common/UserAvatar';
 import {
   CONFIGURABLE_COMMANDS,
   DEFAULT_KEYMAP,
@@ -93,6 +99,9 @@ interface SettingsModalProps {
   /** The current user's immutable technical username — shown in the Profile
    *  helper text so a blank display name is unambiguous. */
   username: string;
+  /** The current user's id — only used to pick the initials-fallback colour
+   *  for the avatar preview. Defaults to 0 when a caller has no id to give. */
+  userId?: number;
   /** Demo session: the Profile tab renders read-only. The backend stays
    *  authoritative (it 403s a demo PUT); this is UX only. */
   isDemo?: boolean;
@@ -111,6 +120,7 @@ export default function SettingsModal({
   onSave,
   onClose,
   username,
+  userId = 0,
   isDemo = false,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('editor');
@@ -127,6 +137,12 @@ export default function SettingsModal({
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
+  // M72 — avatar. `avatarVersion` mirrors the server (0 = none); the local
+  // object-URL preview only exists for the instant between picking a file
+  // and the upload resolving.
+  const [avatarVersion, setAvatarVersion] = useState(0);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   // --- Keybindings tab (M70) — draft = the override map ----------------
   const [keymapDraft, setKeymapDraft] = useState<Keymap>(preferences.keymap);
@@ -156,6 +172,8 @@ export default function SettingsModal({
     setProfileError(null);
     setProfileSaved(false);
     setProfileSaving(false);
+    setAvatarError(null);
+    setAvatarBusy(false);
   }, [isOpen]);
 
   // Load the profile once, the first time the Profile tab is shown while the
@@ -172,6 +190,7 @@ export default function SettingsModal({
       .then((res) => {
         if (cancelled) return;
         setProfileDraft(profileToDraft(res.profile));
+        setAvatarVersion(res.profile.avatarVersion ?? 0);
         setProfileLoaded(true);
       })
       .catch((err: unknown) => {
@@ -231,6 +250,51 @@ export default function SettingsModal({
   const setDraftField = (field: keyof ProfileDraft, value: string) => {
     setProfileDraft((d) => ({ ...d, [field]: value }));
     setProfileSaved(false);
+  };
+
+  // M72 — avatar. The server is authoritative for the real bytes check;
+  // these client-side guards only spare an obviously-doomed round trip.
+  const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp';
+  const AVATAR_MAX_BYTES = 512 * 1024;
+
+  const handleAvatarPick = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file after an error
+    if (!file || isDemo || avatarBusy) return;
+    setAvatarError(null);
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      setAvatarError('Choose a PNG, JPEG or WebP image.');
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      setAvatarError('Image must be 512 KB or smaller.');
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      const res = await uploadAvatar(file);
+      setAvatarVersion(res.avatarVersion);
+    } catch (err: any) {
+      setAvatarError(err?.message || 'Avatar upload failed.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleAvatarRemove = async () => {
+    if (isDemo || avatarBusy || avatarVersion === 0) return;
+    setAvatarError(null);
+    setAvatarBusy(true);
+    try {
+      await removeAvatar();
+      setAvatarVersion(0);
+    } catch (err: any) {
+      setAvatarError(err?.message || 'Could not remove the avatar.');
+    } finally {
+      setAvatarBusy(false);
+    }
   };
 
   // --- Keybindings handlers (M70) -------------------------------------
@@ -783,6 +847,64 @@ export default function SettingsModal({
                     Profile saved
                   </div>
                 )}
+
+                {/* Avatar */}
+                <div className="profile-avatar-row">
+                  <UserAvatar
+                    userId={userId}
+                    username={username}
+                    size={64}
+                    avatarVersion={avatarVersion}
+                    self
+                  />
+                  <div className="profile-avatar-actions">
+                    <div className="profile-avatar-buttons">
+                      <label
+                        className="glass-btn"
+                        style={{
+                          fontSize: '12px',
+                          cursor:
+                            isDemo || avatarBusy ? 'not-allowed' : 'pointer',
+                          opacity: isDemo || avatarBusy ? 0.5 : 1,
+                        }}
+                      >
+                        {avatarVersion > 0 ? 'Replace' : 'Upload'}
+                        <input
+                          type="file"
+                          accept={AVATAR_ACCEPT}
+                          hidden
+                          disabled={isDemo || avatarBusy}
+                          onChange={handleAvatarPick}
+                        />
+                      </label>
+                      {avatarVersion > 0 && (
+                        <button
+                          type="button"
+                          className="glass-btn"
+                          style={{ fontSize: '12px' }}
+                          disabled={isDemo || avatarBusy}
+                          onClick={handleAvatarRemove}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    {avatarError ? (
+                      <span
+                        className="profile-avatar-error"
+                        role="alert"
+                      >
+                        {avatarError}
+                      </span>
+                    ) : (
+                      <span className="profile-avatar-hint">
+                        {avatarBusy
+                          ? 'Working…'
+                          : 'PNG, JPEG or WebP, up to 512 KB.'}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
                 {/* Display name */}
                 <div

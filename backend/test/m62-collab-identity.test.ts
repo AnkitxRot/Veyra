@@ -164,6 +164,7 @@ describe("M62-3 — effective display identity through collaboration", () => {
       id: 1,
       name: "alice",
       displayName: "Alice Liddell",
+      avatarVersion: 0,
       role: "viewer",
     });
     expect(u.displayName).not.toBe("Admin");
@@ -370,7 +371,15 @@ describe("M62-3 — effective display identity through collaboration", () => {
 
     // technical identity intact, no dormant profile columns leaked
     expect(Object.keys(byName.carol).sort()).toEqual(
-      ["createdAt", "displayName", "role", "userId", "username"].sort(),
+      [
+        "avatarVersion",
+        "createdAt",
+        "displayName",
+        "role",
+        "userId",
+        "username",
+      ].sort(),
     );
+    expect(byName.carol.avatarVersion).toBe(0);
   });
 });

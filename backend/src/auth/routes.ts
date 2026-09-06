@@ -1,5 +1,6 @@
-import { Router } from "express";
+import { Router, raw } from "express";
 import type { Request } from "express";
+import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
@@ -15,6 +16,13 @@ import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
 import { getUserPreferences, updateUserPreferences } from "./preferences.js";
 import { getProfile, updateProfile } from "../profile/store.js";
 import { validateProfilePatch } from "../profile/validate.js";
+import {
+  canViewAvatar,
+  deleteAvatar,
+  getAvatarFile,
+  storeAvatar,
+} from "../profile/media.js";
+import { parseMultipartFormData } from "../files/upload.js";
 import { collaborationManager } from "../collab/manager.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
@@ -530,6 +538,138 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
       } catch {}
       collaborationManager.broadcastProfileEventForUser(req.user!.id);
       res.json({ profile });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // M72 — avatar media. Self-service upload/remove; share-scoped read.
+  const avatarUploadLimiter = new RateLimiter(
+    cfg.profileMediaUploadMax,
+    cfg.profileMediaUploadWindowMs,
+  );
+  const avatarBody = raw({
+    type: () => true,
+    limit: cfg.profileMediaAvatarMaxBytes + 64 * 1024,
+  });
+
+  const parseAvatarTargetId = (raw: string): number => {
+    if (!/^[1-9][0-9]{0,15}$/.test(raw)) {
+      throw new ApiError(404, "not found", "not_found");
+    }
+    return Number(raw);
+  };
+
+  const sendAvatarFile = (req: Request, res: any, targetId: number): void => {
+    if (!canViewAvatar(db, req.user!.id, targetId)) {
+      // 404, not 403 — an avatar's existence is not disclosed to non-viewers.
+      throw new ApiError(404, "not found", "not_found");
+    }
+    const file = getAvatarFile(db, cfg, targetId);
+    if (!file || !existsSync(file.absPath)) {
+      throw new ApiError(404, "not found", "not_found");
+    }
+    res.set({
+      "Content-Type": file.mime,
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Cache-Control": "private, max-age=300",
+    });
+    res.sendFile(file.absPath);
+  };
+
+  router.post(
+    "/profile/avatar",
+    requireAuth(db),
+    avatarBody,
+    async (req, res, next) => {
+      try {
+        assertNotDemo(req);
+        const userId = req.user!.id;
+        if (!avatarUploadLimiter.allow(String(userId))) {
+          throw new ApiError(429, "too many avatar uploads", "rate_limited");
+        }
+        const ct = req.headers["content-type"];
+        if (typeof ct !== "string" || !ct.toLowerCase().includes("multipart/form-data")) {
+          throw new ApiError(
+            400,
+            "avatar upload requires multipart/form-data",
+            "invalid_multipart",
+          );
+        }
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+          throw new ApiError(400, "no upload body received", "empty_upload");
+        }
+        const { files } = parseMultipartFormData(req.body, ct);
+        if (files.length !== 1) {
+          throw new ApiError(
+            400,
+            "avatar upload requires exactly one file",
+            "invalid_upload",
+          );
+        }
+        const stored = await storeAvatar(db, cfg, userId, files[0]!.buffer);
+        try {
+          recordAuditLog(db, {
+            userId,
+            eventType: "PROFILE_MEDIA_UPLOADED",
+            details: {
+              kind: "avatar",
+              mime: stored.mime,
+              bytes: stored.bytes,
+              width: stored.width,
+              height: stored.height,
+            },
+            ipAddress: req.ip,
+          });
+        } catch {}
+        collaborationManager.broadcastProfileEventForUser(userId);
+        res.json({
+          avatarVersion: stored.avatarVersion,
+          mime: stored.mime,
+          width: stored.width,
+          height: stored.height,
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete("/profile/avatar", requireAuth(db), async (req, res, next) => {
+    try {
+      assertNotDemo(req);
+      const userId = req.user!.id;
+      const removed = await deleteAvatar(db, cfg, userId);
+      if (removed) {
+        try {
+          recordAuditLog(db, {
+            userId,
+            eventType: "PROFILE_MEDIA_DELETED",
+            details: { kind: "avatar" },
+            ipAddress: req.ip,
+          });
+        } catch {}
+        collaborationManager.broadcastProfileEventForUser(userId);
+      }
+      res.json({ ok: true, avatarVersion: 0 });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/profile/avatar", requireAuth(db), (req, res, next) => {
+    try {
+      sendAvatarFile(req, res, req.user!.id);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/profile/:id/avatar", requireAuth(db), (req, res, next) => {
+    try {
+      sendAvatarFile(req, res, parseAvatarTargetId(req.params.id));
     } catch (err) {
       next(err);
     }

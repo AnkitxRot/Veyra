@@ -159,6 +159,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       id: 7,
       name: "carol",
       displayName: "carol",
+      avatarVersion: 0,
       role: "viewer",
     });
     expect(s.user.id).not.toBe(1);
@@ -346,6 +347,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       id: 1,
       name: "alice",
       displayName: "alice",
+      avatarVersion: 0,
       role: "editor",
     });
   });
@@ -541,6 +543,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       id: 5,
       name: "dave",
       displayName: "dave",
+      avatarVersion: 0,
       role: "viewer",
     });
   });
@@ -728,6 +731,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       id: 8,
       name: "mallory",
       displayName: "mallory",
+      avatarVersion: 0,
       role: "editor",
     });
   });
@@ -763,6 +767,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
         id: 3,
         name: "carol",
         displayName: "carol",
+        avatarVersion: 0,
         role: "editor",
       });
     });
@@ -846,6 +851,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
         id: 2,
         name: "b",
         displayName: "b",
+        avatarVersion: 0,
         role: "editor",
       });
       expect(st.activeFileDirty).toBeUndefined();

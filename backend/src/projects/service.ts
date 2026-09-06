@@ -61,6 +61,10 @@ export interface CollaboratorInfo {
    *  username stay the technical identity for ownership, attribution and
    *  mentions. */
   displayName: string;
+  /** M72: avatar cache-buster (0 = no avatar). Derived from
+   *  `user_profiles.version` when `avatar_media_id` is set — never the id or
+   *  a path. */
+  avatarVersion: number;
   role: "owner" | "editor" | "viewer";
   createdAt: string;
 }
@@ -119,12 +123,14 @@ export function listProjectCollaborators(
   projectId: string,
 ): CollaboratorInfo[] {
   // LEFT JOIN so a collaborator with no profile row still appears. Only
-  // `display_name` is read from user_profiles — no other (dormant) profile
-  // column is exposed.
+  // `display_name` and the avatar cache-buster are read from user_profiles —
+  // no other (dormant) profile column is exposed.
   const rows = db
     .prepare(
       `SELECT u.id as userId, u.username, pc.role, pc.created_at as createdAt,
-              up.display_name as displayNameRaw
+              up.display_name as displayNameRaw,
+              up.avatar_media_id as avatarMediaId,
+              up.version as profileVersion
        FROM project_collaborators pc
        JOIN users u ON u.id = pc.user_id
        LEFT JOIN user_profiles up ON up.user_id = u.id
@@ -132,12 +138,19 @@ export function listProjectCollaborators(
        ORDER BY pc.created_at ASC`,
     )
     .all(projectId) as unknown as Array<
-    Omit<CollaboratorInfo, "displayName"> & { displayNameRaw: string | null }
+    Omit<CollaboratorInfo, "displayName" | "avatarVersion"> & {
+      displayNameRaw: string | null;
+      avatarMediaId: string | null;
+      profileVersion: number | null;
+    }
   >;
-  return rows.map(({ displayNameRaw, ...r }) => ({
-    ...r,
-    displayName: effectiveDisplayName(displayNameRaw, r.username),
-  }));
+  return rows.map(
+    ({ displayNameRaw, avatarMediaId, profileVersion, ...r }) => ({
+      ...r,
+      displayName: effectiveDisplayName(displayNameRaw, r.username),
+      avatarVersion: avatarMediaId ? (profileVersion ?? 0) : 0,
+    }),
+  );
 }
 
 export function addProjectCollaborator(

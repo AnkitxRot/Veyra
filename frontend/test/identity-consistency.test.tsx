@@ -252,4 +252,53 @@ describe("M62-5 — display identity is consistent across every collaboration su
     expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
   });
+
+  it("M72: the same avatarVersion renders one cache-busted image on every surface", () => {
+    const ada = pres({ userId: 42, name: "ada99", avatarVersion: 5 });
+    const expected = "/api/auth/profile/42/avatar?v=5";
+
+    const { unmount: u1 } = render(
+      <CollaboratorAvatarStack
+        collaborators={[pres({ userId: 1, name: "me" }), ada]}
+        status="connected"
+        currentUserId={1}
+      />,
+    );
+    expect(document.querySelector("img")!.getAttribute("src")).toBe(expected);
+    u1();
+
+    const { unmount: u2 } = render(
+      <TeamPanel
+        {...teamProps}
+        collaborators={[pres({ userId: 1, name: "me" }), ada]}
+        currentUserId={1}
+      />,
+    );
+    expect(document.querySelector("img")!.getAttribute("src")).toBe(expected);
+    u2();
+
+    const { unmount: u3 } = render(
+      <FollowBanner followedUser={ada} onStopFollowing={() => {}} />,
+    );
+    expect(document.querySelector("img")!.getAttribute("src")).toBe(expected);
+    u3();
+
+    render(
+      <CommentThread
+        thread={commentThread(42)}
+        currentUserId={99}
+        members={[{ userId: 42, username: "ada99", avatarVersion: 5 }]}
+        onReply={() => {}}
+        onEdit={() => {}}
+        onDelete={() => {}}
+        onResolve={() => {}}
+        onReopen={() => {}}
+        onReact={() => {}}
+        onUnreact={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    const head = document.querySelector(".comment-row-head")!;
+    expect(head.querySelector("img")!.getAttribute("src")).toBe(expected);
+  });
 });

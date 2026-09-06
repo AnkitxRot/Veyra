@@ -51,6 +51,10 @@ export interface AwarenessClientIdentity {
   username: string;
   role: "owner" | "editor" | "viewer";
   displayName: string;
+  /** M72: the avatar cache-buster (0 = no avatar), resolved server-side from
+   *  the persisted profile and handed in already-resolved — same discipline
+   *  as `displayName`. A client-sent `user.avatarVersion` is discarded. */
+  avatarVersion: number;
 }
 
 function isControlChar(code: number): boolean {
@@ -130,6 +134,7 @@ export function buildAuthoritativeAwarenessState(
     id: clientState.userId,
     name: clientState.username,
     displayName: clientState.displayName,
+    avatarVersion: clientState.avatarVersion,
     role: clientState.role,
   };
   const incomingUser = incoming.user;

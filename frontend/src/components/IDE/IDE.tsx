@@ -450,7 +450,10 @@ export default function IDE({
   // author rows. Refetched (coalesced) on a `profile_event` invalidation —
   // the ping itself carries no name, only "someone in this room changed".
   const [commentRoster, setCommentRoster] = useState<
-    Map<number, { username: string; displayName: string | null }>
+    Map<
+      number,
+      { username: string; displayName: string | null; avatarVersion: number }
+    >
   >(new Map());
   const profileEventTimerRef = useRef<number | null>(null);
 
@@ -792,12 +795,17 @@ export default function IDE({
             if (cancelled) return;
             const next = new Map<
               number,
-              { username: string; displayName: string | null }
+              {
+                username: string;
+                displayName: string | null;
+                avatarVersion: number;
+              }
             >();
             for (const c of r.collaborators ?? []) {
               next.set(c.userId, {
                 username: c.username,
                 displayName: c.displayName ?? null,
+                avatarVersion: c.avatarVersion ?? 0,
               });
             }
             setCommentRoster(next);
@@ -1738,13 +1746,19 @@ export default function IDE({
     // roster hasn't caught up on; the local user is always included.
     const m = new Map<
       number,
-      { userId: number; username: string; displayName: string | null }
+      {
+        userId: number;
+        username: string;
+        displayName: string | null;
+        avatarVersion: number;
+      }
     >();
     for (const [uid, info] of commentRoster) {
       m.set(uid, {
         userId: uid,
         username: info.username,
         displayName: info.displayName,
+        avatarVersion: info.avatarVersion,
       });
     }
     for (const c of collaborators) {
@@ -1754,9 +1768,16 @@ export default function IDE({
           userId: c.userId,
           username: c.name,
           displayName: c.displayName ?? null,
+          avatarVersion: c.avatarVersion ?? 0,
         });
-      } else if (!existing.displayName && c.displayName) {
-        existing.displayName = c.displayName;
+      } else {
+        if (!existing.displayName && c.displayName) {
+          existing.displayName = c.displayName;
+        }
+        // Live presence is fresher than a not-yet-refetched roster.
+        if (c.avatarVersion && c.avatarVersion !== existing.avatarVersion) {
+          existing.avatarVersion = c.avatarVersion;
+        }
       }
     }
     if (user) {
@@ -1765,6 +1786,7 @@ export default function IDE({
         userId: user.id,
         username: user.username,
         displayName: existing?.displayName ?? null,
+        avatarVersion: existing?.avatarVersion ?? 0,
       });
     }
     return [...m.values()];
@@ -3931,6 +3953,7 @@ export default function IDE({
         onSave={handleUpdatePreferences}
         onClose={() => setShowSettings(false)}
         username={user.username}
+        userId={user.id}
         isDemo={isDemo}
       />
     </div>

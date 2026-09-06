@@ -9,6 +9,7 @@ import type { AttentionEvent } from "../../collab/attention";
 import { buildFocusContext } from "../../collab/focus";
 import { displayLabel, secondaryHandle } from "../../collab/presence";
 import { IconUsers, IconSparkles } from "../common/Icons";
+import UserAvatar from "../common/UserAvatar";
 import { pickRunForUser, formatRunText } from "./runActivity";
 
 export interface CollaboratorAvatarStackProps {
@@ -222,10 +223,8 @@ export default function CollaboratorAvatarStack({
           aria-label="Active Collaborators"
         >
           {otherCollaborators.map((c) => {
-            // M62: initials stay derived from the immutable username so a
-            // rename never churns the avatar. Colour stays `c.color`
-            // (userId-keyed server-side).
-            const initials = c.name.slice(0, 2).toUpperCase();
+            // M62/M72: the avatar glyph stays username-derived (initials
+            // fallback) so a rename never churns it. Colour stays `c.color`.
             const label = displayLabel(c);
             const handle = secondaryHandle(c);
             const identity = handle ? `${label} (${handle})` : label;
@@ -251,13 +250,10 @@ export default function CollaboratorAvatarStack({
                     width: "24px",
                     height: "24px",
                     borderRadius: "50%",
-                    background: c.color,
-                    color: "#11131c",
-                    fontWeight: 700,
-                    fontSize: "10px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    background: "transparent",
                     border: isFollowing
                       ? "2px solid #89b4fa"
                       : "2px solid rgba(17, 19, 28, 0.9)",
@@ -278,7 +274,13 @@ export default function CollaboratorAvatarStack({
                   title={`${identity} — ${(c.role || "collaborator").toUpperCase()} — ${activitySummary} [${(c.status || "online").toUpperCase()}]`}
                   aria-label={`Collaborator ${identity}, ${c.role || "collaborator"}, ${c.status || "online"}. ${activitySummary}.`}
                 >
-                  {initials}
+                  <UserAvatar
+                    userId={c.userId}
+                    username={c.name}
+                    avatarVersion={c.avatarVersion}
+                    color={c.color}
+                    size={20}
+                  />
                 </button>
                 {renderStatusDot(c.status)}
                 {isRunningNow && (
@@ -371,23 +373,13 @@ export default function CollaboratorAvatarStack({
               marginBottom: "8px",
             }}
           >
-            <div
-              style={{
-                width: "32px",
-                height: "32px",
-                borderRadius: "50%",
-                background: selectedCollaborator.color,
-                color: "#11131c",
-                fontWeight: 700,
-                fontSize: "12px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              {selectedCollaborator.name.slice(0, 2).toUpperCase()}
-            </div>
+            <UserAvatar
+              userId={selectedCollaborator.userId}
+              username={selectedCollaborator.name}
+              avatarVersion={selectedCollaborator.avatarVersion}
+              color={selectedCollaborator.color}
+              size={32}
+            />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{ display: "flex", alignItems: "center", gap: "6px" }}

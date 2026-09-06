@@ -9,6 +9,7 @@ import {
 import type { RunStatusEntry, TimelineEvent } from "../../types";
 import { pickRunForUser, formatRunText } from "./runActivity";
 import ActivityTimeline from "./ActivityTimeline";
+import UserAvatar from "../common/UserAvatar";
 
 export interface TeamPanelProps {
   /** ALL collaborators for the project, including the local user. */
@@ -127,10 +128,14 @@ export default function TeamPanel({
 
       {self && (
         <div className="team-row team-row-self">
-          <span
-            className="team-dot"
-            style={{ background: self.color }}
-            aria-hidden="true"
+          <UserAvatar
+            userId={self.userId}
+            username={self.name}
+            avatarVersion={self.avatarVersion}
+            color={self.color}
+            size={22}
+            self
+            className="team-avatar"
           />
           <div className="team-row-main">
             <div className="team-row-top">
@@ -171,10 +176,13 @@ export default function TeamPanel({
           const file = c.activeFile ? c.activeFile.split("/").pop() : null;
           return (
             <div className="team-row" key={c.userId}>
-              <span
-                className="team-dot"
-                style={{ background: c.color }}
-                aria-hidden="true"
+              <UserAvatar
+                userId={c.userId}
+                username={c.name}
+                avatarVersion={c.avatarVersion}
+                color={c.color}
+                size={22}
+                className="team-avatar"
               />
               <span
                 className={`team-avail team-avail-${c.status}`}

@@ -7978,3 +7978,140 @@ and was **left unchanged** — no genuine fixed-timeout fragility.
    (`network ide-net-… not found` in the in-IDE terminal); it recovered
    (`docker network create` + container→PyPI reachability both OK).
    Environmental, not an M71 concern.
+
+## M72 — profile + avatar + identity UX
+
+**Objective:** make user identity a first-class, polished part of the IDE — a
+user customises display name / pronouns / bio (shipped in M62) *and* an
+avatar, and that identity renders consistently across the collaboration and
+profile surfaces.
+
+### Architecture the milestone built on (Phase 0 audit)
+
+- **Identity model (unchanged):** `users.id` + `users.username` are the
+  technical identity (ownership, attribution, mentions, cache keys);
+  `user_profiles.display_name` is presentation; `effectiveDisplayName()` in
+  `backend/src/profile/identity.ts` is the one canonical resolver. Avatars
+  never touch any of that — `avatarVersion` is a presentation-only
+  cache-buster.
+- **Dormant schema activated:** `profile_media` (id, user_id, kind, mime, w,
+  h, bytes, storage_path, created_at) and `user_profiles.avatar_media_id`
+  existed in the base schema (migration v12) with **zero** read/write code.
+  M72 is the first code to use them. No migration, no schema change.
+- **Propagation path reused:** `CollaborationManager.broadcastProfileEventForUser`
+  then per-room `refreshProfileIdentity` then one `{type:"profile_event", userId}`
+  frame carrying no data. Clients refetch. M72 adds `avatarVersion` to the
+  same per-room identity cache and the same awareness `user` frame — no new
+  WebSocket message type, no transport change, no Yjs change.
+- **m62.5-avatar-wip** (`08895c6`, a single uncommitted checkpoint) carried a
+  mature avatar implementation. It was re-authored from scratch against
+  current `master`, boundary by boundary — not cherry-picked. Its
+  `removeUserMediaDir` was never wired into the two user-deletion paths; M72
+  wires it.
+
+### Backend
+
+| Module | What it does |
+|---|---|
+| `profile/image.ts` | Zero-dependency magic-byte validator. Declared `Content-Type` ignored; only bytes decide PNG / JPEG / WebP and the reported dimensions. SVG / XML / HTML hard-rejected. Trailing-garbage past a 16-byte tolerance rejected (polyglot defence). Byte and pixel-dimension bounds caller-supplied. |
+| `profile/media.ts` | One live avatar per user at `<dataDir>/profile-media/<userId>/<uuid>.<ext>` — path built only from the numeric id + a server UUID. File written first; media row + profile pointer + version bump + old-row delete commit as one transaction; a DB failure rolls back and unlinks the new file, leaving any previous avatar intact. `canViewAvatar` = self OR platform admin OR shares-a-project (revoking the share removes visibility). `assertInsideUserDir` guards write and read. |
+| `profile/store.ts` | `getProfile` now derives `avatarVersion` (0 when unset, else `user_profiles.version`); `getAvatarVersion` exposes the same integer to the collaboration layer. Never the media id, never a path. |
+| `auth/routes.ts` | `POST` / `DELETE` / `GET /api/auth/profile/avatar` (self; POST demo-locked + per-user rate-limited, one multipart file) and `GET /api/auth/profile/:id/avatar` (gated by `canViewAvatar`). Reads serve the stored-row MIME (never the client's) with `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, max-age=300`. A non-viewer — and a non-numeric id — get 404, not 403 (existence not disclosed). Upload/delete fan out the existing `profile_event` and write a content-free `PROFILE_MEDIA_*` audit row. |
+| `config.ts` | Five bounded knobs: `profileMediaAvatar{MaxBytes=512 KiB, MaxDim=1024, MinDim=32}`, `profileMediaUpload{Max=5, WindowMs=60000}`. |
+| `collab/presence.ts` + `collab/manager.ts` | `AwarenessClientIdentity.avatarVersion`; a per-room `avatarVersionByUser` cache with the exact lifecycle of `displayNameByUser` (populated in `addClient`, refreshed on `profile_event`, pruned on last-client-leave, cleared on dispose); emitted as `user.avatarVersion`. Forged incoming value discarded (frame rebuilt from scratch). Awareness hot path still does zero profile DB reads. |
+| `projects/service.ts` | `listProjectCollaborators` (and the REST roster) returns `avatarVersion` per collaborator — what lets comment author rows, which read the roster not live presence, show avatars. |
+| `admin/routes.ts` + `auth/demoGc.ts` | Both user-deletion paths now call `removeUserMediaDir` after the row is gone (best-effort, never blocks deletion) — the FK cascade drops the DB rows, this wipes the on-disk directory. |
+
+**Security posture (each proven by a deterministic test):** forged MIME then
+bytes win; SVG/HTML/leading-whitespace polyglot rejected; truncated
+PNG/JPEG/WebP rejected; trailing garbage rejected; oversized (transport and
+validator) rejected; under-min / over-max dimensions rejected; path traversal
+on write and on a tampered `storage_path` read then 500 `invalid_storage_path`;
+unauthorised replace/delete then demo 403, stranger never reaches it;
+unauthorised read then 404; stale/deleted media then 404; broken image then
+initials; txn failure mid-write then rollback + unlink, previous avatar and
+version untouched; no `storage_path` / filesystem path in any JSON response or
+audit row. No `dangerouslySetInnerHTML` anywhere in the profile path. No new
+dependency (`node:zlib` is stdlib, test-only).
+
+### Frontend
+
+- **`components/common/UserAvatar.tsx`** — the one primitive. `<img>` (cache-busted
+  `?v=`, self or peer route) when `avatarVersion > 0`, two-letter initials on
+  a `getUserColor(userId)` background otherwise; `onError` then initials; a
+  version change retries. Initials always from the immutable username.
+- **`components/common/ProfileCard.tsx`** — compact card: avatar + display name +
+  `@username`, pronouns and bio only when set, an optional caller-supplied
+  presence chip. All fields plain React text. No followers / likes / feeds /
+  links / badges. Styled with the M69 token set (`styles/profile.css`).
+- **Settings then Profile tab** — an avatar row above the identity fields: the live
+  `UserAvatar` preview, Upload / Replace / Remove, client-side type + 512 KB
+  pre-checks (the server stays the authority; its 400 / 429 message is shown
+  verbatim), demo controls disabled. On success the returned `avatarVersion`
+  is adopted so the preview updates immediately.
+- **Identity surfaces wired to `UserAvatar`:** the collaborator avatar stack
+  (and its quick popover header), Team panel rows, the Follow banner, comment
+  author rows. `collab/presence.ts` parses `user.avatarVersion`; `IDE.tsx`
+  threads the roster's `avatarVersion` into `commentMembers` (live presence
+  wins over a not-yet-refetched roster). Deliberately untouched: the Monaco
+  remote-cursor label (stays the `@handle` at the caret), mention tokens, and
+  the ActivityTimeline (REST-driven, non-present users — deferred to M73/M74).
+- **Popover consolidation deferred:** M72 augments the collaborator popover
+  with the avatar; unifying the competing popovers is M73's stated objective.
+
+### Verification (2026-09-07)
+
+| Gate | Evidence |
+|---|---|
+| Backend full suite | `vitest run` then 1164 passed / 9 skipped / 0 failed (92 files); Docker-gated suites (exec, sandbox, templates, preview-probe, python-deps) executed |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend eslint | 0 errors (pre-existing warnings only; none in M72 files) |
+| Frontend full suite | `vitest run` then 928 passed / 0 failed (117 files) |
+| Frontend build | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` then 0 errors / 27 warnings (baseline unchanged) |
+| `git diff --check` | clean |
+| New deterministic coverage | `m72-profile-image` (18), `m72-profile-media` (15), `m72-profile-avatar-api` (17), `m72-collab-avatar` (7), `m72-user-deletion-media` (2), `UserAvatar` (6), `ProfileCard` (6), `SettingsModal.profile` +9, `identity-consistency` +1, `collab.presence` +1; plus `imageFixture.ts` zero-dep image synthesizers |
+| Revert-sensitivity | every changed boundary breaks at least one test on revert (magic-byte detect, trailing-garbage guard, txn rollback+unlink, `canViewAvatar` share scope + revoke, `assertInsideUserDir` on read, 404-not-403, `avatarVersion` in awareness + forged-value discard + cache prune, roster `avatarVersion`, `removeUserMediaDir` in both delete paths, `UserAvatar` image/initials + `onError`, `ProfileCard` conditional pronouns/bio + text-only bio, Settings client guards + demo-lock + version adoption) |
+| Live Chrome | Real upload through `POST /api/auth/profile/avatar` then `{avatarVersion, mime image/png, width 80, height 80}`, no path leak; preview `<img>` loads (`naturalWidth 80`); persists across reload (`?v=3`); Remove then initials "M6", button reverts to Upload; broken-image `error` event then initials fallback live; no filesystem path in the DOM; profile edit triggers exactly one coalesced `/collaborators` refetch on `profile_event`, no WS reconnect; no error boundary, app healthy |
+
+### Not done / out of scope (M72) — PARTIAL and deferred
+
+- **Second-session browser propagation** (a collaborator's avatar update seen
+  from another authenticated session) — PARTIAL: not exercised in the browser
+  (the task forbids creating/entering credentials for new users); covered
+  deterministically by `m72-collab-avatar.test.ts` (awareness carries the
+  version, `profile_event` refreshes the cache in place, forged value
+  discarded, reconnect repopulates) and `identity-consistency.test.tsx` (one
+  `avatarVersion` then one cache-busted `<img>` on stack / Team / Follow /
+  comment surfaces).
+- **`GET /api/auth/profile/avatar` response headers in the browser** —
+  PARTIAL (the Chrome tool blocked the `credentials`/query-string fetch);
+  proven by `m72-profile-avatar-api.test.ts` #10 (content-type from the
+  stored row, `nosniff`, CSP, PNG magic bytes).
+- **Console-warning capture in the browser** — the Chrome console reader
+  returned nothing for the preview origin; no React error boundary and the
+  app functioned normally throughout, but a positive "zero warnings" reading
+  was not obtained.
+- **Banners, accent, effect, badges, links, featured projects, custom
+  status, visibility toggles, location** — the rest of the dormant profile
+  schema stays dormant.
+- **Full profile page, social features** — never in scope.
+- **ActivityTimeline avatars, collaborator-popover consolidation** — M73/M74.
+- **Idle-renamer / idle-avatar-changer awareness latency** — the M62 decision
+  is retained: surfaces converge within ~1 s during active editing; a fully
+  idle user's presence lags until their next heartbeat / reconnect / REST
+  refetch.
+- **Long-session memory growth** — NOT_PROVEN (no reliable measurement
+  method in this environment); M72 adds no timers/listeners/subscriptions and
+  bounds one live avatar per user.
+
+### Verdict
+
+**M72 implementation PROVEN.** Identity + avatar validation, secure storage,
+share-scoped serving, and consistent rendering are each covered by a
+deterministic revert-sensitive test; backend and frontend gates green;
+Docker-gated suites executed; live Chrome confirmed upload / preview /
+persist / remove / broken-image fallback / no-path-leak / no-WS-churn. The
+authenticated multi-session browser slice is PARTIAL, covered by deterministic
+integration and identity-consistency coverage as noted above. No backend
+production code outside the profile/collab/admin identity path was touched.

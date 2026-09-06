@@ -10,7 +10,7 @@ import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
 import { assertInsideWorkspace, safeResolve } from "../files/service.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
-import { getDisplayName } from "../profile/store.js";
+import { getDisplayName, getAvatarVersion } from "../profile/store.js";
 import { effectiveDisplayName } from "../profile/identity.js";
 import {
   parseAttentionInput,
@@ -369,6 +369,10 @@ export class CollaborationRoom {
   // place on a targeted profile_event, pruned when a user's last client
   // leaves. A cache miss falls back to the username at the call site.
   private readonly displayNameByUser = new Map<number, string>();
+  // M72: per-room avatar cache-buster, keyed by userId. Exact same lifecycle
+  // as displayNameByUser — populated in addClient, refreshed on a targeted
+  // profile_event, pruned when a user's last client leaves. 0 = no avatar.
+  private readonly avatarVersionByUser = new Map<number, number>();
 
   private readonly rangeObservedFiles = new Set<string>();
   private readonly rangeStash = new WeakMap<
@@ -1163,21 +1167,30 @@ export class CollaborationRoom {
     if (this.disposed) return;
     const cs = this.findClientStateForUser(userId);
     if (!cs) return;
-    this.cacheEffectiveDisplayName(userId, cs.username);
+    this.cacheProfileIdentity(userId, cs.username);
     this.broadcastProfileEvent({ userId });
   }
 
-  /** Resolve `userId`'s effective display name from the persisted profile and
-   *  store it in the per-room awareness cache. One narrow column read; never
-   *  called from the awareness frame path. */
-  private cacheEffectiveDisplayName(userId: number, username: string): void {
+  /** Resolve `userId`'s effective display name and avatar version from the
+   *  persisted profile and store them in the per-room awareness cache. Two
+   *  narrow column reads; never called from the awareness frame path. Either
+   *  read failing falls back (username / no avatar) — a join is never blocked
+   *  on it. */
+  private cacheProfileIdentity(userId: number, username: string): void {
     let raw: string | null = null;
     try {
       raw = getDisplayName(this.db, userId);
     } catch {
-      raw = null; // fall back to username below; never block a join on this
+      raw = null;
+    }
+    let avatarVersion = 0;
+    try {
+      avatarVersion = getAvatarVersion(this.db, userId);
+    } catch {
+      avatarVersion = 0;
     }
     this.displayNameByUser.set(userId, effectiveDisplayName(raw, username));
+    this.avatarVersionByUser.set(userId, avatarVersion);
   }
 
   /** The client state of any one live connection for `userId` in this room. */
@@ -1591,12 +1604,13 @@ export class CollaborationRoom {
 
     this.clients.set(ws, clientState);
 
-    // M62-3: resolve this user's effective display name once, from the
-    // current persisted profile, and cache it for the awareness hot path.
-    // Idempotent — a second tab for the same user just re-resolves the same
-    // value. A reconnect re-runs this, so the cache always reflects the
-    // profile as of the latest (re)connect or profile_event.
-    this.cacheEffectiveDisplayName(clientState.userId, clientState.username);
+    // M62-3 / M72: resolve this user's effective display name and avatar
+    // version once, from the current persisted profile, and cache them for
+    // the awareness hot path. Idempotent — a second tab for the same user
+    // just re-resolves the same values. A reconnect re-runs this, so the
+    // cache always reflects the profile as of the latest (re)connect or
+    // profile_event.
+    this.cacheProfileIdentity(clientState.userId, clientState.username);
 
     // NOTE: per-client presence arrives via each client's own awareness updates
     // (MESSAGE_AWARENESS), keyed by that client's real Yjs clientID. The server
@@ -1894,10 +1908,11 @@ export class CollaborationRoom {
         } catch {
           /* best-effort */
         }
-        // M62-3: last client for this user gone — drop the per-room display
-        // cache entry so it cannot go stale. A reconnect repopulates it from
-        // the current profile in addClient().
+        // M62-3 / M72: last client for this user gone — drop the per-room
+        // identity cache entries so they cannot go stale. A reconnect
+        // repopulates them from the current profile in addClient().
         this.displayNameByUser.delete(clientState.userId);
+        this.avatarVersionByUser.delete(clientState.userId);
       }
     }
 
@@ -2004,6 +2019,9 @@ export class CollaborationRoom {
           displayName:
             this.displayNameByUser.get(clientState.userId) ??
             clientState.username,
+          // M72: cached avatar cache-buster — no DB read here. Miss => 0.
+          avatarVersion:
+            this.avatarVersionByUser.get(clientState.userId) ?? 0,
         }),
       });
     }
@@ -2512,6 +2530,7 @@ export class CollaborationRoom {
     }
     this.runOutput.clear();
     this.displayNameByUser.clear();
+    this.avatarVersionByUser.clear();
     // M58: attention teardown.
     for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
     this.attentionExpiryTimers.clear();

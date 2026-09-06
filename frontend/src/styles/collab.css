@@ -167,6 +167,10 @@
   flex-shrink: 0;
   margin-top: 3px;
 }
+/* M72: the per-row avatar that replaced the bare colour dot. */
+.team-avatar {
+  margin-top: 1px;
+}
 .team-avail {
   width: 6px;
   height: 6px;
