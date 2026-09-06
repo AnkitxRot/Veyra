@@ -7058,3 +7058,60 @@ workspace-scoped preferences, preference sync across workspace members, any
 broad settings-UX redesign, `user_settings` activation or retirement,
 the bottom-tab scope change described above.
 
+### What landed
+
+**Commit range:** `f2ccbf4..381d8a3` (4 commits; `f2ccbf4` is the shared
+architecture-decision doc above)
+
+| Commit | Purpose |
+|---|---|
+| `389ccba` feat(settings): add typed layout preference schema | `auth/preferences.ts` — 4 typed fields + `LAYOUT_BOUNDS` + per-field validation (`invalid_sidebar_width` / `invalid_bottom_height` / `invalid_sidebar_hidden` / `invalid_bottom_collapsed`) + merge + SELECT/INSERT; `db.ts` migration v14 (`PRAGMA table_info` guard, idempotent) + inline schema; backend tests |
+| `9a8cff5` feat(ide): persist sidebar and bottom panel layout | `frontend/src/hooks/useLayoutPreferences.ts` (new) + `types.ts` (`UserPreferences` + 4 fields, `EDITOR_PREFERENCE_KEYS`) + `IDE.tsx` wiring + `SettingsModal.tsx` (`pickEditorPrefs` payload filter) + hook tests |
+| `381d8a3` test(ide): harden layout persistence regression coverage | `ideLayoutPersistence.wiring.test.tsx` + `SettingsModal.layout.test.tsx` |
+
+- **`useLayoutPreferences(loaded, persist)`** owns the four values' local state
+  plus the persistence policy. Widths update locally on every drag mousemove
+  and persist **once**, on drag end (`persistSidebarWidth` /
+  `persistBottomHeight`, one PUT per gesture). The hidden / collapsed toggle
+  setters (`setIsSidebarHidden` / `setIsBottomCollapsed`, accepting the
+  value-or-updater form so all 18 existing IDE.tsx call sites are unchanged)
+  update optimistically and persist through the same path, but only when the
+  value actually changes. Nothing persists until `GET /api/auth/preferences`
+  has hydrated the hook (a one-time `hydratedRef` guard), so the pre-load
+  window never writes defaults over a stored layout. Client clamps + rounds to
+  the same bounds the server enforces. Persistence failures stay silent
+  (`persistLayout` = `handleUpdatePreferences(patch).catch(() => {})`),
+  matching the existing editor-preference behaviour.
+- **`SettingsModal`** now submits only `EDITOR_PREFERENCE_KEYS`
+  (`pickEditorPrefs`), so "Reset Defaults" there can never rewrite the user's
+  panel layout. `DEFAULT_PREFERENCES` carries the layout keys for type
+  completeness only.
+- **Bottom tab** untouched — still per-project via `sessionStore.ts`
+  (`cloudeee_session_<pid>.bottomTab`); `user_preferences` has no `bottomTab`
+  key.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` → **1080 passed / 9 skipped / 0 failed** (85 files, 349 s); Docker-gated suites (`templates.exec`, `python-deps`, `m16-optimization`, `sandbox`) executed. +13 vs. the M66 baseline (1067) = the 13 M67 backend tests |
+| M67 backend tests | `m67-layout-preferences.test.ts` (13: defaults, persisted layout, valid update, out-of-range width/height → 400, non-boolean toggle → 400, boundary values, partial merge, unknown key, domain round-trip, fresh-db columns, v14 migration idempotent + defaults existing rows, audit log) + `preferences.test.ts` (test 1 key list) + `migrations.test.ts` (v13 → v14 assertions) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` → **765 passed / 0 failed** (93 files); +21 (`useLayoutPreferences` 14, `ideLayoutPersistence.wiring` 4, `SettingsModal.layout` 3) |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` → **0 errors / 27 warnings** (baseline unchanged — the new hook-returned setters were added to the five affected IDE.tsx dependency arrays) |
+| `git diff --check` | clean |
+| Live browser (single session — user-scoped setting, no second user needed; `m61_userA` on `m65-browser-demo`) | **PASS:** drag sidebar 250 → 372 → `PUT` persists → reload restores 372; drag bottom panel → 350 → persists → reload restores (inline `height` style honoured; the empty-state "No Open Files" placeholder cosmetically caps the *rendered* height via a pre-existing flex `min-content` on `.ide-editor-area`, unrelated to persistence — the stored value round-trips exactly); Ctrl+B hide sidebar + Ctrl+J collapse panel → both persist (`sidebarHidden:true` / `bottomCollapsed:true`) → reload restores both collapsed; toggle back → persists `false`; bottom-tab change → `user_preferences` has **no** `bottomTab` key, `cloudeee_session_<pid>.bottomTab` = `"problems"`, reload restores the tab per-project; navigate to another project and back → sidebar 372 / bottom 350 unchanged (user-global, no project-switch reset); out-of-range `PUT {sidebarWidth:9999}` → `400 invalid_sidebar_width`; **zero console errors/warnings** across the whole session (only vite HMR + React DevTools notices). Test account's layout reset to defaults afterwards. |
+| Revert-sensitivity | server validation (×4 codes), defaults, columns, merge, v14 guard, hook hydration-once, drag-end single persist, mousemove-no-persist, optimistic toggle, change-only persist, pre-hydration no-write, clamp+round, `pickEditorPrefs` filter each break ≥1 test when reverted |
+
+### Not done / out of scope (M67)
+
+No settings-modal controls for the layout values (they persist through direct
+IDE interaction only); no themes / keybindings / custom themes; no
+import/export; no workspace-scoped preferences or cross-member sync; no change
+to the bottom-tab's per-project `sessionStore` mechanism; no `user_settings`
+activation or retirement (still deferred — see the cleanup item above); no
+fix for the pre-existing empty-state flex `min-content` clamp on the rendered
+bottom-panel height (cosmetic, persistence-independent, predates M67).
+
