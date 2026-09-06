@@ -66,11 +66,13 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
   it("commentMembers merges the REST roster with live presence, keyed by userId", () => {
     const block = src.slice(
       src.indexOf("const commentMembers = useMemo(() => {"),
-      src.indexOf("const commentMembers = useMemo(() => {") + 1400,
+      src.indexOf("const commentMembers = useMemo(() => {") + 2400,
     );
     expect(block).toContain("for (const [uid, info] of commentRoster)");
     expect(block).toContain("username: info.username");
     expect(block).toContain("displayName: info.displayName");
+    // M72: the roster's avatarVersion is threaded through too
+    expect(block).toContain("avatarVersion: info.avatarVersion");
     // still includes the local user
     expect(block).toContain("if (user) {");
   });
