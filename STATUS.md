@@ -7222,3 +7222,165 @@ reverted.
   untouched. No speculative render optimization.
 - The `m4-collab.test.ts` #33 flakiness under full-suite load predates M68
   and is not addressed here.
+
+### M68 release-hardening pass (2026-09-06)
+
+A dedicated verification pass on the M68 branch (`c231edb`): reproduce the
+one full-suite backend failure, prove or disprove M68 causality, exercise the
+three not-yet-browser-verified recovery paths, and adversarially review the
+M68 diff.
+
+#### 1. Backend flaky test — `m4-collab.test.ts` #33
+
+**Test:** `33. file_open triggers a \`file_ready\` custom frame back to the
+requesting client once the file is loaded from disk`. Failure signature:
+`expected '' to be 'DISK'` — `room.doc.getText("notes.txt")` is still empty
+when the assertion runs.
+
+**Reproducibility (this pass, HEAD `c231edb`, Docker up):**
+
+| Harness | Runs | Fails |
+|---|---|---|
+| `-t "33. file_open"` isolated | 25 | 0 |
+| whole `m4-collab.test.ts` file isolated | 15 | 0 |
+| full backend suite (`vitest run`, 85 files) | 5 | 0 |
+
+Plus the original M68-closeout run: 1 failure in 1 full-suite run, and a
+second full-suite run on the same tree ~10 min earlier passed 1080/1080.
+
+**Classification: B — intermittent, low frequency, full-suite only.** It
+never reproduced in isolation (40/40) or in this pass's 5 back-to-back
+full-suite runs; it has been seen to fail roughly 1 in ~7 full-suite runs
+historically.
+
+**Root cause (pre-existing test-infrastructure timing):**
+`test/m4-collab.test.ts`'s `flushAsync()` helper is a hardcoded
+`setTimeout(resolve, 50)`. `handleMessage(file_open)` dispatches
+`CollaborationRoom.ensureFileLoaded()` as a floating promise chain that does
+**two** libuv-threadpool round-trips — `realpath` (`assertInsideWorkspace`)
+then `fs.readFile` — before the Yjs `doc.transact` seed and the `file_ready`
+send. Under full-suite CPU + threadpool contention (84 other suites,
+`singleThread` pool, Docker-gated exec suites, `node:sqlite`), those two I/O
+continuations do not always finish inside the fixed 50 ms window. The 50 ms
+`flushAsync` predates M52/M64/M67/M68 (`4452f8f`, 2026-08-23).
+
+**M68 causality: none.** `git diff 8a06398..HEAD -- backend/` is empty — M68
+changed zero backend files. The test file was last touched at `91f6e08`
+(pre-M67); test #33 itself lands at `8bc1ead` (M52, 2026-08-28). The backend
+test imports `CollaborationRoom` directly; no frontend code, no shared
+module, no timing change since the last green baseline reaches it. Product
+code is correct — the client waits for the real `file_ready` signal with no
+fixed timeout; only the test's fixed wait is fragile.
+
+**Not fixed here** (per the release-hardening brief: pre-existing flaky test,
+do not touch collaboration code to silence it). Documented for a future
+test-hardening item: replace `flushAsync`'s fixed 50 ms with a bounded poll
+for the settled condition.
+
+#### 2. Live-Chrome coverage for the remaining M68 recovery paths
+
+Exercised with a `fetch` shim injecting `503`s and a fiber-walked
+`CollaborationClient` handle to fire `reconnected_after_gap`. Account
+`m61_userA`; `m65-browser-demo` / `M61Verify`.
+
+| Path | Result |
+|---|---|
+| **Roster** (`GET .../collaborators` 503 on project open) | notice "Couldn't refresh collaborator names — some may be out of date." + Retry; exactly 1 request (no storm); file tree + editor unaffected; Retry → 1 request → notice clears; notice dropped on project switch; console clean |
+| **Timeline** (`GET .../collab/timeline` 503 on Team-panel open) | notice "Couldn't load team activity." + Retry; **1 request over a 6 s observation window — the old `.catch(() => setTimelineLoaded(false))` retry storm is gone**; Retry → 1 request → notice clears; dropped on switch; console clean |
+| **While-away** (`reconnected_after_gap` with `offlineMs` 200 000 → `GET .../collab/while-away` 503) | notice "Couldn't load what changed while you were away." + Retry; M63 threshold gate unchanged; Retry → 1 request → notice clears; dropped on switch; console clean |
+
+#### 3. Adversarial review of the M68 diff — one real defect found & fixed
+
+**P2 — stale collaboration fetch merged into the wrong project** (commit
+`9cd60eb`). The M60 initial-timeline effect captured `pid` but never
+re-checked it: a slow timeline page for project A, resolving after a switch
+to B, merged A's events into B's timeline. **Reproduced in Chrome** (project
+A's activity rows rendered under project B; `IDE.timeline` state held the
+marker event) and **fixed** — `activeProjectIdRef` (render-time mirror of the
+open project id) now guards all three `fetchCollabTimeline` `.then`/`.catch`
+callbacks (initial page, load-more, comment-triggered head refetch).
+Re-verified in Chrome post-fix: the stale page is dropped. Regression:
+`ideTimelineStale.test.tsx` (fails `'b1,STALE-A'` vs `'b1'` when reverted).
+
+Also hardened in the same commit: the M68 tree in-flight guard now only lets
+the current generation free `treeLoadingPidRef`, and a project switch frees
+it + bumps the generation — a switch-away-and-back can no longer strand the
+marker or let a superseded fetch clear it early (P3, would at worst have cost
+one redundant `GET /tree`; no stale data — the generation check already
+blocked that).
+
+**Reviewed and found sound:**
+
+- **Wrong-role / permissive window:** `useProjectRole` starts `viewer`, only
+  raised by an explicit valid role in a 2xx body; generation guard discards a
+  stale response after a switch; in-flight guard makes a doubled Retry one
+  request. Every `projectRole` consumer gates on `=== "owner"` /
+  `=== "viewer"` (fail-closed direction); `SourceControlPanel`'s
+  `canWrite = projectRole !== "viewer"` correctly goes read-only. Browser G
+  re-confirmed: Secrets button hidden and editor read-only for the whole
+  role-error window.
+- **Role notice vs `clearNotices()` ordering:** the role-notice effect is
+  declared before the collab lifecycle effect, and `roleStatus` only reaches
+  `"error"` a render *after* the switch-time `clearNotices()` — the notice is
+  always created after the clear, never leaked. `dismissNoticeKey` on every
+  non-error transition is a no-op when the key is absent (no re-render).
+- **Stale async → previous project:** tree (generation + `setTree([])` on
+  switch + `treeLoadedForRef`), role (generation), roster / while-away
+  (`cancelled` flag), timeline (now `activeProjectIdRef`) all guarded.
+- **Silent catches in covered paths:** none remain. The one remaining
+  `.catch(() => {})` on a timeline call (line ~728, comment-event head
+  refetch) is an optimistic incremental merge, not a load — now also
+  `activeProjectIdRef`-guarded against a cross-project merge; a notice there
+  would be UX noise for a self-healing background op (same rationale as the
+  M60 `collab_change` live merge). `ackWhileAway`, `/stats` polling, and
+  `getCapabilities` silent catches are pre-existing and out of scope.
+
+#### 4. Pre-existing, dev-only, out-of-scope defect (documented, not fixed)
+
+**P3 — a `/p/:id` deep link is silently substituted on initial load in the
+Vite dev server.** A fresh load of `/p/<M61Verify-id>` opens
+`m65-browser-demo` (`projects[0]`) and rewrites the URL.
+
+- **Production build is correct** — `vite preview` of the M68 `dist/` opens
+  the linked project and keeps the URL. Verified in Chrome.
+- **Pre-existing** — reproduces identically on `8a06398` (pre-M68), with
+  `localStorage` cleared.
+- **Root cause:** `<React.StrictMode>` double-invokes the mount effect in
+  dev; both `loadProjects()` calls close over `project === null`. The first
+  does the correct route resolve and sets `didInitialResolveRef`; the second,
+  seeing that ref set but its own stale `project === null`, falls into the
+  "auto-open `projects[0]` when nothing is open" branch and clobbers.
+- M68 did not touch route resolution. `handleSelectProject` (sidebar click)
+  switching works correctly in dev throughout M68's own verification.
+- **Follow-up item:** make the `loadProjects` "later refreshes" fallback
+  branch StrictMode-safe (guard against firing on the same lifecycle as the
+  initial resolve). Its own scoped fix — not opportunistically bundled here.
+
+#### Verification (release-hardening pass, 2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` → **808 passed / 0 failed** (98 files); +4 vs. the M68 closeout (804) = `ideTimelineStale` 2 + 2 wiring guards |
+| Frontend typecheck / build / eslint | `tsc --noEmit` exit 0; `vite build` exit 0 (Monaco chunk warning only); `eslint src` → 0 errors / 27 warnings (baseline) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | 5 consecutive `vitest run` → **5 × 1080 passed / 9 skipped / 0 failed**; `m4-collab` #33 did not reproduce (see §1) |
+| `git diff --check` / working tree | clean |
+| Live browser | roster / timeline / while-away failure + retry + no-leak + clean console (§2); stale-timeline P2 reproduced then fixed & re-verified (§3); role fail-closed + Secrets-hidden re-confirmed; dev-only deep-link substitution characterised (§4) |
+
+**Commit added:** `9cd60eb` fix(ide): drop stale collaboration fetches after
+a project switch.
+
+### M68 final classification
+
+- **PROVEN for M68's scope** — role fail-closed, tree loading/error/retry,
+  project-list failure, roster / timeline / while-away failure + retry, no
+  cross-project stale state, no leaked notices, clean console. Core paths
+  covered by hook + component + mediation + source-guard tests **and** live
+  Chrome.
+- **Repository release gate: PROVEN, with one documented pre-existing
+  condition** — the backend full suite is green across 5 consecutive runs;
+  the historically-intermittent `m4-collab.test.ts` #33 is a pre-existing
+  fixed-timeout test-infra flake with zero M68 causality (§1), tracked for a
+  separate test-hardening fix. One pre-existing dev-only P3 (deep-link
+  substitution under StrictMode, §4) — no production impact, tracked as a
+  follow-up. No P0/P1/P2 open.
