@@ -131,3 +131,44 @@ describe("M68 — project list load failure", () => {
     expect(block).toContain('dismissNoticeKey("projects-load")');
   });
 });
+
+describe("M68 — roster / timeline / while-away failures are visible & retryable", () => {
+  it("no silent catches remain on the covered project/workspace load paths", () => {
+    for (const key of ["roster-load", "whileaway-load", "timeline-load", "timeline-more"]) {
+      expect(src).toContain(`dedupeKey: "${key}"`);
+    }
+  });
+
+  it("the roster fetch failure keeps the last roster and offers a retry", () => {
+    const at = src.indexOf('dedupeKey: "roster-load"');
+    const block = src.slice(at - 300, at + 120);
+    expect(block).toContain('kind: "warning"');
+    expect(block).toContain("onClick: () => loadCommentRoster()");
+    // success path clears it
+    expect(src).toContain('dismissNoticeKey("roster-load")');
+  });
+
+  it("the while-away summary failure is retryable and leaves reconnect semantics alone", () => {
+    const at = src.indexOf('dedupeKey: "whileaway-load"');
+    const block = src.slice(at - 320, at + 120);
+    expect(block).toContain("onClick: () => loadWhileAway()");
+    expect(src).toContain('dismissNoticeKey("whileaway-load")');
+    // the M63 threshold gate is unchanged
+    expect(src).toContain("info.offlineMs < COLLAB_AWAY_THRESHOLD_MS");
+  });
+
+  it("the initial timeline failure does not spin — it waits for an explicit retry", () => {
+    const at = src.indexOf('dedupeKey: "timeline-load"');
+    const block = src.slice(at - 260, at + 160);
+    expect(block).toContain("onClick: () => setTimelineLoaded(false)");
+    // the old immediate `.catch(() => setTimelineLoaded(false))` retry loop is gone
+    expect(src).not.toContain(".catch(() => setTimelineLoaded(false))");
+    expect(src).toContain('dismissNoticeKey("timeline-load")');
+  });
+
+  it("the load-more failure is a transient notice (the Load more control is the retry)", () => {
+    const at = src.indexOf('dedupeKey: "timeline-more"');
+    const block = src.slice(at - 200, at + 60);
+    expect(block).toContain("ttl: 6000");
+  });
+});

@@ -748,8 +748,21 @@ export default function IDE({
               });
             }
             setCommentRoster(next);
+            dismissNoticeKey("roster-load");
           })
-          .catch(() => {});
+          .catch(() => {
+            if (cancelled) return;
+            // M68: a failed roster fetch leaves the last-known roster in place
+            // (comment author names just may be stale) — but say so, and let
+            // the user retry, instead of failing silently.
+            notify({
+              kind: "warning",
+              text: "Couldn't refresh collaborator names — some may be out of date.",
+              ttl: null,
+              dedupeKey: "roster-load",
+              actions: [{ label: "Retry", onClick: () => loadCommentRoster() }],
+            });
+          });
       };
       loadCommentRoster();
       unsubProfileEvent = client.on(
@@ -766,23 +779,40 @@ export default function IDE({
 
       // M60: on a real reconnect-after-gap, ask the server (authoritative
       // last-seen boundary) whether there is anything meaningful to show.
+      const loadWhileAway = () => {
+        void fetchWhileAway(project.id)
+          .then((r) => {
+            if (cancelled) return;
+            dismissNoticeKey("whileaway-load");
+            if (r.events.length === 0) return;
+            setWhileAwayGroups(
+              groupWhileAway(r.events).map((g) => ({
+                userId: g.userId,
+                username: g.username,
+                lines: g.lines,
+                events: g.events,
+              })),
+            );
+          })
+          .catch(() => {
+            if (cancelled) return;
+            // M68: the reconnect itself already succeeded (M63 semantics
+            // unchanged); only the "what changed while you were away" summary
+            // failed to load. Make that visible and retryable.
+            notify({
+              kind: "warning",
+              text: "Couldn't load what changed while you were away.",
+              ttl: null,
+              dedupeKey: "whileaway-load",
+              actions: [{ label: "Retry", onClick: () => loadWhileAway() }],
+            });
+          });
+      };
       unsubReconnGap = client.on(
         "reconnected_after_gap",
         (info: { offlineMs: number }) => {
           if (info.offlineMs < COLLAB_AWAY_THRESHOLD_MS) return;
-          void fetchWhileAway(project.id)
-            .then((r) => {
-              if (cancelled || r.events.length === 0) return;
-              setWhileAwayGroups(
-                groupWhileAway(r.events).map((g) => ({
-                  userId: g.userId,
-                  username: g.username,
-                  lines: g.lines,
-                  events: g.events,
-                })),
-              );
-            })
-            .catch(() => {});
+          loadWhileAway();
         },
       );
     })();
@@ -1884,10 +1914,18 @@ export default function IDE({
         setTimeline((prev) => mergeTimeline(prev, r.events, 400));
         setTimelineNextBefore(r.nextBefore);
       })
-      .catch(() => {})
+      .catch(() => {
+        // M68: the "Load more" control stays visible, so it is the retry.
+        notify({
+          kind: "warning",
+          text: "Couldn't load older activity. Try again.",
+          ttl: 6000,
+          dedupeKey: "timeline-more",
+        });
+      })
       .finally(() => setTimelineLoadingMore(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, timelineNextBefore, timelineLoadingMore]);
+  }, [project?.id, timelineNextBefore, timelineLoadingMore, notify]);
 
   const handleWhileAwayDismiss = useCallback(() => {
     const groups = whileAwayGroups;
@@ -1929,10 +1967,22 @@ export default function IDE({
       .then((r) => {
         setTimeline((prev) => mergeTimeline(prev, r.events, 200));
         setTimelineNextBefore(r.nextBefore);
+        dismissNoticeKey("timeline-load");
       })
-      .catch(() => setTimelineLoaded(false));
+      .catch(() => {
+        // M68: keep `timelineLoaded` true so the effect does not immediately
+        // refetch in a tight loop against a down server. The failure is a
+        // persistent, retryable notice; Retry flips the flag once.
+        notify({
+          kind: "warning",
+          text: "Couldn't load team activity.",
+          ttl: null,
+          dedupeKey: "timeline-load",
+          actions: [{ label: "Retry", onClick: () => setTimelineLoaded(false) }],
+        });
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamPanelOpen, timelineLoaded, collabClient, project?.id]);
+  }, [teamPanelOpen, timelineLoaded, collabClient, project?.id, notify, dismissNoticeKey]);
 
   // M58: every attention gesture (Point / Callout / request "Go there")
   // navigates through the SAME open-then-reveal primitive.
