@@ -114,13 +114,32 @@ describe("M68 — file tree load state & retry", () => {
   it("dedupes a same-project Retry but lets a project switch supersede the load", () => {
     const block = src.slice(
       src.indexOf("const loadTree = useCallback"),
-      src.indexOf("const loadTree = useCallback") + 1200,
+      src.indexOf("const loadTree = useCallback") + 1400,
     );
     // same project already loading → drop the duplicate
     expect(block).toContain("if (treeLoadingPidRef.current === pid) return;");
     // a stale fetch's result is discarded by the generation check
     expect(block).toContain("const gen = ++treeLoadGenRef.current;");
     expect(block.match(/if \(gen !== treeLoadGenRef\.current\) return;/g) ?? []).toHaveLength(2);
+    // only the current generation frees the in-flight marker
+    expect(block).toContain("gen === treeLoadGenRef.current &&");
+  });
+
+  it("frees the tree in-flight marker and bumps the generation on a project switch", () => {
+    const reset = src.slice(
+      src.indexOf("setOpenFiles([]);"),
+      src.indexOf("setOpenFiles([]);") + 900,
+    );
+    expect(reset).toContain("treeLoadingPidRef.current = null;");
+    expect(reset).toContain("treeLoadGenRef.current++;");
+  });
+
+  it("timeline fetches drop their result when the project changed under them", () => {
+    // render-time mirror of the open project id
+    expect(src).toContain("activeProjectIdRef.current = project?.id ?? null;");
+    // all three fetchCollabTimeline .then callbacks guard on it
+    const guards = src.match(/!== activeProjectIdRef\.current\) return;/g) ?? [];
+    expect(guards.length).toBeGreaterThanOrEqual(3);
   });
 });
 

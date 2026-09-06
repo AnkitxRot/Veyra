@@ -67,7 +67,9 @@ function TreeLoader({ pid }: { pid: string }) {
         actions: [{ label: "Retry", onClick: () => loadTreeRef.current() }],
       });
     } finally {
-      if (loadingPidRef.current === pid) loadingPidRef.current = null;
+      if (gen === genRef.current && loadingPidRef.current === pid) {
+        loadingPidRef.current = null;
+      }
     }
   }, [pid, notify, dismissKey]);
 

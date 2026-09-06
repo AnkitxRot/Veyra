@@ -101,7 +101,7 @@ describe("M64 — IDE.tsx notice wiring", () => {
     expect(src.match(/clearNotices\(\)/g) ?? []).toHaveLength(1);
     const reset = src.slice(
       src.indexOf("setOpenFiles([]);"),
-      src.indexOf("setOpenFiles([]);") + 700,
+      src.indexOf("setOpenFiles([]);") + 900,
     );
     expect(reset).toContain("clearNotices()");
     // the per-key project-switch dismissals it replaced are gone

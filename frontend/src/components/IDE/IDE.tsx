@@ -203,6 +203,12 @@ export default function IDE({
   // bad link, silently opening projects[0]).
   const routeProjectIdRef = useRef(routeProjectId);
   routeProjectIdRef.current = routeProjectId;
+  // M68: render-time mirror of the currently-open project id, so a slow
+  // collaboration fetch (timeline page, timeline head-refetch) that resolves
+  // after a project switch can drop its result instead of merging a previous
+  // project's events into the current project's timeline.
+  const activeProjectIdRef = useRef<string | null>(null);
+  activeProjectIdRef.current = project?.id ?? null;
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const activeFileRef = useRef<string | null>(null);
@@ -538,10 +544,13 @@ export default function IDE({
     setActiveFile(null);
     // M68: the previous project's file tree must not linger under the new
     // project's identity — a failed load for the new project would otherwise
-    // render the old project's files. Reset to a loading state; `loadTree`
-    // (its own effect) refills it.
+    // render the old project's files. Reset to a loading state and free the
+    // in-flight marker + bump the generation so any still-pending fetch for
+    // the previous project is discarded; `loadTree` (its own effect) refills.
     setTree([]);
     setTreeStatus("loading");
+    treeLoadingPidRef.current = null;
+    treeLoadGenRef.current++;
     // M64: every notice producer is project-scoped (save feedback, save
     // failures, reconcile, route, external mutation, attention rate limit,
     // follow-left) — none should survive a project switch.
@@ -720,7 +729,10 @@ export default function IDE({
           void commentStore.loadUnresolved();
           // The comment lifecycle also feeds the M60 timeline — refetch its head.
           void fetchCollabTimeline(project.id, { limit: 40 })
-            .then((r) => setTimeline((prev) => mergeTimeline(prev, r.events, 200)))
+            .then((r) => {
+              if (cancelled || project.id !== activeProjectIdRef.current) return;
+              setTimeline((prev) => mergeTimeline(prev, r.events, 200));
+            })
             .catch(() => {});
         },
       );
@@ -1013,7 +1025,15 @@ export default function IDE({
         actions: [{ label: "Retry", onClick: () => loadTreeRef.current() }],
       });
     } finally {
-      if (treeLoadingPidRef.current === pid) treeLoadingPidRef.current = null;
+      // Only the current generation's settle clears the in-flight marker — a
+      // superseded fetch (switch away and back) must not free it while the
+      // newer fetch for the same project is still running.
+      if (
+        gen === treeLoadGenRef.current &&
+        treeLoadingPidRef.current === pid
+      ) {
+        treeLoadingPidRef.current = null;
+      }
     }
   }, [project, notify, dismissNoticeKey]);
   useEffect(() => {
@@ -1930,6 +1950,7 @@ export default function IDE({
       before: timelineNextBefore,
     })
       .then((r) => {
+        if (pid !== activeProjectIdRef.current) return;
         setTimeline((prev) => mergeTimeline(prev, r.events, 400));
         setTimelineNextBefore(r.nextBefore);
       })
@@ -1984,11 +2005,15 @@ export default function IDE({
     setTimelineLoaded(true);
     void fetchCollabTimeline(pid, { limit: 40 })
       .then((r) => {
+        // M68: a slow page for a project the user has since switched away
+        // from must not merge into the now-current project's timeline.
+        if (pid !== activeProjectIdRef.current) return;
         setTimeline((prev) => mergeTimeline(prev, r.events, 200));
         setTimelineNextBefore(r.nextBefore);
         dismissNoticeKey("timeline-load");
       })
       .catch(() => {
+        if (pid !== activeProjectIdRef.current) return;
         // M68: keep `timelineLoaded` true so the effect does not immediately
         // refetch in a tight loop against a down server. The failure is a
         // persistent, retryable notice; Retry flips the flag once.
