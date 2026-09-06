@@ -51,6 +51,20 @@ describe("M69 — appearance controller wiring", () => {
     expect(settingsModal).toContain("theme: 'system'");
   });
 
+  it("leaves the M67 layout-preference wiring untouched", () => {
+    // both hooks are driven off the same `preferences` object but are
+    // otherwise independent — no shared state, no ordering coupling.
+    expect(ide).toContain("useLayoutPreferences(layoutLoaded, persistLayout)");
+    expect(ide).toContain("useAppearance(preferences.theme)");
+    // the appearance hook does not touch the layout persist path
+    const block = ide.slice(
+      ide.indexOf("useAppearance(preferences.theme)"),
+      ide.indexOf("useAppearance(preferences.theme)") + 300,
+    );
+    expect(block).not.toContain("persistLayout");
+    expect(block).not.toContain("handleUpdatePreferences");
+  });
+
   it("the settings modal renders a Theme select bound to formData.theme", () => {
     expect(settingsModal).toContain('id="settings-theme"');
     expect(settingsModal).toContain("value={formData.theme}");
