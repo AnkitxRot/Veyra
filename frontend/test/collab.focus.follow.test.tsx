@@ -195,7 +195,7 @@ describe("M59 — anchor captured once, preserved on switch (Decisions 3, 4, 5)"
   });
 
   it("only follow:true captures an anchor — one-shot Go there does not", () => {
-    const blk = block(ideSrc, "const focusOn = useCallback");
+    const blk = block(ideSrc, "const focusOn = useCallback", 1400);
     const followBranch = blk.slice(blk.indexOf("if (opts.follow)"));
     expect(followBranch).toContain("captureAnchor()");
     // Jump / Go there call focusOn with { follow: false }
@@ -215,7 +215,7 @@ describe("M59 — Stop vs Return (Decisions 6, 7)", () => {
   });
 
   it("Return restores the anchor via ide-restore-view-state, then discards it", () => {
-    const blk = block(ideSrc, "const handleReturnToMyLocation = useCallback", 1200);
+    const blk = block(ideSrc, "const handleReturnToMyLocation = useCallback", 1600);
     expect(blk).toContain("setFollowedUserId(null)");
     expect(blk).toContain("followAnchorRef.current = null");
     expect(blk).toContain("anchorFilePresent");
@@ -475,5 +475,68 @@ describe("M59 — no new transport / store / Yjs / awareness write", () => {
       "utf-8",
     );
     expect(presenceSrc).not.toContain("FocusState");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M73 — follow-session generation token (stale-continuation invalidation)
+// ---------------------------------------------------------------------------
+
+describe("M73 — the follow lifecycle is generation-token guarded", () => {
+  it("IDE holds a FollowGeneration, not a bare counter ref", () => {
+    expect(ideSrc).toContain(
+      'import { FollowGeneration } from "../../collab/followGeneration"',
+    );
+    expect(ideSrc).toContain("useRef(new FollowGeneration())");
+    // no ad-hoc numeric increment survived the refactor
+    expect(ideSrc).not.toMatch(/followGenRef\.current\s*\+=/);
+  });
+
+  it("every follow-session boundary bumps the generation", () => {
+    // start / switch
+    expect(block(ideSrc, "const focusOn = useCallback")).toMatch(
+      /opts\.follow \|\| \(cur !== null && cur !== userId\)[\s\S]*followGenRef\.current\.bump\(\)/,
+    );
+    // stop
+    expect(block(ideSrc, "const handleStopFollowing = useCallback")).toContain(
+      "followGenRef.current.bump()",
+    );
+    // full reset (project switch / disposal / forbidden / unmount)
+    expect(block(ideSrc, "const resetFollowState = useCallback")).toContain(
+      "followGenRef.current.bump()",
+    );
+    // return
+    expect(
+      block(ideSrc, "const handleReturnToMyLocation = useCallback"),
+    ).toContain("followGenRef.current.bump()");
+  });
+
+  it("the async return re-checks its generation after the file open resolves", () => {
+    const blk = block(ideSrc, "const handleReturnToMyLocation = useCallback", 2000);
+    const captured = blk.indexOf("followGenRef.current.bump()");
+    const awaitOpen = blk.indexOf("await handleOpenFile(anchor.filePath)");
+    const recheck = blk.indexOf("!followGenRef.current.isCurrent(gen)");
+    const dispatch = blk.indexOf("ide-restore-view-state");
+    expect(captured).toBeGreaterThan(-1);
+    expect(awaitOpen).toBeGreaterThan(captured);
+    // the guard sits AFTER the await and BEFORE the navigation dispatch
+    expect(recheck).toBeGreaterThan(awaitOpen);
+    expect(dispatch).toBeGreaterThan(recheck);
+  });
+
+  it("the absence timer captures its generation and bails when superseded", () => {
+    const blk = block(ideSrc, "M73: this absence timer belongs", 2600);
+    expect(blk).toContain("const gen = followGenRef.current.current()");
+    expect(blk).toContain("if (!followGenRef.current.isCurrent(gen)) return");
+  });
+
+  it("a stale follow-left notice can never clear a newer session's anchor", () => {
+    const blk = block(ideSrc, "M73: this absence timer belongs", 2600);
+    // onExpire ("Stay here" default) and the explicit "Stay here" action both
+    // gate the anchor clear on the generation.
+    const clears = blk.match(
+      /followGenRef\.current\.isCurrent\(gen\)\)\s*\{\s*followAnchorRef\.current = null/g,
+    );
+    expect(clears?.length).toBe(2);
   });
 });

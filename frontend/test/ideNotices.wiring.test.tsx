@@ -129,7 +129,7 @@ describe("M64 — IDE.tsx notice wiring", () => {
     // 8s onExpire then nulled the now-active follow anchor.
     const blk = src.slice(
       src.indexOf("const focusOn = useCallback"),
-      src.indexOf("const focusOn = useCallback") + 900,
+      src.indexOf("const focusOn = useCallback") + 1400,
     );
     const followBranch = blk.slice(blk.indexOf("if (opts.follow)"));
     expect(followBranch).toContain('dismissNoticeKey("follow-left")');
