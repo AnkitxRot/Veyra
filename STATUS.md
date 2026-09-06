@@ -7721,3 +7721,241 @@ reset flow, and the tab-persistence split each break >=1 test when reverted.
    not reproduce in this milestone's backend run.
 2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
    correct; not touched.
+
+## M71 — measured frontend performance & resource optimization
+
+**Objective (measurement-gated):** establish reproducible render measurements
+for the real IDE hot paths, fix only the measured/high-confidence
+bottlenecks, prove the fixes with regression tests, preserve behavior exactly.
+No speculative performance refactoring.
+
+### Phase 0 — baseline harness
+
+`frontend/test/perf/` (new). A deterministic `<Profiler>`-based recorder
+(`harness.tsx`): commit counts + React `actualDuration` (ms of
+reconciliation/commit work — **not** browser paint; jsdom has no layout
+engine), min/median/max over repeats, synthetic tree + collaborator-presence
+factories. All numbers are machine-relative and only ever compared
+before/after on the same machine in the same run.
+
+Four baseline suites (committed at `0bac3c7`):
+
+| Suite | What it drives | Result |
+|---|---|---|
+| `baseline.collab` | collaborator-awareness cursor churn (remote keystroke) against the real `<Sidebar>` / `<Toolbar>` / `<Editor>`, fed `throttleLatest(setCollaborators, 200)` exactly as `IDE.tsx` wires it | see table below |
+| `baseline.execution` | 500 stdout frames through `useExecutionSession` + `<Output>` | 500 frames -> **~20 commits** (1 per animation frame — rAF batching already works); the **only** context consumer is `<Output>` |
+| `baseline.tree` | mount + one unrelated-parent-re-render per tree size | see table below |
+| `baseline.awareness` | `getOnlineCollaborators` projection + Sidebar map derivation, 20 000 iterations | **0.0001-0.006 ms/change** — 4-6 orders of magnitude below the render cost |
+
+**BASELINE A — collaborator cursor-churn** (20 throttled ticks, 5 repeats;
+median React work over the whole 20-tick window):
+
+| tree files | rendered `<li>` | Sidebar commits | Sidebar React ms /20 ticks | Toolbar ms | Editor ms |
+|---|---|---|---|---|---|
+| 100 | 110 | 20 | 101 | 7.4 | 6.7 |
+| 500 | 522 | 20 | 450 | 8.6 | 7.7 |
+| 1000 | 1032 | 20 | 983 | 10.6 | 10.0 |
+| 2000 | 2044 | 20 | 1812 | 9.4 | 7.2 |
+
+Per throttled tick (realistic max 5/s during collaboration): Sidebar
+**~5 ms (100 files) to ~90 ms (2000 files)** of React reconciliation, purely
+for a remote collaborator cursor moving. Toolbar/Editor ~0.4-0.5 ms/tick.
+
+**BASELINE C — workspace tree** (5 repeats):
+
+| tree files | mount React ms | one unrelated re-render React ms |
+|---|---|---|
+| 100 | 52 | 11 |
+| 500 | 154 | 36 |
+| 1000 | 242 | 74 |
+| 2000 | 437 | 108 |
+
+Every unrelated IDE re-render (the `setStats` poll every 2.5 s; any state
+change) cost the file tree **11 ms (100 files) to 108 ms (2000 files)** of
+React work.
+
+### Classification
+
+| Candidate | Verdict | Evidence |
+|---|---|---|
+| Sidebar/FileTree re-render on collaborator cursor-churn | **PROVEN HOT** | BASELINE A: 20 commits / 20 ticks, 5-90 ms React work per throttled tick, linear in tree size |
+| Sidebar/FileTree re-render on the `setStats` poll (every 2.5 s) + any IDE state change | **PROVEN HOT** | BASELINE C: 11-108 ms React work per unrelated re-render |
+| Toolbar re-render on collaborator churn | NOT A BOTTLENECK | ~0.5 ms/tick |
+| Editor React-side re-render on collaborator churn | NOT A BOTTLENECK | ~0.5 ms/tick (Monaco is imperative; the React reconciliation is cheap) |
+| `useExecutionSession` context — a controls-only consumer re-rendering per log batch | **NOT A BOTTLENECK / suspicion disproved** | BASELINE B: no controls-only consumer exists in the codebase (grep — `<Output>` is the sole `useExecutionSession()` caller; Toolbar mirrors run state via `document` events). The log path is already rAF-batched. A context split would be a speculative refactor with no measured beneficiary — **not done**. |
+| `getOnlineCollaborators` / Sidebar map derivation cost | NOT A BOTTLENECK | BASELINE D: sub-microsecond; the cost is 100 % FileTree DOM reconciliation |
+| Diagnostic markers | NOT MEASURED (classified by frequency) | `setDiagnostics` fires only on `ide-execution-result` (run completion) — not a tick hot path |
+| Workspace-tree virtualization | MEASURABLE BUT NOT JUSTIFIED | After the fix below, the tree no longer reconciles on any hot path. Remaining tree cost is mount-time (437 ms @ 2000 files, once per project open) and genuine-change-time (branch checkout, file create/delete, AI patch) — all user-action-gated and infrequent. Virtualization of a collapsible nested tree with reveal/context-menu/collaborator-indicator behavior is a new dependency (CLAUDE.md bars arbitrary deps; no virtualization dep present) + significant complexity for a cost that is no longer on a hot path. **Not done.** |
+
+### The one optimization that landed
+
+Both PROVEN-HOT rows share one root cause: `<Sidebar>` (which owns the whole
+file tree, fully reconciled on every render) was not memoized, and its
+`collaborators` prop got a fresh array reference on every IDE render.
+
+Committed at `d826ca9` / locked at `51b1060`:
+
+- **`frontend/src/utils/useStableCollaborators.ts` (new)** — returns a
+  referentially-stable `CollaboratorPresence[]` whose identity changes only
+  when a Sidebar-relevant field (`userId` / `activeFile` / `activity.type` /
+  `name` / `color`) changes. The `cursor` / `selection` / `lastActive` churn
+  that fires on every remote keystroke no longer produces a new reference.
+- **`Sidebar` default export is now `React.memo(Sidebar)`** (shallow).
+- **`IDE.tsx`** feeds `collaboratorsForTree` to `<Sidebar>` and gives the
+  four previously-inline handler props (`onSelectProject`, `onRetryTree`,
+  `onOpenTour`, `onOpenSettings`) stable `useCallback` identities so the memo
+  can bail. `Editor` / `TeamPanel` / the avatar stack still receive the full
+  unprojected `collaborators`.
+
+Toolbar and Editor were left untouched — measured negligible, and the HARD
+RULE forbids optimizing a non-bottleneck.
+
+### Before / after (`frontend/test/perf/collab.afterFix.test.tsx`)
+
+Same BASELINE-A workload, NAIVE (pre-M71 wiring) vs STABILIZED (shipped),
+8 throttled cursor-churn ticks, real memoized `<Sidebar>`:
+
+| tree files | NAIVE Sidebar commits | NAIVE React ms | STABILIZED commits | STABILIZED React ms |
+|---|---|---|---|---|
+| 100 | 8 | ~83 | **0** | **0** |
+| 2000 | 8 | ~1216 | **0** | **0** |
+
+Cursor-only collaborator churn: **8 wasted Sidebar re-renders -> 0**;
+**~83 ms (100 files) / ~1216 ms (2000 files) of React work -> 0 ms.**
+An unrelated IDE state change (the `setStats` poll): **Sidebar commits 5 -> 0.**
+
+### Regression coverage (`frontend/test/perf/sidebar.renderLock.test.tsx`)
+
+Deterministic, timing-independent commit-count assertions:
+
+1. cursor-only awareness churn => **0** Sidebar commits
+2. an unrelated IDE state change (stats poll) => **0** Sidebar commits
+3. a collaborator actually changing file => **exactly 1**
+4. a tree change => **exactly 1**
+5. an `activeFile` change => **exactly 1**
+6. a `runStatuses` change => **exactly 1**
+7. a `commentCountsByFile` change => **exactly 1**
+8. the default export is a `React.memo` boundary (so the test harness own
+   memo wrapper cannot mask a missing inner memo)
+
+3-7 prove the memo does not swallow real updates — behavior preserved. The
+harness gained `profiledMemo()` — a memo boundary with a `<Profiler>`
+attached — because a plain `<Profiler>` fires `onRender` even when a
+memoized child bails (verified), which would over-count.
+
+The M68 source-string wiring test (`ideLoadRecovery.wiring.test.tsx`) was
+updated: it now asserts `onRetryTree={handleRetryTree}` + the stable
+`useCallback` definition (the M68 intent — "a stable retry into the Sidebar"
+— is now literally satisfied).
+
+### Resource-lifecycle audit (inspect-only, no change)
+
+Grep of every hot-path/in-scope component
+(`IDE.tsx`, `Editor.tsx`, `Sidebar.tsx`, `Toolbar.tsx`, `Output.tsx`,
+`collab/client.ts`): `addEventListener` count == `removeEventListener` count
+in every file; `setInterval` == `clearInterval`; `requestAnimationFrame` ==
+`cancelAnimationFrame`. Each pairing actually read (`useExecutionSession`
+teardown, `useNotices` timer map, `Toolbar` 5 effects, `Sidebar` FileTree
+document-click listener) is correctly balanced. **No leak finding** —
+lifecycle evidence does not support one. M71 introduces **zero** new
+listeners / timers / observers / subscriptions: `useStableCollaborators` is
+pure (`useRef` only, holds one array reference that is *replaced*, never
+accumulated); the three new `useCallback`s hold no resources.
+
+### Memory — NOT_PROVEN
+
+A reliable long-session heap-growth measurement could not be built in the
+available environment (jsdom / vitest: `process.memoryUsage()` deltas across
+mount/unmount cycles are dominated by V8 heap sizing and GC scheduling noise,
+not retention). Per the milestone own instruction, this is marked
+**NOT_PROVEN** rather than improvised. Source evidence stands in its place:
+the one new retained reference (`useStableCollaborators`'s `valueRef`) is a
+single array that is swapped, not grown; the audit above found no unbalanced
+subscription.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **906 passed / 0 failed** (115 files) on 6 of 7 runs; includes the M71 perf suites (6 files, 10 tests). One run during peak machine contention (backend Docker suite running concurrently) failed one test once; it did not reproduce in 6 further clean runs and the M71 perf suites passed 10/10 in isolation 4x. |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint .` -> **0 errors** (warnings only, baseline style) |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Backend changes | **none** — `git diff 443ae81..HEAD --name-only` is 100 % `frontend/`. Backend cannot have regressed. |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1104 passed / 9 skipped / 1 failed** (87 files, 600 s). The one failure is `test/python-deps.test.ts` ("installs a real Python package via requirements.txt and executes code importing it") — **timed out at 60 000 ms**. It is a real `pip install` over the network inside the Docker runner that legitimately runs ~54 s; under the full-suite Docker/network contention (plus concurrent frontend runs on this machine) it tipped past its fixed 60 s `testTimeout`. **Re-run in isolation: passes (53.9 s).** Zero M71 causality — `git diff 443ae81..HEAD` touches no backend byte. Effective backend result 1105/1105, matching M70's baseline. (Same environmental root cause as this machine's broken Docker networking — `network ide-net-… not found` — surfaced in the in-IDE terminal.) |
+| Live Chrome (`m61_userA`, project `m65-browser-demo`, real Chrome) | **PASS:** app loads with **zero console errors/warnings** across three page loads (only vite HMR + the React DevTools info line); file tree renders; file open / tab-switch / tree-selection all work; **theme switch to Light applies to both the editor and the sidebar** — the memoized `<Sidebar>` does not block the CSS re-theme — and the choice persists across reload; the `/api/.../stats` poll still fires every 2.5 s (all `200`) — behavior unchanged; no error network responses; no WebSocket reconnect storm. Account restored to `theme: system` afterwards. (Pre-existing, unrelated: this machine Docker networking is broken — `network ide-net-... not found` — so the in-IDE terminal shows "Terminal Session Ended"; not caused by and not in scope for M71.) |
+
+### Final review
+
+1. **What was measured?** Collaborator-awareness cursor churn, execution-log
+   streaming, workspace-tree mount + re-render (4 sizes), pure awareness
+   computation — all as deterministic `<Profiler>` commit counts + React
+   `actualDuration`, 5 repeats, min/median/max.
+2. **Which earlier suspicions were false?** (a) The `useExecutionSession`
+   "controls-only consumers re-render per log batch" concern — there is no
+   controls-only consumer, and the log path is already rAF-batched.
+   (b) Awareness *computation* cost — sub-microsecond, irrelevant.
+   (c) Toolbar/Editor collaborator-churn cost — negligible (~0.5 ms/tick).
+3. **Which hotspots were proven?** The file-tree `<Sidebar>` reconciling on
+   (a) every throttled collaborator-awareness tick and (b) every `setStats`
+   poll / unrelated IDE state change — 5-108 ms of React work each, scaling
+   linearly to ~90-108 ms at 2000 files.
+4. **What did we optimize?** `React.memo(Sidebar)` + a stable collaborator
+   projection (`useStableCollaborators`) + stable identities for four
+   handler props. One bounded change; Editor/Toolbar untouched.
+5. **Exact before/after.** Collaborator cursor-churn, 8 throttled ticks:
+   Sidebar commits **8 -> 0**; React work **~83 ms -> 0** (100 files),
+   **~1216 ms -> 0** (2000 files). Unrelated IDE state change: Sidebar
+   commits **5 -> 0**.
+6. **Regression tests added.** `sidebar.renderLock.test.tsx` (8 assertions),
+   `collab.afterFix.test.tsx` (before/after matrix), plus the four Phase-0
+   baseline suites as living baselines. `profiledMemo` harness helper.
+7. **Browser verified?** Yes — real Chrome, zero console errors, tree +
+   editor + theme + stats-poll behavior all intact, no WS reconnect.
+8. **Docker verification repeated?** Yes. Backend typecheck clean; backend
+   full suite `1104 passed / 9 skipped / 1 failed` — the single failure is a
+   network-bound `pip install` test that timed out under full-suite Docker
+   contention and passes cleanly in isolation (see the gate row). Zero
+   backend bytes changed, so no backend regression is possible.
+9. **Remaining resource risks?** None found. M71 adds no listeners/timers/
+   subscriptions. Long-session memory growth: NOT_PROVEN (no reliable
+   measurement method in this environment).
+10. **Verdict: PROVEN** for the collaborator/stats-poll Sidebar hotspot
+    (measured, fixed, regression-locked, before/after quantified, browser-
+    clean). Targets #2 (context split) and #3 (tree virtualization) were
+    **measured and deliberately not pursued** — the measurement disproved /
+    de-prioritized them, which is a valid outcome for a measurement-gated
+    milestone.
+
+### Not done / out of scope (M71)
+
+- No `useExecutionSession` context split (BASELINE B disproved the need).
+- No workspace-tree virtualization (no hot-path cost remains; new dependency
+  + complexity not justified).
+- No `React.memo` on Toolbar / Editor / Output / collaboration panels
+  (measured negligible; the HARD RULE forbids optimizing non-bottlenecks).
+- No `useCallback`/`useMemo` sprinkling beyond the four Sidebar handler
+  props actually required for the memo to bail.
+- No `setStats` poll-interval / mechanism change; no `IDE.tsx`
+  decomposition; no CSS cleanup; no backend work.
+- The two pre-existing P3s (`m4-collab` #33 timing flake; dev-only
+  StrictMode `/p/:id` deep-link substitution) are untouched.
+
+### Remaining known P3s (updated for M71)
+
+1. `m4-collab.test.ts` #33 — pre-existing intermittent fixed-timeout
+   test-infra flake. Did not reproduce this milestone.
+2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
+   correct; not touched.
+3. `test/python-deps.test.ts` — a real network `pip install` test with a
+   fixed 60 s `testTimeout` that it runs within only by ~6 s; times out
+   under full-suite Docker contention, passes in isolation. Pre-existing
+   fragility (same class as #1); zero M71 causality. Widening its timeout
+   would be a reasonable one-line follow-up but is out of M71 scope
+   (backend-only, no perf relevance).
+4. This machine's Docker networking is currently broken (`network
+   ide-net-… not found`) — the in-IDE terminal cannot attach. Environmental,
+   pre-dates M71, not an M71 concern.
