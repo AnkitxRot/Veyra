@@ -19,6 +19,9 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   formatOnSave: false,
   // M69: appearance preference — the modal renders + submits this one.
   theme: 'system',
+  // M70: keybinding overrides — the Keybindings tab owns this; carried here
+  // for type completeness. `pickEditorPrefs` never includes it.
+  keymap: {},
   // M67 layout keys — carried for type completeness only; the modal never
   // renders or submits them (see `pickEditorPrefs`).
   sidebarWidth: 250,

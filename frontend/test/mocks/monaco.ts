@@ -143,8 +143,22 @@ export class FakeEditorInstance {
     return id;
   }
 
-  addAction(action: { id: string }) {
+  // Records the action and returns an IDisposable, mirroring the real API.
+  // Editor.tsx (M70) adds/disposes the save action as the resolved keybinding
+  // changes; tests read `actions` / `disposedActions` to assert that.
+  public disposedActions: string[] = [];
+  addAction(action: {
+    id: string;
+    keybindings?: number[];
+    run?: (...args: unknown[]) => unknown;
+  }) {
     this.actions.set(action.id, action);
+    return {
+      dispose: () => {
+        this.actions.delete(action.id);
+        this.disposedActions.push(action.id);
+      },
+    };
   }
 
   setModel(model: FakeModel | null) {
@@ -274,7 +288,16 @@ const Uri = {
 };
 
 const KeyMod = { CtrlCmd: 2048, Shift: 1024, Alt: 512 };
-const KeyCode = { KeyS: 49 };
+const KeyCode = {
+  KeyS: 49,
+  KeyP: 46,
+  KeyB: 32,
+  KeyJ: 40,
+  KeyK: 41,
+  KeyO: 45,
+  Digit1: 22,
+  Slash: 90,
+};
 const MarkerSeverity = { Error: 8, Warning: 4, Info: 2, Hint: 1 };
 
 class Range {

@@ -25,6 +25,10 @@ export interface UserPreferences {
   /** M69: unified appearance. "system" follows the OS `prefers-color-scheme`;
    *  "dark" / "light" pin the effective theme. */
   theme: "system" | "dark" | "light";
+  /** M70: configurable keybindings — command ID -> canonical chord, storing
+   *  ONLY the commands the user has remapped (`{}` = all defaults). The
+   *  command set + chord grammar live in `src/keymap/`. */
+  keymap: Record<string, string>;
   updatedAt?: string;
 }
 

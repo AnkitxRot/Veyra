@@ -110,6 +110,11 @@ import {
 } from "../../utils/recentStore";
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
+import {
+  resolveKeymap,
+  chordToDisplay,
+  type CommandId,
+} from "../../keymap/keymap";
 import { useNotices } from "../../hooks/useNotices";
 import { useProjectRole } from "../../hooks/useProjectRole";
 import { useAppearance } from "../../hooks/useAppearance";
@@ -345,6 +350,19 @@ export default function IDE({
   // the OS `prefers-color-scheme`. `resolvedTheme` is threaded to the Editor
   // and Terminal, which update Monaco / xterm in place (never remount).
   const { resolvedTheme } = useAppearance(preferences.theme);
+
+  // M70: the resolved keybinding map (defaults + the user's typed overrides).
+  // One source of truth — fed to `useKeyboardShortcuts`, the Editor's Monaco
+  // save binding, and the command-palette shortcut labels.
+  const resolvedKeymap = useMemo(
+    () => resolveKeymap(preferences.keymap),
+    [preferences.keymap],
+  );
+  const kbLabel = useCallback(
+    (id: CommandId, mac: boolean) =>
+      chordToDisplay(resolvedKeymap.byCommand[id], mac),
+    [resolvedKeymap],
+  );
 
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
@@ -2703,8 +2721,8 @@ export default function IDE({
         title: "Quick Open File",
         description: "Search and open workspace files by name",
         category: "Navigation",
-        shortcut: "Ctrl+P",
-        macShortcut: "⌘P",
+        shortcut: kbLabel("workbench.action.quickOpen", false),
+        macShortcut: kbLabel("workbench.action.quickOpen", true),
         handler: () => {
           setPaletteMode("files");
           setIsPaletteOpen(true);
@@ -2715,8 +2733,8 @@ export default function IDE({
         title: "Command Palette",
         description: "Show and run IDE commands",
         category: "Navigation",
-        shortcut: "Ctrl+Shift+P",
-        macShortcut: "⇧⌘P",
+        shortcut: kbLabel("workbench.action.showCommands", false),
+        macShortcut: kbLabel("workbench.action.showCommands", true),
         handler: () => {
           setPaletteMode("commands");
           setIsPaletteOpen(true);
@@ -2899,8 +2917,8 @@ export default function IDE({
         title: "Toggle Sidebar",
         description: "Show or hide the workspace file tree",
         category: "UI",
-        shortcut: "Ctrl+B",
-        macShortcut: "⌘B",
+        shortcut: kbLabel("workbench.action.toggleSidebar", false),
+        macShortcut: kbLabel("workbench.action.toggleSidebar", true),
         handler: () => setIsSidebarHidden((prev) => !prev),
       },
       {
@@ -2908,8 +2926,8 @@ export default function IDE({
         title: "Toggle Bottom Console Drawer",
         description: "Expand or collapse the output/terminal drawer",
         category: "UI",
-        shortcut: "Ctrl+J",
-        macShortcut: "⌘J",
+        shortcut: kbLabel("workbench.action.toggleBottomPanel", false),
+        macShortcut: kbLabel("workbench.action.toggleBottomPanel", true),
         handler: () => setIsBottomCollapsed((prev) => !prev),
       },
       {
@@ -2917,8 +2935,8 @@ export default function IDE({
         title: "Save Active File",
         description: "Save dirty buffer to workspace disk storage",
         category: "UI",
-        shortcut: "Ctrl+S",
-        macShortcut: "⌘S",
+        shortcut: kbLabel("workbench.action.saveFile", false),
+        macShortcut: kbLabel("workbench.action.saveFile", true),
         available: () => !!activeFile,
         handler: () => handleSaveActiveFile(),
       },
@@ -3044,28 +3062,34 @@ export default function IDE({
     notify,
     setIsSidebarHidden,
     setIsBottomCollapsed,
+    resolvedKeymap,
+    kbLabel,
   ]);
 
-  // Central Keyboard Shortcuts Dispatcher
-  useKeyboardShortcuts({
-    onOpenCommandPalette: () => {
-      setPaletteMode("commands");
-      setIsPaletteOpen(true);
+  // Central Keyboard Shortcuts Dispatcher (M70: keymap-driven)
+  useKeyboardShortcuts(
+    {
+      onOpenCommandPalette: () => {
+        setPaletteMode("commands");
+        setIsPaletteOpen(true);
+      },
+      onOpenQuickOpen: () => {
+        setPaletteMode("files");
+        setIsPaletteOpen(true);
+      },
+      // M1: the hook dispatches the canonical ide-save event itself using this
+      // path accessor; the listener below resolves live content and persists.
+      getActiveFile: () => activeFile,
+      onToggleSidebar: () => {
+        setIsSidebarHidden((prev) => !prev);
+      },
+      onToggleBottomPanel: () => {
+        setIsBottomCollapsed((prev) => !prev);
+      },
     },
-    onOpenQuickOpen: () => {
-      setPaletteMode("files");
-      setIsPaletteOpen(true);
-    },
-    // M1: the hook dispatches the canonical ide-save event itself using this
-    // path accessor; the listener below resolves live content and persists.
-    getActiveFile: () => activeFile,
-    onToggleSidebar: () => {
-      setIsSidebarHidden((prev) => !prev);
-    },
-    onToggleBottomPanel: () => {
-      setIsBottomCollapsed((prev) => !prev);
-    },
-  });
+    true,
+    resolvedKeymap,
+  );
 
   // Global key listener for Ctrl+Shift+F (Workspace Search) and Shift+Alt+F (Format Document)
   useEffect(() => {
@@ -3393,6 +3417,7 @@ export default function IDE({
                   activeFile={activeFile}
                   setActiveFile={setActiveFile}
                   resolvedTheme={resolvedTheme}
+                  saveChord={resolvedKeymap.byCommand["workbench.action.saveFile"]}
                   diagnostics={diagnostics}
                   collabClient={collabClient}
                   collaborators={collaborators}
