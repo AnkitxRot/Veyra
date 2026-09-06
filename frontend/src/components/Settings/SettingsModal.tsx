@@ -134,24 +134,29 @@ export default function SettingsModal({
   const [capturedChord, setCapturedChord] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
 
+  // Adopt the server-authoritative preferences — on open AND after an
+  // in-modal save re-issues them (so the Keybindings draft and the Editor
+  // form stay in sync without a stale override lingering).
   useEffect(() => {
-    if (isOpen) {
-      setFormData(preferences);
-      setKeymapDraft(preferences.keymap);
-      setCapturingId(null);
-      setCapturedChord(null);
-      setCaptureError(null);
-      setError(null);
-      // Each open starts on Editor with a fresh Profile load — persisted
-      // values are authoritative, so a stale draft never lingers between
-      // sessions.
-      setActiveTab('editor');
-      setProfileLoaded(false);
-      setProfileError(null);
-      setProfileSaved(false);
-      setProfileSaving(false);
-    }
+    if (!isOpen) return;
+    setFormData(preferences);
+    setKeymapDraft(preferences.keymap);
   }, [isOpen, preferences]);
+
+  // Per-open resets — NOT re-run when a save changes `preferences`, so an
+  // Apply / Reset in the Keybindings tab never bounces the user to Editor.
+  useEffect(() => {
+    if (!isOpen) return;
+    setCapturingId(null);
+    setCapturedChord(null);
+    setCaptureError(null);
+    setError(null);
+    setActiveTab('editor');
+    setProfileLoaded(false);
+    setProfileError(null);
+    setProfileSaved(false);
+    setProfileSaving(false);
+  }, [isOpen]);
 
   // Load the profile once, the first time the Profile tab is shown while the
   // modal is open. Never re-fetches on tab toggles or keystrokes. `cancelled`

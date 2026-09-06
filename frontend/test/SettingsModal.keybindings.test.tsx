@@ -141,6 +141,37 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
     expect(field.closest("[data-keybinding-capture]")).toBeTruthy();
   });
 
+  it("stays on the Keybindings tab after an Apply re-issues preferences", () => {
+    // simulates IDE.tsx adopting the server response: re-render with a new
+    // `preferences` object. The tab must NOT bounce back to Editor.
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const base = { ...DEFAULT_PREFERENCES };
+    const { rerender } = render(
+      <SettingsModal
+        isOpen
+        preferences={base}
+        onSave={onSave as any}
+        onClose={vi.fn()}
+        username="ada99"
+      />,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /keybindings/i }));
+    expect(screen.getByRole("tab", { name: /keybindings/i }).getAttribute("aria-selected")).toBe("true");
+
+    rerender(
+      <SettingsModal
+        isOpen
+        preferences={{ ...base, keymap: { "workbench.action.saveFile": "mod+alt+s" } }}
+        onSave={onSave as any}
+        onClose={vi.fn()}
+        username="ada99"
+      />,
+    );
+    expect(screen.getByRole("tab", { name: /keybindings/i }).getAttribute("aria-selected")).toBe("true");
+    // and the draft adopted the new server value
+    expect(row("Save Active File").textContent).toMatch(/Alt\+S|⌥⌘S/i);
+  });
+
   it("the editor-tab Save payload never carries keymap", () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(
