@@ -228,6 +228,29 @@ describe("TeamPanel", () => {
     expect(screen.getByText("Away")).toBeTruthy();
   });
 
+  it("M73: shows a staleness caveat only when the collab link is not live", () => {
+    const props = {
+      collaborators: [base({ userId: 1, name: "Me" }), base({ userId: 2, name: "Rahul" })],
+      runStatuses: [],
+      currentUserId: 1,
+      isDnd: false,
+      followingUserId: null,
+      ...handlers,
+    };
+    const { rerender } = render(<TeamPanel {...props} collabStatus="connected" />);
+    expect(document.querySelector(".team-stale-note")).toBeNull();
+
+    rerender(<TeamPanel {...props} collabStatus="disconnected" />);
+    const note = document.querySelector(".team-stale-note");
+    expect(note).toBeTruthy();
+    expect(note!.textContent).toMatch(/out of date/i);
+
+    rerender(<TeamPanel {...props} collabStatus="reconnecting" />);
+    expect(document.querySelector(".team-stale-note")!.textContent).toMatch(
+      /Reconnecting/i,
+    );
+  });
+
   it("close button calls onClose", () => {
     const onClose = vi.fn();
     render(

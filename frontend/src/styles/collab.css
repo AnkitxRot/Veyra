@@ -142,6 +142,17 @@
   margin-bottom: 8px;
 }
 .team-count { opacity: 0.7; font-weight: 600; }
+/* M73: roster-staleness caveat shown while the collab link is not live. */
+.team-stale-note {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--peach, #fab387);
+  background: rgba(250, 179, 135, 0.1);
+  border: 1px solid rgba(250, 179, 135, 0.22);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+}
 .team-close {
   background: none;
   border: none;

@@ -6,6 +6,8 @@ import {
   displayLabel,
   secondaryHandle,
 } from "../../collab/presence";
+import type { CollabConnectionStatus } from "../../collab/client";
+import { rosterStalenessNote } from "../../collab/connectionPresentation";
 import type { RunStatusEntry, TimelineEvent } from "../../types";
 import { pickRunForUser, formatRunText } from "./runActivity";
 import ActivityTimeline from "./ActivityTimeline";
@@ -18,6 +20,9 @@ export interface TeamPanelProps {
   currentUserId: number;
   isDnd: boolean;
   followingUserId: number | null;
+  /** M73: the canonical collaboration connection status — drives the
+   *  "this list may be out of date" caveat. Defaults to "connected". */
+  collabStatus?: CollabConnectionStatus;
   onClose: () => void;
   onSetIntent: (text: string) => void;
   onToggleDnd: (dnd: boolean) => void;
@@ -66,6 +71,7 @@ export default function TeamPanel({
   currentUserId,
   isDnd,
   followingUserId,
+  collabStatus = "connected",
   onClose,
   onSetIntent,
   onToggleDnd,
@@ -110,6 +116,8 @@ export default function TeamPanel({
     if (next !== (self?.intent?.text ?? "")) onSetIntent(next);
   };
 
+  const staleNote = rosterStalenessNote(collabStatus);
+
   return (
     <div className="team-panel liquid-card" role="dialog" aria-label="Team">
       <div className="team-panel-header">
@@ -125,6 +133,12 @@ export default function TeamPanel({
           ×
         </button>
       </div>
+
+      {staleNote && (
+        <div className="team-stale-note" role="status">
+          {staleNote}
+        </div>
+      )}
 
       {self && (
         <div className="team-row team-row-self">

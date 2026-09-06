@@ -13,6 +13,7 @@ import UserAvatar from "../common/UserAvatar";
 import ProfileCard, {
   type ProfilePresenceTone,
 } from "../common/ProfileCard";
+import { rosterStalenessNote } from "../../collab/connectionPresentation";
 import { pickRunForUser, formatRunText } from "./runActivity";
 
 /** M73: map the availability axis onto a ProfileCard presence chip. */
@@ -76,6 +77,7 @@ export default function CollaboratorAvatarStack({
   const [isSelfMenuOpen, setIsSelfMenuOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
+  const staleNote = rosterStalenessNote(status);
   const otherCollaborators = collaborators.filter(
     (c) => c.userId !== currentUserId,
   );
@@ -232,12 +234,23 @@ export default function CollaboratorAvatarStack({
       {/* Sync Status Badge */}
       {getStatusBadge()}
 
-      {/* Collaborator Avatars Stack */}
+      {/* Collaborator Avatars Stack — dimmed with a spoken caveat while the
+          link is down / reconnecting, so a last-known roster is never
+          presented as fully live (M73). */}
       {otherCollaborators.length > 0 && (
         <div
-          style={{ display: "flex", alignItems: "center", marginLeft: "4px" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            marginLeft: "4px",
+            opacity: staleNote ? 0.5 : 1,
+            transition: "opacity 150ms ease",
+          }}
           role="group"
-          aria-label="Active Collaborators"
+          aria-label={
+            staleNote ? `Active Collaborators — ${staleNote}` : "Active Collaborators"
+          }
+          title={staleNote ?? undefined}
         >
           {otherCollaborators.map((c) => {
             // M62/M72: the avatar glyph stays username-derived (initials

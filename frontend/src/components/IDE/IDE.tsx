@@ -3384,6 +3384,7 @@ export default function IDE({
               currentUserId={user.id}
               isDnd={isDnd}
               followingUserId={followedUserId}
+              collabStatus={collabStatus}
               onClose={() => setTeamPanelOpen(false)}
               onSetIntent={(t) => collabClientRef.current?.setIntent(t)}
               onToggleDnd={handleToggleDnd}

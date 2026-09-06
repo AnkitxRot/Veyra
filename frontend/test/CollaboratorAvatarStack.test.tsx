@@ -55,6 +55,33 @@ describe("CollaboratorAvatarStack — M57 count chip", () => {
     expect(screen.getByRole("button", { name: /^Follow$/i })).toBeTruthy();
   });
 
+  it("M73: dims the roster and speaks a caveat while reconnecting", () => {
+    const { container, rerender } = render(
+      <CollaboratorAvatarStack
+        collaborators={[c({ userId: 1, name: "Me" }), c({ userId: 2, name: "Rahul" })]}
+        status="connected"
+        currentUserId={1}
+        onOpenTeamPanel={vi.fn()}
+      />,
+    );
+    const liveGroup = screen.getByRole("group", { name: "Active Collaborators" });
+    expect(liveGroup.style.opacity).toBe("1");
+
+    rerender(
+      <CollaboratorAvatarStack
+        collaborators={[c({ userId: 1, name: "Me" }), c({ userId: 2, name: "Rahul" })]}
+        status="reconnecting"
+        currentUserId={1}
+        onOpenTeamPanel={vi.fn()}
+      />,
+    );
+    const staleGroup = screen.getByRole("group", {
+      name: /Active Collaborators — Reconnecting/,
+    });
+    expect(parseFloat(staleGroup.style.opacity)).toBeLessThan(1);
+    expect(container).toBeTruthy();
+  });
+
   it("renders an away collaborator's status dot", () => {
     render(
       <CollaboratorAvatarStack
