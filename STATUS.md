@@ -8115,3 +8115,116 @@ persist / remove / broken-image fallback / no-path-leak / no-WS-churn. The
 authenticated multi-session browser slice is PARTIAL, covered by deterministic
 integration and identity-consistency coverage as noted above. No backend
 production code outside the profile/collab/admin identity path was touched.
+
+
+## M73 - seamless multiplayer / presence UX
+
+**Objective:** make multiplayer feel native - one coherent mental model where a
+collaborator is `avatar + display name + @username + presence + activity +
+follow + profile context`, built entirely on the M72 canonical identity model.
+No Yjs protocol change, no new connection-state enum, no new WebSocket message
+type, no authorization change, no new dependency, no migration.
+
+### Phase 0 audit - the architecture M73 built on
+
+- **Connection state:** one owner, `CollaborationClient.status`
+  (`connecting | connected | reconnecting | resynchronizing | disconnected |
+  forbidden`, M63). Already sufficient - M73 added no enum. The M63
+  editor-region `CollabConnectionBanner` and the toolbar sync badge both read
+  it, so they cannot contradict.
+- **Identity:** `userId` + `username` stable keys; `displayName` (M62) +
+  `avatarVersion` (M72) presentation, resolved server-side into a per-room
+  cache (`displayNameByUser` / `avatarVersionByUser`), emitted on the awareness
+  `user` frame, refreshed on `profile_event`, pruned on last-client-leave.
+  `collab/presence.ts` `readPresenceState` + `displayLabel` / `secondaryHandle`
+  are the one parse + one label rule. `UserAvatar` / `ProfileCard` are the M72
+  primitives.
+- **Follow:** owned by IDE.tsx - `followedUserId`, one null-guarded
+  `followAnchorRef` per session, one userId-keyed `followAbsenceTimerRef`
+  (`FOLLOW_ABSENCE_GRACE_MS` 6s), an M64 editor-surface "X left" notice
+  (`FOLLOW_LEFT_NOTICE_MS` 8s). `focusOn` is the single transition controller.
+- **Reconnect/resync:** M63 machinery unchanged; `resetLocalCollabState`
+  discards the lineage on explicit server disposal (close 1001 while
+  connected/resyncing); awareness is clientID-keyed so resync never duplicates
+  a collaborator, and the identity caches are refreshed-in-place not appended.
+
+### Findings and what M73 changed
+
+| # | Finding (audit) | Fix |
+|---|---|---|
+| P2-B | Activity timeline + While-You-Were-Away rendered `actor.username` as bare text - the two surfaces M72 explicitly deferred | both take an `actorIdentity` map (userId -> {displayName, avatarVersion}); render `UserAvatar` + `displayLabel`, username fallback, kind-icon kept for null-actor rows |
+| P1-C | The avatar-stack quick popover re-implemented the identity block instead of reusing `ProfileCard` (M73's stated consolidation objective) | popover now renders `<ProfileCard>` (avatar + label + @handle + pronouns + presence chip); role chip + Follow/Jump stay as chrome |
+| - | `ProfileCard` needed pronouns for collaborators, but pronouns were not propagated | `pronouns` now rides the same per-room identity cache + awareness `user` frame as displayName/avatarVersion - same lifecycle, forged value discarded, awareness hot path still no DB read. bio deliberately NOT propagated |
+| P1-E | `handleReturnToMyLocation` is async; starting a new follow during its `await handleOpenFile` let the resolved continuation navigate off the new target | `collab/followGeneration.ts` - a monotonic token bumped on every follow boundary; the async return re-checks after the await, the absence timer bails when superseded, and a stale "follow-left" notice's onExpire / "Stay here" cannot clear a newer session's anchor |
+| P2-D | a client only ever seeded its own awareness `user` with the stable identity - its own "You" row / self avatar never showed displayName/avatar and never reflected a self edit | `CollaborationClient.updateLocalIdentity({displayName, avatarVersion, pronouns})` folds presentation identity into the local `user` field (self-render only, no reconnect, no new socket, survives lineage reset); IDE.tsx calls it on client create and on a self `profile_event` |
+| P2-A | during reconnecting/disconnected the avatar stack showed a last-known roster with live-looking dots; TeamPanel had no connection cue at all | `collab/connectionPresentation.ts` (`collaborationIsLive`, `rosterStalenessNote`) - the one roster-staleness copy owner; the stack dims its row + speaks the caveat in its group aria-label, TeamPanel renders a `role="status"` note; reads the same canonical status |
+| P3-H | avatar-stack activity text said "Editing foo.ts" for an idle/away collaborator | gate on availability after the server-run check (matches TeamPanel) |
+| P2-I | M65 shared run output named the owner with the bare `run_status.username`, no avatar | optional `actorIdentity` threaded from IDE.tsx through Output; `UserAvatar` + `displayLabel`, username fallback |
+
+### Commits (`master`..`HEAD`, 8)
+
+| hash | message | tests |
+|---|---|---|
+| `6d0546b` | feat(collab): propagate collaborator pronouns through presence identity | `m73-collab-pronouns` (6), `sanitizeStoredPronouns` matrix (3), FE `collab.presence` parse (+1) |
+| `3407ea3` | feat(collab): reuse ProfileCard for collaborator identity in the avatar stack | `CollaboratorAvatarStack.profileCard` (5); identity-consistency unchanged |
+| `98459f5` | fix(collab): generation-token the follow lifecycle against target races | `collab.followGeneration` (4); `collab.focus.follow` source-contract (+6, windows widened) |
+| `90d4941` | feat(collab): re-stamp local awareness identity on a self profile change | `collab.selfIdentity` (7); `IDE.profileEvent` source-contract (+1, revised) |
+| `f54a6ef` | feat(collab): surface connection staleness on the roster surfaces | `collab.connectionPresentation` (3); avatar-stack dim (+1); TeamPanel note (+1) |
+| `6346248` | feat(collab): render identity on the activity timeline and while-you-were-away | `ActivityTimeline` (+3), `WhileYouWereAway` (+2) |
+| `1a238db` | fix(collab): gate avatar-stack activity text on availability | `CollaboratorAvatarStack` (+2) |
+| `d71f909` | feat(collab): unify shared run output identity with UserAvatar | `SharedRunOutputPanel` (+2) |
+
+32 files, +1297 / -116.
+
+### Verification (2026-09-07)
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1173 passed / 9 skipped / 0 failed** (93 files, 398s); Docker-gated suites executed (`templates.exec` 11.3s, `m16-optimization`, `exec`, `sandbox`, `python-deps`, `git`). +9 vs M72 (1164) = the M73 pronoun tests |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` -> **965 passed / 0 failed** (121 files). +37 vs M72 (928). Includes the M71 perf suites (10/10) |
+| Frontend build | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged) |
+| Backend eslint | 0 errors |
+| `git diff --check` | clean |
+| Revert-sensitivity | every changed boundary breaks >=1 test on revert: pronoun awareness emit + forged-value discard + no-DB-read + reconnect repopulate; `ProfileCard` reuse (.profile-card present, pronouns shown/omitted, presence tone); follow generation token bump sites + post-await recheck ordering + stale-notice anchor guard; `updateLocalIdentity` fold/clear/no-op/no-new-socket/survives-reset; roster staleness note per status; timeline/while-away actor avatar + username fallback; idle -> "Idle" not "Editing"; shared-run-output owner avatar |
+
+### Live browser - NOT_AVAILABLE this run
+
+The Chrome session provided was unauthenticated; entering credentials / creating
+accounts is prohibited, and `POST` to the instant-demo endpoint returned **404**
+(demo disabled on this backend). The app shell loaded from the M73 source with
+**zero console errors/warnings** (only Vite HMR + the React DevTools info line)
+and `/api/auth/me` returned 200 - the only browser signal obtainable without a
+session. Every two-user matrix item (A-AH) is therefore **NOT_AVAILABLE** and
+was **not** promoted to PASS. Each is covered by a deterministic equivalent:
+
+- identity on every surface -> `identity-consistency` + `CollaboratorAvatarStack.profileCard` + `ActivityTimeline` / `WhileYouWereAway` / `SharedRunOutputPanel` identity tests
+- pronouns/bio render -> `ProfileCard` tests + `m73-collab-pronouns` awareness propagation
+- self profile change -> local surfaces -> `collab.selfIdentity` (no reconnect, survives reset) + `IDE.profileEvent` self-sync wiring
+- idle/away truthful activity -> `CollaboratorAvatarStack` idle test
+- follow target switch / follow-left race / return / stay / reconnect -> `collab.followGeneration` + `collab.focus.follow` + `collab.follow` + `ideNotices.wiring`
+- reconnect no-duplicate collaborator/run identity -> `collab.reconnect` + `collab.explicitDisposalReset` + `m72-collab-avatar` reconnect repopulate (pattern extended to pronouns)
+- connection/resync state coherent -> `collab.connectionPresentation` + `IDE.connectionVisibility` + `CollabConnectionBanner` (M63 unchanged)
+
+### Not done / out of scope (M73)
+
+- **Two-session live Chrome** - NOT_AVAILABLE (no authenticated session, demo 404); deterministic equivalents as above. PARTIAL against the milestone's browser requirement.
+- **bio in collaboration presence** - deliberately not propagated (privacy/noise); stays a Settings/`ProfileCard` concern.
+- **Idle-user awareness latency** - the M62/M72 decision is retained: a fully idle collaborator's presentation identity lags until their next heartbeat / reconnect / REST refetch.
+- **Monaco remote-cursor label** - still the `@handle` at the caret (M72 decision), untouched.
+- **M71 perf** - verified not regressed (perf suites 10/10); no new memoization added.
+- **No M74 work started.**
+
+### Verdict
+
+**M73 implementation PROVEN for every deterministic gate**; **PARTIAL** on the
+milestone's live two-session browser requirement (infrastructure NOT_AVAILABLE
+this run - unauthenticated session, demo endpoint 404 - with a deterministic
+equivalent for each matrix item). Presence states are coherent, collaborator
+identity is the M72 canonical model end to end, `ProfileCard` / `UserAvatar`
+are reused not duplicated, activity is truthful, the follow lifecycle is
+generation-token race-safe, reconnect/resync stays coherent, permissions and
+attribution keys are untouched, and listener/timer/subscription lifecycle is
+clean (the generation token is a plain counter, adds no resource).
