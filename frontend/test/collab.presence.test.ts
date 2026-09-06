@@ -91,6 +91,26 @@ describe("readPresenceState", () => {
     expect(p.activeFileDirty).toBe(true);
   });
 
+  it("parses a positive integer avatarVersion, floors anything else to 0", () => {
+    expect(
+      readPresenceState(1, {
+        user: { id: 1, name: "x", avatarVersion: 5 },
+      })!.avatarVersion,
+    ).toBe(5);
+    expect(
+      readPresenceState(1, {
+        user: { id: 1, name: "x", avatarVersion: 3.9 },
+      })!.avatarVersion,
+    ).toBe(3);
+    for (const bad of [0, -2, NaN, "7", null, undefined]) {
+      expect(
+        readPresenceState(1, {
+          user: { id: 1, name: "x", avatarVersion: bad },
+        })!.avatarVersion,
+      ).toBe(0);
+    }
+  });
+
   it("returns null without a user", () =>
     expect(readPresenceState(1, { status: "online" })).toBeNull());
 

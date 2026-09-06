@@ -3,6 +3,7 @@ import type { CommentDTO, CommentThreadDTO } from "../../types";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { mentionText } from "./mentionText";
 import CommentComposer, { type ComposerMember } from "./CommentComposer";
+import UserAvatar from "../common/UserAvatar";
 
 export const REACTION_EMOJI = [
   "\u{1F44D}",
@@ -38,10 +39,6 @@ function relTime(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function initials(name: string): string {
-  return name.slice(0, 2).toUpperCase();
-}
-
 export default function CommentThread({
   thread,
   currentUserId,
@@ -66,6 +63,8 @@ export default function CommentThread({
   const memberOf = (userId: number) => members.find((m) => m.userId === userId);
   const usernameOf = (userId: number) =>
     memberOf(userId)?.username ?? `user ${userId}`;
+  const avatarVersionOf = (userId: number) =>
+    memberOf(userId)?.avatarVersion ?? 0;
   const labelOf = (userId: number) => {
     const d = memberOf(userId)?.displayName;
     return typeof d === "string" && d.trim().length > 0 ? d : usernameOf(userId);
@@ -109,9 +108,13 @@ export default function CommentThread({
     return (
       <li key={c.id} className="comment-row" data-comment-id={c.id} tabIndex={-1}>
         <div className="comment-row-head">
-          <span className="c-avatar" aria-hidden="true">
-            {initials(authorUsername)}
-          </span>
+          <UserAvatar
+            userId={c.authorId}
+            username={authorUsername}
+            avatarVersion={avatarVersionOf(c.authorId)}
+            size={22}
+            className="c-avatar"
+          />
           <span className="comment-author">{authorLabel}</span>
           {showAuthorHandle && (
             <span className="comment-author-handle">@{authorUsername}</span>

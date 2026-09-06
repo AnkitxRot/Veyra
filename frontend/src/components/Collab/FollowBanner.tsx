@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import type { CollaboratorPresence } from "../../collab/client";
 import { displayLabel } from "../../collab/presence";
 import { IconClose, IconUsers } from "../common/Icons";
+import UserAvatar from "../common/UserAvatar";
 
 export interface FollowBannerProps {
   followedUser: CollaboratorPresence;
@@ -35,10 +36,9 @@ export default function FollowBanner({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onStopFollowing]);
 
-  // M62: label = effective display name; initials stay username-derived so a
-  // rename never churns the follow avatar.
+  // M62: label = effective display name; the avatar glyph stays
+  // username-derived so a rename never churns it.
   const label = displayLabel(followedUser);
-  const initials = followedUser.name.slice(0, 2).toUpperCase();
   const fileName = followedUser.activeFile
     ? followedUser.activeFile.split("/").pop()
     : null;
@@ -66,11 +66,17 @@ export default function FollowBanner({
         <div
           className="follow-avatar"
           style={{
-            background: followedUser.color,
+            background: "transparent",
             borderColor: isPaused ? "#fab387" : followedUser.color,
           }}
         >
-          {initials}
+          <UserAvatar
+            userId={followedUser.userId}
+            username={followedUser.name}
+            avatarVersion={followedUser.avatarVersion}
+            color={followedUser.color}
+            size={18}
+          />
         </div>
 
         <div className="follow-info">
