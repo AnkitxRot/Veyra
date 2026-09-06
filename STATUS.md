@@ -6976,3 +6976,85 @@ future explicit customization milestone.
 consolidation (flagged above), panel-layout persistence, theme / keybinding
 customization, any change to the 7 pre-existing editor settings, `user_settings`
 activation, removal of the dormant M61 tables.
+
+## Preference-architecture decision (2026-09-06) — OPTION A
+
+The M66 section flagged an unresolved choice between two user-preference
+persistence systems. **Decision: adopt Option A.**
+
+- **KEEP** the active, typed `user_preferences` table + `auth/preferences.ts` +
+  `GET/PUT /api/auth/preferences` as the single authoritative preference path.
+  Every new persisted user-scoped customization extends this typed contract:
+  one typed column per field, strict per-field validation, an explicit default,
+  partial-merge semantics, unknown-key rejection, and a guarded
+  `PRAGMA table_info` migration.
+- **DO NOT** activate or migrate onto the dormant generic M61 `user_settings`
+  JSON store. It has no active reader, writer, route, or UI. Replatforming a
+  working, wired, tested system onto dormant storage is unnecessary migration
+  risk and squarely hits the STOP condition ("a migration could corrupt
+  user/workspace settings").
+- **Rationale:** `user_preferences` is active, typed, validated, tested, and
+  already the authoritative path; `formatOnSave` was migrated into it
+  successfully in M66; `user_settings` carries nothing and is referenced by no
+  code path.
+
+**`user_settings` is treated as dormant legacy/deferred architecture. It is NOT
+deleted here.** Retiring it is a separate future cleanup item:
+
+> **Future cleanup — retire the dormant `user_settings` store.** Only after
+> confirming nothing reads or writes it (currently true: `rg user_settings`
+> hits `db.ts` schema + the one-time v12 seed copy + `migrations.test.ts`
+> only), drop `user_settings` and the unused M61 profile-adjacent tables in
+> their own dedicated, reversible migration. Not urgent; no correctness or
+> security impact while it sits unused.
+
+## M67 — persistent IDE layout preferences (user-global)
+
+**Objective (bounded customization slice, builds directly on the Option A
+foundation):** stop discarding the user's IDE panel layout on every reload.
+Persist the four genuinely user-scoped layout dimensions through the typed
+`user_preferences` contract so they survive a reload and follow the user across
+devices.
+
+**Persisted (4 new typed `user_preferences` fields):**
+
+| Field | Type | Server bounds | Default | Was |
+|---|---|---|---|---|
+| `sidebarWidth` | integer px | `[180, 500]` | `250` | `IDE.tsx` `useState(250)`, never persisted |
+| `bottomHeight` | integer px | `[120, 600]` | `260` | `IDE.tsx` `useState(260)`, never persisted |
+| `sidebarHidden` | boolean | — | `false` | `IDE.tsx` `useState(false)`, never persisted |
+| `bottomCollapsed` | boolean | — | `false` | `IDE.tsx` `useState(false)`, never persisted |
+
+Bounds are lifted verbatim from the existing drag-resize clamps in `IDE.tsx`
+(`Math.max(180, Math.min(clientX, 500))` for the sidebar,
+`Math.max(120, Math.min(innerHeight - clientY, 600))` for the bottom panel).
+The client clamps (and rounds) to the same shared constants before persisting;
+the server independently range-checks and rejects an out-of-range value with a
+`400` (`invalid_sidebar_width` / `invalid_bottom_height`), not a silent clamp —
+mirrors the existing `fontSize` contract exactly.
+
+**Scope decision — active bottom tab stays project-scoped, NOT persisted here.**
+The milestone brief listed "active bottom tab" as a fifth value. Repository
+evidence shows the IDE already treats it as **project-specific**: it is stored
+per-project in `localStorage cloudeee_session_<pid>` via `sessionStore.ts`
+(session restore: open tabs + active file + bottom tab, keyed by project id),
+and `sessionStore.ts`'s own type documents it as *"which bottom panel was
+selected, or null for the default"*. The M66 inventory classified that store as
+transient per-device UI state, correctly left alone. Promoting the bottom tab to
+a user-global preference would contradict that existing per-project semantic and
+the brief's own rule ("use USER-GLOBAL persistence unless repository evidence
+proves the existing UX treats these values as project-specific"). It is
+therefore **left on its existing per-project session mechanism, unchanged.**
+Only the four dimensions above — which have zero existing persistence and no
+project scoping — move into `user_preferences`.
+
+**User-global, not workspace-scoped.** The four values are plain `IDE.tsx`
+component state today with no project dependency and no reset on project switch.
+There is no workspace-preference infrastructure and this milestone does not
+invent any.
+
+**Not in scope:** themes, keybindings, custom themes, preference import/export,
+workspace-scoped preferences, preference sync across workspace members, any
+broad settings-UX redesign, `user_settings` activation or retirement,
+the bottom-tab scope change described above.
+
