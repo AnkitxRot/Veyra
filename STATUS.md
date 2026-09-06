@@ -7384,3 +7384,163 @@ a project switch.
   separate test-hardening fix. One pre-existing dev-only P3 (deep-link
   substitution under StrictMode, §4) — no production impact, tracked as a
   follow-up. No P0/P1/P2 open.
+
+## M69 — unified theme & appearance
+
+**Objective (bounded):** give the IDE a coherent, persistent appearance
+system so it no longer has a hardcoded dark visual mode. One typed
+preference, one resolved-appearance source, a light theme derived from the
+existing design language, live switching with no editor / terminal /
+collaboration teardown.
+
+### Architecture
+
+**One typed preference** — `theme: "system" | "dark" | "light"` in the
+existing `user_preferences` store (M66/M67 Option-A contract): one typed
+column, strict validation (`invalid_theme`), partial-merge, unknown-key
+rejection unchanged, guarded `PRAGMA table_info` migration **v15**. Default
+`"system"`. The dormant `user_settings` store is untouched.
+
+**One resolved-appearance source** — `frontend/src/hooks/useAppearance.ts`:
+
+```
+useAppearance(preference: ThemePreference)
+  -> { preference, resolvedTheme: "dark" | "light" }
+```
+
+- pure `resolveTheme(preference, systemPrefersLight)` — `dark`/`light` pin
+  the theme; `system` follows the OS flag;
+- stamps the resolved theme onto `<html data-theme>` and
+  `<html style="color-scheme">`;
+- consults `prefers-color-scheme` **only while the preference is "system"**,
+  through **exactly one** `matchMedia` listener, removed on unmount and when
+  the preference becomes explicit (no leak, no duplicate);
+- no `localStorage`; the persisted preference is authoritative;
+- `IDE.tsx` calls it **once** from `preferences.theme` and threads
+  `resolvedTheme` to the Editor and Terminal. No scattered `matchMedia`
+  calls, no per-component theme conditionals.
+
+**IDE / core chrome** — the light palette lives in `tokens.css` under
+`:root[data-theme="light"]`: all ~45 theme-variant colour / elevation tokens
+redefined (geometry / timing / type tokens are theme-invariant). Derived
+from Catppuccin Latte (the light counterpart of the Mocha palette the dark
+theme already uses); frosted-glass character preserved with a white-tint
+translucency; `color-scheme` switches with the theme. The base `:root` block
+stays the dark palette — `data-theme="dark"` falls through to it, so the
+dark appearance is unchanged.
+
+**Monaco** — `Editor.tsx` creates the editor with the resolved built-in
+theme (`vs` / `vs-dark`) instead of a hardcoded `"vs-dark"`, and a
+`useEffect([resolvedTheme])` calls `monaco.editor.setTheme` to swap the
+theme on the **live** editor. The instance, model registry, view state,
+cursor, selection and collaboration bindings are all untouched — create
+count stays 1.
+
+**xterm** — `TERMINAL_THEMES` (its own module) keyed by resolved
+appearance: dark unchanged, light is the matching Latte palette.
+`initTerminal` still keys on `project.id` only and reads the theme through a
+ref; a dedicated `useEffect([resolvedTheme])` sets `xterm.options.theme` on
+the live instance. The xterm instance and its WebSocket session are never
+recreated by a theme change.
+
+**Settings** — the Editor tab gains a Theme select (System / Dark / Light)
+bound to `formData.theme`, saved through the existing `pickEditorPrefs` ->
+`onSave` -> `PUT /api/auth/preferences` path (`theme` is in
+`EDITOR_PREFERENCE_KEYS`). "Reset Defaults" returns it to "system".
+
+### Hardcoded-surface tokenisation (found in live browser verification)
+
+The light theme's first browser pass showed ~11 surface backgrounds
+hardcoded as dark `rgba()` rather than reading a token, so they stayed dark
+on a light ground — form inputs / selects (`.glass-input` + hover + focus),
+the settings tab bar, the Problems and Resources panels, the capability HUD,
+the Preview loading scrim, the share / secrets modal bodies, and the modal
+backdrop. Five new tokens carry these (`--input-bg`, `--input-bg-hover`,
+`--input-bg-focus`, `--surface-recessed`, `--modal-backdrop`), **dark values
+verbatim** so dark stays pixel-identical, light overridden in the
+`[data-theme="light"]` block. The additive `rgba(255,255,255,…)` glass
+*highlights* (specular sheen, hover glints, hairline dividers) are left
+alone — cosmetic, invisible-but-harmless on light, and rewriting them would
+be the broad CSS cleanup this milestone excludes.
+
+### What landed
+
+**Commit range:** `d567062..HEAD` (7 commits + this doc)
+
+| Commit | Purpose |
+|---|---|
+| `6ee5b80` feat(settings): add typed theme preference | `auth/preferences.ts` (typed field + `invalid_theme` + merge + SELECT/INSERT); `db.ts` v15 migration + inline schema; `m69-theme-preference.test.ts` (10); `migrations` / `preferences` / `m67-layout` test assertions bumped to v15 |
+| `102ad48` feat(ide): resolve appearance and theme Monaco in place | `hooks/useAppearance.ts` (new) + `useAppearance.test.tsx` (11); `types.ts` (`theme` + `EDITOR_PREFERENCE_KEYS`); `IDE.tsx` wiring; `Editor.tsx` create-theme + live `setTheme` effect; `mocks/monaco.ts` (`setTheme` / create-count); `Editor.theme.test.tsx` (5); `ideAppearance.wiring.test.tsx` |
+| `84700f5` feat(ide): add the light theme palette | `tokens.css` `[data-theme="light"]` block + scrollbar token + reduced-transparency light variant + pre-hydration `color-scheme` hint; `index.css` scrollbar tokens; `lightTheme.tokens.test.ts` (7) |
+| `44eb160` feat(terminal): synchronize terminal theme in place | `Terminal/terminalThemes.ts` (new); `Terminal.tsx` prop + ref + live theme effect; `Terminal.theme.test.tsx` (4) |
+| `ed40258` feat(settings): add theme selector | `SettingsModal.tsx` Theme select; `SettingsModal.theme.test.tsx` (5) |
+| `8271d28` test(ide): harden theme lifecycle coverage | `ideThemeLifecycle.test.tsx` (7 — real hook + real Editor integration) + a layout-independence wiring guard |
+| `e7ab719` feat(ide): tokenise hardcoded panel surfaces for the light theme | 5 tokens in `tokens.css`; `glass.css` / `output.css` / `toolbar.css` / `admin.css` + `ProblemsPanel` / `ResourcesView` / `Preview` / `ProjectSharingModal` / `ProjectSecretsModal` inline styles -> `var(--…)`; `lightTheme.tokens.test.ts` +2 |
+
+New surfaces: `useAppearance` hook; `TERMINAL_THEMES`; `Editor` /
+`Terminal` `resolvedTheme` prop; SettingsModal Theme control; 5 form/surface
+tokens + the light palette block. No new dependency. One migration (v15).
+
+### Tests
+
+| Suite | Coverage |
+|---|---|
+| `m69-theme-preference.test.ts` (10) | default `"system"`; every valid value round-trips; `invalid_theme` for `"Dark"`/`"auto"`/`""`/number/bool/null; persisted survives GET; partial PUT keeps theme + editor + layout keys; unknown key (`themeMode`…) still `invalid_preference_key`; domain fn round-trip; fresh-db column; **v15 migration** adds `theme` to a pre-v15 db, idempotent, defaults existing rows to `"system"`; audit log |
+| `useAppearance.test.tsx` (11) | `resolveTheme` all 6 combos; explicit dark/light stamps `data-theme` + `color-scheme`; system resolves to dark / light per OS; live `prefers-color-scheme` change followed in system mode; **ignored** under explicit dark and explicit light; listener registered **only** in system mode (0 in explicit, exactly 1 in system, no dup across toggles); removed on unmount; no throw when `matchMedia` is absent |
+| `Editor.theme.test.tsx` (5) | create with `vs` / `vs-dark` from the prop; a theme change calls `setTheme` with **create count 1** (same instance, same model); back-and-forth -> `["vs","vs-dark"]`; saved view state restorable across a switch |
+| `Terminal.theme.test.tsx` (4) | opens with dark / light palette; a theme change updates `xterm.options.theme` with **no new xterm, no new socket**; a project change still recreates (guard is theme-only) |
+| `SettingsModal.theme.test.tsx` (5) | control reflects the current preference; offers System/Dark/Light; a change is in the Save payload; Reset Defaults -> `"system"`; payload still omits the layout keys |
+| `ideThemeLifecycle.test.tsx` (7) | real `useAppearance` -> real `<Editor>`: hydrates `data-theme` immediately; explicit change **and** live `prefers-color-scheme` change both re-theme Monaco with instance/model/view-state intact (create count 1); explicit ignores the OS; one listener in system mode, dropped on unmount and on becoming explicit; a theme change leaves an unrelated preference untouched |
+| `lightTheme.tokens.test.ts` (7) | light block keyed off `[data-theme="light"]`; **every theme-variant `:root` colour token** redefined for light; scrollbar tokenised + overridden; `color-scheme` switches; reduced-transparency light variant; the 5 form/surface tokens present in both blocks; no core surface CSS still uses a raw dark `rgba()` background |
+| `ideAppearance.wiring.test.tsx` (8) | one `useAppearance(preferences.theme)`; `resolvedTheme` threaded to Editor + Terminal; typed preference + `EDITOR_PREFERENCE_KEYS`; Editor themes Monaco from the prop with no hardcoded `vs-dark` and a `[resolvedTheme]` effect that never calls `create`; Terminal themes xterm from the prop with `initTerminal` still keyed on project; `useLayoutPreferences` (M67) untouched; the settings select is bound + saves through `pickEditorPrefs` |
+
+Adjusted (schema bump v14 -> v15): `migrations.test.ts`, `preferences.test.ts`
+(exact-defaults object), `m67-layout-preferences.test.ts` test 12 — assertion
+values only, no behaviour change.
+
+Revert-sensitivity: the `invalid_theme` validation, the v15 migration, the
+`resolveTheme` mapping, the system-only listener guard + its cleanup, the
+`data-theme` stamp, the Monaco `setTheme` effect + non-hardcoded create
+theme, the xterm in-place theme effect + project-only `initTerminal` key,
+the settings select binding, and every token-coverage assertion each break
+>=1 test when reverted.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **854 passed / 0 failed** (105 files); +42 vs. M68 hardening (854 total incl. adjusted-count files) |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `TERMINAL_THEMES` lives in its own module so `Terminal.tsx` keeps a clean react-refresh lint) |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` -> **1090 passed / 9 skipped / 0 failed** (86 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +10 vs. M68 (1080) = the 10 M69 backend tests. Backend byte-identical `8271d28..HEAD`, so this run is the final state. |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Live browser (`m61_userA`; `m65-browser-demo`; a controllable `matchMedia` fake for the OS-change scenarios, real Settings UI for everything else) | **PASS, all 17:** (1) start System, OS dark -> `data-theme="dark"`; (2-3) `matchMedia` "change" -> IDE follows to light and back, Monaco re-themes, exactly 1 listener; (4-5) select Dark -> OS change **ignored**, listener removed (0); (6) select Light -> `data-theme="light"`; (7) Monaco `vs` light, syntax legible; (8) sidebar light; (9) bottom panel + Problems panel light (after the tokenisation commit); (10) Settings modal + Theme control light; (11) notice text legible on light; (12) open Terminal -> `xterm.options.theme.background === "#eff1f5"`, foreground `#4c4f69`, **session stays connected**; (13-14) switch theme with `main.py` open -> **same editor instance, same model `$model3`, cursor `{3,9}` preserved, content length unchanged, create count 1**; (15) switch projects -> theme preference persists (user-global); (16) full reload -> persisted theme re-applied from the server; (17) **zero console errors/warnings** across the whole session. Resource safety: **0 WebSockets created** during any theme switch — no collaboration or terminal reconnect. Test account reset to `theme:"system"` afterwards. |
+
+### Not done / out of scope (M69)
+
+- The pre-login **Auth screen** is not in the enumerated M69 surfaces; it
+  renders in whatever theme is stamped (the last IDE theme lingers after
+  logout — harmless, and a light Auth screen is coherent). No hardcoded dark
+  there either.
+- A one-frame dark flash is possible before React mounts and `useAppearance`
+  stamps `data-theme` (the preference is server-side, not in localStorage —
+  same pre-hydration window as M67's layout). A `@media
+  (prefers-color-scheme: light)` `color-scheme` hint softens it for
+  system-mode light-OS users.
+- The additive `rgba(255,255,255,…)` glass **highlights** (~45 of them) are
+  left at their white values — cosmetic sheen, invisible on light. Not a
+  broad CSS cleanup.
+- No custom themes, no font / per-colour customization, no workspace-scoped
+  themes, no keybindings, no design-system package, no `IDE.tsx`
+  decomposition, no `React.memo`, no `user_settings` activation.
+
+### Remaining known P3s (unchanged from M68, NOT touched in M69)
+
+1. `m4-collab.test.ts` #33 — pre-existing intermittent fixed-timeout
+   test-infra flake, zero M69 causality (M69 changed no collab code); did
+   not reproduce in this milestone's backend run.
+2. Dev-only `/p/:id` StrictMode deep-link substitution — production build
+   correct; not touched.
