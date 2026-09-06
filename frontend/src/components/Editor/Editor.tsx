@@ -125,6 +125,9 @@ export interface EditorProps {
   onViewCollaborator?: (userId: number) => void;
   onUserEdit?: () => void;
   isReadOnly?: boolean;
+  /** M69: the resolved appearance ("dark" | "light") from `useAppearance`.
+   *  Drives the Monaco theme; a change updates the live editor in place. */
+  resolvedTheme?: "dark" | "light";
   liveApiRef?: React.MutableRefObject<LiveContentApi | null>;
   /** M59: model-safe view-state save/restore for the follow anchor. */
   editorViewApiRef?: React.MutableRefObject<EditorViewApi | null>;
@@ -157,6 +160,7 @@ export default function Editor({
   onViewCollaborator,
   onUserEdit,
   isReadOnly = false,
+  resolvedTheme = "dark",
   liveApiRef,
   editorViewApiRef,
   preferences,
@@ -181,6 +185,13 @@ export default function Editor({
   const onUserEditRef = useRef(onUserEdit);
   const onCreateCommentRef = useRef(onCreateComment);
   const isReadOnlyRef = useRef(isReadOnly);
+  // M69: Monaco built-in theme id for the resolved appearance. Kept in a ref
+  // so the mount-time create() closure reads the current value; a later
+  // change is applied in place by the effect below (never a remount).
+  const monacoThemeRef = useRef(
+    resolvedTheme === "light" ? "vs" : "vs-dark",
+  );
+  monacoThemeRef.current = resolvedTheme === "light" ? "vs" : "vs-dark";
   // M58: current local selection (zero-width when just a cursor) for spatial
   // overlap; refs so the Monaco action closures see fresh values.
   const [localSelection, setLocalSelection] = React.useState<AttentionRange>({
@@ -306,6 +317,15 @@ export default function Editor({
     );
   }, [activeFile, collaborators, currentUserId]);
 
+  // M69: apply the resolved appearance to the LIVE editor without remounting
+  // it or replacing any model. `monaco.editor.setTheme` swaps the global
+  // theme in place — view state, cursor, selection, collaboration bindings
+  // and the model registry are all untouched.
+  useEffect(() => {
+    if (!monacoRef.current) return;
+    monaco.editor.setTheme(monacoThemeRef.current);
+  }, [resolvedTheme]);
+
   // Dynamically apply preferences changes without remounting editor or replacing models
   useEffect(() => {
     if (!monacoRef.current || !preferences) return;
@@ -324,7 +344,7 @@ export default function Editor({
   useEffect(() => {
     if (editorRef.current && !monacoRef.current) {
       monacoRef.current = monaco.editor.create(editorRef.current, {
-        theme: "vs-dark",
+        theme: monacoThemeRef.current,
         automaticLayout: true,
         minimap: { enabled: preferences?.minimap ?? false },
         fontSize: preferences?.fontSize ?? 13.5,

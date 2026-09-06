@@ -227,11 +227,20 @@ export class FakeDecorationsCollection {
 
 let modelRegistry = new Map<string, FakeModel>();
 let lastEditorInstance: FakeEditorInstance | null = null;
+let editorCreateCount = 0;
+let setThemeCalls: string[] = [];
 
 const editor = {
   create: (_el: unknown, options: Record<string, unknown>) => {
+    editorCreateCount += 1;
     lastEditorInstance = new FakeEditorInstance(options);
     return lastEditorInstance;
+  },
+  // M69: global theme swap — the real API updates every live editor in place
+  // without recreating anything.
+  setTheme: (theme: string) => {
+    setThemeCalls.push(theme);
+    if (lastEditorInstance) lastEditorInstance.options.theme = theme;
   },
   createModel: (
     value: string,
@@ -308,8 +317,20 @@ export const monaco = {
 export function __resetMonacoMocks() {
   modelRegistry = new Map();
   lastEditorInstance = null;
+  editorCreateCount = 0;
+  setThemeCalls = [];
 }
 
 export function __getLastEditorInstance(): FakeEditorInstance | null {
   return lastEditorInstance;
+}
+
+/** M69: how many times `monaco.editor.create` has been called this test. */
+export function __getEditorCreateCount(): number {
+  return editorCreateCount;
+}
+
+/** M69: the sequence of `monaco.editor.setTheme` arguments this test. */
+export function __getSetThemeCalls(): string[] {
+  return [...setThemeCalls];
 }

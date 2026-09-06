@@ -1,0 +1,53 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const read = (p: string) => readFileSync(join(here, p), "utf-8");
+const ide = read("../src/components/IDE/IDE.tsx");
+const editor = read("../src/components/Editor/Editor.tsx");
+const types = read("../src/types.ts");
+const settingsModal = read("../src/components/Settings/SettingsModal.tsx");
+
+/**
+ * M69 — IDE.tsx / Editor.tsx wiring for the unified appearance system. The
+ * behaviour of the pieces is tested directly (useAppearance.test.tsx,
+ * Editor.theme.test.tsx, ideThemeLifecycle.test.tsx); these guard that
+ * IDE.tsx routes the one resolved-appearance source to the one place.
+ */
+describe("M69 — appearance controller wiring", () => {
+  it("drives a single useAppearance from the typed theme preference", () => {
+    expect(ide).toContain(
+      'import { useAppearance } from "../../hooks/useAppearance"',
+    );
+    expect(ide.match(/useAppearance\(/g) ?? []).toHaveLength(1);
+    expect(ide).toContain("useAppearance(preferences.theme)");
+  });
+
+  it("threads the resolved theme into the Editor", () => {
+    expect(ide).toContain("resolvedTheme={resolvedTheme}");
+  });
+
+  it("theme is a typed preference and part of the editable modal keys", () => {
+    expect(types).toContain('theme: "system" | "dark" | "light";');
+    expect(types).toMatch(/EDITOR_PREFERENCE_KEYS = \[[\s\S]*"theme",[\s\S]*\]/);
+    expect(settingsModal).toContain("theme: 'system'");
+  });
+
+  it("Editor themes Monaco from the prop and updates it in place", () => {
+    // create() uses the resolved theme, not a hardcoded 'vs-dark'
+    expect(editor).not.toMatch(/theme:\s*["']vs-dark["']/);
+    expect(editor).toContain("theme: monacoThemeRef.current");
+    // a live theme change goes through the global setTheme, keyed on the prop
+    const at = editor.indexOf("monaco.editor.setTheme(monacoThemeRef.current)");
+    expect(at).toBeGreaterThan(-1);
+    const block = editor.slice(at - 200, at + 80);
+    expect(block).toContain("if (!monacoRef.current) return;");
+    expect(editor).toMatch(
+      /monaco\.editor\.setTheme\(monacoThemeRef\.current\);\s*\},\s*\[resolvedTheme\]\)/,
+    );
+    // no monaco.editor.create inside the theme effect
+    expect(block).not.toContain("monaco.editor.create");
+  });
+});

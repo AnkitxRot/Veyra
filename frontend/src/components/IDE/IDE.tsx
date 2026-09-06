@@ -112,6 +112,7 @@ import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import { useNotices } from "../../hooks/useNotices";
 import { useProjectRole } from "../../hooks/useProjectRole";
+import { useAppearance } from "../../hooks/useAppearance";
 import {
   useLayoutPreferences,
   type LayoutPreferences,
@@ -338,6 +339,13 @@ export default function IDE({
     setIsSidebarHidden,
     setIsBottomCollapsed,
   } = useLayoutPreferences(layoutLoaded, persistLayout);
+
+  // M69: the single resolved-appearance source. Stamps `<html data-theme>`
+  // from the typed `theme` preference and — only in "system" mode — follows
+  // the OS `prefers-color-scheme`. `resolvedTheme` is threaded to the Editor
+  // and Terminal, which update Monaco / xterm in place (never remount).
+  const { resolvedTheme } = useAppearance(preferences.theme);
+
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
   // M64: one typed transient-notice mechanism. Owns id/TTL/dedupe/cleanup for
@@ -3384,6 +3392,7 @@ export default function IDE({
                   setOpenFiles={setOpenFiles}
                   activeFile={activeFile}
                   setActiveFile={setActiveFile}
+                  resolvedTheme={resolvedTheme}
                   diagnostics={diagnostics}
                   collabClient={collabClient}
                   collaborators={collaborators}

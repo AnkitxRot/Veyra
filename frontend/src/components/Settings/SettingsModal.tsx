@@ -17,6 +17,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   cursorBlinking: 'smooth',
   renderWhitespace: 'selection',
   formatOnSave: false,
+  // M69: appearance preference — the modal renders + submits this one.
+  theme: 'system',
   // M67 layout keys — carried for type completeness only; the modal never
   // renders or submits them (see `pickEditorPrefs`).
   sidebarWidth: 250,

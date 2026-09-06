@@ -22,6 +22,9 @@ export interface UserPreferences {
   bottomHeight: number;
   sidebarHidden: boolean;
   bottomCollapsed: boolean;
+  /** M69: unified appearance. "system" follows the OS `prefers-color-scheme`;
+   *  "dark" / "light" pin the effective theme. */
+  theme: "system" | "dark" | "light";
   updatedAt?: string;
 }
 
@@ -37,6 +40,8 @@ export const EDITOR_PREFERENCE_KEYS = [
   "cursorBlinking",
   "renderWhitespace",
   "formatOnSave",
+  // M69: the appearance preference is edited in the same modal.
+  "theme",
 ] as const;
 
 export interface Project {
