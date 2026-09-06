@@ -1849,6 +1849,22 @@ export default function IDE({
     return [...m.values()];
   }, [commentRoster, collaborators, user]);
 
+  // M73: userId → presentation identity for the activity timeline / while-away
+  // actor rows. Same canonical source as comment author rows (commentMembers).
+  const actorIdentityMap = useMemo(() => {
+    const m = new Map<
+      number,
+      { displayName?: string | null; avatarVersion?: number }
+    >();
+    for (const info of commentMembers) {
+      m.set(info.userId, {
+        displayName: info.displayName,
+        avatarVersion: info.avatarVersion,
+      });
+    }
+    return m;
+  }, [commentMembers]);
+
   const commentCountsByFile = useMemo(() => countsByFile(unresolvedComments), [unresolvedComments]);
 
   const openCommentThread = useMemo(
@@ -3396,6 +3412,7 @@ export default function IDE({
               onTimelineLoadMore={handleTimelineLoadMore}
               onTimelineNavigate={handleTimelineNavigate}
               lastChangeByUser={lastChangeByUser}
+              actorIdentity={actorIdentityMap}
             />
             <CommentsPanel
               activeFile={activeFile}
@@ -3437,6 +3454,7 @@ export default function IDE({
               collaboratorsRef.current.find((c) => c.userId === uid)?.color ??
               "#89b4fa"
             }
+            actorIdentity={actorIdentityMap}
             onNavigate={handleTimelineNavigate}
             onDismiss={handleWhileAwayDismiss}
             autoDismissMs={20000}

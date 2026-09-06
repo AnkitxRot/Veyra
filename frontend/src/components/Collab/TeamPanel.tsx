@@ -10,7 +10,7 @@ import type { CollabConnectionStatus } from "../../collab/client";
 import { rosterStalenessNote } from "../../collab/connectionPresentation";
 import type { RunStatusEntry, TimelineEvent } from "../../types";
 import { pickRunForUser, formatRunText } from "./runActivity";
-import ActivityTimeline from "./ActivityTimeline";
+import ActivityTimeline, { type ActorIdentityMap } from "./ActivityTimeline";
 import UserAvatar from "../common/UserAvatar";
 
 export interface TeamPanelProps {
@@ -36,6 +36,8 @@ export interface TeamPanelProps {
   onTimelineNavigate: (ev: TimelineEvent) => void;
   /** M60: newest edit/callout per userId, for the per-collaborator "last change" line. */
   lastChangeByUser?: Map<number, TimelineEvent>;
+  /** M73: userId → presentation identity for timeline actor rows. */
+  actorIdentity?: ActorIdentityMap;
 }
 
 const ACTIVITY_LABEL: Record<string, string> = {
@@ -83,6 +85,7 @@ export default function TeamPanel({
   onTimelineLoadMore,
   onTimelineNavigate,
   lastChangeByUser,
+  actorIdentity,
 }: TeamPanelProps) {
   // 1 Hz relative-time ticker — LOCAL to this mounted panel, cleared on unmount.
   const [now, setNow] = useState(() => Date.now());
@@ -284,6 +287,7 @@ export default function TeamPanel({
         loadingMore={timelineLoadingMore}
         onLoadMore={onTimelineLoadMore}
         onNavigate={onTimelineNavigate}
+        actorIdentity={actorIdentity}
       />
     </div>
   );

@@ -684,6 +684,11 @@
   border-radius: 6px;
   color: var(--fg-primary, #cdd6f4);
 }
+/* M73: timeline actor avatar — nudge onto the text baseline. */
+.tat-avatar {
+  align-self: center;
+  flex: 0 0 auto;
+}
 .tat-navigable {
   cursor: pointer;
 }
@@ -778,6 +783,10 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex: 0 0 auto;
+}
+/* M73: while-away author avatar. */
+.while-away-avatar {
   flex: 0 0 auto;
 }
 .while-away-line {

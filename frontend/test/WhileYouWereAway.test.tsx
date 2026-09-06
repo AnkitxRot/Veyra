@@ -121,4 +121,31 @@ describe("WhileYouWereAway", () => {
     fireEvent.click(screen.getByText(/committed "Fix header"/));
     expect(nav).not.toHaveBeenCalled();
   });
+
+  it("M73: author row shows display name + avatar from the identity map", () => {
+    render(
+      <WhileYouWereAway
+        groups={groups}
+        actorIdentity={new Map([[7, { displayName: "Rahul K.", avatarVersion: 2 }]])}
+        onNavigate={() => {}}
+        onDismiss={() => {}}
+        autoDismissMs={99999}
+      />,
+    );
+    expect(screen.getByText("Rahul K.")).toBeTruthy();
+    const img = document.querySelector("img.while-away-avatar") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe("/api/auth/profile/7/avatar?v=2");
+  });
+
+  it("M73: falls back to the username with no identity map", () => {
+    render(
+      <WhileYouWereAway
+        groups={groups}
+        onNavigate={() => {}}
+        onDismiss={() => {}}
+        autoDismissMs={99999}
+      />,
+    );
+    expect(screen.getByText("rahul")).toBeTruthy();
+  });
 });
