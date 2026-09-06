@@ -88,6 +88,12 @@ export function useKeyboardShortcuts(
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // M70: while the keybinding-capture field is focused it owns every
+      // keystroke — the global dispatcher stands fully down so capturing a
+      // chord (Ctrl+S included) never also triggers its command.
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("[data-keybinding-capture]")) return;
+
       const chord = chordFromEvent(e);
       if (!chord) return;
 

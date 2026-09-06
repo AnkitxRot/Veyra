@@ -7,6 +7,18 @@ import {
 } from '../../types';
 import { getProfile, updateProfile } from '../../api';
 import { IconClose, IconSettings, IconRefresh } from '../common/Icons';
+import {
+  CONFIGURABLE_COMMANDS,
+  DEFAULT_KEYMAP,
+  chordFromEvent,
+  isValidChord,
+  chordToDisplay,
+  findConflict,
+  getCommand,
+  IS_MAC,
+  type CommandId,
+  type Keymap,
+} from '../../keymap/keymap';
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   fontSize: 13.5,
@@ -86,7 +98,12 @@ interface SettingsModalProps {
   isDemo?: boolean;
 }
 
-type SettingsTab = 'editor' | 'profile';
+type SettingsTab = 'editor' | 'profile' | 'keybindings';
+
+/** Human label for a chord in the current platform's convention. */
+function label(chord: string): string {
+  return chordToDisplay(chord, IS_MAC);
+}
 
 export default function SettingsModal({
   isOpen,
@@ -111,9 +128,19 @@ export default function SettingsModal({
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
 
+  // --- Keybindings tab (M70) — draft = the override map ----------------
+  const [keymapDraft, setKeymapDraft] = useState<Keymap>(preferences.keymap);
+  const [capturingId, setCapturingId] = useState<CommandId | null>(null);
+  const [capturedChord, setCapturedChord] = useState<string | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       setFormData(preferences);
+      setKeymapDraft(preferences.keymap);
+      setCapturingId(null);
+      setCapturedChord(null);
+      setCaptureError(null);
       setError(null);
       // Each open starts on Editor with a fresh Profile load — persisted
       // values are authoritative, so a stale draft never lingers between
@@ -199,6 +226,75 @@ export default function SettingsModal({
   const setDraftField = (field: keyof ProfileDraft, value: string) => {
     setProfileDraft((d) => ({ ...d, [field]: value }));
     setProfileSaved(false);
+  };
+
+  // --- Keybindings handlers (M70) -------------------------------------
+  const resolvedChord = (id: CommandId): string =>
+    keymapDraft[id] ?? DEFAULT_KEYMAP[id];
+
+  const startCapture = (id: CommandId) => {
+    setCapturingId(id);
+    setCapturedChord(null);
+    setCaptureError(null);
+  };
+  const cancelCapture = () => {
+    setCapturingId(null);
+    setCapturedChord(null);
+    setCaptureError(null);
+  };
+
+  const onCaptureKeyDown = (e: React.KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!capturingId) return;
+    if (e.key === 'Escape') {
+      cancelCapture();
+      return;
+    }
+    const chord = chordFromEvent(e.nativeEvent);
+    if (!chord) return; // bare modifier / unmappable — keep waiting
+    if (!isValidChord(chord)) {
+      setCapturedChord(chord);
+      setCaptureError(
+        'That combination is not usable — it needs Ctrl/⌘ and is not a browser-reserved shortcut.',
+      );
+      return;
+    }
+    const conflict = findConflict(keymapDraft, capturingId, chord);
+    setCapturedChord(chord);
+    setCaptureError(
+      conflict
+        ? `${label(chord)} is already bound to "${getCommand(conflict)?.title ?? conflict}".`
+        : null,
+    );
+  };
+
+  const applyCapture = () => {
+    if (!capturingId || !capturedChord || captureError) return;
+    const next: Keymap = { ...keymapDraft };
+    if (capturedChord === DEFAULT_KEYMAP[capturingId]) delete next[capturingId];
+    else next[capturingId] = capturedChord;
+    setKeymapDraft(next);
+    cancelCapture();
+    void onSave({ keymap: next }).catch(() => {
+      /* persistence failure is surfaced by the caller's own handling */
+    });
+  };
+
+  const resetOne = (id: CommandId) => {
+    if (!(id in keymapDraft)) return;
+    const next: Keymap = { ...keymapDraft };
+    delete next[id];
+    setKeymapDraft(next);
+    if (capturingId === id) cancelCapture();
+    void onSave({ keymap: next }).catch(() => {});
+  };
+
+  const resetAll = () => {
+    if (Object.keys(keymapDraft).length === 0) return;
+    setKeymapDraft({});
+    cancelCapture();
+    void onSave({ keymap: {} }).catch(() => {});
   };
 
   const counterStyle: React.CSSProperties = {
@@ -297,6 +393,17 @@ export default function SettingsModal({
               onClick={() => setActiveTab('profile')}
             >
               Profile
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="settings-tab-keybindings"
+              aria-selected={activeTab === 'keybindings'}
+              aria-controls="settings-panel-keybindings"
+              className={`glass-tab ${activeTab === 'keybindings' ? 'active' : ''}`}
+              onClick={() => setActiveTab('keybindings')}
+            >
+              Keybindings
             </button>
           </div>
         </div>
@@ -806,6 +913,177 @@ export default function SettingsModal({
               </>
             )}
           </form>
+        )}
+
+        {/* Keybindings tab (M70) */}
+        {activeTab === 'keybindings' && (
+          <div
+            id="settings-panel-keybindings"
+            role="tabpanel"
+            aria-labelledby="settings-tab-keybindings"
+            style={{
+              padding: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              overflowY: 'auto',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+              }}
+            >
+              <span style={helperStyle}>
+                Shortcuts for IDE commands. {IS_MAC ? '⌘' : 'Ctrl'} is required;
+                editor text-entry, copy/paste/undo and browser shortcuts are
+                left alone.
+              </span>
+              <button
+                type="button"
+                className="glass-btn glass-btn-ghost"
+                onClick={resetAll}
+                disabled={Object.keys(keymapDraft).length === 0}
+                style={{ flexShrink: 0, fontSize: '11px', padding: '4px 10px' }}
+              >
+                Reset all keybindings
+              </button>
+            </div>
+
+            <ul
+              role="list"
+              style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}
+            >
+              {CONFIGURABLE_COMMANDS.map((cmd) => {
+                const id = cmd.id;
+                const isOverridden = id in keymapDraft;
+                const current = resolvedChord(id);
+                const capturing = capturingId === id;
+                const shown = capturing && capturedChord ? capturedChord : current;
+                return (
+                  <li
+                    key={id}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border)',
+                      background: 'rgba(255, 255, 255, 0.03)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 500 }}>
+                          {cmd.title}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {cmd.description}
+                        </div>
+                      </div>
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}
+                      >
+                        <kbd
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '12px',
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border)',
+                            background: 'var(--input-bg)',
+                          }}
+                        >
+                          {label(shown)}
+                        </kbd>
+                        {!capturing && (
+                          <button
+                            type="button"
+                            className="glass-btn glass-btn-ghost"
+                            style={{ fontSize: '11px', padding: '4px 10px' }}
+                            onClick={() => startCapture(id)}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="glass-btn glass-btn-ghost"
+                          style={{ fontSize: '11px', padding: '4px 10px' }}
+                          onClick={() => resetOne(id)}
+                          disabled={!isOverridden}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    {capturing && (
+                      <div
+                        style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}
+                      >
+                        <input
+                          data-keybinding-capture=""
+                          type="text"
+                          readOnly
+                          autoFocus
+                          aria-label={`Press the new shortcut for ${cmd.title}`}
+                          value={
+                            capturedChord ? label(capturedChord) : 'Press keys…'
+                          }
+                          onKeyDown={onCaptureKeyDown}
+                          className="glass-input"
+                          style={{
+                            padding: '6px 10px',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-mono)',
+                          }}
+                        />
+                        {captureError && (
+                          <span
+                            role="alert"
+                            style={{ fontSize: '11px', color: 'var(--error)' }}
+                          >
+                            {captureError}
+                          </span>
+                        )}
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="glass-btn glass-btn-primary"
+                            style={{ fontSize: '11px', padding: '4px 12px' }}
+                            onClick={applyCapture}
+                            disabled={!capturedChord || !!captureError}
+                          >
+                            Apply
+                          </button>
+                          <button
+                            type="button"
+                            className="glass-btn glass-btn-ghost"
+                            style={{ fontSize: '11px', padding: '4px 12px' }}
+                            onClick={cancelCapture}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
       </div>
     </div>
