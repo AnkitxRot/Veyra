@@ -6,6 +6,7 @@ import { deleteProject } from "../projects/service.js";
 import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
 import { invalidateCachedSessionsForUser } from "./sessionCache.js";
 import { recordAuditLog } from "../audit.js";
+import { removeUserMediaDir } from "../profile/media.js";
 
 export interface DemoGcResult {
   cleanedUsers: number;
@@ -126,6 +127,8 @@ async function executeDemoGc(
       db.prepare("DELETE FROM runs WHERE user_id = ?").run(user.id);
       db.prepare("DELETE FROM snapshots WHERE user_id = ?").run(user.id);
       db.prepare("DELETE FROM users WHERE id = ?").run(user.id);
+      // M72: wipe the demo user's on-disk avatar directory (best-effort).
+      await removeUserMediaDir(cfg, user.id);
 
       // Record audit entry
       try {

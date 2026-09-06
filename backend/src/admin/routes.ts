@@ -20,6 +20,7 @@ import {
 import { restoreWorkspaceBackup } from "../backup/workspaceRestore.js";
 import { getBackupHealthSummary } from "../backup/health.js";
 import { getProject } from "../projects/service.js";
+import { removeUserMediaDir } from "../profile/media.js";
 import {
   getSystemCapabilitiesAsync,
   isDockerRunning,
@@ -842,6 +843,10 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
 
         // 6. Delete user record
         db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+
+        // M72: the DB cascade drops the user's profile_media rows; wipe the
+        // on-disk avatar directory too (best-effort — never blocks deletion).
+        await removeUserMediaDir(cfg, userId);
 
         // 7. Audit log (Preserved for accountability)
         recordAuditLog(db, {
