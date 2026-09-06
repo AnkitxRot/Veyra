@@ -8190,15 +8190,24 @@ type, no authorization change, no new dependency, no migration.
 | `git diff --check` | clean |
 | Revert-sensitivity | every changed boundary breaks >=1 test on revert: pronoun awareness emit + forged-value discard + no-DB-read + reconnect repopulate; `ProfileCard` reuse (.profile-card present, pronouns shown/omitted, presence tone); follow generation token bump sites + post-await recheck ordering + stale-notice anchor guard; `updateLocalIdentity` fold/clear/no-op/no-new-socket/survives-reset; roster staleness note per status; timeline/while-away actor avatar + username fallback; idle -> "Idle" not "Editing"; shared-run-output owner avatar |
 
-### Live browser - NOT_AVAILABLE this run
+### Live browser - two-session runtime NOT_AVAILABLE
 
-The Chrome session provided was unauthenticated; entering credentials / creating
-accounts is prohibited, and `POST` to the instant-demo endpoint returned **404**
-(demo disabled on this backend). The app shell loaded from the M73 source with
-**zero console errors/warnings** (only Vite HMR + the React DevTools info line)
-and `/api/auth/me` returned 200 - the only browser signal obtainable without a
-session. Every two-user matrix item (A-AH) is therefore **NOT_AVAILABLE** and
-was **not** promoted to PASS. Each is covered by a deterministic equivalent:
+Release-verification pass (Phase 1): the single connected Chrome extension
+("Browser 1") holds **no authenticated app session** (`GET :3000/api/auth/me`
+-> 401; the app renders the Auth gate). No pre-authenticated test-user sessions
+exist and none can be reused. Backend `:3000` and Vite `:5173` are both up.
+
+`POST :3000/api/auth/demo` **does** work (-> 201) - the earlier "404" reading
+was a transient Vite `/api` dev-proxy fault, not a disabled endpoint. Two demo
+sessions would give a genuine two-user runtime, but that creates ephemeral demo
+accounts; the operator **declined** that path, so it was not used and no
+application code was changed.
+
+The app shell loads from the M73 source with **zero console errors/warnings**
+(only Vite HMR + the React DevTools info line) - the only browser signal
+obtainable without a session. Every two-user matrix item (A-AP) is therefore
+**NOT_AVAILABLE** and was **not** promoted to PASS. Each is covered by a
+deterministic equivalent:
 
 - identity on every surface -> `identity-consistency` + `CollaboratorAvatarStack.profileCard` + `ActivityTimeline` / `WhileYouWereAway` / `SharedRunOutputPanel` identity tests
 - pronouns/bio render -> `ProfileCard` tests + `m73-collab-pronouns` awareness propagation
@@ -8210,7 +8219,7 @@ was **not** promoted to PASS. Each is covered by a deterministic equivalent:
 
 ### Not done / out of scope (M73)
 
-- **Two-session live Chrome** - NOT_AVAILABLE (no authenticated session, demo 404); deterministic equivalents as above. PARTIAL against the milestone's browser requirement.
+- **Two-session live Chrome** - NOT_AVAILABLE: no pre-authenticated session exists, and the demo-session path (which does work) was declined by the operator as it creates ephemeral accounts. Deterministic equivalents as above. PARTIAL against the milestone's browser requirement.
 - **bio in collaboration presence** - deliberately not propagated (privacy/noise); stays a Settings/`ProfileCard` concern.
 - **Idle-user awareness latency** - the M62/M72 decision is retained: a fully idle collaborator's presentation identity lags until their next heartbeat / reconnect / REST refetch.
 - **Monaco remote-cursor label** - still the `@handle` at the caret (M72 decision), untouched.
@@ -8219,12 +8228,15 @@ was **not** promoted to PASS. Each is covered by a deterministic equivalent:
 
 ### Verdict
 
-**M73 implementation PROVEN for every deterministic gate**; **PARTIAL** on the
-milestone's live two-session browser requirement (infrastructure NOT_AVAILABLE
-this run - unauthenticated session, demo endpoint 404 - with a deterministic
-equivalent for each matrix item). Presence states are coherent, collaborator
-identity is the M72 canonical model end to end, `ProfileCard` / `UserAvatar`
-are reused not duplicated, activity is truthful, the follow lifecycle is
-generation-token race-safe, reconnect/resync stays coherent, permissions and
-attribution keys are untouched, and listener/timer/subscription lifecycle is
-clean (the generation token is a plain counter, adds no resource).
+**M73 implementation PROVEN for every deterministic gate**; **PARTIAL overall** -
+the milestone's live two-session browser requirement is NOT exercised (no
+pre-authenticated session available; the working demo path creates ephemeral
+accounts and was declined). A deterministic equivalent covers each matrix item
+but does not substitute for two-user runtime proof. M73 is **NOT merged** and
+must not be called fully PROVEN until the two-session runtime is actually run.
+Presence states are coherent, collaborator identity is the M72 canonical model
+end to end, `ProfileCard` / `UserAvatar` are reused not duplicated, activity is
+truthful, the follow lifecycle is generation-token race-safe, reconnect/resync
+stays coherent, permissions and attribution keys are untouched, and
+listener/timer/subscription lifecycle is clean (the generation token is a plain
+counter, adds no resource).
