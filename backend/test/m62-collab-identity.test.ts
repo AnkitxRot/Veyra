@@ -164,6 +164,7 @@ describe("M62-3 — effective display identity through collaboration", () => {
       id: 1,
       name: "alice",
       displayName: "Alice Liddell",
+      avatarVersion: 0,
       role: "viewer",
     });
     expect(u.displayName).not.toBe("Admin");
