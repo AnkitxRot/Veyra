@@ -7,6 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const read = (p: string) => readFileSync(join(here, p), "utf-8");
 const ide = read("../src/components/IDE/IDE.tsx");
 const editor = read("../src/components/Editor/Editor.tsx");
+const terminal = read("../src/components/Terminal/Terminal.tsx");
 const types = read("../src/types.ts");
 const settingsModal = read("../src/components/Settings/SettingsModal.tsx");
 
@@ -25,8 +26,22 @@ describe("M69 — appearance controller wiring", () => {
     expect(ide).toContain("useAppearance(preferences.theme)");
   });
 
-  it("threads the resolved theme into the Editor", () => {
-    expect(ide).toContain("resolvedTheme={resolvedTheme}");
+  it("threads the resolved theme into the Editor and the Terminal", () => {
+    expect(ide.match(/resolvedTheme=\{resolvedTheme\}/g) ?? []).toHaveLength(2);
+  });
+
+  it("Terminal themes xterm from the prop and updates it in place", () => {
+    // create() no longer carries an inline hardcoded palette
+    expect(terminal).not.toMatch(/theme:\s*\{\s*\n\s*background:/);
+    expect(terminal).toContain(
+      "theme: TERMINAL_THEMES[resolvedThemeRef.current]",
+    );
+    // a theme change updates the live instance, keyed on the prop
+    expect(terminal).toMatch(
+      /xtermRef\.current\.options\.theme = TERMINAL_THEMES\[resolvedTheme\];\s*\}\s*\},\s*\[resolvedTheme\]\)/,
+    );
+    // initTerminal (which opens the WebSocket) is still keyed on project only
+    expect(terminal).toMatch(/\}, \[project\?\.id\]\);/);
   });
 
   it("theme is a typed preference and part of the editable modal keys", () => {

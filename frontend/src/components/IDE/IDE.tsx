@@ -3624,7 +3624,9 @@ export default function IDE({
                 {bottomTab === "resources" && (
                   <ResourcesView project={project} />
                 )}
-                {bottomTab === "terminal" && <Terminal project={project} />}
+                {bottomTab === "terminal" && (
+                  <Terminal project={project} resolvedTheme={resolvedTheme} />
+                )}
                 {bottomTab === "preview" && project && (
                   <Preview key={project.id} project={project} />
                 )}
