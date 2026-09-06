@@ -94,6 +94,15 @@ describe("M68 — file tree load state & retry", () => {
     expect(src).toContain("onRetryTree={() => loadTreeRef.current()}");
   });
 
+  it("drops the previous project's tree on a project switch (no stale files under a failed load)", () => {
+    const reset = src.slice(
+      src.indexOf("setOpenFiles([]);"),
+      src.indexOf("setOpenFiles([]);") + 500,
+    );
+    expect(reset).toContain("setTree([]);");
+    expect(reset).toContain('setTreeStatus("loading");');
+  });
+
   it("does not flash loading over an already-loaded tree on a background refresh", () => {
     const block = src.slice(
       src.indexOf("const loadTree = useCallback"),

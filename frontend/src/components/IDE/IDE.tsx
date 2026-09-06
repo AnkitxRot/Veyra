@@ -536,6 +536,12 @@ export default function IDE({
     // the source, duplicated a source file's content on disk.
     setOpenFiles([]);
     setActiveFile(null);
+    // M68: the previous project's file tree must not linger under the new
+    // project's identity — a failed load for the new project would otherwise
+    // render the old project's files. Reset to a loading state; `loadTree`
+    // (its own effect) refills it.
+    setTree([]);
+    setTreeStatus("loading");
     // M64: every notice producer is project-scoped (save feedback, save
     // failures, reconcile, route, external mutation, attention rate limit,
     // follow-left) — none should survive a project switch.
