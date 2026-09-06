@@ -33,6 +33,7 @@ describe("M69 — appearance controller wiring", () => {
   it("Terminal themes xterm from the prop and updates it in place", () => {
     // create() no longer carries an inline hardcoded palette
     expect(terminal).not.toMatch(/theme:\s*\{\s*\n\s*background:/);
+    expect(terminal).toContain("from './terminalThemes'");
     expect(terminal).toContain(
       "theme: TERMINAL_THEMES[resolvedThemeRef.current]",
     );
@@ -48,6 +49,16 @@ describe("M69 — appearance controller wiring", () => {
     expect(types).toContain('theme: "system" | "dark" | "light";');
     expect(types).toMatch(/EDITOR_PREFERENCE_KEYS = \[[\s\S]*"theme",[\s\S]*\]/);
     expect(settingsModal).toContain("theme: 'system'");
+  });
+
+  it("the settings modal renders a Theme select bound to formData.theme", () => {
+    expect(settingsModal).toContain('id="settings-theme"');
+    expect(settingsModal).toContain("value={formData.theme}");
+    for (const v of ['value="system"', 'value="dark"', 'value="light"']) {
+      expect(settingsModal).toContain(v);
+    }
+    // it saves through the existing editor-preference path
+    expect(settingsModal).toContain("onSave(pickEditorPrefs(formData))");
   });
 
   it("Editor themes Monaco from the prop and updates it in place", () => {

@@ -53,9 +53,8 @@ vi.mock("../src/api", () => ({
   getWebSocketUrl: (p: string, id: string) => `ws://test${p}?projectId=${id}`,
 }));
 
-import Terminal, {
-  TERMINAL_THEMES,
-} from "../src/components/Terminal/Terminal";
+import { TERMINAL_THEMES } from "../src/components/Terminal/terminalThemes";
+import Terminal from "../src/components/Terminal/Terminal";
 
 beforeEach(() => {
   FakeXTerm.instances = [];

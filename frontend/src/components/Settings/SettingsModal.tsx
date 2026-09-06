@@ -328,6 +328,29 @@ export default function SettingsModal({
               </div>
             )}
 
+            {/* Theme / Appearance (M69) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label htmlFor="settings-theme" style={labelStyle}>
+                Theme
+              </label>
+              <select
+                id="settings-theme"
+                className="glass-input"
+                style={{ padding: '6px 10px', fontSize: '13px' }}
+                value={formData.theme}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    theme: e.target.value as UserPreferences['theme'],
+                  })
+                }
+              >
+                <option value="system">System (match your device)</option>
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </div>
+
             {/* Font Size */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={labelStyle}>
