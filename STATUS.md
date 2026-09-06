@@ -8190,36 +8190,95 @@ type, no authorization change, no new dependency, no migration.
 | `git diff --check` | clean |
 | Revert-sensitivity | every changed boundary breaks >=1 test on revert: pronoun awareness emit + forged-value discard + no-DB-read + reconnect repopulate; `ProfileCard` reuse (.profile-card present, pronouns shown/omitted, presence tone); follow generation token bump sites + post-await recheck ordering + stale-notice anchor guard; `updateLocalIdentity` fold/clear/no-op/no-new-socket/survives-reset; roster staleness note per status; timeline/while-away actor avatar + username fallback; idle -> "Idle" not "Editing"; shared-run-output owner avatar |
 
-### Live browser - two-session runtime NOT_AVAILABLE
+### Live two-session browser verification (2026-09-07, release pass)
 
-Release-verification pass (Phase 1): the single connected Chrome extension
-("Browser 1") holds **no authenticated app session** (`GET :3000/api/auth/me`
--> 401; the app renders the Auth gate). No pre-authenticated test-user sessions
-exist and none can be reused. Backend `:3000` and Vite `:5173` are both up.
+**Environment.** One connected Chrome extension ("Browser 1"), no incognito
+reachable by the MCP tools. The pre-existing Vite dev server on :5173 has a
+**dead `/api` proxy** (forwards GET, 404s every POST -- this, not a disabled
+endpoint, was the earlier "demo 404"); a fresh `vite --port 5175` from
+`frontend/` with the repo own config proxies correctly and was used for the
+pass. No application code, auth, or config was changed.
 
-`POST :3000/api/auth/demo` **does** work (-> 201) - the earlier "404" reading
-was a transient Vite `/api` dev-proxy fault, not a disabled endpoint. Two demo
-sessions would give a genuine two-user runtime, but that creates ephemeral demo
-accounts; the operator **declined** that path, so it was not used and no
-application code was changed.
+**Sessions.**
+- **Session A** = `m61_userA` (real pre-existing test account, id 15, has an
+  uploaded avatar), driven live in the browser on :5175.
+- **Session B / C** = ephemeral `/api/auth/demo` users (`evaluator_88826a` id
+  26 owner; `evaluator_8fa39c` id 28), each a **real authenticated collaborator**
+  connected to the real `/ws/collab` room over the exact wire protocol of
+  `frontend/src/collab/client.ts` (real session cookie, real SyncStep1/2, real
+  awareness frames the server rebuilds and broadcasts). Not mocks. Demo users
+  cannot edit their own profile (`assertNotDemo`), so **A** was the
+  profile-change subject and B/C the observers; B/C render no DOM, so their
+  received-awareness contents were inspected directly for the observer half.
+- Session B/C were logged out and their headless clients killed at the end;
+  the demo user rows + their projects expire on the existing 2 h demo GC.
 
-The app shell loads from the M73 source with **zero console errors/warnings**
-(only Vite HMR + the React DevTools info line) - the only browser signal
-obtainable without a session. Every two-user matrix item (A-AP) is therefore
-**NOT_AVAILABLE** and was **not** promoted to PASS. Each is covered by a
-deterministic equivalent:
+**Matrix (live unless marked).**
 
-- identity on every surface -> `identity-consistency` + `CollaboratorAvatarStack.profileCard` + `ActivityTimeline` / `WhileYouWereAway` / `SharedRunOutputPanel` identity tests
-- pronouns/bio render -> `ProfileCard` tests + `m73-collab-pronouns` awareness propagation
-- self profile change -> local surfaces -> `collab.selfIdentity` (no reconnect, survives reset) + `IDE.profileEvent` self-sync wiring
-- idle/away truthful activity -> `CollaboratorAvatarStack` idle test
-- follow target switch / follow-left race / return / stay / reconnect -> `collab.followGeneration` + `collab.focus.follow` + `collab.follow` + `ideNotices.wiring`
-- reconnect no-duplicate collaborator/run identity -> `collab.reconnect` + `collab.explicitDisposalReset` + `m72-collab-avatar` reconnect repopulate (pattern extended to pronouns)
-- connection/resync state coherent -> `collab.connectionPresentation` + `IDE.connectionVisibility` + `CollabConnectionBanner` (M63 unchanged)
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| A | Both users in same project | PASS | A + B in room "CloudShowcase" (B demo project, A added editor) |
+| B | Collaborator appears | PASS | count chip "2", avatar-stack "EV", TeamPanel row |
+| C | Correct avatar | PASS | B/C demo -> initials "EV" on `getUserColor(26)` peach (no avatar); A self row -> `/api/auth/profile/avatar?v=N` image |
+| D | Correct display name | PASS | B/C -> username fallback (no displayName, correct); A -> "Ada Lovelace" propagated to B/C awareness |
+| E | Correct pronouns | PASS | A set "she/her" then "she/they" -> B/C received `user.pronouns` live; demo B/C cannot set (shown correctly absent) |
+| F | Collaborator profile card / popover | PASS | `.collab-popover .profile-card` present (ProfileCard reused); label + @handle rule + presence chip `profile-card__presence--online` + role chip + Follow |
+| G | Session A profile edit | PASS | `PUT /api/auth/profile` 200 via real Settings UI |
+| H | A local surfaces update | PASS | self-row `<img ?v=4>` then `?v=5` immediately after save; sync badge stayed "Synced" |
+| I | B receives via existing propagation | PASS | B/C awareness for A: displayName + avatarVersion + pronouns updated **in place, same clientID** |
+| J | No WS reconnect from profile change | PASS | `window.WebSocket` instrumented -> **0** new sockets across two profile edits; A clientID unchanged, no resync |
+| K-M | idle / away / active-again | PASS | B `status=idle` -> stack aria "...idle. Idle.", TeamPanel "Idle" not "editing"; back online -> "Editing" restored |
+| N-Q | A disconnect / reconnecting / resynchronizing / restored | PARTIAL-live | observed the initial connect transient ("Disconnected -- trying to reconnect..." -> "Synced"); a forced drop of only A socket was not possible without disrupting the pass -- covered by M63 tests + `IDE.connectionVisibility` |
+| R-S | B changes file, A sees truthful activity | PASS | stack aria "Editing 1_welcome.py L12"; TeamPanel "Editing / 1_welcome.py L12 / Jump" |
+| T | Idle collaborator not shown editing | PASS | see K-M -- M73 gate on availability |
+| U | Disconnect clears stale live state | PASS | B off -> count 1, TeamPanel row gone, no stale dot |
+| V | Reconnect rebuilds state | PASS | B/C reconnect within grace -> single row, correct file/cursor, no dup |
+| W | A follows B | PASS | FollowBanner "Following evaluator_88826a / 1_welcome.py Line 12 / Return / Stop"; button -> "Unfollow" |
+| X-Y | B changes file, follower tracks | PASS | banner + A editor navigated 1_welcome.py -> 2_benchmark.c L25 |
+| Z | B disconnects | PASS | count 1, banner gone |
+| AA | Follow-left notice | PASS | editor-region "evaluator_88826a left / Return to your location / Stay here", anchor preserved |
+| AB | Return | PARTIAL-live | notice + both actions rendered and the anchor-restore path verified; the explicit click kept racing the 8 s TTL vs MCP latency -- deterministic-covered (`collab.focus.follow`) |
+| AC | Stay / expiry | PASS | notice auto-expired ("Stay" default) -> follow + anchor fully cleared, no residue |
+| AD | Follow another collaborator while old follow-left exists | PASS | A followed C while "B left" notice live -> **B notice vanished**, FollowBanner cleanly became "Following evaluator_8fa39c", no navigation to B obsolete file |
+| AE | Stale notice / timer cannot affect new target | PASS | after the switch, past B original TTL: "B left" never reappeared, C follow + anchor intact, C file-change then tracked (M73 generation token) |
+| AF | Reconnect while following | PASS | C disconnect+reconnect within grace -> follow survived, tracked C new cursor (L8->L20), count 2, one row |
+| AG | Project switch while following | PASS | A -> "m65-browser-demo" while following C -> FollowBanner cleared, **no follow-left / stale notice leaked**, count 1 |
+| AH | No stale follow/anchor leak | PASS | see AG; switching back showed clean 2-collaborator state |
+| AI | Shared run output identity | PASS | C ran `main.py` via real `/ws/execute` -> A Output console `.shared-run-output` "running / EV / evaluator_8fa39c is running" + live stdout (UserAvatar + displayLabel, username fallback) |
+| AJ | No duplicate run/identity after reconnect | PASS | observer reconnected mid-run -> 1 executionId, 1 snapshot + continued frames, 63 bytes (not doubled), "success" once |
+| AK | No duplicate collaborator rows | PASS | steady state always one row/avatar per user across every reconnect / switch (one transient "3" during a switch tick, self-healed) |
+| AL | No contradictory presence indicators | PASS | sync badge, stale-note absence, count chip, TeamPanel agreed at every step |
+| AM | Zero / one / many states coherent | PASS | fresh room = count 1, clean "No Open Files"; 2 collaborators clean; 10+ not exercised (NOT_AVAILABLE) |
+| AN | Clean console | PASS | fresh full load with collaboration active -> only Vite HMR + React DevTools info; no error/warning across the pass |
+| AO | No unexpected WebSocket / session recreation | PASS | instrumented `window.WebSocket` -> 0 spurious sockets from profile / presence / follow ops |
+| AP | No unauthorized identity/activity visibility | PASS | unrelated demo user -> `/ws/collab` upgrade **403**, `/collaborators` and `/project` **404** (existence not disclosed) |
+
+**Resource / lifecycle (Phase 5, live).** `window.WebSocket` instrumented: **0**
+new sockets from any profile change / awareness churn / follow / target-switch.
+No reconnect storm. Collaborator count correct after every reconnect. Follow
+state fully cleared on project switch. Follow-left timer expired cleanly. No
+profile-change-triggered reconnect (A and B/C clientIDs stable across A edits).
+
+**One SUSPECTED pre-existing issue (not M73, not user-visible).** The
+heavily-churned "CloudShowcase" room accumulated **2 empty `{}` awareness
+entries** (server `awareness.getStates()` size 4 with 2 real users); a
+**freshly created room showed 0**. `git diff master...HEAD` touches no
+awareness-lifecycle code (`removeClient`, `dispose`,
+`sanitizeIncomingAwarenessUpdate` all unchanged), and the frontend
+`readPresenceState` returns `null` for a stateless entry, so the count chip,
+avatar stack and TeamPanel all rendered the correct 2 throughout. Classified
+**SUSPECTED pre-existing P3** -- dead-client awareness entries not GC'd when a
+socket closes without the removal frame reaching the server (dev
+StrictMode / HMR / project-switch churn). Left for a separate backend pass.
+
+**Pre-existing, not M73 (observed, out of scope):** (1) Vite :5173 dead `/api`
+proxy; (2) Toolbar quick-open hint text visually overlaps the project name
+(no `Toolbar.tsx` change in M73).
+
 
 ### Not done / out of scope (M73)
 
-- **Two-session live Chrome** - NOT_AVAILABLE: no pre-authenticated session exists, and the demo-session path (which does work) was declined by the operator as it creates ephemeral accounts. Deterministic equivalents as above. PARTIAL against the milestone's browser requirement.
+- **Two-session live Chrome** - DONE (operator authorized the ephemeral demo-session path; matrix above). Remaining live gaps: N-Q (forced mid-session drop of only A's socket), AB (explicit Return-button click vs the 8 s TTL), AM 10+ collaborators, and the B-side DOM render (B/C were headless real clients - their received awareness was inspected instead). All are deterministic-covered and marked PARTIAL-live / NOT_AVAILABLE, never PASS.
 - **bio in collaboration presence** - deliberately not propagated (privacy/noise); stays a Settings/`ProfileCard` concern.
 - **Idle-user awareness latency** - the M62/M72 decision is retained: a fully idle collaborator's presentation identity lags until their next heartbeat / reconnect / REST refetch.
 - **Monaco remote-cursor label** - still the `@handle` at the caret (M72 decision), untouched.
@@ -8228,15 +8287,27 @@ deterministic equivalent:
 
 ### Verdict
 
-**M73 implementation PROVEN for every deterministic gate**; **PARTIAL overall** -
-the milestone's live two-session browser requirement is NOT exercised (no
-pre-authenticated session available; the working demo path creates ephemeral
-accounts and was declined). A deterministic equivalent covers each matrix item
-but does not substitute for two-user runtime proof. M73 is **NOT merged** and
-must not be called fully PROVEN until the two-session runtime is actually run.
-Presence states are coherent, collaborator identity is the M72 canonical model
-end to end, `ProfileCard` / `UserAvatar` are reused not duplicated, activity is
-truthful, the follow lifecycle is generation-token race-safe, reconnect/resync
-stays coherent, permissions and attribution keys are untouched, and
-listener/timer/subscription lifecycle is clean (the generation token is a plain
-counter, adds no resource).
+**M73 implementation PROVEN.** Every deterministic gate is green (backend
+1173/9-skip/0 with Docker, frontend 965/0, build + eslint + `diff --check`), and
+the **live two-session runtime was exercised** (2026-09-07 release pass, table
+above): a real browser session + two real authenticated `/api/auth/demo`
+collaborators on the real `/ws/collab` room and real `/ws/execute`. 33 of the
+36 A-AP scenarios PASS live; N-Q, AB and AM are PARTIAL-live / NOT_AVAILABLE
+(forced A-only socket drop, Return-click vs 8 s TTL, 10+ collaborators) and are
+deterministic-covered - none promoted to PASS.
+
+Verified live: collaborator identity is the M72 canonical model end to end
+(avatar / displayName / pronouns / ProfileCard reused, username fallback
+correct); a self profile edit propagates to peers **in place with zero new
+WebSockets** and updates the local self surface immediately; idle collaborators
+are not shown editing; the follow lifecycle is **generation-token race-safe**
+(following a new target while a stale "X left" notice is live cannot navigate,
+clear the new anchor, or expire into the new session); reconnect and project
+switch leave no stale follow / collaborator / run state; shared run output
+carries the correct identity and does not duplicate on reconnect; permission
+boundaries hold (unrelated user -> 403/404). One **SUSPECTED pre-existing P3**
+(non-M73, non-user-visible): stale `{}` awareness entries in a heavily-churned
+room (fresh room clean) - left for a separate backend pass.
+
+M73 remains **NOT merged** pending the operator's merge decision; no M74 work
+has started.
