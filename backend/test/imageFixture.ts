@@ -60,6 +60,39 @@ export function makePng(
   ]);
 }
 
+/**
+ * A structurally valid PNG whose pixels are pseudo-random, so the deflate
+ * stream does NOT compress away — used to exercise byte-size limits.
+ */
+export function makeNoisyPng(width: number, height: number): Buffer {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  let seed = 0x9e3779b9;
+  const rows: Buffer[] = [];
+  for (let y = 0; y < height; y++) {
+    const row = Buffer.alloc(1 + width * 3);
+    for (let i = 1; i < row.length; i++) {
+      // xorshift32 — full-period, high-entropy low byte (an LCG's low bits
+      // have a short period and would deflate away).
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      seed >>>= 0;
+      row[i] = seed & 0xff;
+    }
+    rows.push(row);
+  }
+  return Buffer.concat([
+    PNG_SIG,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(Buffer.concat(rows))),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 /** SOI + SOF0 + EOI — enough for the header reader to extract dimensions. */
 export function makeJpeg(width: number, height: number): Buffer {
   const sof = Buffer.alloc(19);
