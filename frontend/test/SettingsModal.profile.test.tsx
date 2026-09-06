@@ -26,6 +26,7 @@ function profile(overrides: Partial<UserProfile> = {}): UserProfile {
     pronouns: null,
     bio: null,
     updatedAt: null,
+    avatarVersion: 0,
     ...overrides,
   };
 }

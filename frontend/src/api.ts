@@ -229,3 +229,58 @@ export async function updateProfile(patch: {
     body: JSON.stringify(patch),
   });
 }
+
+/** M72: cache-busted avatar URL. `self` targets the caller's own route. */
+export function avatarUrl(
+  userId: number,
+  avatarVersion: number,
+  self = false,
+): string {
+  const path = self
+    ? "/api/auth/profile/avatar"
+    : `/api/auth/profile/${userId}/avatar`;
+  return `${path}?v=${avatarVersion}`;
+}
+
+export interface AvatarUploadResult {
+  avatarVersion: number;
+  mime: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * M72: upload a new avatar. The browser sets the multipart boundary; the
+ * server re-validates the bytes and ignores the declared type. A 400 (bad
+ * image / too large) or 429 (rate limited) arrives as a thrown `Error` whose
+ * `.message` is the server's own text.
+ */
+export async function uploadAvatar(file: File): Promise<AvatarUploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/auth/profile/avatar", {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  const data = (await res.json().catch(() => ({}))) as
+    | AvatarUploadResult
+    | ApiErrorBody;
+  if (!res.ok) {
+    const err = new Error(
+      (data as ApiErrorBody)?.error?.message ??
+        `avatar upload failed (${res.status})`,
+    );
+    (err as any).code = (data as ApiErrorBody)?.error?.code;
+    (err as any).status = res.status;
+    throw err;
+  }
+  return data as AvatarUploadResult;
+}
+
+/** M72: remove the current avatar. Idempotent — a no-op when none is set. */
+export async function removeAvatar(): Promise<{ avatarVersion: number }> {
+  return api<{ ok: true; avatarVersion: number }>("/api/auth/profile/avatar", {
+    method: "DELETE",
+  });
+}

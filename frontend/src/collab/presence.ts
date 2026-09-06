@@ -53,6 +53,12 @@ export interface CollaboratorPresence {
    * case surfaces fall back to `name`. Presentation only.
    */
   displayName?: string;
+  /**
+   * M72: server-authored avatar cache-buster. `0` / absent → the initials
+   * fallback. A client-sent value is discarded server-side. Presentation
+   * only — never a key.
+   */
+  avatarVersion?: number;
   role: "owner" | "editor" | "viewer";
   color: string;
   /** Availability — how reachable the collaborator is. Independent of `activity`. */
@@ -212,6 +218,14 @@ export function readPresenceState(
       typeof state.user.displayName === "string"
         ? state.user.displayName
         : undefined,
+    // M72: server-authored avatar cache-buster. Only a finite positive
+    // integer counts; anything else (absent, forged, NaN) → 0 = initials.
+    avatarVersion:
+      typeof state.user.avatarVersion === "number" &&
+      Number.isFinite(state.user.avatarVersion) &&
+      state.user.avatarVersion > 0
+        ? Math.floor(state.user.avatarVersion)
+        : 0,
     role:
       state.user.role === "owner" || state.user.role === "viewer"
         ? state.user.role

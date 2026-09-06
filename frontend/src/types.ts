@@ -570,6 +570,9 @@ export interface UserProfile {
   pronouns: string | null;
   bio: string | null;
   updatedAt: string | null;
+  /** M72: 0 when no avatar is set, else a monotonic cache-buster. Never a
+   *  media id or path. */
+  avatarVersion: number;
 }
 
 /**
@@ -593,6 +596,9 @@ export interface CollaboratorInfo {
   userId: number;
   username: string;
   displayName: string;
+  /** M72: avatar cache-buster (0 = none). Optional — an older server that
+   *  predates M72 omits it and every surface falls back to initials. */
+  avatarVersion?: number;
   role: "owner" | "editor" | "viewer";
   createdAt: string;
 }
