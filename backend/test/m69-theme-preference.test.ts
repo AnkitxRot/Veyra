@@ -183,7 +183,7 @@ describe("M69 — theme preference", () => {
       raw.close();
 
       const migrated = openDb(dbPath);
-      expect(getSchemaVersion(migrated)).toBe(15);
+      expect(getSchemaVersion(migrated)).toBe(16);
       const cols = (
         migrated.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
           name: string;
@@ -197,14 +197,14 @@ describe("M69 — theme preference", () => {
       migrated.close();
 
       const reopened = openDb(dbPath);
-      expect(getSchemaVersion(reopened)).toBe(15);
+      expect(getSchemaVersion(reopened)).toBe(16);
       const versions = (
         reopened
           .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
           .all() as Array<{ version: number }>
       ).map((r) => r.version);
       expect(versions).toEqual([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
       ]);
       reopened.close();
     } finally {

@@ -313,6 +313,7 @@ export function openDb(dbPath: string): Db {
       sidebar_hidden     INTEGER NOT NULL DEFAULT 0,
       bottom_collapsed   INTEGER NOT NULL DEFAULT 0,
       theme              TEXT NOT NULL DEFAULT 'system',
+      keymap             TEXT NOT NULL DEFAULT '{}',
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -757,6 +758,23 @@ const MIGRATIONS: Migration[] = [
       if (!cols.includes("theme")) {
         db.exec(
           "ALTER TABLE user_preferences ADD COLUMN theme TEXT NOT NULL DEFAULT 'system'",
+        );
+      }
+    },
+  },
+  {
+    version: 16,
+    description:
+      "M70: add user_preferences.keymap — the configurable-keybinding override map (command ID -> canonical chord), storing only the commands the user has remapped. Existing rows default to '{}' (all commands at their built-in default), so no user's shortcuts change.",
+    up(db: Db) {
+      const cols = (
+        db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name);
+      if (!cols.includes("keymap")) {
+        db.exec(
+          "ALTER TABLE user_preferences ADD COLUMN keymap TEXT NOT NULL DEFAULT '{}'",
         );
       }
     },
