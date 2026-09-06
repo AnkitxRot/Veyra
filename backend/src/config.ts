@@ -100,6 +100,15 @@ export interface AppConfig {
    *  See docs/superpowers/specs/2026-08-31-m61-contextual-comments-customization-design.md §4.4. */
   commentWriteMax: number;
   commentWriteWindowMs: number;
+  /** M72: avatar upload limits. PNG/JPEG/WebP, magic-byte validated, stored
+   *  under `<dataDir>/profile-media/<userId>/`. `*MaxBytes` bounds the raw
+   *  upload, `*MaxDim` / `*MinDim` bound the decoded pixel dimensions, and
+   *  the two `Upload*` values are the per-user fixed-window rate limit. */
+  profileMediaAvatarMaxBytes: number;
+  profileMediaAvatarMaxDim: number;
+  profileMediaAvatarMinDim: number;
+  profileMediaUploadMax: number;
+  profileMediaUploadWindowMs: number;
   /** M47: operator-supplied master key for project-secret encryption.
    *  Raw value exactly as configured (base64- or hex-encoded 32 bytes); the
    *  secrets crypto module validates/normalizes it. `undefined` when unset —
@@ -335,6 +344,30 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     commentWriteWindowMs:
       overrides.commentWriteWindowMs ??
       boundedIntEnv("COMMENT_WRITE_WINDOW_MS", 60_000, {
+        min: 1_000,
+        max: 3_600_000,
+      }),
+    profileMediaAvatarMaxBytes:
+      overrides.profileMediaAvatarMaxBytes ??
+      boundedIntEnv("PROFILE_MEDIA_AVATAR_MAX_BYTES", 512 * 1024, {
+        min: 1_024,
+        max: 5 * 1024 * 1024,
+      }),
+    profileMediaAvatarMaxDim:
+      overrides.profileMediaAvatarMaxDim ??
+      boundedIntEnv("PROFILE_MEDIA_AVATAR_MAX_DIM", 1_024, {
+        min: 32,
+        max: 4_096,
+      }),
+    profileMediaAvatarMinDim:
+      overrides.profileMediaAvatarMinDim ??
+      boundedIntEnv("PROFILE_MEDIA_AVATAR_MIN_DIM", 32, { min: 1, max: 256 }),
+    profileMediaUploadMax:
+      overrides.profileMediaUploadMax ??
+      boundedIntEnv("PROFILE_MEDIA_UPLOAD_MAX", 5, { min: 1, max: 1_000 }),
+    profileMediaUploadWindowMs:
+      overrides.profileMediaUploadWindowMs ??
+      boundedIntEnv("PROFILE_MEDIA_UPLOAD_WINDOW_MS", 60_000, {
         min: 1_000,
         max: 3_600_000,
       }),

@@ -3,10 +3,11 @@ import type { ProfileField, ProfilePatch } from "./validate.js";
 
 /**
  * M62-2 — all `user_profiles` SQL for the self-service identity API lives
- * here. Only `display_name`, `pronouns` and `bio` are read or written;
- * every other column on the row (avatar, banners, accent, effect,
- * visibility, `show_*`, `location`) is never selected and never touched, so
- * dormant profile state cannot leak through this endpoint.
+ * here. `display_name`, `pronouns` and `bio` are the writable text fields;
+ * `avatar_media_id` is read only to derive the `avatarVersion` cache-buster
+ * (M72). Every other column (banners, accent, effect, visibility, `show_*`,
+ * `location`) is never selected and never touched, so dormant profile state
+ * cannot leak through this endpoint.
  *
  * `version` is DB-controlled: `+1` on every successful UPSERT, never
  * request-supplied. `updated_at` is an ISO-8601 millisecond timestamp set by
@@ -18,6 +19,10 @@ export interface ProfileResponse {
   pronouns: string | null;
   bio: string | null;
   updatedAt: string | null;
+  /** M72: 0 when no avatar is set; otherwise `user_profiles.version` at the
+   *  time of the read, used purely as a client-side URL cache-buster. Never
+   *  a media id or a filesystem path. */
+  avatarVersion: number;
 }
 
 interface ProfileRow {
@@ -25,6 +30,8 @@ interface ProfileRow {
   pronouns: string | null;
   bio: string | null;
   updated_at: string | null;
+  avatar_media_id: string | null;
+  version: number;
 }
 
 const NULL_PROFILE: ProfileResponse = {
@@ -32,6 +39,7 @@ const NULL_PROFILE: ProfileResponse = {
   pronouns: null,
   bio: null,
   updatedAt: null,
+  avatarVersion: 0,
 };
 
 /** The one canonical row -> response mapping. Missing row => all-null. */
@@ -42,6 +50,7 @@ function toResponse(row: ProfileRow | undefined): ProfileResponse {
     pronouns: row.pronouns ?? null,
     bio: row.bio ?? null,
     updatedAt: row.updated_at ?? null,
+    avatarVersion: row.avatar_media_id ? row.version : 0,
   };
 }
 
@@ -52,10 +61,28 @@ const NOW_MS = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 export function getProfile(db: Db, userId: number): ProfileResponse {
   const row = db
     .prepare(
-      "SELECT display_name, pronouns, bio, updated_at FROM user_profiles WHERE user_id = ?",
+      `SELECT display_name, pronouns, bio, updated_at, avatar_media_id, version
+       FROM user_profiles WHERE user_id = ?`,
     )
     .get(userId) as ProfileRow | undefined;
   return toResponse(row);
+}
+
+/**
+ * M72: the avatar cache-buster integer for `userId` (0 = no avatar). Used by
+ * the collaboration room's per-room identity cache — never the awareness
+ * hot path, and never returns a media id or path.
+ */
+export function getAvatarVersion(db: Db, userId: number): number {
+  const row = db
+    .prepare(
+      "SELECT avatar_media_id, version FROM user_profiles WHERE user_id = ?",
+    )
+    .get(userId) as
+    | { avatar_media_id: string | null; version: number }
+    | undefined;
+  if (!row || !row.avatar_media_id) return 0;
+  return row.version;
 }
 
 /**

@@ -68,6 +68,7 @@ describe("M62-2 — self-service profile identity API", () => {
       pronouns: null,
       bio: null,
       updatedAt: null,
+      avatarVersion: 0,
     });
   });
 
@@ -280,17 +281,17 @@ describe("M62-2 — self-service profile identity API", () => {
     expect(rows[0].details).not.toContain("private bio text");
   });
 
-  it("17. returned profile contains only the four intended properties", async () => {
+  it("17. returned profile contains only the intended properties", async () => {
     const r = await api.request("PUT", "/api/auth/profile", {
       token,
       body: { displayName: "Name" },
     });
     expect(Object.keys(r.data.profile).sort()).toEqual(
-      ["bio", "displayName", "pronouns", "updatedAt"].sort(),
+      ["avatarVersion", "bio", "displayName", "pronouns", "updatedAt"].sort(),
     );
     const g = await api.request("GET", "/api/auth/profile", { token });
     expect(Object.keys(g.data.profile).sort()).toEqual(
-      ["bio", "displayName", "pronouns", "updatedAt"].sort(),
+      ["avatarVersion", "bio", "displayName", "pronouns", "updatedAt"].sort(),
     );
   });
 
