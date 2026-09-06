@@ -8,6 +8,7 @@ import { resolveConfig } from "../src/config.js";
 import { collaborationManager } from "../src/collab/manager.js";
 import * as profileStore from "../src/profile/store.js";
 import { storeAvatar } from "../src/profile/media.js";
+import { listProjectCollaborators } from "../src/projects/service.js";
 import { makePng } from "./imageFixture.js";
 
 const MESSAGE_AWARENESS = 1;
@@ -147,6 +148,19 @@ describe("M72 — avatar version through collaboration awareness", () => {
     }
     expect(spy).not.toHaveBeenCalled();
     expect(storedUser("p1", 10).avatarVersion).toBe(1);
+  });
+
+  it("7. the REST roster reports each collaborator's avatarVersion", async () => {
+    db.prepare(
+      "INSERT INTO projects (id, owner_id, name) VALUES ('pr', 1, 'pr')",
+    ).run();
+    db.prepare(
+      "INSERT INTO project_collaborators (project_id, user_id, role) VALUES ('pr', 2, 'editor')",
+    ).run();
+    await storeAvatar(db, cfg, 2, makePng(64, 64));
+    const roster = listProjectCollaborators(db, "pr");
+    const bob = roster.find((c) => c.username === "bob")!;
+    expect(bob.avatarVersion).toBe(1);
   });
 
   it("6. the cache repopulates from the current profile on reconnect", async () => {
