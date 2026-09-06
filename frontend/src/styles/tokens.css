@@ -112,6 +112,16 @@
   --scrollbar-thumb: rgba(255, 255, 255, 0.1);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
 
+  /* Form + recessed-panel surfaces (tokenised for M69 — these were hardcoded
+     dark rgba() in glass.css and a handful of panels, so inputs / the
+     Problems + Resources panels / the capability HUD stayed dark in light
+     mode). Dark values below are the previous literals verbatim. */
+  --input-bg: rgba(15, 18, 26, 0.6);
+  --input-bg-hover: rgba(15, 18, 26, 0.8);
+  --input-bg-focus: rgba(21, 26, 38, 0.9);
+  --surface-recessed: rgba(15, 18, 26, 0.7);
+  --modal-backdrop: rgba(9, 11, 16, 0.75);
+
   color-scheme: dark;
 }
 
@@ -188,6 +198,13 @@
   /* Scrollbars */
   --scrollbar-thumb: rgba(76, 79, 105, 0.22);
   --scrollbar-thumb-hover: rgba(76, 79, 105, 0.36);
+
+  /* Form + recessed-panel surfaces */
+  --input-bg: rgba(255, 255, 255, 0.75);
+  --input-bg-hover: #ffffff;
+  --input-bg-focus: #ffffff;
+  --surface-recessed: rgba(230, 233, 239, 0.85);
+  --modal-backdrop: rgba(30, 33, 44, 0.42);
 
   color-scheme: light;
 }

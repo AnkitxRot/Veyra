@@ -86,4 +86,30 @@ describe("M69 — light theme token coverage", () => {
     const reduced = tokens.slice(tokens.indexOf("prefers-reduced-transparency"));
     expect(reduced).toContain(':root[data-theme="light"]');
   });
+
+  it("tokenises the form + recessed-panel surfaces that were hardcoded dark", () => {
+    for (const v of [
+      "--input-bg",
+      "--input-bg-hover",
+      "--input-bg-focus",
+      "--surface-recessed",
+      "--modal-backdrop",
+    ]) {
+      expect(blockBody(tokens, ":root")).toContain(`${v}:`);
+      expect(lightVars.has(v)).toBe(true);
+    }
+  });
+
+  it("no core surface still uses a raw dark rgba() background", () => {
+    const files = [
+      "glass.css",
+      "output.css",
+      "toolbar.css",
+      "admin.css",
+    ].map((f) => readFileSync(join(here, "../src/styles/" + f), "utf-8"));
+    for (const css of files) {
+      expect(css).not.toMatch(/background[^:]*:\s*rgba\(1[05], ?1[128], ?2?6/);
+      expect(css).not.toMatch(/background[^:]*:\s*rgba\(9, ?11, ?16/);
+    }
+  });
 });

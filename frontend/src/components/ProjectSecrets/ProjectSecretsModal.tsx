@@ -201,7 +201,7 @@ export default function ProjectSecretsModal({
       style={{
         position: "fixed",
         inset: 0,
-        backgroundColor: "rgba(10, 12, 18, 0.75)",
+        backgroundColor: "var(--surface-recessed)",
         backdropFilter: "blur(12px)",
         zIndex: 9999,
         display: "flex",

@@ -66,7 +66,7 @@ export default function ProblemsPanel({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        background: "rgba(10, 12, 18, 0.7)",
+        background: "var(--surface-recessed)",
         overflow: "hidden",
       }}
     >
