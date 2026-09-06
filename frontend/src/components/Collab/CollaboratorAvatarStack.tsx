@@ -10,7 +10,24 @@ import { buildFocusContext } from "../../collab/focus";
 import { displayLabel, secondaryHandle } from "../../collab/presence";
 import { IconUsers, IconSparkles } from "../common/Icons";
 import UserAvatar from "../common/UserAvatar";
+import ProfileCard, {
+  type ProfilePresenceTone,
+} from "../common/ProfileCard";
 import { pickRunForUser, formatRunText } from "./runActivity";
+
+/** M73: map the availability axis onto a ProfileCard presence chip. */
+const PRESENCE_TONE: Record<AvailabilityStatus, ProfilePresenceTone> = {
+  online: "online",
+  idle: "idle",
+  away: "away",
+  dnd: "dnd",
+};
+const PRESENCE_LABEL: Record<AvailabilityStatus, string> = {
+  online: "Online",
+  idle: "Idle",
+  away: "Away",
+  dnd: "Do not disturb",
+};
 
 export interface CollaboratorAvatarStackProps {
   collaborators: CollaboratorPresence[];
@@ -365,91 +382,34 @@ export default function CollaboratorAvatarStack({
               : displayLabel(selectedCollaborator)
           }`}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              marginBottom: "8px",
-            }}
-          >
-            <UserAvatar
+          {/* M73: the one canonical identity card — avatar + display name +
+              @username + pronouns — reused rather than re-implemented. The
+              role chip and Follow/Jump actions stay as popover chrome around
+              it (collaboration context, not profile identity). */}
+          <div style={{ marginBottom: "8px" }}>
+            <ProfileCard
               userId={selectedCollaborator.userId}
               username={selectedCollaborator.name}
+              displayName={selectedCollaborator.displayName}
               avatarVersion={selectedCollaborator.avatarVersion}
-              color={selectedCollaborator.color}
-              size={32}
+              pronouns={selectedCollaborator.pronouns}
+              avatarSize={32}
+              presence={{
+                label: PRESENCE_LABEL[selectedCollaborator.status] ?? "Online",
+                tone: PRESENCE_TONE[selectedCollaborator.status] ?? "online",
+              }}
             />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "6px" }}
-              >
-                <span
-                  style={{
-                    fontWeight: 600,
-                    fontSize: "12px",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {displayLabel(selectedCollaborator)}
-                </span>
-                <span
-                  style={{
-                    fontSize: "9px",
-                    textTransform: "uppercase",
-                    padding: "1px 4px",
-                    borderRadius: "4px",
-                    background: "rgba(255,255,255,0.08)",
-                    color: "var(--fg-muted, #a6adc8)",
-                    fontWeight: 600,
-                  }}
-                >
-                  {selectedCollaborator.role || "collaborator"}
-                </span>
-              </div>
-              {secondaryHandle(selectedCollaborator) && (
-                <div
-                  style={{
-                    fontSize: "10px",
-                    color: "var(--fg-muted, #a6adc8)",
-                    marginTop: "1px",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {secondaryHandle(selectedCollaborator)}
-                </div>
-              )}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  fontSize: "10.5px",
-                  color: "var(--fg-muted, #a6adc8)",
-                  marginTop: "2px",
-                }}
-              >
-                <span
-                  style={{
-                    width: "6px",
-                    height: "6px",
-                    borderRadius: "50%",
-                    background:
-                      selectedCollaborator.status === "online"
-                        ? "#a6e3a1"
-                        : selectedCollaborator.status === "idle"
-                          ? "#fab387"
-                          : "#cba6f7",
-                  }}
-                />
-                <span style={{ textTransform: "capitalize" }}>
-                  {selectedCollaborator.status}
-                </span>
-              </div>
+            <div
+              style={{
+                fontSize: "9px",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                color: "var(--fg-muted, #a6adc8)",
+                fontWeight: 600,
+                marginTop: "4px",
+              }}
+            >
+              {selectedCollaborator.role || "collaborator"}
             </div>
           </div>
 
