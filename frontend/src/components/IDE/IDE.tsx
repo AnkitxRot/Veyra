@@ -111,6 +111,7 @@ import {
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import { useNotices } from "../../hooks/useNotices";
+import { useProjectRole } from "../../hooks/useProjectRole";
 import {
   useLayoutPreferences,
   type LayoutPreferences,
@@ -414,9 +415,33 @@ export default function IDE({
 
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSecretsModalOpen, setIsSecretsModalOpen] = useState(false);
-  const [projectRole, setProjectRole] = useState<"owner" | "editor" | "viewer">(
-    "owner",
-  );
+  // M68: the access-role lookup fails CLOSED — a failed / in-flight
+  // `GET /api/projects/:id` leaves `projectRole` at the read-only `viewer`
+  // state, surfaced as a retryable notice below. It is never raised to
+  // editor/owner except by a response that explicitly says so.
+  const {
+    role: projectRole,
+    status: roleStatus,
+    retry: retryProjectRole,
+  } = useProjectRole(project?.id ?? null);
+
+  // M68: a failed role lookup is visible and retryable. While it stands the
+  // editor is read-only (fail closed); a successful retry clears it and the
+  // real role takes effect. A project switch drops it with every other notice.
+  useEffect(() => {
+    if (roleStatus === "error") {
+      notify({
+        kind: "warning",
+        text: "Couldn't confirm your access level for this project. You're in read-only mode until this resolves.",
+        ttl: null,
+        dedupeKey: "role-fetch",
+        role: "alert",
+        actions: [{ label: "Retry", onClick: retryProjectRole }],
+      });
+    } else {
+      dismissNoticeKey("role-fetch");
+    }
+  }, [roleStatus, retryProjectRole, notify, dismissNoticeKey]);
 
   // M48 Follow Mode & DND states
   const [followedUserId, setFollowedUserId] = useState<number | null>(null);
@@ -762,14 +787,9 @@ export default function IDE({
       );
     })();
 
-    // Fetch project access role
-    api<{ project: Project; role?: "owner" | "editor" | "viewer" }>(
-      `/api/projects/${project.id}`,
-    )
-      .then((res) => {
-        if (res.role) setProjectRole(res.role);
-      })
-      .catch(() => {});
+    // M68: the project access-role lookup lives in `useProjectRole` now — it
+    // fails closed to `viewer` and is retryable, instead of the swallowed
+    // fetch that used to sit here and leave a failed lookup at owner.
 
     return () => {
       cancelled = true;
