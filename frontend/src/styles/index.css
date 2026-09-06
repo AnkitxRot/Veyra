@@ -14,6 +14,7 @@
 @import "./admin.css";
 @import "./command-palette.css";
 @import "./collab.css";
+@import "./profile.css";
 @import "./notice.css";
 @import "@xterm/xterm/css/xterm.css";
 

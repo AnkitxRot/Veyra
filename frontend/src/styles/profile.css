@@ -1,0 +1,119 @@
+/* ==========================================================================
+   M72 — profile card / popover + Settings avatar controls
+   ========================================================================== */
+
+.profile-card {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.profile-card__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.profile-card__name-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.profile-card__name {
+  font-weight: 650;
+  font-size: 13px;
+  color: var(--fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.profile-card__handle {
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+.profile-card__pronouns {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.profile-card__meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 2px;
+}
+
+.profile-card__presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: capitalize;
+}
+
+.profile-card__presence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-muted);
+}
+
+.profile-card__presence--online .profile-card__presence-dot {
+  background: #a6e3a1;
+}
+.profile-card__presence--idle .profile-card__presence-dot,
+.profile-card__presence--away .profile-card__presence-dot {
+  background: #fab387;
+}
+.profile-card__presence--dnd .profile-card__presence-dot,
+.profile-card__presence--offline .profile-card__presence-dot {
+  background: #cba6f7;
+}
+
+.profile-card__bio {
+  margin-top: var(--space-2);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--fg-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Settings → Profile: avatar row ------------------------------------- */
+
+.profile-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.profile-avatar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.profile-avatar-buttons {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.profile-avatar-hint {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.profile-avatar-error {
+  font-size: 11px;
+  color: #f38ba8;
+}
