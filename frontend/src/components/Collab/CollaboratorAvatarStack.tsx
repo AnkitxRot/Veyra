@@ -192,6 +192,12 @@ export default function CollaboratorAvatarStack({
     const run = pickRunForUser(runStatuses, c.userId);
     if (run) return formatRunText(run, now);
 
+    // M73: an idle / away / DND collaborator is not actively editing — report
+    // the availability, not a stale "Editing foo.ts" (matches TeamPanel).
+    if (c.status && c.status !== "online") {
+      return PRESENCE_LABEL[c.status] ?? "Away";
+    }
+
     const act = c.activity?.type || "viewing";
     const file = c.activeFile ? c.activeFile.split("/").pop() : null;
     const line = c.cursor?.line;
