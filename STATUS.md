@@ -7115,3 +7115,108 @@ activation or retirement (still deferred — see the cleanup item above); no
 fix for the pre-existing empty-state flex `min-content` clamp on the rendered
 bottom-panel height (cosmetic, persistence-independent, predates M67).
 
+
+## M68 — project/workspace load reliability & error recovery
+
+**Objective (bounded):** make project loading, workspace hydration,
+collaborator-roster loading, timeline loading, role resolution, and
+while-away recovery truthful, visible, retryable, and fail-safe. Not a UX
+redesign — only the swallowed-failure and fail-open paths on the
+project/workspace load surface.
+
+### Exact scope
+
+Seven load paths in `IDE.tsx` that previously swallowed their failures (or,
+for the role fetch, failed *open*):
+
+| Path | Before | After |
+|---|---|---|
+| Project access role (`GET /api/projects/:id`) | swallowed `.catch(() => {})` inside the collab effect; `projectRole` defaulted to `"owner"` — a failed/slow lookup rendered owner UI (editable editor, Secrets button, owner commands) | extracted to `useProjectRole`, **fails closed** to `viewer` (read-only) until a response explicitly says otherwise; stale responses for a previous project id discarded; `retry()` inert while in flight; persistent retryable notice while errored |
+| File tree (`GET /api/projects/:id/tree`) | `catch {}`; empty `tree` rendered as "Workspace is empty" + Add File — a failed load looked identical to an empty project | `loading / ready / error` status; Sidebar shows a compact loading state, a retryable inline error, or the genuine empty state only after a real empty load; persistent retryable notice; in-flight guard so a doubled Retry is one request |
+| Project list (`GET /api/projects`) | trailing `catch {}` — a transport failure left a blank IDE with no projects and no explanation | persistent retryable notice; an already-loaded list is preserved across a failed refresh |
+| Collaborator roster (`GET /api/projects/:id/collaborators`) | `.catch(() => {})` | last-known roster kept; retryable notice ("names may be out of date") |
+| While-you-were-away summary (`GET .../collab/while-away`) | `.catch(() => {})` | retryable notice; **M63 reconnect semantics and the `COLLAB_AWAY_THRESHOLD_MS` gate unchanged** — only the summary-fetch feedback changed |
+| Timeline initial page (`GET .../collab/timeline`) | `.catch(() => setTimelineLoaded(false))` — re-armed the effect and refetched in a **tight loop** against a down server | holds (`timelineLoaded` stays true), shows a retryable notice; Retry flips the flag once |
+| Timeline "load more" | `.catch(() => {})` | transient notice; the visible "Load more" control is the retry |
+
+Plus: the collab lifecycle effect now resets `tree` / `treeStatus` on a
+project switch (it already reset open tabs, notices, git state) — a failed
+tree load for the newly-opened project no longer renders the *previous*
+project's files.
+
+All notices route through the existing **M64 `useNotices` / `NoticeStack`**
+infrastructure. No second notification system, no reintroduced one-off notice
+state. Every M68 notice is dropped with the rest by the existing
+`clearNotices()` on project switch.
+
+### Safety invariant
+
+A permission/role-fetch failure **fails closed**: `useProjectRole` starts at
+`viewer` and is only ever raised to `editor`/`owner` by a 2xx response whose
+body carries that exact role. Network error, 5xx, a role-less body, and the
+in-flight window all resolve to `viewer`. Backend authorization is
+**untouched** — this only governs what the client renders before the server
+confirms access.
+
+### What landed
+
+**Commit range:** `8a06398..606c07f` (6 commits)
+
+| Commit | Purpose |
+|---|---|
+| `b7b60de` feat(ide): fail closed on project role fetch errors | `frontend/src/hooks/useProjectRole.ts` (new) + `IDE.tsx` wiring + `useProjectRole.test.tsx` (10) + `ideLoadRecovery.wiring.test.tsx` role block |
+| `a961463` feat(ide): surface file tree loading and retryable failures | `IDE.tsx` `treeStatus` + notice; `Sidebar.tsx` / `FileTree` loading / error / retry states; `Sidebar.treeLoadState.test.tsx` (5) + wiring guards |
+| `0d9172b` feat(ide): surface project list load failures | `IDE.tsx` `loadProjects` notice + retry ref + wiring guards |
+| `076a388` feat(ide): surface roster, timeline, and while-away load failures | `IDE.tsx` roster / while-away / timeline-initial / timeline-more notices + retries; `IDE.profileEvent.test.tsx` window widened; wiring guards |
+| `de297c6` test(ide): harden load/retry regression coverage | `ideLoadRecovery.mediation.test.tsx` (3, real `useNotices` + `NoticeStack` + mocked api) + `treeLoadInFlightRef` guard on `loadTree` |
+| `606c07f` fix(ide): clear the file tree on project switch | `IDE.tsx` `setTree([])` / `setTreeStatus("loading")` in the per-project reset block + wiring guard (found during browser verification) |
+
+New surfaces: `useProjectRole` hook; `Sidebar` `treeStatus` / `onRetryTree`
+props; `FileTree` `status` / `onRetry` props with `data-testid="file-tree-loading"`
+/ `"file-tree-error"`. No backend change, no new dependency, no migration.
+
+### Tests
+
+| Suite | Coverage |
+|---|---|
+| `useProjectRole.test.tsx` (10) | null project → no fetch / viewer; viewer+loading in flight; server role on success; **failure → viewer + error**; **failure never yields owner/editor**; role-less body → viewer; retry refetches → real role; **triple retry while in flight → 1 request**; stale response after id change discarded; id change → resets to viewer+loading |
+| `Sidebar.treeLoadState.test.tsx` (5) | loading state (not empty state) during first load; retryable error state (`onRetryTree` fired once); genuine empty state after a real empty load; already-loaded tree kept on a failed refresh; already-loaded tree kept during a background refresh |
+| `ideLoadRecovery.mediation.test.tsx` (3) | real-render: failed load → retryable error notice; **one Retry click → exactly one more request + error cleared**; rapid double Retry → no overlapping requests |
+| `ideLoadRecovery.wiring.test.tsx` (19) | role: from `useProjectRole` not a local `"owner"` default, no in-effect role fetch, persistent alert notice keyed on `roleStatus === "error"` with `retryProjectRole`, cleared on non-error, read-only/owner UI keys off the fail-closed role; tree: lifecycle status, persistent retryable notice, cleared on success, Sidebar wiring, no loading-flash on background refresh, in-flight guard, `setTree([])`/`setTreeStatus` on switch; projects/roster/whileaway/timeline notice keys, retries, success-clears, and the M63 threshold gate intact; the immediate `.catch(() => setTimelineLoaded(false))` retry loop is gone |
+| Adjusted | `ideNotices.wiring.test.tsx` + `IDE.profileEvent.test.tsx` — source-slice windows widened for the enlarged reset block / roster fn body (assertions unchanged) |
+
+Revert-sensitivity: fail-closed default, stale-generation guard, in-flight
+guard (role + tree), each notice `dedupeKey` + its success-path
+`dismissNoticeKey`, the tree lifecycle transitions, the `setTree([])` on
+switch, and the timeline no-loop change each break at least one test when
+reverted.
+
+### Verification gates (2026-09-06)
+
+| Gate | Evidence |
+|---|---|
+| Frontend full suite | `vitest run` -> **803 passed / 0 failed** (97 files); +38 vs. M67 (765) = `useProjectRole` 10, `Sidebar.treeLoadState` 5, `ideLoadRecovery.mediation` 3, `ideLoadRecovery.wiring` 20 |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged) |
+| Backend typecheck | `tsc --noEmit` exit 0 (no backend files touched) |
+| Backend full suite (Docker up) | `vitest run` -> **1079 passed / 9 skipped / 1 failed** (85 files, 395 s); Docker-gated suites executed. The 1 failure is `m4-collab.test.ts` #33 (`file_open` -> `file_ready` DISK-seeding race, `expected '' to be 'DISK'`) — a **known-flaky M52 timing test under full-suite load**: it passed 48/48 in isolation immediately after, and a full-suite run 10 min earlier on the same tree passed it (exit 0, 1080/1080). M68 is frontend-only (zero backend files changed). |
+| `git diff --check` | clean |
+| Working tree | clean |
+| Live browser (`m61_userA`; `m65-browser-demo` = non-owner, `M61Verify` = owner; `fetch` shim to inject 503s on `GET /api/projects/:id` and `.../tree`) | **PASS:** (A) initial + every post-retry project load renders the correct project's tree; (B/C) role 503 on switch -> persistent "Couldn't confirm your access level... read-only mode" notice + **Secrets button hidden** + editor read-only; tree 503 on switch -> inline `file-tree-error` ("Couldn't load the file tree." + Retry) **and** a stack notice, `tree` empty (no stale previous-project files); (D/E) role Retry -> 1 role request -> notice cleared -> real role restored (Secrets reappears on `M61Verify`); tree Retry -> 1 tree request -> files load -> both error surfaces clear; (F) an in-page `error` / `unhandledrejection` / `console.error` / `console.warn` collector caught **zero** entries across the full role+tree fail/recover cycle (the injected 503s are handled by `api()`'s throw, not surfaced as uncaught errors); (G) role failure **never** produced owner/editor UI — Secrets stayed hidden, role stayed `viewer` for the whole error window; (H) switching projects with an active error dropped the stale notice (`clearNotices()`) and cleared the stale tree; (I) triple-clicking the tree Retry while still failing produced **1** request (in-flight guard); role Retry produced **1** request per click |
+
+### Not done / out of scope (M68)
+
+- Roster / timeline / while-away failure notices were **not** exercised in
+  the live browser (they need a staged collab-peer profile change, a
+  timeline server error, and a real reconnect-after-gap respectively) —
+  covered by the unit + wiring tests only.
+- No loading state was added for the project-list fetch or the role fetch
+  (both resolve fast; the role fetch's fail-closed `viewer` window is itself
+  the safe state). Loading states added only where content dimensions are
+  known (the file tree).
+- Backend authorization, the collaboration protocol, M63/M64 reconnect
+  semantics, the preference architecture, and IDE.tsx decomposition are all
+  untouched. No speculative render optimization.
+- The `m4-collab.test.ts` #33 flakiness under full-suite load predates M68
+  and is not addressed here.
