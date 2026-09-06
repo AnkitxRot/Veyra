@@ -10,7 +10,7 @@ import type { CollaboratorPresence } from "../collab/presence";
  * NOT rendered by the Sidebar: `cursor`, `selection`, `lastActive`,
  * `workingFolder`, `intent`, `status`, `role`, `displayName`, `activeFileDirty`.
  * Those churn on every remote keystroke; the Sidebar must not re-render for them
- * (BASELINE A: ~5–90 ms of React work per otherwise-wasted tick).
+ * (BASELINE A: ~5-90 ms of React work per otherwise-wasted tick).
  */
 export function sidebarPresenceSignature(
   collaborators: CollaboratorPresence[],
@@ -19,16 +19,23 @@ export function sidebarPresenceSignature(
   const parts: string[] = [];
   for (const c of collaborators) {
     if (c.userId === currentUserId) continue;
+    // Space-separated so adjacent numeric fields cannot collide
+    // (clientId 1 + userId 23 must not read the same as clientId 12 + userId 3).
     parts.push(
-      `${c.clientId}${c.userId}${c.activeFile ?? ""}${
-        c.activity?.type ?? ""
-      }${c.name}${c.color}`,
+      [
+        c.clientId,
+        c.userId,
+        c.activeFile ?? "",
+        c.activity?.type ?? "",
+        c.name,
+        c.color,
+      ].join(" "),
     );
   }
   // The awareness map has no guaranteed order; sort so a reorder alone is not
   // treated as a change.
   parts.sort();
-  return parts.join("");
+  return parts.join("\n");
 }
 
 /**
