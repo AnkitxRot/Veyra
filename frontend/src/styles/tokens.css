@@ -107,6 +107,98 @@
   --duration-fast: 150ms;
   --duration-normal: 240ms;
   --duration-slow: 360ms;
+
+  /* Scrollbars (tokenised for M69 — the raw whites assumed a dark ground) */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
+
+  color-scheme: dark;
+}
+
+/* ==========================================================================
+   M69 — Light theme.
+   The resolved appearance is stamped on <html data-theme> by `useAppearance`;
+   the light palette is derived from the product's existing design language
+   (Catppuccin Latte is the light counterpart of the Mocha palette above).
+   Only the colour / elevation tokens are redefined — every component that
+   reads them flips automatically. Accent/semantic hues shift to their
+   light-legible variants; the frosted-glass character is preserved with a
+   white-tint translucency instead of a dark one.
+   ========================================================================== */
+:root[data-theme="light"] {
+  /* Core Color Palette */
+  --bg-deep: #dce0e8;
+  --bg-base: #e6e9ef;
+  --bg-surface: #eff1f5;
+  --bg-surface-elevated: #e6e9ef;
+  --bg-surface-hover: #dce0e8;
+
+  /* Liquid Glass Materials — frosted white over light content */
+  --glass-surface-1: rgba(255, 255, 255, 0.70);
+  --glass-surface-2: rgba(255, 255, 255, 0.62);
+  --glass-surface-3: rgba(255, 255, 255, 0.80);
+  --glass-surface-floating: rgba(255, 255, 255, 0.92);
+  --glass-surface-modal: rgba(239, 241, 245, 0.96);
+
+  /* Specular Highlights & Borders — dark hairlines on a light ground */
+  --glass-border: rgba(76, 79, 105, 0.16);
+  --glass-border-light: rgba(76, 79, 105, 0.24);
+  --glass-border-focus: rgba(30, 102, 245, 0.5);
+  --glass-specular: rgba(255, 255, 255, 0.65);
+  --glass-specular-sharp: inset 0 1px 0 0 rgba(255, 255, 255, 0.7);
+  --glass-inner-shadow: inset 0 0 16px rgba(76, 79, 105, 0.06);
+
+  /* Accent & Semantic Colors — Catppuccin Latte */
+  --accent: #1e66f5;
+  --accent-hover: #3b7ff7;
+  --accent-subtle: rgba(30, 102, 245, 0.12);
+  --accent-glow: rgba(30, 102, 245, 0.22);
+  --accent-gradient: linear-gradient(135deg, #1e66f5 0%, #04a5e5 100%);
+
+  --secondary: #179299;
+  --secondary-subtle: rgba(23, 146, 153, 0.12);
+
+  --success: #40a02b;
+  --success-subtle: rgba(64, 160, 43, 0.14);
+  --success-glow: rgba(64, 160, 43, 0.22);
+
+  --warning: #df8e1d;
+  --warning-subtle: rgba(223, 142, 29, 0.16);
+
+  --error: #d20f39;
+  --error-hover: #e0416a;
+  --error-subtle: rgba(210, 15, 57, 0.12);
+  --error-glow: rgba(210, 15, 57, 0.2);
+
+  /* Text & Foreground */
+  --fg-primary: #4c4f69;
+  --fg-secondary: #5c5f77;
+  --fg-muted: #6c6f85;
+  --fg-subtle: #9ca0b0;
+  --fg-inverse: #eff1f5;
+
+  /* Shadows — softer on a light ground */
+  --shadow-xs: 0 1px 2px rgba(76, 79, 105, 0.10);
+  --shadow-sm: 0 2px 8px rgba(76, 79, 105, 0.12);
+  --shadow-md: 0 8px 24px rgba(76, 79, 105, 0.16);
+  --shadow-lg: 0 16px 48px rgba(76, 79, 105, 0.22);
+  --shadow-glass: 0 8px 32px 0 rgba(76, 79, 105, 0.16);
+  --shadow-glow: 0 0 20px rgba(30, 102, 245, 0.15);
+
+  /* Scrollbars */
+  --scrollbar-thumb: rgba(76, 79, 105, 0.22);
+  --scrollbar-thumb-hover: rgba(76, 79, 105, 0.36);
+
+  color-scheme: light;
+}
+
+/* Pre-hydration hint: before React mounts and `useAppearance` stamps
+   data-theme, a "system" user on a light OS at least gets light native
+   controls (the full palette lands one frame later). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+  }
 }
 
 /* Reduced Motion Preferences */
@@ -137,5 +229,13 @@
     --glass-surface-modal: #151a26;
     --glass-filter: none;
     --glass-filter-floating: none;
+  }
+
+  :root[data-theme="light"] {
+    --glass-surface-1: #f4f5f8;
+    --glass-surface-2: #eef0f4;
+    --glass-surface-3: #f7f8fb;
+    --glass-surface-floating: #ffffff;
+    --glass-surface-modal: #eff1f5;
   }
 }
