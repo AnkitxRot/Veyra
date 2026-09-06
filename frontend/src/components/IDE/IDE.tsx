@@ -866,10 +866,15 @@ export default function IDE({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [pendingCollabUpdates]);
 
+  // M68: a total `GET /api/projects` failure is no longer swallowed — it is a
+  // persistent, retryable notice instead of a blank IDE with no explanation.
+  // An already-loaded `projects` list is preserved across a failed refresh.
+  const loadProjectsRef = useRef<() => void>(() => {});
   const loadProjects = useCallback(async () => {
     try {
       const res = await api<{ projects: Project[] }>("/api/projects");
       setProjects(res.projects);
+      dismissNoticeKey("projects-load");
 
       if (!didInitialResolveRef.current) {
         // First load after mount / hard reload: honour a `/p/:id` deep link,
@@ -909,12 +914,26 @@ export default function IDE({
         setLastProjectId(res.projects[0].id);
         onNavigateProject?.(res.projects[0].id);
       }
-    } catch {}
+    } catch {
+      notify({
+        kind: "error",
+        text: "Couldn't load your projects. Check your connection and try again.",
+        ttl: null,
+        dedupeKey: "projects-load",
+        role: "alert",
+        actions: [{ label: "Retry", onClick: () => loadProjectsRef.current() }],
+      });
+    }
     // routeProjectId is read via routeProjectIdRef; onNavigateProject is a
-    // stable useCallback from App. Keeping deps at [project] preserves the
-    // original loader lifecycle.
+    // stable useCallback from App. Keeping deps minimal preserves the original
+    // loader lifecycle; notify / dismissNoticeKey are stable useNotices refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project]);
+  }, [project, notify, dismissNoticeKey]);
+  useEffect(() => {
+    loadProjectsRef.current = () => {
+      void loadProjects();
+    };
+  }, [loadProjects]);
 
   // M68: the file-tree fetch is no longer a swallowed `catch {}`. An empty
   // `tree` now reads as loading / failed / genuinely empty in the Sidebar,

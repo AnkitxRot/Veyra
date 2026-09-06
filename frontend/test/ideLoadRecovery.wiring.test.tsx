@@ -14,7 +14,8 @@ const src = readFileSync(
  * Source-string guards (the ~3700-line component is not rendered in unit
  * tests — see IDE.connectionVisibility.test.tsx). The behaviour of the
  * extracted pieces is tested directly: useProjectRole.test.tsx,
- * FileTree.loadState.test.tsx, plus the shared useNotices.test.tsx.
+ * Sidebar.treeLoadState.test.tsx, ideLoadRecovery.mediation.test.tsx,
+ * plus the shared useNotices.test.tsx.
  */
 describe("M68 — role fetch fails closed", () => {
   it("takes its role from useProjectRole, not a local useState default", () => {
@@ -99,5 +100,34 @@ describe("M68 — file tree load state & retry", () => {
       src.indexOf("const loadTree = useCallback") + 900,
     );
     expect(block).toContain('if (treeLoadedForRef.current !== pid) setTreeStatus("loading")');
+  });
+});
+
+describe("M68 — project list load failure", () => {
+  it("no longer swallows a total /api/projects failure", () => {
+    const block = src.slice(
+      src.indexOf("const loadProjects = useCallback"),
+      src.indexOf("const loadProjects = useCallback") + 2600,
+    );
+    // the bare `} catch {}` is replaced by a notifying catch
+    expect(block).not.toMatch(/\}\s*catch\s*\{\}\n\s*\/\/ routeProjectId is read/);
+    expect(block).toContain('dedupeKey: "projects-load"');
+  });
+
+  it("a failed project list load is a persistent, retryable error notice", () => {
+    const at = src.indexOf('dedupeKey: "projects-load"');
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at - 260, at + 160);
+    expect(block).toContain('kind: "error"');
+    expect(block).toContain("ttl: null");
+    expect(block).toContain("onClick: () => loadProjectsRef.current()");
+  });
+
+  it("a successful project list load clears the standing notice", () => {
+    const block = src.slice(
+      src.indexOf("const loadProjects = useCallback"),
+      src.indexOf("const loadProjects = useCallback") + 2600,
+    );
+    expect(block).toContain('dismissNoticeKey("projects-load")');
   });
 });
