@@ -76,6 +76,34 @@ export function Probe({
   );
 }
 
+/**
+ * A `React.memo` boundary with a <Profiler> attached, for measuring whether a
+ * memoized child actually bails. Unlike <Probe>, this wrapper is itself
+ * memoized on the SAME shallow prop comparison the component-under-test uses,
+ * so when the parent re-renders with unchanged props NOTHING inside fires —
+ * no Profiler self-render, no child render. `recorder` must be referentially
+ * stable across the measured window.
+ */
+export function profiledMemo<P extends object>(
+  Component: React.ComponentType<P>,
+  id: string,
+): React.ComponentType<P & { recorder: RenderRecorder }> {
+  const Memoized = React.memo(function Profiled({
+    recorder,
+    ...rest
+  }: P & { recorder: RenderRecorder }) {
+    return (
+      <Profiler id={id} onRender={recorder.onRender}>
+        <Component {...(rest as P)} />
+      </Profiler>
+    );
+  });
+  Memoized.displayName = `profiledMemo(${id})`;
+  return Memoized as unknown as React.ComponentType<
+    P & { recorder: RenderRecorder }
+  >;
+}
+
 // --- repeatability ---------------------------------------------------------
 
 export interface Stat {
