@@ -911,8 +911,74 @@ export class CollaborationRoom {
         return;
       }
       this.reconcileAwarenessAgainstLiveSockets();
+      this.refreshLiveAwareness();
     }, this.awarenessReconcileMs);
     this.awarenessReconcileTimer.unref?.();
+  }
+
+  /**
+   * M78: keep a genuinely-connected-but-idle collaborator visible to peers.
+   *
+   * y-protocols' `Awareness` (both this room's and every browser client's)
+   * deletes any entry it has not seen an update for within `outdatedTimeout`
+   * (30s). A browser tab that is backgrounded / idle stops emitting awareness
+   * (its own `_checkInterval` renewal is throttled with all other timers when
+   * the tab is hidden), so after 30s every peer drops the collaborator even
+   * though the socket is alive.
+   *
+   * On the same sweep as the M74 reconcile (< 30s, self-cancels when empty,
+   * cleared on dispose) the server, for each awareness entry backed by a
+   * `readyState === 1` socket that has gone quiet for a full sweep interval:
+   *  - advances its own `meta` for that entry (so this room's Awareness
+   *    `_checkInterval` never emits a `timeout` removal for a live socket), and
+   *  - re-broadcasts the entry's *current stored* state to every OTHER live
+   *    socket (so that peer's Awareness likewise refreshes `meta.lastUpdated`).
+   *
+   * The payload is the state already in `this.awareness` — unchanged — so
+   * `status` / `activity` / `lastActive` are exactly what the collaborator
+   * last reported (idle stays idle), and it is deep-equal on the receiver, so
+   * no `change` event and no collaborator re-render. The entry's own client is
+   * never sent its own entry back (it self-renders from local state). A dead
+   * socket is excluded, so this can never resurrect a genuinely-gone client.
+   */
+  private refreshLiveAwareness(): void {
+    if (this.disposed) return;
+
+    const ownerByClientId = new Map<number, WebSocket>();
+    for (const [ws, st] of this.clients.entries()) {
+      if (ws.readyState !== 1) continue;
+      const ids = st.awarenessClientIds;
+      if (ids) for (const id of ids) ownerByClientId.set(id, ws);
+    }
+    if (ownerByClientId.size === 0) return;
+
+    const now = Date.now();
+    const refreshed: number[] = [];
+    for (const id of ownerByClientId.keys()) {
+      const meta = this.awareness.meta.get(id);
+      if (!meta || !this.awareness.getStates().has(id)) continue;
+      // Skip a client that has sent a real update within the last sweep — its
+      // own frames already keep every `meta.lastUpdated` fresh.
+      if (now - meta.lastUpdated < this.awarenessReconcileMs) continue;
+      this.awareness.meta.set(id, { clock: meta.clock + 1, lastUpdated: now });
+      refreshed.push(id);
+    }
+    if (refreshed.length === 0) return;
+
+    for (const [ws] of this.clients.entries()) {
+      if (ws.readyState !== 1) continue;
+      const forThisSocket = refreshed.filter(
+        (id) => ownerByClientId.get(id) !== ws,
+      );
+      if (forThisSocket.length === 0) continue;
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+      encoding.writeVarUint8Array(
+        encoder,
+        awarenessProtocol.encodeAwarenessUpdate(this.awareness, forThisSocket),
+      );
+      this.sendAwarenessBroadcast(ws, encoding.toUint8Array(encoder));
+    }
   }
 
   // --- M65: shared run output -------------------------------------------
@@ -2136,7 +2202,17 @@ export class CollaborationRoom {
 
       kept.push({
         clientId,
-        clock,
+        // M78: monotonic in the server's own sequence. The keepalive sweep
+        // (refreshLiveAwareness) advances `meta.clock` for a quiet-but-live
+        // client, so a returning idle tab's real frame can carry a clock the
+        // server has already passed — y-protocols' applyAwarenessUpdate would
+        // then silently drop it. This connection already owns `clientId` and
+        // the identity is rebuilt below regardless, so forcing the clock
+        // forward is safe and only ever loses a duplicate/replayed frame.
+        clock: Math.max(
+          clock,
+          (this.awareness.meta.get(clientId)?.clock ?? -1) + 1,
+        ),
         state: buildAuthoritativeAwarenessState(parsed as Record<string, unknown>, {
           userId: clientState.userId,
           username: clientState.username,
