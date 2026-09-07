@@ -42,6 +42,7 @@ export interface AppConfig {
   maxConcurrentRuns: number;
   sandboxIdleTimeoutMs: number;
   sandboxReaperIntervalMs: number;
+  sandboxRoomEmptyGraceMs: number;
   sessionGcIntervalMs: number;
   demoAccountTtlMs: number;
   demoGcIntervalMs: number;
@@ -230,6 +231,12 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     sandboxReaperIntervalMs:
       overrides.sandboxReaperIntervalMs ??
       Number(process.env.SANDBOX_REAPER_INTERVAL_MS ?? 60_000),
+    sandboxRoomEmptyGraceMs:
+      overrides.sandboxRoomEmptyGraceMs ??
+      boundedIntEnv("SANDBOX_ROOM_EMPTY_GRACE_MS", 120_000, {
+        min: 0,
+        max: 3_600_000,
+      }),
     sessionGcIntervalMs:
       overrides.sessionGcIntervalMs ??
       Number(process.env.SESSION_GC_INTERVAL_MS ?? 3_600_000),

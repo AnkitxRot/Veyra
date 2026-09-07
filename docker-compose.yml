@@ -34,6 +34,7 @@ services:
       PROJECT_QUOTA: "${PROJECT_QUOTA:-20}"
       MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-3}"
       SANDBOX_IDLE_TIMEOUT_MS: "${SANDBOX_IDLE_TIMEOUT_MS:-1800000}"
+      SANDBOX_ROOM_EMPTY_GRACE_MS: "${SANDBOX_ROOM_EMPTY_GRACE_MS:-120000}"
       # M47: only needed if projects use encrypted secrets. See deploy/README.md.
       SECRETS_MASTER_KEY: "${SECRETS_MASTER_KEY:-}"
     ports:

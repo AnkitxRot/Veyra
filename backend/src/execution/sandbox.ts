@@ -111,6 +111,14 @@ export class SandboxManager {
        *  Undefined only for entries adopted by `reconcile()` when the
        *  owning project's row could not be resolved. */
       ownerId: number | undefined;
+      /** M74: true once the idle reaper has observed this project's
+       *  collaboration room with >=1 live client. Gates the room-empty
+       *  grace path so a never-occupied container (terminal-only, no
+       *  provider) keeps pure `idleTimeoutMs` semantics. */
+      roomEverOccupied: boolean;
+      /** M74: timestamp the reaper first observed a previously-occupied
+       *  room now empty; null while occupied or never observed empty. */
+      roomEmptyAt: number | null;
     }
   >();
   /** In-flight creation sequences keyed by projectId, so concurrent callers share one `docker run`. */
@@ -331,7 +339,10 @@ export class SandboxManager {
     const needsGlobalSlot = !hasStaleEntry;
     if (needsGlobalSlot) {
       if (this.currentGlobalLoad() >= config.maxSandboxes) {
-        await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs);
+        await this.reapIdleSandboxes(
+          config.sandboxIdleTimeoutMs,
+          config.sandboxRoomEmptyGraceMs,
+        );
       }
       // Atomic check-and-reserve: reading currentGlobalLoad() and adding to
       // reservedProjectIds happen with no `await` between them (see the
@@ -375,6 +386,8 @@ export class SandboxManager {
         ports: portMapping,
         lastUsed: Date.now(),
         ownerId: userId,
+        roomEverOccupied: false,
+        roomEmptyAt: null,
       });
       return containerId;
     } finally {
@@ -670,21 +683,66 @@ export class SandboxManager {
     return { success: true, projectId };
   }
 
-  /** Stops containers that have not been used within the idle timeout. */
-  async reapIdleSandboxes(idleTimeoutMs: number): Promise<string[]> {
-    const now = Date.now();
+  /**
+   * Stops containers that are no longer needed.
+   *
+   * Base rule (unchanged): a container unused for `idleTimeoutMs` is reaped.
+   *
+   * M74: when a room-occupancy provider is registered
+   * (`setRoomOccupancyProvider`), a project whose collaboration room has
+   * `liveClients > 0` is kept warm regardless of `lastUsed`, and a room that
+   * has emptied becomes eligible after `roomEmptyGraceMs` — sooner than the
+   * full idle timeout — provided there has been no terminal/run activity in
+   * that window either. A project that has never been observed with an
+   * occupied room (terminal-only, or no provider) keeps the base rule only.
+   *
+   * `now` is injectable for deterministic tests. `roomEmptyGraceMs` defaults
+   * to `Infinity`, which disables the grace path entirely (so existing
+   * callers/tests behave exactly as before).
+   */
+  async reapIdleSandboxes(
+    idleTimeoutMs: number,
+    roomEmptyGraceMs = Infinity,
+    now = Date.now(),
+  ): Promise<string[]> {
     const reaped: string[] = [];
     for (const [projectId, info] of [...this.projectContainers.entries()]) {
-      if (now - info.lastUsed >= idleTimeoutMs) {
-        // Skip a project with an in-flight lifecycle operation rather than
-        // queuing behind it: this method can itself be called from inside
-        // ensureProjectSandbox's own lock-held cap-pressure check (a
-        // different projectId), and blocking here on another project's lock
-        // while *our* caller holds ours would risk two projects reaping each
-        // other at the same instant and deadlocking. A project actively
-        // mid-creation/teardown isn't meaningfully "idle" anyway — it'll be
-        // picked up by the next reap pass once it settles.
-        if (this.lifecycleTail.has(projectId)) continue;
+      // Skip a project with an in-flight lifecycle operation rather than
+      // queuing behind it: this method can itself be called from inside
+      // ensureProjectSandbox's own lock-held cap-pressure check (a
+      // different projectId), and blocking here on another project's lock
+      // while *our* caller holds ours would risk two projects reaping each
+      // other at the same instant and deadlocking. A project actively
+      // mid-creation/teardown isn't meaningfully "idle" anyway — it'll be
+      // picked up by the next reap pass once it settles.
+      if (this.lifecycleTail.has(projectId)) continue;
+
+      // M74: consult collaboration-room occupancy. A throwing provider must
+      // never break reaping — fall back to the base idle rule.
+      let occ: { liveClients: number; distinctUsers: number } | undefined;
+      try {
+        occ = this.roomOccupancyProvider?.(projectId);
+      } catch {
+        occ = undefined;
+      }
+
+      if (occ && occ.liveClients > 0) {
+        info.roomEverOccupied = true;
+        info.roomEmptyAt = null;
+        continue; // keep warm regardless of lastUsed
+      }
+      if (occ && info.roomEverOccupied && info.roomEmptyAt === null) {
+        info.roomEmptyAt = now; // first observation that the room is now empty
+      }
+
+      const idleEligible = now - info.lastUsed >= idleTimeoutMs;
+      const graceEligible =
+        info.roomEverOccupied &&
+        info.roomEmptyAt !== null &&
+        now - info.roomEmptyAt >= roomEmptyGraceMs &&
+        now - info.lastUsed >= roomEmptyGraceMs;
+
+      if (idleEligible || graceEligible) {
         await this.stopProjectSandbox(projectId);
         reaped.push(projectId);
       }
@@ -695,7 +753,10 @@ export class SandboxManager {
   startReaper(config: AppConfig): void {
     this.stopReaper();
     this.reaperTimer = setInterval(() => {
-      this.reapIdleSandboxes(config.sandboxIdleTimeoutMs).catch((err) => {
+      this.reapIdleSandboxes(
+        config.sandboxIdleTimeoutMs,
+        config.sandboxRoomEmptyGraceMs,
+      ).catch((err) => {
         console.error("[sandbox] reaper error:", err);
       });
     }, config.sandboxReaperIntervalMs);
@@ -903,6 +964,8 @@ export class SandboxManager {
           ports,
           lastUsed: Date.now(),
           ownerId,
+          roomEverOccupied: false,
+          roomEmptyAt: null,
         });
       }
     }
@@ -1131,6 +1194,11 @@ export async function sandboxRun(
 
   clearTimeout(watchdog);
   await cleanupSecrets();
+
+  // M74: the touch at run start freezes lastUsed for the whole run; refresh it
+  // on completion so a project a user just watched finish is not treated as
+  // idle-since-the-run-began by the reaper.
+  sandboxManager.touch(projectId);
 
   if (spawnError) {
     stderr =

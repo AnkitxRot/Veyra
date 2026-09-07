@@ -87,6 +87,7 @@ will refuse to start without it. Everything else is optional and has a safe defa
 | `PROJECT_QUOTA`           | `20`         | Max projects per user.                                                                                                                                                                             |
 | `MAX_CONCURRENT_RUNS`     | `3`          | Max concurrent executions per user.                                                                                                                                                                |
 | `SANDBOX_IDLE_TIMEOUT_MS` | `1800000`    | Idle time before a sandbox is reaped.                                                                                                                                                              |
+| `SANDBOX_ROOM_EMPTY_GRACE_MS` | `120000` | Grace period after a project's collaboration room empties before its sandbox becomes eligible for early reaping (before the full idle timeout).                                                     |
 | `SECRETS_MASTER_KEY`      | _(unset)_    | Master key for **project secrets & environment variables** (M47). 32 bytes, encoded as base64 or 64 hex characters. Required only if any project uses the Secrets feature — see the section below. |
 
 Set in production (not in `.env`): `NODE_ENV=production` (already set in the image),
