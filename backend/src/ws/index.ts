@@ -381,12 +381,23 @@ export function setupWebSocketServer(
             console.error("[ws] terminal socket error:", err);
             unregisterConnection(row.id, ws);
           });
-          handleTerminalConnection(ws, projectId, cfg, row.id, db).catch(
-            (err) => {
-              console.error("[ws] terminal connection error:", err);
-              ws.close();
-            },
-          );
+          const terminalId =
+            typeof query.terminalId === "string"
+              ? query.terminalId
+              : undefined;
+          const lastSeqRaw = Number(query.lastSeq);
+          handleTerminalConnection(
+            ws,
+            projectId,
+            cfg,
+            row.id,
+            db,
+            terminalId,
+            Number.isFinite(lastSeqRaw) ? lastSeqRaw : 0,
+          ).catch((err) => {
+            console.error("[ws] terminal connection error:", err);
+            ws.close();
+          });
         });
       } else if (pathname === "/ws/execute") {
         wss.handleUpgrade(req, socket, head, (ws) => {

@@ -92,7 +92,8 @@ describe("handleTerminalConnection disconnect-during-sandbox-startup", () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
-  it("still spawns a pty when the socket is open after the sandbox is ready", async () => {
+  it("spawns a pty when the socket is open, and a close DETACHES (M79) — the pty survives the grace window", async () => {
+    vi.useFakeTimers();
     const ptyProcess = {
       onData: vi.fn(),
       onExit: vi.fn(),
@@ -105,6 +106,7 @@ describe("handleTerminalConnection disconnect-during-sandbox-startup", () => {
     vi.doMock("../src/execution/sandbox.js", () => ({
       sandboxManager: {
         ensureProjectSandbox: vi.fn(async () => "container-abc"),
+        touch: vi.fn(),
       },
     }));
     vi.doMock("../src/projects/service.js", () => ({
@@ -112,16 +114,67 @@ describe("handleTerminalConnection disconnect-during-sandbox-startup", () => {
     }));
 
     const { handleTerminalConnection } = await import("../src/ws/terminal.js");
-    const cfg = makeTestConfig();
+    const cfg = makeTestConfig({ terminalDetachGraceMs: 5000 });
     const ws = makeFakeWs();
 
-    await handleTerminalConnection(ws as any, "proj-1", cfg, 1);
+    await handleTerminalConnection(ws as any, "proj-1", cfg, 1, undefined, "t-1");
 
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(spawn.mock.calls[0][0]).toBe("docker");
-    // and the close handler that kills it is wired up
+
+    // M79: a client disconnect no longer kills the shell — it detaches.
     ws.emit("close");
-    expect(ptyProcess.kill).toHaveBeenCalled();
+    expect(ptyProcess.kill).not.toHaveBeenCalled();
+
+    // Only when the grace elapses without a reattach is the pty reaped.
+    vi.advanceTimersByTime(5001);
+    expect(ptyProcess.kill).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("a reconnect within the grace reattaches to the SAME pty (no second spawn)", async () => {
+    vi.useFakeTimers();
+    const ptyProcess = {
+      onData: vi.fn(),
+      onExit: vi.fn(),
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+    };
+    const spawn = vi.fn((..._args: any[]) => ptyProcess);
+    vi.doMock("node-pty", () => ({ spawn }));
+    vi.doMock("../src/execution/sandbox.js", () => ({
+      sandboxManager: {
+        ensureProjectSandbox: vi.fn(async () => "container-abc"),
+        touch: vi.fn(),
+      },
+    }));
+    vi.doMock("../src/projects/service.js", () => ({
+      workspacePath: async () => "/tmp/does-not-matter",
+    }));
+
+    const { handleTerminalConnection } = await import("../src/ws/terminal.js");
+    const cfg = makeTestConfig({ terminalDetachGraceMs: 5000 });
+
+    const ws1 = makeFakeWs();
+    await handleTerminalConnection(ws1 as any, "p", cfg, 1, undefined, "tid-x");
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    ws1.emit("close");
+    vi.advanceTimersByTime(2000);
+
+    const ws2 = makeFakeWs();
+    await handleTerminalConnection(ws2 as any, "p", cfg, 1, undefined, "tid-x");
+    // reattach — not a fresh spawn
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    ws2.emit("message", Buffer.from(JSON.stringify({ type: "data", data: "x" })));
+    expect(ptyProcess.write).toHaveBeenCalledWith("x");
+
+    // grace was cancelled by the reattach
+    vi.advanceTimersByTime(10_000);
+    expect(ptyProcess.kill).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
 
@@ -294,33 +347,53 @@ describe("terminalGate — per-user concurrent terminal cap", () => {
     expect(rejected.closed).toBe(true);
   });
 
-  it("releases the permit on close, admitting a new connection afterward", async () => {
+  it("M79: a close DETACHES — the slot is held through the grace, then released", async () => {
+    vi.useFakeTimers();
     const { handleTerminalConnection, terminalGate } = await setup();
-    const cfg = makeTestConfig({ maxTerminalsPerUser: 1 });
+    const cfg = makeTestConfig({
+      maxTerminalsPerUser: 1,
+      terminalDetachGraceMs: 5000,
+    });
 
     const first = makeFakeWs();
-    await handleTerminalConnection(first as any, "proj-a", cfg, 1);
+    await handleTerminalConnection(first as any, "proj-a", cfg, 1, undefined, "t1");
     expect(terminalGate.activeCount(1)).toBe(1);
 
     first.emit("close");
+    // detached — slot still consumed, so the cap still bites
+    expect(terminalGate.activeCount(1)).toBe(1);
+    const blocked = makeFakeWs();
+    await handleTerminalConnection(blocked as any, "proj-b", cfg, 1, undefined, "t2");
+    expect(blocked.closed).toBe(true);
+
+    // grace expires without a reattach → slot freed
+    vi.advanceTimersByTime(5001);
     expect(terminalGate.activeCount(1)).toBe(0);
 
     const second = makeFakeWs();
-    await handleTerminalConnection(second as any, "proj-b", cfg, 1);
+    await handleTerminalConnection(second as any, "proj-b", cfg, 1, undefined, "t3");
     expect(second.closed).toBe(false);
     expect(terminalGate.activeCount(1)).toBe(1);
+    vi.useRealTimers();
   });
 
-  it("releases the permit on an abrupt socket error even if close never fires", async () => {
+  it("M79: an abrupt error also detaches; the grace still releases the slot", async () => {
+    vi.useFakeTimers();
     const { handleTerminalConnection, terminalGate } = await setup();
-    const cfg = makeTestConfig({ maxTerminalsPerUser: 1 });
+    const cfg = makeTestConfig({
+      maxTerminalsPerUser: 1,
+      terminalDetachGraceMs: 5000,
+    });
 
     const first = makeFakeWs();
-    await handleTerminalConnection(first as any, "proj-a", cfg, 1);
+    await handleTerminalConnection(first as any, "proj-a", cfg, 1, undefined, "t1");
     expect(terminalGate.activeCount(1)).toBe(1);
 
     first.emit("error", new Error("ECONNRESET"));
+    expect(terminalGate.activeCount(1)).toBe(1);
+    vi.advanceTimersByTime(5001);
     expect(terminalGate.activeCount(1)).toBe(0);
+    vi.useRealTimers();
   });
 
   it("releases the permit when sandbox creation fails, without ever spawning a pty", async () => {

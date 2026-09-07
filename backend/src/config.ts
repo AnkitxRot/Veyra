@@ -51,6 +51,10 @@ export interface AppConfig {
   maxSandboxes: number;
   maxSandboxesPerUser: number;
   maxTerminalsPerUser: number;
+  /** M79 — how long a detached terminal PTY is kept alive for a reconnecting
+   *  client of the same user before it is reaped. Must sit above the client
+   *  reconnect ceiling and below the sandbox room-empty grace. */
+  terminalDetachGraceMs: number;
   shutdownGraceMs: number;
   frontendDist: string;
   containerized: boolean;
@@ -275,6 +279,17 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     maxTerminalsPerUser:
       overrides.maxTerminalsPerUser ??
       Number(process.env.MAX_TERMINALS_PER_USER ?? 5),
+    // M79 — detached-PTY grace. 90s: above the client reconnect ceiling
+    // (~40s: 6 attempts, 1.8x backoff, 15s cap) and the heartbeat reap window
+    // (30-60s), below sandboxRoomEmptyGraceMs (120s) so a detached PTY is
+    // reaped before its container could be — and `docker rm -f` kills the
+    // `docker exec` regardless.
+    terminalDetachGraceMs:
+      overrides.terminalDetachGraceMs ??
+      boundedIntEnv("TERMINAL_DETACH_GRACE_MS", 90_000, {
+        min: 5_000,
+        max: 600_000,
+      }),
     // Defaults mirror collab/manager.ts's DEFAULT_* constants — duplicated
     // here as literals rather than imported, to keep this foundational
     // config module decoupled from collab internals.
