@@ -8309,5 +8309,6 @@ boundaries hold (unrelated user -> 403/404). One **SUSPECTED pre-existing P3**
 (non-M73, non-user-visible): stale `{}` awareness entries in a heavily-churned
 room (fresh room clean) - left for a separate backend pass.
 
-M73 remains **NOT merged** pending the operator's merge decision; no M74 work
-has started.
+M73 is **merged** — PR #10 (`e54c8d0`). M74 (awareness-table reconciliation +
+collaboration-aware sandbox lifecycle) followed; the SUSPECTED P3 above is
+addressed there.
