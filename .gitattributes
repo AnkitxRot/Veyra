@@ -1,0 +1,27 @@
+# Enforce LF in the repository and on checkout for every text file, on every
+# platform, regardless of the developer's core.autocrlf / core.eol setting.
+#
+# Why this is load-bearing: a large share of the test suite asserts on the
+# literal source text of components (e.g. `expect(ide).toContain('import {\n
+# ...')`). On a Windows checkout with core.autocrlf=true those files land as
+# CRLF and the `\n`-literal assertions fail locally while passing on the
+# Linux CI runner — a confusing, recurring papercut. Pinning eol=lf makes a
+# local checkout byte-identical to CI.
+* text=auto eol=lf
+
+# Explicit binary markers so a stray CRLF-normalisation pass can never corrupt
+# these even if content auto-detection is ever fooled.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.zip   binary
+*.gz    binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
+*.wasm  binary
