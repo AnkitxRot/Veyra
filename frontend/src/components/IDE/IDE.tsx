@@ -353,7 +353,9 @@ export default function IDE({
   // M69: the single resolved-appearance source. Stamps `<html data-theme>`
   // from the typed `theme` preference and — only in "system" mode — follows
   // the OS `prefers-color-scheme`. `resolvedTheme` is threaded to the Editor
-  // and Terminal, which update Monaco / xterm in place (never remount).
+  // (Monaco re-themes in place) and to the terminal session (M79 — xterm
+  // re-themes in place; the session itself is project-lifetime, not tab- or
+  // collapse-scoped).
   const { resolvedTheme } = useAppearance(preferences.theme);
 
   // M70: the resolved keybinding map (defaults + the user's typed overrides).
@@ -3728,8 +3730,10 @@ export default function IDE({
               </div>
             </div>
 
-            {/* Panel Content Display */}
-            {!isBottomCollapsed && (
+            {/* Panel Content Display — every tab except Terminal. Terminal is
+                mounted separately below so its session survives tab switches
+                and drawer collapse (M79). */}
+            {!isBottomCollapsed && bottomTab !== "terminal" && (
               <div
                 style={{
                   flex: 1,
@@ -3789,9 +3793,6 @@ export default function IDE({
                 {bottomTab === "resources" && (
                   <ResourcesView project={project} />
                 )}
-                {bottomTab === "terminal" && (
-                  <Terminal project={project} resolvedTheme={resolvedTheme} />
-                )}
                 {bottomTab === "preview" && project && (
                   <Preview key={project.id} project={project} />
                 )}
@@ -3807,6 +3808,32 @@ export default function IDE({
                     }}
                   />
                 )}
+              </div>
+            )}
+
+            {/* M79: the terminal session is owned for the project's lifetime,
+                mounted outside BOTH the collapse and bottomTab conditionals
+                above. `visible` only toggles display — switching tabs or
+                collapsing the drawer never closes the socket, disposes the
+                XTerm, or kills the PTY. */}
+            {project && (
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: "hidden",
+                  flexDirection: "column",
+                  display:
+                    bottomTab === "terminal" && !isBottomCollapsed
+                      ? "flex"
+                      : "none",
+                }}
+              >
+                <Terminal
+                  projectId={project.id}
+                  resolvedTheme={resolvedTheme}
+                  visible={bottomTab === "terminal" && !isBottomCollapsed}
+                />
               </div>
             )}
           </div>

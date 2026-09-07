@@ -8,6 +8,9 @@ const read = (p: string) => readFileSync(join(here, p), "utf-8");
 const ide = read("../src/components/IDE/IDE.tsx");
 const editor = read("../src/components/Editor/Editor.tsx");
 const terminal = read("../src/components/Terminal/Terminal.tsx");
+// M79 — the terminal session (xterm + theme handling) moved out of the view
+// into this hook. The M69 guarantees are re-asserted against it below.
+const terminalSession = read("../src/hooks/useTerminalSession.tsx");
 const types = read("../src/types.ts");
 const settingsModal = read("../src/components/Settings/SettingsModal.tsx");
 
@@ -30,19 +33,25 @@ describe("M69 — appearance controller wiring", () => {
     expect(ide.match(/resolvedTheme=\{resolvedTheme\}/g) ?? []).toHaveLength(2);
   });
 
-  it("Terminal themes xterm from the prop and updates it in place", () => {
-    // create() no longer carries an inline hardcoded palette
-    expect(terminal).not.toMatch(/theme:\s*\{\s*\n\s*background:/);
-    expect(terminal).toContain("from './terminalThemes'");
-    expect(terminal).toContain(
-      "theme: TERMINAL_THEMES[resolvedThemeRef.current]",
+  it("the terminal session themes xterm from the prop and updates it in place (M69, M79-relocated)", () => {
+    // The xterm is created with the palette for the current resolved theme…
+    expect(terminalSession).not.toMatch(/theme:\s*\{\s*\n\s*background:/);
+    expect(terminalSession).toContain(
+      'from "../components/Terminal/terminalThemes"',
     );
-    // a theme change updates the live instance, keyed on the prop
-    expect(terminal).toMatch(
+    expect(terminalSession).toContain(
+      "theme: TERMINAL_THEMES[themeRef.current]",
+    );
+    // …and a theme change updates the live instance in place, keyed on the
+    // prop — never a reconnect or a new XTerm.
+    expect(terminalSession).toMatch(
       /xtermRef\.current\.options\.theme = TERMINAL_THEMES\[resolvedTheme\];\s*\}\s*\},\s*\[resolvedTheme\]\)/,
     );
-    // initTerminal (which opens the WebSocket) is still keyed on project only
-    expect(terminal).toMatch(/\}, \[project\?\.id\]\);/);
+    // The session boundary (which owns the WebSocket lifecycle) is keyed on
+    // the project id only — not the theme, not panel visibility.
+    expect(terminalSession).toMatch(/\}, \[projectId\]\);/);
+    // The view no longer owns any theme or socket logic.
+    expect(terminal).toContain("useTerminalSession(projectId, resolvedTheme)");
   });
 
   it("theme is a typed preference and part of the editable modal keys", () => {

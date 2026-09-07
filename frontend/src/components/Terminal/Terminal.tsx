@@ -1,148 +1,128 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Terminal as XTerm } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { getWebSocketUrl } from '../../api';
-import { IconTrash, IconRefresh } from '../common/Icons';
-import { TERMINAL_THEMES } from './terminalThemes';
+import { useEffect, useRef } from "react";
+import { IconTrash, IconRefresh } from "../common/Icons";
+import { useTerminalSession } from "../../hooks/useTerminalSession";
+import {
+  TERMINAL_STATES,
+  type TerminalConnectionState,
+} from "../../hooks/terminalSessionState";
+
+/**
+ * M79 — thin presentation layer over `useTerminalSession`.
+ *
+ * The session (XTerm + WebSocket + PTY) is owned by the hook and lives for the
+ * project's lifetime. This component is mounted by IDE.tsx regardless of the
+ * bottom-panel tab or collapse state; `visible` only toggles `display`, never
+ * the session. Switching bottom tabs / collapsing the drawer therefore does
+ * NOT close the socket, dispose the XTerm, or kill the PTY.
+ */
+
+const BADGE: Record<
+  TerminalConnectionState,
+  { text: string; kind: "success" | "error" | "warn" }
+> = {
+  [TERMINAL_STATES.connecting]: { text: "Connecting…", kind: "warn" },
+  [TERMINAL_STATES.connected]: { text: "bash (sandbox)", kind: "success" },
+  [TERMINAL_STATES.reconnecting]: { text: "Reconnecting…", kind: "warn" },
+  [TERMINAL_STATES.reconnect_exhausted]: {
+    text: "Disconnected",
+    kind: "error",
+  },
+  [TERMINAL_STATES.ended]: { text: "Session ended", kind: "error" },
+};
 
 export default function Terminal({
-  project,
-  resolvedTheme = 'dark',
+  projectId,
+  resolvedTheme = "dark",
+  visible = true,
 }: {
-  project: any;
-  resolvedTheme?: 'dark' | 'light';
+  projectId: string;
+  resolvedTheme?: "dark" | "light";
+  visible?: boolean;
 }) {
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<XTerm | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
-  const [connected, setConnected] = useState(false);
-  // Ref so initTerminal (keyed on project only) reads the current theme
-  // without a theme change re-running it and tearing down the session.
-  const resolvedThemeRef = useRef(resolvedTheme);
-  resolvedThemeRef.current = resolvedTheme;
+  const { state, endedReason, bindContainer, ensureStarted, clear, retry, fit } =
+    useTerminalSession(projectId, resolvedTheme);
 
-  const initTerminal = useCallback(() => {
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-    if (!terminalRef.current || !project) return;
-
-    const term = new XTerm({
-      theme: TERMINAL_THEMES[resolvedThemeRef.current],
-      fontFamily: 'var(--font-mono)',
-      fontSize: 13,
-      lineHeight: 1.35,
-      cursorBlink: true,
-      cursorStyle: 'block',
-    });
-
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(terminalRef.current);
-    fit.fit();
-    xtermRef.current = term;
-
-    const ws = new WebSocket(getWebSocketUrl('/ws/terminal', project.id));
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnected(true);
-      term.writeln('\x1b[38;2;166;227;161m●\x1b[0m \x1b[1mCloudeeeIDE Docker Terminal Connected\x1b[0m\r\n');
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      term.writeln('\r\n\x1b[38;2;243;139;168m●\x1b[0m \x1b[2m[Terminal Session Ended]\x1b[0m\r\n');
-    };
-
-    ws.onerror = () => {
-      setConnected(false);
-      term.writeln('\r\n\x1b[31m[Terminal Connection Error]\x1b[0m\r\n');
-    };
-
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'data' && msg.data) {
-          term.write(msg.data);
-        }
-      } catch {
-        // ignore parse errors
-      }
-    };
-
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'data', data }));
-      }
-    });
-
-    term.onResize(({ cols, rows }) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-      }
-    });
-
-    const resizeObserver = new ResizeObserver(() => {
-      try { fit.fit(); } catch {}
-    });
-    resizeObserver.observe(terminalRef.current);
-
-    const cleanup = () => {
-      try { ws.close(); } catch {}
-      try { term.dispose(); } catch {}
-      resizeObserver.disconnect();
-    };
-    cleanupRef.current = cleanup;
-    return cleanup;
-  }, [project?.id]);
+  const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    initTerminal();
-    return () => {
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
-    };
-  }, [initTerminal]);
+    bindContainer(hostRef.current);
+    return () => bindContainer(null);
+  }, [bindContainer]);
 
-  // M69: apply the resolved appearance to the live terminal in place — the
-  // xterm instance and its WebSocket session are untouched.
+  // `projectId` is a dependency so a project change (which resets the session
+  // in the hook) re-arms `ensureStarted` on the next visible frame.
   useEffect(() => {
-    if (xtermRef.current) {
-      xtermRef.current.options.theme = TERMINAL_THEMES[resolvedTheme];
+    if (visible) {
+      ensureStarted();
+      fit();
     }
-  }, [resolvedTheme]);
+  }, [visible, projectId, ensureStarted, fit]);
+
+  const badge = BADGE[state];
+  const connected = state === TERMINAL_STATES.connected;
+  const showRetry =
+    state === TERMINAL_STATES.reconnect_exhausted ||
+    state === TERMINAL_STATES.ended;
 
   return (
-    <div className="panel-content">
+    <div
+      className="panel-content"
+      style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
+    >
       {/* Terminal Toolbar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '6px 12px',
-        background: 'var(--glass-surface-2)',
-        borderBottom: '1px solid var(--glass-border)',
-        fontSize: 'var(--text-xs)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span className={`glass-badge ${connected ? 'glass-badge-success' : 'glass-badge-error'}`}>
-            <span className={`capability-dot ${connected ? 'ready' : 'error'}`} />
-            <span>{connected ? 'bash (sandbox)' : 'Disconnected'}</span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "6px 12px",
+          background: "var(--glass-surface-2)",
+          borderBottom: "1px solid var(--glass-border)",
+          fontSize: "var(--text-xs)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span
+            className={`glass-badge glass-badge-${
+              badge.kind === "success"
+                ? "success"
+                : badge.kind === "warn"
+                  ? "warn"
+                  : "error"
+            }`}
+          >
+            <span
+              className={`capability-dot ${connected ? "ready" : "error"}`}
+            />
+            <span>{badge.text}</span>
           </span>
-          <span style={{ color: 'var(--fg-muted)', fontSize: '11px' }}>
-            Docker container: /workspace
+          <span style={{ color: "var(--fg-muted)", fontSize: "11px" }}>
+            {state === TERMINAL_STATES.ended && endedReason
+              ? `reason: ${endedReason}`
+              : "Docker container: /workspace"}
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '4px' }}>
+        <div style={{ display: "flex", gap: "4px" }}>
+          {showRetry && (
+            <button
+              className="glass-btn"
+              style={{ fontSize: "11px", padding: "2px 8px" }}
+              onClick={retry}
+              title={
+                state === TERMINAL_STATES.ended
+                  ? "Start a new terminal"
+                  : "Retry connection"
+              }
+            >
+              {state === TERMINAL_STATES.ended
+                ? "Start new terminal"
+                : "Retry"}
+            </button>
+          )}
           <button
             className="glass-btn glass-btn-icon"
-            onClick={() => xtermRef.current?.clear()}
+            onClick={clear}
             title="Clear Terminal"
             aria-label="Clear Terminal"
           >
@@ -150,7 +130,7 @@ export default function Terminal({
           </button>
           <button
             className="glass-btn glass-btn-icon"
-            onClick={initTerminal}
+            onClick={retry}
             title="Reconnect Terminal"
             aria-label="Reconnect Terminal"
           >
@@ -159,7 +139,7 @@ export default function Terminal({
         </div>
       </div>
 
-      <div ref={terminalRef} className="terminal-container" />
+      <div ref={hostRef} className="terminal-container" />
     </div>
   );
 }

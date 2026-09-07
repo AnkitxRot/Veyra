@@ -8,16 +8,20 @@ const { FakeXTerm, FakeFitAddon, FakeWS } = vi.hoisted(() => {
   class FakeXTerm {
     static instances: FakeXTerm[] = [];
     options: Record<string, unknown>;
+    element: unknown = null;
     disposed = false;
     constructor(opts: Record<string, unknown>) {
       this.options = { ...opts };
       FakeXTerm.instances.push(this);
     }
     loadAddon() {}
-    open() {}
+    open() {
+      this.element = {};
+    }
     writeln() {}
     write() {}
     clear() {}
+    focus() {}
     onData() {}
     onResize() {}
     dispose() {
@@ -30,6 +34,7 @@ const { FakeXTerm, FakeFitAddon, FakeWS } = vi.hoisted(() => {
   class FakeWS {
     static instances: FakeWS[] = [];
     static OPEN = 1;
+    static CLOSED = 3;
     readyState = 0;
     onopen: (() => void) | null = null;
     onclose: (() => void) | null = null;
@@ -42,6 +47,7 @@ const { FakeXTerm, FakeFitAddon, FakeWS } = vi.hoisted(() => {
     send() {}
     close() {
       this.closed = true;
+      this.readyState = FakeWS.CLOSED;
     }
   }
   return { FakeXTerm, FakeFitAddon, FakeWS };
@@ -64,14 +70,18 @@ beforeEach(() => {
     observe() {}
     disconnect() {}
   };
+  if (!(globalThis.crypto as any)?.randomUUID) {
+    (globalThis as any).crypto = {
+      ...(globalThis.crypto ?? {}),
+      randomUUID: () => "uuid-" + Math.random().toString(16).slice(2),
+    };
+  }
 });
 afterEach(cleanup);
 
-const P1 = { id: "p1", name: "P1" };
-
-describe("M69 — terminal theme sync", () => {
+describe("M69 → M79 — terminal theme sync (in place, session-preserving)", () => {
   it("opens the terminal with the dark palette by default", () => {
-    render(<Terminal project={P1} resolvedTheme="dark" />);
+    render(<Terminal projectId="p1" resolvedTheme="dark" visible />);
     expect(FakeXTerm.instances).toHaveLength(1);
     expect(
       (FakeXTerm.instances[0].options.theme as any).background,
@@ -79,41 +89,40 @@ describe("M69 — terminal theme sync", () => {
   });
 
   it("opens the terminal with the light palette when resolvedTheme is light", () => {
-    render(<Terminal project={P1} resolvedTheme="light" />);
+    render(<Terminal projectId="p1" resolvedTheme="light" visible />);
     expect((FakeXTerm.instances[0].options.theme as any).background).toBe(
       TERMINAL_THEMES.light.background,
     );
   });
 
   it("updates the live terminal theme in place — no new xterm, no new socket", () => {
-    const view = render(<Terminal project={P1} resolvedTheme="dark" />);
+    const view = render(
+      <Terminal projectId="p1" resolvedTheme="dark" visible />,
+    );
     const term = FakeXTerm.instances[0];
-    const wsCount = FakeWS.instances.length;
-    expect(wsCount).toBe(1);
+    expect(FakeWS.instances).toHaveLength(1);
 
     act(() => {
-      view.rerender(<Terminal project={P1} resolvedTheme="light" />);
+      view.rerender(<Terminal projectId="p1" resolvedTheme="light" visible />);
     });
 
-    // same instance, not disposed, no reconnect
     expect(FakeXTerm.instances).toHaveLength(1);
     expect(FakeXTerm.instances[0]).toBe(term);
     expect(term.disposed).toBe(false);
     expect(FakeWS.instances).toHaveLength(1);
     expect(FakeWS.instances[0].closed).toBe(false);
-    // theme actually changed
     expect((term.options.theme as any).background).toBe(
       TERMINAL_THEMES.light.background,
     );
   });
 
-  it("still recreates the session when the project changes (theme guard is theme-only)", () => {
-    const view = render(<Terminal project={P1} resolvedTheme="dark" />);
+  it("still recreates the session when the project changes", () => {
+    const view = render(
+      <Terminal projectId="p1" resolvedTheme="dark" visible />,
+    );
     expect(FakeXTerm.instances).toHaveLength(1);
     act(() => {
-      view.rerender(
-        <Terminal project={{ id: "p2", name: "P2" }} resolvedTheme="dark" />,
-      );
+      view.rerender(<Terminal projectId="p2" resolvedTheme="dark" visible />);
     });
     expect(FakeXTerm.instances.length).toBe(2);
     expect(FakeWS.instances.length).toBe(2);

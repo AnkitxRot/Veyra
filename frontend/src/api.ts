@@ -31,10 +31,18 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return data;
 }
 
-export function getWebSocketUrl(path: string, projectId: string): string {
+export function getWebSocketUrl(
+  path: string,
+  projectId: string,
+  extraParams?: Record<string, string | number>,
+): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
-  return `${protocol}//${host}${path}?projectId=${projectId}`;
+  const params = new URLSearchParams({ projectId });
+  for (const [k, v] of Object.entries(extraParams ?? {})) {
+    params.set(k, String(v));
+  }
+  return `${protocol}//${host}${path}?${params.toString()}`;
 }
 
 export interface Capabilities {
