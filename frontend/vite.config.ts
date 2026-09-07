@@ -26,6 +26,11 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Fail loudly if 5173 is already taken instead of silently serving on the
+    // next free port. A stale dev server holding 5173 with no /api proxy
+    // otherwise looks healthy while the browser keeps hitting the zombie.
+    // Run a second instance with `npm run dev -- --port <n>`.
+    strictPort: true,
     proxy: {
       "/api": { target: "http://localhost:3000", changeOrigin: true },
       "/ws": { target: "ws://localhost:3000", ws: true, changeOrigin: true },

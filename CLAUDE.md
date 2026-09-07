@@ -130,6 +130,8 @@ cd frontend && npm run dev
 # Start both (run backend, then frontend in another terminal)
 ```
 
+If `npm run dev` fails with `Port 5173 is already in use`: frontend/vite.config.ts sets `server.strictPort`, so Vite now fails fast instead of silently moving to another port — which previously masked a stale dev server still holding 5173 with a dead /api proxy (login calls returning `request failed (404)`). Stop the process listening on 5173, or start this instance elsewhere with `npm run dev -- --port <n>`. On Windows/Docker Desktop, 5173 can also fall inside a reserved range (`netsh interface ipv4 show excludedportrange protocol=tcp`) even with nothing listening — pick another port or restart WinNAT (`net stop winnat && net start winnat`).
+
 ### Building & Preview
 ```bash
 # Type-check backend
