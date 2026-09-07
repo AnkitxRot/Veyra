@@ -271,4 +271,103 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
     clientAwarenessA.destroy();
     clientAwarenessB.destroy();
   });
+
+  /**
+   * M76 regression: many join / silent-death / clean-leave cycles must not
+   * let the awareness table grow without bound. Each iteration adds two
+   * fresh connections (new random clientIDs), kills one silently, removes the
+   * other cleanly. After every iteration the table is back to exactly the
+   * server's own `doc.clientID` baseline — no orphan accumulation across 25
+   * cycles.
+   */
+  it("repeated join/silent-death/leave cycles never accumulate orphan entries", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("alice", "h", "user"); // id 1
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("bob", "h", "user"); // id 2
+
+    const project = await createProject(cfg, db, 1, { name: "CycleRoom" });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+
+    const clientAwarenesses: awarenessProtocol.Awareness[] = [];
+    for (let i = 0; i < 25; i++) {
+      const wsA = makeMockWs();
+      const wsB = makeMockWs();
+      await room.addClient(wsA, {
+        userId: 1,
+        username: "alice",
+        role: "editor",
+      });
+      await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
+
+      const caA = new awarenessProtocol.Awareness(new Y.Doc());
+      const caB = new awarenessProtocol.Awareness(new Y.Doc());
+      clientAwarenesses.push(caA, caB);
+      room.handleMessage(wsA, buildAwarenessFrame(caA, { name: `A${i}` }));
+      room.handleMessage(wsB, buildAwarenessFrame(caB, { name: `B${i}` }));
+
+      expect(room.awareness.getStates().size).toBe(3); // A + B + baseline
+
+      wsA.readyState = 3; // dies silently — no removeClient
+      room.removeClient(wsB); // clean leave drives the on-removal reconcile
+
+      // Back to just the server baseline — both this iteration's entries gone.
+      expect(room.awareness.getStates().size).toBe(1);
+      expect(room.awareness.getStates().has(caA.clientID)).toBe(false);
+      expect(room.awareness.getStates().has(caB.clientID)).toBe(false);
+    }
+
+    room.dispose();
+    for (const ca of clientAwarenesses) ca.destroy();
+  });
+
+  /**
+   * M76 regression: a single user reconnecting (new socket, new Yjs clientID,
+   * old socket dead) must leave exactly one awareness entry for that user —
+   * the new one — never a duplicate and never a lingering stale entry.
+   */
+  it("a reconnect (new clientID, old socket dead) leaves exactly one entry for the user", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("alice", "h", "user"); // id 1
+
+    const project = await createProject(cfg, db, 1, { name: "ReconnectRoom" });
+    const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
+
+    const ws1 = makeMockWs();
+    await room.addClient(ws1, { userId: 1, username: "alice", role: "editor" });
+    const ca1 = new awarenessProtocol.Awareness(new Y.Doc());
+    room.handleMessage(ws1, buildAwarenessFrame(ca1, { name: "Alice" }));
+    expect(room.awareness.getStates().has(ca1.clientID)).toBe(true);
+
+    // Old socket dies silently; the client reconnects on a fresh socket with a
+    // brand-new Yjs clientID before any removeClient(ws1) fires.
+    ws1.readyState = 3;
+    const ws2 = makeMockWs();
+    await room.addClient(ws2, { userId: 1, username: "alice", role: "editor" });
+    const ca2 = new awarenessProtocol.Awareness(new Y.Doc());
+    room.handleMessage(ws2, buildAwarenessFrame(ca2, { name: "Alice" }));
+
+    // The dead socket's 'close' event finally arrives and removeClient(ws1)
+    // runs — late, after the reconnect. It must withdraw only the stale entry.
+    room.removeClient(ws1);
+
+    const states = room.awareness.getStates();
+    expect(states.has(ca2.clientID)).toBe(true); // the live reconnected entry
+    expect(states.has(ca1.clientID)).toBe(false); // stale entry gone
+    // one live user entry + server baseline, no duplicate
+    expect(states.size).toBe(2);
+    // server forces authoritative identity — user.name is the immutable
+    // username, and there is exactly one entry for the user (no duplicate).
+    const users = [...states.values()]
+      .map((s: any) => s.user?.name)
+      .filter(Boolean);
+    expect(users).toEqual(["alice"]);
+
+    room.dispose();
+    ca1.destroy();
+    ca2.destroy();
+  });
 });

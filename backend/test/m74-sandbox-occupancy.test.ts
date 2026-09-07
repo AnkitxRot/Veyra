@@ -103,6 +103,38 @@ describe.skipIf(!isDockerRunning())("M74 — collaboration-aware sandbox lifecyc
     expect(await containerExists(name)).toBe(false);
   });
 
+  it("a rejoin during the grace window resets roomEmptyAt and keeps the sandbox warm", async () => {
+    const occ = new Map<string, Occ>();
+    const { mgr, projectId, T0, name } = await freshSandbox(occ);
+
+    occ.set(projectId, { liveClients: 1, distinctUsers: 1 });
+    await mgr.reapIdleSandboxes(IDLE, GRACE, T0); // observed occupied
+
+    // Room empties; the reaper records roomEmptyAt at T0 + 5s.
+    occ.set(projectId, { liveClients: 0, distinctUsers: 0 });
+    expect(await mgr.reapIdleSandboxes(IDLE, GRACE, T0 + 5_000)).toEqual([]);
+
+    // A collaborator rejoins mid-grace (T0 + 60s, well before T0+5s+120s).
+    // liveClients > 0 -> kept warm AND roomEmptyAt is cleared back to null.
+    occ.set(projectId, { liveClients: 1, distinctUsers: 1 });
+    expect(await mgr.reapIdleSandboxes(IDLE, GRACE, T0 + 60_000)).toEqual([]);
+    expect(await containerExists(name)).toBe(true);
+
+    // The room empties a SECOND time far past the original T0+5s deadline. A
+    // fresh full grace must apply from here (T1), not the stale T0+5s clock —
+    // this is the assertion that fails if the rejoin did not clear roomEmptyAt.
+    occ.set(projectId, { liveClients: 0, distinctUsers: 0 });
+    const T1 = T0 + 5_000 + GRACE + 10_000;
+    await mgr.reapIdleSandboxes(IDLE, GRACE, T1); // fresh roomEmptyAt = T1
+    // 30s into the new grace: still warm (stale-clock revert would reap here).
+    expect(await mgr.reapIdleSandboxes(IDLE, GRACE, T1 + 30_000)).toEqual([]);
+    expect(await containerExists(name)).toBe(true);
+    // Past the new grace deadline: now reaped.
+    const reaped = await mgr.reapIdleSandboxes(IDLE, GRACE, T1 + GRACE + 1_000);
+    expect(reaped).toContain(projectId);
+    expect(await containerExists(name)).toBe(false);
+  });
+
   it("with no occupancy provider, preserves the pre-M74 idle-timeout rule", async () => {
     const { mgr, projectId, T0, name } = await freshSandbox(); // no provider
 
