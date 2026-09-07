@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
+import * as decoding from "lib0/decoding";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
 import { CollaborationRoom } from "../src/collab/manager.js";
@@ -125,6 +126,87 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
     expect(states.has(clientIdB)).toBe(false);
     // Only the server's own doc.clientID baseline ({}) remains.
     expect(states.size).toBe(1);
+
+    room.dispose();
+    clientAwarenessA.destroy();
+    clientAwarenessB.destroy();
+  });
+
+  /**
+   * A late joiner must never receive a dead connection's presence in its
+   * initial awareness snapshot. Connection A's socket dies with no `close`
+   * event (so `removeClient(wsA)` never runs and the reconcile in commit 1 is
+   * not triggered); connection C then joins. The awareness frame `addClient`
+   * sends C must carry only the server's own `doc.clientID` baseline plus the
+   * one genuinely-live peer (B).
+   */
+  it("excludes a dead connection's awareness entry from a late joiner's snapshot", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("alice", "h", "user"); // id 1
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("bob", "h", "user"); // id 2
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("carol", "h", "user"); // id 3
+
+    const project = await createProject(cfg, db, 1, { name: "JoinSnapshotRoom" });
+    const onDispose = vi.fn();
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose);
+
+    const wsA = makeMockWs();
+    const wsB = makeMockWs();
+    await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
+    await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
+
+    const clientAwarenessA = new awarenessProtocol.Awareness(new Y.Doc());
+    const clientAwarenessB = new awarenessProtocol.Awareness(new Y.Doc());
+    const clientIdA = clientAwarenessA.clientID;
+    const clientIdB = clientAwarenessB.clientID;
+    room.handleMessage(wsA, buildAwarenessFrame(clientAwarenessA, { name: "Alice" }));
+    room.handleMessage(wsB, buildAwarenessFrame(clientAwarenessB, { name: "Bob" }));
+
+    // A's socket dies silently: no 'close', no removeClient, no removal frame.
+    wsA.readyState = 3; // WebSocket.CLOSED
+
+    // C joins and records every frame the room sends it.
+    const received: Uint8Array[] = [];
+    const wsC = {
+      readyState: 1,
+      send: (data: Uint8Array) => received.push(data),
+      close: () => {},
+    } as any;
+    await room.addClient(wsC, { userId: 3, username: "carol", role: "editor" });
+
+    // The lone MESSAGE_AWARENESS frame in C's join snapshot.
+    const MESSAGE_AWARENESS = 1;
+    const awarenessFrames = received.filter((buf) => {
+      const d = decoding.createDecoder(buf);
+      return decoding.readVarUint(d) === MESSAGE_AWARENESS;
+    });
+    expect(awarenessFrames.length).toBe(1);
+
+    // Decode the awareness update the joiner received into { clientID -> state }.
+    const d = decoding.createDecoder(awarenessFrames[0]!);
+    decoding.readVarUint(d); // MESSAGE_AWARENESS
+    const update = decoding.readVarUint8Array(d);
+    const ud = decoding.createDecoder(update);
+    const count = decoding.readVarUint(ud);
+    const snapshot = new Map<number, unknown>();
+    for (let i = 0; i < count; i++) {
+      const clientId = decoding.readVarUint(ud);
+      decoding.readVarUint(ud); // clock
+      snapshot.set(clientId, JSON.parse(decoding.readVarString(ud)));
+    }
+
+    // The dead connection's presence is not delivered to the joiner.
+    expect(snapshot.has(clientIdA)).toBe(false);
+    // The live peer is.
+    expect(snapshot.has(clientIdB)).toBe(true);
+    // Server's own doc.clientID baseline ({}) plus B — nothing else.
+    expect(snapshot.has(room.doc.clientID)).toBe(true);
+    expect(snapshot.size).toBe(2);
 
     room.dispose();
     clientAwarenessA.destroy();

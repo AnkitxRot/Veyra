@@ -1639,16 +1639,23 @@ export class CollaborationRoom {
     // 2. Send current room Awareness states
     const awarenessStates = this.awareness.getStates();
     if (awarenessStates.size > 0) {
-      const awarenessEncoder = encoding.createEncoder();
-      encoding.writeVarUint(awarenessEncoder, MESSAGE_AWARENESS);
-      encoding.writeVarUint8Array(
-        awarenessEncoder,
-        awarenessProtocol.encodeAwarenessUpdate(
-          this.awareness,
-          Array.from(awarenessStates.keys()),
-        ),
+      // M74: never hand a joiner an entry with no live socket behind it — a
+      // connection that died without a 'close' event leaves an orphan in the
+      // table until the next removeClient reconcile. The server's own
+      // doc.clientID baseline ({}) is kept (readPresenceState ignores it).
+      const liveOwned = this.liveOwnedAwarenessClientIds();
+      const visibleKeys = Array.from(awarenessStates.keys()).filter(
+        (id) => id === this.doc.clientID || liveOwned.has(id),
       );
-      ws.send(encoding.toUint8Array(awarenessEncoder));
+      if (visibleKeys.length > 0) {
+        const awarenessEncoder = encoding.createEncoder();
+        encoding.writeVarUint(awarenessEncoder, MESSAGE_AWARENESS);
+        encoding.writeVarUint8Array(
+          awarenessEncoder,
+          awarenessProtocol.encodeAwarenessUpdate(this.awareness, visibleKeys),
+        );
+        ws.send(encoding.toUint8Array(awarenessEncoder));
+      }
     }
 
     // 3. M54: snapshot of any active/lingering run statuses so a client that
@@ -1946,6 +1953,21 @@ export class CollaborationRoom {
   }
 
   /**
+   * M74: the set of awareness clientIDs currently published by a live
+   * (`readyState === 1`) socket in this room. The server's own `doc.clientID`
+   * baseline is not included — callers keep or drop it explicitly.
+   */
+  private liveOwnedAwarenessClientIds(): Set<number> {
+    const liveOwned = new Set<number>();
+    for (const [ws, state] of this.clients.entries()) {
+      if (ws.readyState !== 1) continue;
+      const ids = state.awarenessClientIds;
+      if (ids) for (const id of ids) liveOwned.add(id);
+    }
+    return liveOwned;
+  }
+
+  /**
    * M74: drop awareness entries that are not backed by a live socket. The
    * server's own `doc.clientID` baseline ({}, seeded by the y-protocols
    * Awareness constructor) is never a participant and is left alone. Safe to
@@ -1955,12 +1977,7 @@ export class CollaborationRoom {
    */
   private reconcileAwarenessAgainstLiveSockets(): void {
     if (this.disposed) return;
-    const liveOwned = new Set<number>();
-    for (const [ws, state] of this.clients.entries()) {
-      if (ws.readyState !== 1) continue;
-      const ids = state.awarenessClientIds;
-      if (ids) for (const id of ids) liveOwned.add(id);
-    }
+    const liveOwned = this.liveOwnedAwarenessClientIds();
     const orphans: number[] = [];
     for (const clientId of this.awareness.getStates().keys()) {
       if (clientId === this.doc.clientID) continue;
