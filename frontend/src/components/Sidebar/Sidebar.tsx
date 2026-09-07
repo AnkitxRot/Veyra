@@ -22,6 +22,7 @@ import {
 import { getLanguageIcon } from "../common/iconUtils";
 import { PromptModal, ConfirmModal } from "../common/Modal";
 import { TemplateModal } from "../common/TemplateModal";
+import { emitNotice, emitErrorNotice } from "../../utils/notices";
 import type { CollaboratorPresence } from "../../collab/client";
 
 interface SidebarProps {
@@ -166,7 +167,7 @@ function Sidebar({
         onSelectProject(res.project);
       }
     } catch (err: any) {
-      alert(`Error creating project: ${err.message}`);
+      emitErrorNotice(`Could not create project: ${err.message}`);
     } finally {
       setIsCreatingProject(false);
       setModalState({ type: null });
@@ -189,7 +190,7 @@ function Sidebar({
         onSelectProject(res.project);
       }
     } catch (err: any) {
-      alert(`Fork failed: ${err.message}`);
+      emitErrorNotice(`Fork failed: ${err.message}`);
     } finally {
       setIsForking(false);
       setModalState({ type: null });
@@ -283,7 +284,7 @@ function Sidebar({
         conflicts: [],
       });
     } catch (err: any) {
-      alert(`Upload failed: ${err.message}`);
+      emitErrorNotice(`Upload failed: ${err.message}`);
     } finally {
       setIsUploading(false);
       if (directFileInputRef.current) directFileInputRef.current.value = "";
@@ -313,7 +314,7 @@ function Sidebar({
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      alert(`Export failed: ${err.message}`);
+      emitErrorNotice(`Export failed: ${err.message}`);
     }
   };
 
@@ -338,13 +339,12 @@ function Sidebar({
       });
       onCreateProject();
       if (res.project) {
+        // Opening the imported project is itself the success signal; a toast
+        // here would also be wiped by the project-switch clearNotices().
         onSelectProject(res.project);
       }
-      alert(
-        `Project "${res.project?.name || projectName}" imported successfully!`,
-      );
     } catch (err: any) {
-      alert(`Import failed: ${err.message}`);
+      emitErrorNotice(`Import failed: ${err.message}`);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -381,9 +381,13 @@ function Sidebar({
         },
       );
       refreshTree();
-      alert(`Workspace updated with ${file.name}!`);
+      emitNotice({
+        kind: "success",
+        text: `Workspace replaced with ${file.name}`,
+        ttl: 4000,
+      });
     } catch (err: any) {
-      alert(`Workspace import failed: ${err.message}`);
+      emitErrorNotice(`Workspace import failed: ${err.message}`);
     } finally {
       if (replaceFileInputRef.current) replaceFileInputRef.current.value = "";
     }
@@ -433,7 +437,7 @@ function Sidebar({
         refreshTree();
       }
     } catch (err: any) {
-      alert(`Error: ${err.message || "Action failed"}`);
+      emitErrorNotice(err.message || "File action failed");
     } finally {
       setModalState({ type: null });
     }

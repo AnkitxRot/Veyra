@@ -31,12 +31,18 @@ function baseProps(
 }
 
 describe("Sidebar — Milestone 28 Fork Project UI", () => {
+  let noticeEvents: any[] = [];
+  const captureNotice = (e: Event) =>
+    noticeEvents.push((e as CustomEvent).detail);
+
   beforeEach(() => {
     apiMock.mockReset();
-    vi.spyOn(window, "alert").mockImplementation(() => {});
+    noticeEvents = [];
+    document.addEventListener("ide-notice", captureNotice);
   });
 
   afterEach(() => {
+    document.removeEventListener("ide-notice", captureNotice);
     cleanup();
     vi.restoreAllMocks();
   });
@@ -98,8 +104,13 @@ describe("Sidebar — Milestone 28 Fork Project UI", () => {
     fireEvent.click(getByText("Fork"));
 
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
-    expect(window.alert).toHaveBeenCalledWith(
-      expect.stringContaining("workspace too large"),
+    await waitFor(() =>
+      expect(
+        noticeEvents.some(
+          (n) =>
+            n.kind === "error" && /workspace too large/.test(n.text ?? ""),
+        ),
+      ).toBe(true),
     );
     expect(props.onCreateProject).not.toHaveBeenCalled();
   });

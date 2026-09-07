@@ -71,12 +71,18 @@ function mockCatalogResolves() {
 }
 
 describe("Sidebar — runnable-by-default starter templates", () => {
+  let noticeEvents: any[] = [];
+  const captureNotice = (e: Event) =>
+    noticeEvents.push((e as CustomEvent).detail);
+
   beforeEach(() => {
     apiMock.mockReset();
-    vi.spyOn(window, "alert").mockImplementation(() => {});
+    noticeEvents = [];
+    document.addEventListener("ide-notice", captureNotice);
   });
 
   afterEach(() => {
+    document.removeEventListener("ide-notice", captureNotice);
     cleanup();
     vi.restoreAllMocks();
   });
@@ -306,7 +312,7 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     });
   });
 
-  it("a failed creation surfaces an error via the existing alert() convention", async () => {
+  it("a failed creation surfaces an error notice", async () => {
     mockCatalogResolves();
     apiMock.mockRejectedValueOnce(new Error("name already taken"));
 
@@ -324,8 +330,13 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     fireEvent.click(getByText("Create"));
 
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
-    expect(window.alert).toHaveBeenCalledWith(
-      expect.stringContaining("name already taken"),
+    await waitFor(() =>
+      expect(
+        noticeEvents.some(
+          (n) =>
+            n.kind === "error" && /name already taken/.test(n.text ?? ""),
+        ),
+      ).toBe(true),
     );
     expect(props.onCreateProject).not.toHaveBeenCalled();
   });
