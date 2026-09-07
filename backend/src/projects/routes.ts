@@ -30,6 +30,7 @@ import { resolveProxyEntry } from "./proxyTargets.js";
 import { sandboxManager, sandboxRun } from "../execution/sandbox.js";
 import { detectPreviewPorts } from "../execution/previewProbe.js";
 import { runGate, searchGate } from "../execution/runGate.js";
+import { terminalSessions } from "../execution/terminalSessions.js";
 import { STARTER_TEMPLATES, applyTemplate } from "./templates.js";
 import { queryTimeline, queryWhileAway } from "../collab/timeline.js";
 import { getLastSeen, touchLastSeen } from "../collab/lastSeen.js";
@@ -230,6 +231,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
       removeProjectCollaborator(db, req.params.id, targetUserId);
       collaborationManager.revokeUser(req.params.id, targetUserId);
+      // M79: a removed collaborator loses terminal access immediately — kill
+      // any attached or detached PTY they hold in this project.
+      terminalSessions.reapUserProject(targetUserId, req.params.id);
 
       res.json({ ok: true });
     } catch (err) {
@@ -252,6 +256,11 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
       addProjectCollaborator(db, req.params.id, targetUserId, role);
       collaborationManager.updateUserRole(req.params.id, targetUserId, role);
+      // M79: /ws/terminal requires the editor role — a demotion to viewer
+      // revokes terminal access, so reap any PTY they hold here.
+      if (role === "viewer") {
+        terminalSessions.reapUserProject(targetUserId, req.params.id);
+      }
       res.json({ ok: true });
     } catch (err) {
       next(err);
