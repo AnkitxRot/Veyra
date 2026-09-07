@@ -1996,6 +1996,23 @@ export class CollaborationRoom {
   }
 
   /**
+   * M74: how many live sockets and distinct users are currently in this room.
+   * "Live" is `readyState === 1` (OPEN) — a socket that died without a 'close'
+   * event still sits in `this.clients` until the reaper/reconcile catches it,
+   * and must not be counted as an occupant. Read-only, side-effect free.
+   */
+  public occupancy(): { liveClients: number; distinctUsers: number } {
+    let liveClients = 0;
+    const users = new Set<number>();
+    for (const [ws, state] of this.clients.entries()) {
+      if (ws.readyState !== 1) continue;
+      liveClients++;
+      users.add(state.userId);
+    }
+    return { liveClients, distinctUsers: users.size };
+  }
+
+  /**
    * M74: the set of awareness clientIDs currently published by a live
    * (`readyState === 1`) socket in this room. The server's own `doc.clientID`
    * baseline is not included — callers keep or drop it explicitly.
@@ -2956,6 +2973,24 @@ export class CollaborationManager {
 
   public getActiveRoomCount(): number {
     return this.rooms.size;
+  }
+
+  /**
+   * M74: read-only view of who is actually in a project's collaboration room,
+   * for the sandbox lifecycle (an occupied project's container must not be
+   * idle-reaped; an empty one can be released sooner). `liveClients` counts
+   * sockets in the room whose `readyState` is OPEN — the same liveness
+   * definition the awareness reconciliation uses — and `distinctUsers` counts
+   * the distinct `userId`s among them. An absent room reads as empty. Side
+   * effect free: no timers, no mutations.
+   */
+  public roomOccupancy(projectId: string): {
+    liveClients: number;
+    distinctUsers: number;
+  } {
+    const room = this.rooms.get(projectId);
+    if (!room) return { liveClients: 0, distinctUsers: 0 };
+    return room.occupancy();
   }
 
   /** Observability-only: total physical broadcast sends across every

@@ -16,7 +16,7 @@ import { aiRoutes } from "./ai/routes.js";
 import { gitRoutes } from "./git/routes.js";
 import { commentRoutes } from "./comments/routes.js";
 import { getSystemCapabilitiesAsync } from "./tools.js";
-import { initCgroupRoot } from "./execution/sandbox.js";
+import { initCgroupRoot, sandboxManager } from "./execution/sandbox.js";
 
 import { telemetryHistorian } from "./execution/historian.js";
 import { collaborationHistorian } from "./collab/historian.js";
@@ -63,6 +63,12 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
       projectId,
       ev as unknown as Record<string, unknown>,
     ),
+  );
+  // M74: let the sandbox lifecycle consult collaboration-room occupancy so an
+  // occupied project's container is not idle-reaped and an empty one is
+  // released sooner. Consumption lands in a later M74 commit.
+  sandboxManager.setRoomOccupancyProvider((projectId) =>
+    collaborationManager.roomOccupancy(projectId),
   );
   const app = express();
   app.disable("x-powered-by");

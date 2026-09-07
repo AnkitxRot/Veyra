@@ -163,9 +163,43 @@ export class SandboxManager {
    */
   private reservedProjectIds = new Set<string>();
 
+  /**
+   * M74: injected by app.ts so the sandbox lifecycle can consult how many
+   * live collaborators a project's room has. Consumption (keeping an occupied
+   * project's container warm, releasing an empty one sooner) lands in a later
+   * commit; this commit only wires the seam. Null in tests / before wiring.
+   */
+  private roomOccupancyProvider:
+    | ((projectId: string) => { liveClients: number; distinctUsers: number })
+    | null = null;
+
   static getInstance(): SandboxManager {
     if (!this.instance) this.instance = new SandboxManager();
     return this.instance;
+  }
+
+  /** M74: register the collaboration-room occupancy source (see app.ts). */
+  setRoomOccupancyProvider(
+    provider: (projectId: string) => {
+      liveClients: number;
+      distinctUsers: number;
+    },
+  ): void {
+    this.roomOccupancyProvider = provider;
+  }
+
+  /** M74: current collaboration-room occupancy for a project. Safe zeros when
+   *  no provider is registered. Read-only. */
+  getRoomOccupancy(projectId: string): {
+    liveClients: number;
+    distinctUsers: number;
+  } {
+    return (
+      this.roomOccupancyProvider?.(projectId) ?? {
+        liveClients: 0,
+        distinctUsers: 0,
+      }
+    );
   }
 
   /** Observability-only gauge: current number of tracked live containers. */
