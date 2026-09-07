@@ -98,6 +98,13 @@ beforeEach(() => {
     configurable: true,
     writable: true,
   });
+  // Run rAF callbacks synchronously so the deferred xterm-open / fit path is
+  // observable without fake-timer frame plumbing.
+  (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => {
+    cb(0);
+    return 0;
+  };
+  (globalThis as any).cancelAnimationFrame = () => {};
   vi.useFakeTimers();
 });
 afterEach(() => {
@@ -168,8 +175,8 @@ describe("M79 — terminal session lifecycle edges", () => {
     Object.defineProperty(el, "clientWidth", { value: 800, configurable: true });
     act(() => h.result.current.bindContainer(el));
     act(() => h.result.current.ensureStarted());
-    // the host element is observed exactly once (not left unobserved as the
-    // pre-fix bug did when bindContainer ran before the XTerm existed)
+    // the host element is observed once it has a box (not left unobserved as
+    // the pre-fix bug did when bindContainer ran before the XTerm existed)
     expect((globalThis as any).__ro.observed).toContain(el);
     // and teardown disconnects it
     act(() => h.unmount());

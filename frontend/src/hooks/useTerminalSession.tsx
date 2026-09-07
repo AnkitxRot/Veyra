@@ -61,6 +61,8 @@ export function useTerminalSession(
   // needs a dependency edge and `ws` handlers always call the current impl.
   const connectRef = useRef<() => void>(() => {});
   const scheduleReconnectRef = useRef<() => void>(() => {});
+  const mountRef = useRef<() => void>(() => {});
+  const observeRef = useRef<(el: HTMLElement) => void>(() => {});
 
   const setConnState = (s: TerminalConnectionState) => {
     stateRef.current = s;
@@ -90,37 +92,49 @@ export function useTerminalSession(
     wsRef.current = null;
   };
 
-  /** (Re)attach the ResizeObserver that keeps the XTerm fitted to its host.
-   *  This — not a one-shot `fit()` on show — is what recovers a correct row
-   *  count after the panel un-hides or the drawer is re-expanded. */
-  const observeContainer = (el: HTMLElement) => {
-    resizeObsRef.current?.disconnect();
-    resizeObsRef.current = null;
-    if (typeof ResizeObserver === "undefined") return;
-    const obs = new ResizeObserver(() => {
-      // Only fit once the host actually has room — a display:none → flex
-      // transition can fire this with a stale/zero box first.
-      if (el.clientHeight >= 24 && el.clientWidth >= 24) {
-        try {
-          fitRef.current?.fit();
-        } catch {
-          /* ignore */
-        }
-      }
-    });
-    obs.observe(el);
-    resizeObsRef.current = obs;
-  };
+  const hostHasBox = (el: HTMLElement | null): el is HTMLElement =>
+    !!el && el.clientHeight >= 24 && el.clientWidth >= 24;
 
   const safeFit = () => {
-    const el = containerRef.current;
-    if (!el || el.clientHeight < 24 || el.clientWidth < 24) return;
+    if (!hostHasBox(containerRef.current)) return;
     try {
       fitRef.current?.fit();
     } catch {
       /* ignore */
     }
   };
+
+  /**
+   * Open the XTerm into its host — but only once the host actually has a box.
+   * `<Terminal>` is mounted for the project lifetime and only display-toggled,
+   * so `ensureXterm` can run while the panel is still `display:none`; opening
+   * against a zero-size element leaves the renderer broken. Any write that
+   * lands before this is buffered by xterm and flushed on open. Idempotent.
+   */
+  const mountXtermIfReady = () => {
+    const term = xtermRef.current;
+    const el = containerRef.current;
+    if (!term || !hostHasBox(el)) return;
+    if (!(term as unknown as { element?: HTMLElement }).element) {
+      term.open(el);
+    }
+    safeFit();
+  };
+  mountRef.current = mountXtermIfReady;
+
+  /** The single mechanism that recovers a correct size after the panel
+   *  un-hides / the drawer re-expands: watch the host box, and whenever it
+   *  gains room, (open and) re-fit the XTerm. Attached in `bindContainer`
+   *  as soon as the host element exists — independent of the XTerm. */
+  const observeContainer = (el: HTMLElement) => {
+    resizeObsRef.current?.disconnect();
+    resizeObsRef.current = null;
+    if (typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(() => mountXtermIfReady());
+    obs.observe(el);
+    resizeObsRef.current = obs;
+  };
+  observeRef.current = observeContainer;
 
   const ensureXterm = (): XTerm => {
     if (xtermRef.current) return xtermRef.current;
@@ -137,13 +151,9 @@ export function useTerminalSession(
     term.loadAddon(fit);
     xtermRef.current = term;
     fitRef.current = fit;
-    if (containerRef.current) {
-      term.open(containerRef.current);
-      observeContainer(containerRef.current);
-      // Defer the first fit to after layout so it never resizes to a
-      // transitional tiny box.
-      requestAnimationFrame(safeFit);
-    }
+    // Open now if the host is already laid out; otherwise `bindContainer`'s
+    // ResizeObserver opens it once the host gains a box.
+    requestAnimationFrame(mountXtermIfReady);
     term.onData((data) => {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -288,16 +298,10 @@ export function useTerminalSession(
       resizeObsRef.current = null;
       return;
     }
-    const term = xtermRef.current;
-    if (term) {
-      if (!(term as unknown as { element?: HTMLElement }).element) {
-        term.open(el);
-      }
-      observeContainer(el);
-      requestAnimationFrame(safeFit);
-    }
-    // If the XTerm does not exist yet, `ensureXterm` opens + observes it once
-    // it is created — nothing to do here but remember the element.
+    // Watch the host from now on — the ResizeObserver fires when it gains a
+    // box (panel shown / drawer expanded) and opens + fits the XTerm then.
+    observeRef.current(el);
+    requestAnimationFrame(() => mountRef.current());
   }, []);
 
   const ensureStarted = useCallback(() => {
@@ -313,9 +317,11 @@ export function useTerminalSession(
   }, []);
 
   const fit = useCallback(() => {
-    // Two frames: one for the display:none → flex layout to settle, one to
-    // fit against the real box.
-    requestAnimationFrame(() => requestAnimationFrame(safeFit));
+    // Two frames: one for the display:none → flex layout to settle, then open
+    // the XTerm into its now-sized host (if not yet open) and fit it.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => mountRef.current()),
+    );
   }, []);
 
   const retry = useCallback(() => {
