@@ -155,6 +155,8 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
             getActiveSandboxCount: () => sandboxManager.getActiveSandboxCount(),
             getTotalCollabBroadcastSends: () =>
               collaborationManager.getTotalBroadcastSendCount(),
+            getSandboxRoomOccupancyMetrics: () =>
+              sandboxManager.getRoomOccupancyMetrics(),
           }),
         );
       } catch (err) {

@@ -215,6 +215,47 @@ export class SandboxManager {
     return this.projectContainers.size;
   }
 
+  /**
+   * M74 observability: aggregate container-sharing / collaboration-room
+   * occupancy across every tracked container. One occupancy-provider call per
+   * container — bounded and safe to invoke on each `/observability` request.
+   * With no provider registered every project reads as `{0,0}`.
+   */
+  getRoomOccupancyMetrics(): {
+    containers: number;
+    containersWithMultipleUsers: number;
+    provisionedContainerRoomOccupancy: {
+      totalLiveClients: number;
+      totalDistinctUsers: number;
+    };
+  } {
+    let containersWithMultipleUsers = 0;
+    let totalLiveClients = 0;
+    let totalDistinctUsers = 0;
+    for (const projectId of this.projectContainers.keys()) {
+      let occ: { liveClients: number; distinctUsers: number };
+      try {
+        occ = this.roomOccupancyProvider?.(projectId) ?? {
+          liveClients: 0,
+          distinctUsers: 0,
+        };
+      } catch {
+        occ = { liveClients: 0, distinctUsers: 0 };
+      }
+      if (occ.distinctUsers >= 2) containersWithMultipleUsers++;
+      totalLiveClients += occ.liveClients;
+      totalDistinctUsers += occ.distinctUsers;
+    }
+    return {
+      containers: this.projectContainers.size,
+      containersWithMultipleUsers,
+      provisionedContainerRoomOccupancy: {
+        totalLiveClients,
+        totalDistinctUsers,
+      },
+    };
+  }
+
   /** Live containers plus in-flight reservations: the true current load
    *  against `maxSandboxes`, unlike `projectContainers.size` alone. */
   private currentGlobalLoad(): number {

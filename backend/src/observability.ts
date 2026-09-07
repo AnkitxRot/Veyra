@@ -186,6 +186,17 @@ export interface ObservabilitySnapshot {
   activeWsConnections: number;
   activeCollabRooms: number;
   activeSandboxes: number;
+  /** M74: container-sharing / collaboration-room occupancy. `containers`
+   *  mirrors `activeSandboxes`; the rest quantify how many containers serve
+   *  more than one user and the aggregate live-client / distinct-user load
+   *  across every provisioned container — evidence for container-seconds
+   *  saved by the occupancy-aware lifecycle. */
+  containers: number;
+  containersWithMultipleUsers: number;
+  provisionedContainerRoomOccupancy: {
+    totalLiveClients: number;
+    totalDistinctUsers: number;
+  };
   /** M6: physical WS broadcast sends across every active collab room —
    *  the metric that demonstrates coalescing actually reduces message
    *  volume, not just theoretically. */
@@ -213,6 +224,16 @@ export interface ObservabilityDeps {
   getActiveRoomCount: () => number;
   getActiveSandboxCount: () => number;
   getTotalCollabBroadcastSends: () => number;
+  /** M74: aggregate container-sharing / room-occupancy metrics. Optional so
+   *  existing callers/tests keep working; absent -> reported as zeros. */
+  getSandboxRoomOccupancyMetrics?: () => {
+    containers: number;
+    containersWithMultipleUsers: number;
+    provisionedContainerRoomOccupancy: {
+      totalLiveClients: number;
+      totalDistinctUsers: number;
+    };
+  };
 }
 
 export function getObservabilitySnapshot(
@@ -223,6 +244,14 @@ export function getObservabilitySnapshot(
   for (const [label, h] of dbHistogramsByLabel) {
     byOperation[label] = summarizeHistogram(h);
   }
+  const sandboxRoomOccupancy = deps.getSandboxRoomOccupancyMetrics?.() ?? {
+    containers: 0,
+    containersWithMultipleUsers: 0,
+    provisionedContainerRoomOccupancy: {
+      totalLiveClients: 0,
+      totalDistinctUsers: 0,
+    },
+  };
   return {
     timestamp: new Date().toISOString(),
     eventLoopLagMs: eventLoopMonitor
@@ -239,6 +268,10 @@ export function getObservabilitySnapshot(
     activeWsConnections: deps.activeConnectionCount(),
     activeCollabRooms: deps.getActiveRoomCount(),
     activeSandboxes: deps.getActiveSandboxCount(),
+    containers: sandboxRoomOccupancy.containers,
+    containersWithMultipleUsers: sandboxRoomOccupancy.containersWithMultipleUsers,
+    provisionedContainerRoomOccupancy:
+      sandboxRoomOccupancy.provisionedContainerRoomOccupancy,
     totalCollabBroadcastSends: deps.getTotalCollabBroadcastSends(),
     memory: {
       rssBytes: mem.rss,
