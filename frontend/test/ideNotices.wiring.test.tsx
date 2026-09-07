@@ -189,10 +189,36 @@ describe("M64 — IDE.tsx notice wiring", () => {
   });
 
 
-  it("still contains only out-of-scope alert() calls (open-file + AI), none in save paths", () => {
+  it("contains only out-of-scope AI alert() calls; every other path uses notices", () => {
     const alerts = src.match(/\balert\(/g) ?? [];
-    // open-file (1) + AI action/patch (4) = 5; save paths migrated to notices
-    expect(alerts).toHaveLength(5);
+    // M75: the open-file failure moved to notify(); only the 4 AI-action /
+    // patch alerts remain (AI is explicitly out of scope for this phase).
+    expect(alerts).toHaveLength(4);
+  });
+
+  it("M75 — bridges an ide-notice event from Sidebar/Output straight to notify()", () => {
+    // the listener + its detail forwarding
+    expect(src).toContain(
+      'import { IDE_NOTICE_EVENT } from "../../utils/notices"',
+    );
+    expect(src).toContain("document.addEventListener(IDE_NOTICE_EVENT, onNotice)");
+    expect(src).toContain(
+      "document.removeEventListener(IDE_NOTICE_EVENT, onNotice)",
+    );
+    const at = src.indexOf("const onNotice = (e: Event)");
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at, at + 260);
+    expect(block).toContain("(e as CustomEvent).detail");
+    expect(block).toContain("notify(detail)");
+  });
+
+  it("M75 — the open-file failure is a transient error notice, not alert()", () => {
+    const at = src.indexOf("const handleOpenFile = useCallback");
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at, at + 900);
+    expect(block).not.toContain("alert(");
+    expect(block).toContain('kind: "error"');
+    expect(block).toContain("Could not open ");
   });
 
   it("does not touch SourceControlPanel's persistent conflict banners", () => {

@@ -23,6 +23,7 @@ import {
 import { PromptModal, ConfirmModal } from "../common/Modal";
 import { useExecutionSession } from "../../hooks/useExecutionSession";
 import { bulkConflictSummary } from "../../utils/collabConflict";
+import { emitNotice, emitErrorNotice } from "../../utils/notices";
 import SharedRunOutputPanel from "./SharedRunOutputPanel";
 const ExecutionTelemetryModal = React.lazy(
   () => import("./ExecutionTelemetryModal"),
@@ -173,8 +174,9 @@ export default function Output({
         body: JSON.stringify({ name }),
       });
       loadSnapshots();
+      emitNotice({ kind: "success", text: "Snapshot created", ttl: 3000 });
     } catch (err: any) {
-      alert(`Error creating snapshot: ${err.message}`);
+      emitErrorNotice(`Could not create snapshot: ${err.message}`);
     } finally {
       setModalState({ type: null });
     }
@@ -194,9 +196,13 @@ export default function Output({
         res.conflictedPaths,
         "Snapshot restore",
       );
-      alert(conflictNote ?? "Snapshot restored successfully!");
+      emitNotice(
+        conflictNote
+          ? { kind: "warning", text: conflictNote, ttl: 8000 }
+          : { kind: "success", text: "Snapshot restored", ttl: 3000 },
+      );
     } catch (err: any) {
-      alert(`Error restoring snapshot: ${err.message}`);
+      emitErrorNotice(`Could not restore snapshot: ${err.message}`);
     } finally {
       setModalState({ type: null });
     }
@@ -212,8 +218,9 @@ export default function Output({
         },
       );
       loadSnapshots();
+      emitNotice({ kind: "success", text: "Snapshot deleted", ttl: 3000 });
     } catch (err: any) {
-      alert(`Error deleting snapshot: ${err.message}`);
+      emitErrorNotice(`Could not delete snapshot: ${err.message}`);
     } finally {
       setModalState({ type: null });
     }

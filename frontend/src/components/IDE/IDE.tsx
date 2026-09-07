@@ -118,6 +118,8 @@ import {
   type CommandId,
 } from "../../keymap/keymap";
 import { useNotices } from "../../hooks/useNotices";
+import type { NoticeInput } from "../../hooks/useNotices";
+import { IDE_NOTICE_EVENT } from "../../utils/notices";
 import { useProjectRole } from "../../hooks/useProjectRole";
 import { useAppearance } from "../../hooks/useAppearance";
 import {
@@ -1346,10 +1348,15 @@ export default function IDE({
       setOpenFiles((prev) => appendOpenFile(prev, { path, content: res.content }));
       setActiveFile(path);
     } catch (err: any) {
-      alert(`Could not open file: ${err.message || "Error"}`);
+      // M75: non-blocking notice instead of a blocking modal dialog.
+      notify({
+        kind: "error",
+        text: `Could not open ${path}: ${err.message || "unknown error"}`,
+        ttl: 6000,
+      });
     }
   },
-  [project],
+  [project, notify],
   );
 
   useEffect(() => {
@@ -2564,6 +2571,18 @@ export default function IDE({
     notify,
     dismissNoticeKey,
   ]);
+
+  // M75: bridge for notices raised outside IDE.tsx (Sidebar / Output async
+  // failures + confirmations). The event carries a NoticeInput; lifecycle
+  // (id / TTL / dedupe / eviction / cleanup) stays entirely in useNotices.
+  useEffect(() => {
+    const onNotice = (e: Event) => {
+      const detail = (e as CustomEvent).detail as NoticeInput | undefined;
+      if (detail && typeof detail === "object") notify(detail);
+    };
+    document.addEventListener(IDE_NOTICE_EVENT, onNotice);
+    return () => document.removeEventListener(IDE_NOTICE_EVENT, onNotice);
+  }, [notify]);
 
   // Listen to ide-run event from Toolbar
   useEffect(() => {

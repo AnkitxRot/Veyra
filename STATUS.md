@@ -8312,3 +8312,716 @@ room (fresh room clean) - left for a separate backend pass.
 M73 is **merged** — PR #10 (`e54c8d0`). M74 (awareness-table reconciliation +
 collaboration-aware sandbox lifecycle) followed; the SUSPECTED P3 above is
 addressed there.
+
+
+## M74 — awareness-table reconciliation + collaboration-aware sandbox lifecycle
+
+Shipped in 8 commits (`e54c8d0..8d13262`, all on `master`); this section was
+written retroactively in M76 after an independent re-verification of the
+landed code.
+
+### M74-A — awareness table never accumulates orphan entries
+
+**Problem (the SUSPECTED P3 from M73).** A collaboration room's
+`awareness.getStates()` is keyed by Yjs clientID. `removeClient()` only
+withdrew the leaver's *own* tracked `awarenessClientIds`. A socket that dies
+**without a `close` event** (heartbeat-reaper race, dev StrictMode /
+project-switch churn) never runs `removeClient()` at all, so its `{user}`
+entry lingered as an orphan — M73's live pass observed a heavily-churned room
+at `getStates().size === 4` with only 2 real users (1 = the y-protocols
+`Awareness` constructor's own `doc.clientID` `{}` baseline, which belongs to
+no participant; the other = a genuine orphan).
+
+**Fix (commits `03eb66f`, `7812f95`, `f42429e`).**
+- `reconcileAwarenessAgainstLiveSockets()` — drops every awareness entry not
+  backed by a `readyState === 1` socket (`doc.clientID` baseline excepted).
+  Called from `removeClient()` on **every** client leave, so one clean
+  disconnect sweeps any orphan left by a silent death.
+- The join snapshot in `addClient()` filters to `doc.clientID` + live-owned
+  clientIDs, so a late joiner is never handed a dead connection's presence
+  even before the next `removeClient()` reconcile runs.
+- `ensureAwarenessReconcileSweep()` — a `setInterval`
+  (`DEFAULT_AWARENESS_RECONCILE_MS` 15s, `.unref()`), started on first join,
+  self-cancelling once `clients.size === 0` or `disposed`, also cleared in
+  `removeClient()`'s empty-room branch and in `dispose()`. Safety net for the
+  case where **no** client ever leaves cleanly (whole-room connection storm).
+
+**Invariants (verified):**
+- After any client leave, `getStates()` contains only entries backed by a
+  live socket, plus the single `doc.clientID` `{}` baseline.
+- The `doc.clientID` `{}` baseline is expected, permanent per room, ignored by
+  the frontend `readPresenceState` (returns `null` → not a collaborator), and
+  kept in join snapshots deliberately. It is **not** an orphan.
+- `removeAwarenessStates` is idempotent, so a late `removeClient()` for an
+  already-reconciled dead socket is a no-op.
+- No accumulation across arbitrarily many join / silent-death / leave cycles.
+- A reconnect (new socket, new clientID, old socket dead) yields exactly one
+  entry for the user — never a duplicate, never a stale leftover.
+
+### M74-B — an occupied project's container stays warm; an empty one is released sooner
+
+**Behavior.** `SandboxManager` takes an injected `roomOccupancyProvider`
+(wired in `app.ts` to `collaborationManager.roomOccupancy(projectId)` →
+`{ liveClients, distinctUsers }`, counting only `readyState === 1` sockets).
+`reapIdleSandboxes(idleTimeoutMs, roomEmptyGraceMs, now?)`:
+
+| Room state | Container lifetime |
+|---|---|
+| `liveClients > 0` | kept warm regardless of `lastUsed`; sets `roomEverOccupied`, clears `roomEmptyAt` |
+| emptied after being occupied | eligible `roomEmptyGraceMs` (`SANDBOX_ROOM_EMPTY_GRACE_MS`, default 120 s) after the reaper first observes it empty — **and** no run/terminal activity in that window — i.e. *before* the full 30 min idle timeout |
+| never observed occupied (terminal-only, or no provider) | unchanged pre-M74 rule: reaped at `idleTimeoutMs` only |
+| provider throws | falls back to the pre-M74 idle rule |
+
+`roomOccupancy()` returns `{0,0}` (not `undefined`) for a room that has
+already been disposed, so a container outlives its room by at most one grace
+window, never by the full idle timeout. `sandboxRun()` calls
+`sandboxManager.touch(projectId)` on run **completion** (not just start) so a
+just-watched run doesn't read as "idle since the run began".
+
+**Invariants (verified):**
+- Rejoin during the grace window clears `roomEmptyAt` → container stays warm;
+  a fresh full grace applies only after it re-empties.
+- A dead (`readyState !== 1`) socket does not count as an occupant, so it
+  cannot hold a container warm.
+- Reap → `stopProjectSandbox` → `performStop` is idempotent (second call
+  finds no entry, releases the gate slot exactly once, deletes once).
+- Reaper `setInterval` is `.unref()`'d and cleared by `stopReaper()`.
+- `sandboxReaperIntervalMs` (60 s default) < grace (120 s default), so a
+  rejoin is always observed before the grace clock could expire.
+
+### M74-C — observability
+
+`getObservabilitySnapshot` gained `containers`,
+`containersWithMultipleUsers`, and
+`provisionedContainerRoomOccupancy { totalLiveClients, totalDistinctUsers }`,
+computed from `projectContainers` + the occupancy provider, surfaced through
+`/api/admin/observability`. Optional dep — absent → reported as zeros.
+
+### Config / docs
+
+`SANDBOX_ROOM_EMPTY_GRACE_MS` (default 120000, bounds [0, 3600000]) added to
+`config.ts`, `docker-compose.yml`, `deploy/docker-compose.prod.yml`,
+`deploy/README.md`. `frontend/vite.config.ts` `server.strictPort` +
+`CLAUDE.md` port-5173 note (commit `5515e84`, unrelated dev-hygiene rider).
+
+### Verification (M76, 2026-09-07)
+
+| Gate | Evidence |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` → **1198 passed / 9 skipped / 0 failed** (98 files); M74 Docker-gated suites (`m74-sandbox-occupancy` 8, `m74-collab-scale` sandbox slice, `m74-observability-occupancy` 3) executed |
+| M74 deterministic coverage | `m74-awareness-reconcile` (5: on-leave sweep, join-snapshot exclusion, periodic guard, **+ M76: 25-cycle no-accumulation, reconnect single-entry**); `m74-room-occupancy` (workspace/manager occupancy accessor); `m74-collab-scale` (2 pure at 12 collaborators: on-removal sweep, periodic guard); `m74-sandbox-occupancy` (8: warm-while-occupied, grace retain, grace reap, **+ M76: rejoin-resets-grace**, no-provider rule, provider-never-occupied rule, dead-socket, run-completion touch); `m41-dispose-guards` (8, unchanged — disposed room never re-arms a timer / flushes stale state) |
+| Revert-sensitivity | remove the `reconcileAwarenessAgainstLiveSockets()` call in `removeClient()` → orphan-drop + cycle tests fail; remove `info.roomEmptyAt = null` on re-occupancy → rejoin-resets-grace test fails (container reaped at the original deadline) |
+| `git diff --check` | clean |
+
+### Acceptance (M74, as re-verified in M76)
+
+**PROVEN:** awareness table reconciles against live sockets on every leave +
+join snapshot + a periodic safety net; no orphan accumulation across repeated
+churn or reconnect; the `{}` `doc.clientID` baseline is expected and inert;
+occupied-room containers stay warm, emptied-room containers release after a
+bounded grace (earlier than the idle timeout), rejoin resets the grace,
+cleanup runs exactly once, every timer is `unref`'d and cleared on
+dispose/empty; observability reports container sharing.
+
+**NOT independently re-verified in a live browser this pass** — the M73 live
+two-session harness already exercised the awareness churn that motivated
+M74-A; a fresh forced-mid-session-drop browser run was not done (deterministic
++ real-Yjs-runtime headless coverage stands in, per the repo convention).
+
+
+## M75 — line-ending hygiene + finish the alert() → notice migration
+
+Small, focused product-polish pass. Two unrelated papercuts, both bounded.
+
+### M75-1 — `.gitattributes` (LF enforced repo-wide)
+
+**Problem.** The repo had no `.gitattributes`. A large share of the test suite
+asserts on the literal source text of components (e.g.
+`expect(ide).toContain('import {\n  resolveKeymap,')`). On a Windows checkout
+with `core.autocrlf=true` those files land CRLF and the `\n`-literal assertions
+fail locally while passing on the Linux CI runner — a recurring, confusing
+papercut (already documented in the auto-memory as a manual "normalise to LF
+before `vitest run`" workaround). 64 tracked files were CRLF in this worktree;
+`test/ideKeybindings.wiring.test.tsx` was red because of it.
+
+**Fix.** Added `.gitattributes` with `* text=auto eol=lf` plus explicit
+`binary` markers for image/archive/font types. The 64 CRLF worktree files were
+renormalised to LF in place; because every index blob was already LF the
+committed change is exactly one new file — `git status` stays clean, `git diff
+--check` clean, CI (already LF on Linux) unaffected. Dockerfiles / shell
+scripts are now also pinned LF, which pre-empts a real "CRLF in container
+entrypoint" failure class.
+
+**Result.** A local checkout is byte-identical to CI; `ideKeybindings.wiring`
+and every other source-string test pass on Windows without a manual pass.
+
+### M75-2 — `alert()` → M64 notice system (IDE-route components)
+
+**Problem.** `Sidebar.tsx` and `Output.tsx` still reported every async
+failure/confirmation through blocking `window.alert()` — a dated,
+event-loop-blocking dialog, inconsistent with the M64 `useNotices` system used
+everywhere `IDE.tsx` raises feedback itself. Flagged in the backlog (item 2 of
+the "Next recommended milestone" list) as a deferred UX-polish candidate.
+
+**Fix.** `useNotices` lives once, in `IDE.tsx`. New `frontend/src/utils/
+notices.ts` (`emitNotice` / `emitErrorNotice` / `IDE_NOTICE_EVENT`) dispatches
+a `NoticeInput` on an `ide-notice` `CustomEvent`; `IDE.tsx` gains one listener
+that forwards `detail` straight to `notify()`. Same custom-DOM-event pattern as
+`ide-save` / `ide-run` / `ide-install`. Lifecycle (id / TTL / dedupe /
+eviction / cleanup) stays entirely in `useNotices`. `CustomEvent.detail` is a
+same-realm reference, so `actions[].onClick` / `onExpire` callbacks survive.
+
+Migrated call sites:
+- `Sidebar.tsx` (8): project create / fork / upload / export / import-new /
+  workspace-replace (success + failure) / file new-folder-rename-delete.
+  The import-**success** toast was dropped, not migrated — opening the new
+  project is the success signal and a toast there would be wiped by the
+  project-switch `clearNotices()` anyway. Failure notices don't switch
+  projects, so they persist correctly.
+- `Output.tsx` (4): snapshot create / restore (success | conflict-summary
+  warning) / delete.
+- `IDE.tsx` (1): the `handleOpenFile` failure moved to a direct `notify()`
+  (in-file, no bridge needed).
+
+**Left as-is:** the 4 AI-action/patch `alert()`s in `IDE.tsx` (AI is out of
+scope this phase); `AdminDashboard.tsx`'s 2 `alert()`s (standalone `/admin`
+route — no `IDE` mounted, nothing listens; needs its own local `useNotices`,
+tracked separately); every `window.confirm()` (genuine destructive-action
+gates, a distinct migration).
+
+### Verification (2026-09-07)
+
+| Gate | Evidence |
+|---|---|
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Frontend full suite | `vitest run` → **971 passed / 0 failed** (122 files). Was 965 / **1 failed** (the CRLF `ideKeybindings.wiring` failure) pre-M75 |
+| Frontend build | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
+| Frontend eslint | `eslint .` → **0 errors / 44 warnings**, byte-identical before/after (`git stash` A/B); no new warning in any changed file |
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite | `vitest run` (Docker up) → **1195 passed / 9 skipped / 0 failed** (98 files); re-run on the final LF worktree |
+| `git diff --check` | clean |
+| New deterministic coverage | `notices.util.test.ts` (4 — verbatim `detail`, callback-by-reference, `emitErrorNotice` shape, no-listener no-op); `ideNotices.wiring.test.tsx` +2 (bridge listener wiring, open-file failure is a notice) |
+| Updated coverage | `Sidebar.fork` / `Sidebar.templates` failure paths now assert on the captured `ide-notice` event instead of a `window.alert` spy; wiring `alert()` count 5 → 4 |
+| Revert-sensitivity | drop the `IDE.tsx` listener → `notices.util` + wiring bridge tests fail; restore any `alert()` → the migrated-path test fails; remove `.gitattributes` + re-CRLF → `ideKeybindings.wiring` fails |
+
+### Acceptance
+
+**PROVEN:** `.gitattributes` makes local = CI (failing test now green); the
+`Sidebar`/`Output`/`IDE` open-file `alert()`s are gone and replaced by
+lifecycle-managed notices; all four gates (both typechecks, both suites, build,
+eslint, `diff --check`) green; changed lines are revert-sensitive.
+
+**NOT started (out of scope, ranked):** AdminDashboard `alert()` → its own
+`useNotices` instance; `window.confirm()` → shared `ConfirmModal`; the M74
+STATUS write-up (code landed, section never written). — **all three actioned
+in M76 below.**
+
+
+## M76 — M74 closeout, awareness re-verification, admin notice migration
+
+Follow-on cleanup pass on top of the (still uncommitted) M75 diff. No AI work,
+no redesign.
+
+### 1. M74 documented + independently re-verified
+
+Added the **M74 section above** (was entirely missing). The re-verification
+traced room create → join → leave → empty → grace → rejoin/reap → container
+cleanup, and the awareness table through the same lifecycle, against the
+*current* code — not the prior report. Two deterministic gaps were closed:
+
+- `m74-awareness-reconcile.test.ts` +2: **25 join/silent-death/clean-leave
+  cycles** leave the table at exactly the `doc.clientID` baseline every
+  iteration (no accumulation); a **reconnect** (new clientID, old socket
+  dead, late `removeClient`) leaves exactly one entry for the user.
+- `m74-sandbox-occupancy.test.ts` +1: a **rejoin during the grace window**
+  clears `roomEmptyAt`, the container survives past the original grace
+  deadline, and a fresh full grace applies only after it re-empties.
+
+No M74 production code was changed — it was found correct.
+
+### 2. Awareness stale-`{}`-entry issue — RESOLVED, re-confirmed
+
+The M73 SUSPECTED P3 **was real** (orphan entry from a socket that dies with
+no `close` event) and **M74-A fixed it** at the root (reconcile on every
+leave + join-snapshot filter + periodic guard). M76 re-proved it against the
+current tree and added the multi-cycle / reconnect regression coverage above.
+The permanent `doc.clientID` `{}` baseline is **not** a defect — documented in
+the M74 section. No further fix needed; no new production code.
+
+### 3. AdminDashboard `alert()` → canonical notice system
+
+`/admin` mounts `AdminDashboard` standalone (no IDE → no `useNotices` owner,
+so the M75 `emitNotice` bridge is a no-op there). Gave it its **own instance**
+of the same M64 hook + one `<NoticeStack>` — not a second mechanism.
+
+- `handleInspectUser` load failure → `notifyAdmin({ kind: "error", … })`
+- `handleTerminateConfirm` failure → `notifyAdmin({ kind: "error", … })`;
+  the confirm modal still stays open for retry (unchanged), `terminateLoading`
+  still clears in `finally`.
+
+`window.confirm()`: **none in `AdminDashboard`** — its destructive actions
+(delete user, terminate sandbox, backup restore) already use dedicated in-app
+modal components with their own loading/error state and preserved
+cancel/wording. No `confirm()` migration was applicable here; the repo's
+remaining `window.confirm()` calls (`Sidebar` workspace-replace,
+`ProjectSharingModal` revoke, `ProjectSecretsModal` delete) are a separate,
+deliberately-not-in-scope pass.
+
+The pre-existing admin success-feedback path (`actionMessage` header badge +
+its `setTimeout`) was **left alone** — it is not an `alert()`, it works, and
+folding it in would move an admin-header UI element for no correctness gain.
+
+### 4. Lifecycle review of touched paths
+
+- M75 `ide-notice` listener: single `document.addEventListener` in an effect
+  keyed on the stable `notify`, symmetric `removeEventListener` cleanup — no
+  duplicate listener, no leak.
+- `AdminDashboard` `useNotices`: hook owns all timers + a mount-scoped cleanup
+  effect (verified in `useNotices.ts`); `NoticeStack` is pure presentation.
+- Notices that race a route/project switch: admin has no project-switch
+  `clearNotices`, so admin error notices persist correctly; the IDE-side
+  race was already handled in M75 (import-success toast dropped).
+- No new `setInterval`/`setTimeout`, no state-after-unmount paths introduced.
+
+**Observed, NOT actioned (pre-existing, out of scope):** stale linked git
+worktrees under `.claude/worktrees/` (Aug, gitignored) — a clean
+`vitest list` from `backend/` is unaffected (1198 tests, no worktree files);
+`backend/vitest.config.ts` could add an explicit `exclude` as belt-and-braces.
+
+### Verification (2026-09-07)
+
+| Gate | Result |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` → **1198 passed / 9 skipped / 0 failed** (98 files) |
+| Frontend full suite | `vitest run` → **974 passed / 0 failed** (123 files) |
+| Frontend build | `tsc --noEmit && vite build` exit 0 (Monaco chunk-size warning only) |
+| ESLint (`eslint .` both packages) | 0 errors; warning count unchanged vs baseline |
+| `git diff --check` | clean |
+| New coverage | `AdminDashboard.notices.wiring.test.tsx` (3); `m74-awareness-reconcile` +2; `m74-sandbox-occupancy` +1 |
+| Revert-sensitivity | restore either admin `alert()` → wiring test's `not.toContain("alert(")` fails; the two M74 reverts above each fail their new test |
+
+### Acceptance (M76 critical criteria)
+
+| Criterion | Status |
+|---|---|
+| M74 behavior independently verified | **PROVEN** (trace + deterministic suites re-run on current tree) |
+| M74 STATUS entry documents shipped behavior | **PROVEN** (section above, behavior-not-aspiration) |
+| Awareness issue fixed with regression coverage OR disproven | **PROVEN** — was real, fixed in M74-A, re-confirmed + 2 new regression tests |
+| Applicable AdminDashboard alerts migrated | **PROVEN** (2/2 → notices; wiring test) |
+| Applicable destructive confirms migrated without regression | **PROVEN (vacuous)** — no `window.confirm()` in AdminDashboard; existing modal confirmations already correct and untouched |
+| No duplicate notice system introduced | **PROVEN** — a second *instance* of `useNotices`/`NoticeStack`, same module |
+| No lifecycle/resource regression | **PROVEN** (review §4; full suites green) |
+| All final gates pass | **PROVEN** |
+| `git diff --check` clean | **PROVEN** |
+| Browser/runtime correctness | **PARTIAL** — not re-verified in Chrome this pass; static + real-runtime-headless + unit coverage only. **Closed in M77 below.** |
+
+
+## M77 — live browser / runtime verification pass (closes the M76 PARTIAL)
+
+Verification only — **no production code changed** (`git diff` identical to
+end-of-M76; the sole in-session edit, a debug `console.log` in
+`reconcileAwarenessAgainstLiveSockets`, was reverted). One pre-existing defect
+found and documented (not fixed — see §Findings).
+
+### Environment
+
+- Isolated backend on `:3000` (`tsx src/index.ts`), temp `DATA_DIR` +
+  `DATABASE_PATH` (never touched `~/.cloud-ide`), fast lifecycle knobs
+  (`SANDBOX_REAPER_INTERVAL_MS=5000`, `SANDBOX_ROOM_EMPTY_GRACE_MS=15000`,
+  `SANDBOX_IDLE_TIMEOUT_MS` swept 10s↔120s to isolate the occupancy path from
+  the idle path), `ADMIN_PASSWORD` set.
+- Vite dev server on `:5173` (`--host 0.0.0.0`), the repo's own config.
+- **Two independent browser sessions** via two origins with separate cookie
+  jars: `localhost:5173` (user) and `127.0.0.1:5173` (admin). Second real
+  peer for the abrupt-drop cases: a headless Node client speaking the exact
+  `/ws/collab` wire protocol (real Yjs SyncStep1/2, real
+  `encodeAwarenessUpdate` frames) — same split the M73 live pass used.
+- Chrome driven via the browser-automation tools; server-side awareness
+  inspected out-of-band with a throwaway real `/ws/collab` observer client.
+
+### Two-session collaboration — results
+
+| Scenario | Result | Evidence |
+|---|---|---|
+| A joins, B joins, both appear | **PROVEN** | A's count chip → "2 collaborators", TeamPanel "TEAM (2)" listing `bob_m77 editor`; B's session symmetric. Server room awareness = `alice_m77` + `bob_m77` + one `{}` (server `doc.clientID` baseline). |
+| Correct identity | **PROVEN** | server-forced `user.name` = username, `role` = share role (`owner`/`editor`); a client-set display string is discarded server-side. |
+| Graceful leave clears presence | **PROVEN** | B closes tab → within one reconcile A shows "1 collaborator" / "No other collaborators", server awareness back to `alice_m77` + `{}` only, zero orphans. |
+| Abrupt disconnect (no close frame) clears stale presence | **PROVEN** | headless B `_socket.destroy()` (no close frame) → A's roster drops B within ~15–30 s (y-protocols 30 s `outdatedTime` and/or the M74 heartbeat→`removeClient`→reconcile path, whichever fires first); A stayed "Synced" throughout. |
+| Reconnect → exactly one entry | **PROVEN** | across repeated join / silent-death / reconnect cycles the server awareness table always returned to exactly the real peers + the single `{}` baseline — **no duplicate, no orphan accumulation** (confirmed with the debug instrumentation: `orphans=[]` on every reconcile; a reconnecting client briefly holds two sockets, one with empty `awarenessClientIds`, and the live entry is never lost). |
+| M74 reconcile correctness | **PROVEN** | debug trace over the whole session: `reconcileAwarenessAgainstLiveSockets` computed `orphans` accurately every call, **never** removed a live-socket entry, never touched the `doc.clientID` baseline. The dead-socket removal path is what the deterministic `wsA.readyState=3` tests already cover. |
+
+### Sandbox lifecycle — results
+
+| Scenario | Result | Evidence |
+|---|---|---|
+| Container stays warm while room occupied | **PROVEN** | with `SANDBOX_IDLE_TIMEOUT_MS=10000`, alice's real browser collab session kept the container alive through **9+ reaper passes / 45 s** (would be reaped at ~10–15 s without the occupancy warm-keep). `/api/admin/observability` → `provisionedContainerRoomOccupancy.totalLiveClients: 1` tracked the real socket. |
+| Empty room → reaped after the grace, before the idle timeout | **PROVEN** | with `idle=120 s`, `grace=15 s`: headless peer leaves → container survives t+4/t+9/t+14, **reaped between t+14 and t+18** — the 15 s grace firing, not the 120 s idle rule (`now − lastUsed ≈ 105 s < 120 s` at reap). |
+| Rejoin during the grace prevents cleanup | **PROVEN** | alice leaves, headless peer rejoins ~5 s later (inside the 15 s grace) → `roomEmptyAt` cleared → container **survived 60 s+** of reaper passes; only reaped after the peer finally left and a fresh full grace elapsed. |
+| Observability occupancy fields reflect reality | **PROVEN** | `containers`, `provisionedContainerRoomOccupancy.{totalLiveClients,totalDistinctUsers}` matched the live socket count at every step. |
+
+### Admin notice (M76) — results
+
+Real `/admin` route as `e2eadmin`. Failure injected by making one `fetch`
+reject (`TypeError: Failed to fetch`) — a realistic transient-backend / network
+failure the catch path must handle.
+
+| Check | Result |
+|---|---|
+| No native `alert()` dialog | **PROVEN** — `window.alert` spy never called; page stayed responsive (JS ran after) for both `handleInspectUser` and `handleTerminateConfirm` failures. |
+| Rendered via the existing NoticeStack | **PROVEN** — `.notice-stack[role="region"]` › `.notice.notice-error`, `role="alert"`, `aria-live="assertive"`, left border `rgb(243,139,168)` (the error accent). |
+| Correct text | **PROVEN** — "Failed to load user details: …" / "Sandbox termination failed: …" (M76 wording). |
+| Visible long enough, not prematurely cleared | **PROVEN** — on screen ~4–5 s then auto-dismissed (ttl 6000); the admin route has no project-switch `clearNotices`, so it is never wiped early. |
+| Failing destructive op retains modal/loading state | **PROVEN** — the terminate confirm modal **stayed open** on failure, the confirm button reset from "Terminating…" (not stuck, not left disabled) → retry possible; a retry then succeeded (container gone, `actionMessage` success badge shown — the untouched pre-existing success path). |
+| No duplicate notice | **PROVEN** — exactly one `.notice` per failing action. |
+
+### Findings
+
+**PRE-EXISTING DEFECT (not M74/M75/M76, NOT fixed here) — idle collaborator
+presence times out for peers after ~30 s.** The server's per-room
+`new awarenessProtocol.Awareness(this.doc)` uses the y-protocols default
+`outdatedTime = 30000`; its internal `_checkInterval` removes any non-local
+client entry not *updated* within 30 s and broadcasts the removal. The
+frontend `CollaborationClient` only emits awareness on real user interaction
+(mousemove / keydown / cursor / file-open / status change) — **an idle-but-
+connected tab emits nothing**, so after ~30 s every *other* participant's
+roster / count / avatar-stack drops that user, and there is no client-side
+recovery (the REST `/collaborators` fetch feeds only the comment-author
+roster, not live presence) until that user interacts again or reconnects.
+Repro: two sessions in a room, leave one totally idle, watch it vanish from
+the other within ~30–45 s while its own socket stays connected and "Synced".
+This is orthogonal to M74 (M74's reconcile only removes dead-socket orphans;
+verified never removing live entries). It predates the collab feature's
+current form — no historical `outdatedTime` handling in `git log`. The M62/M73
+notes already acknowledge idle-presence *lag*; "disappears entirely" is worse.
+Recommended fix (its own bounded task): a low-frequency client keepalive
+(`setLocalStateField("lastActive", Date.now())` every ~20 s while connected,
+cleared on dispose — must NOT reset the idle/away state machine), OR bump the
+server room's effective `outdatedTime`, OR have the M74 15 s awareness sweep
+also refresh `meta.lastUpdated` for live sockets. Each needs an awareness-
+emission-count test-impact review (M71 perf suites, M73 source-contract
+tests).
+
+**Test-tooling note (not a product issue):** a headless collab client that
+sent a malformed nested `activity` field had its awareness entry accepted then
+dropped ~15 s later; a spec-conformant frame (matching `client.ts`) persisted
+correctly through every guard pass. Real browser clients are unaffected.
+
+### Verification (M77)
+
+No production code changed, so the full suites were not re-run for ceremony.
+Ran: backend `tsc --noEmit` (0) — confirms the debug revert is clean; frontend
+`tsc --noEmit` (0); `m74-awareness-reconcile` (5) + `m74-room-occupancy` (6) +
+`m74-sandbox-occupancy` (8, Docker) + `AdminDashboard.notices.wiring` (3) +
+`notices.util` (4) + `ideNotices.wiring` (21) — all green; `git diff --check`
+clean; `git diff` byte-identical to end-of-M76 plus this STATUS section.
+
+### Acceptance (M77)
+
+| Criterion | Status |
+|---|---|
+| Real two-session presence behaviour verified | **PROVEN** (two cookie-jar-isolated browser sessions) |
+| Abrupt / stale awareness cleanup verified | **PROVEN** (headless no-close-frame drop → peer roster clears) |
+| Reconnect produces a single presence entry | **PROVEN** (repeated cycles, `orphans=[]`, no duplicate) |
+| Sandbox stays warm while occupied | **PROVEN** (survived 45 s vs a 10 s idle timeout; occupancy provider live) |
+| Rejoin during grace prevents premature cleanup | **PROVEN** (survived 60 s+ after an in-grace rejoin) |
+| Empty-room cleanup observed | **PROVEN** (reaped at the 15 s grace, not the 120 s idle rule) |
+| Real AdminDashboard error → notice, not alert | **PROVEN** (both failure paths; NoticeStack, `role=alert`, no `alert()`) |
+| No duplicate notice | **PROVEN** (one per action) |
+| No regression introduced | **PROVEN** (no production code changed) |
+| M76 live-browser PARTIAL | **CLOSED** |
+
+One pre-existing P2 (idle-collaborator awareness timeout) is now documented
+with a repro and a recommended fix — tracked as the top item for a follow-on
+bounded task. — **fixed in M78 below.**
+
+
+## M78 — idle connected collaborators stay visible to peers
+
+Fixes the P2 that the M77 live pass surfaced.
+
+### Root cause (from source)
+
+Every collaboration room holds `new awarenessProtocol.Awareness(this.doc)`
+(`collab/manager.ts`). y-protocols **1.0.7** hard-codes
+`outdatedTimeout = 30000` (`awareness.js:13` — a module `const`, not
+configurable) and runs an internal `_checkInterval` every
+`outdatedTimeout / 10` = 3000 ms that **deletes** any non-local client entry
+whose `meta.lastUpdated` is older than 30 s, then broadcasts the removal.
+`meta.lastUpdated` is refreshed only by an `applyAwarenessUpdate` for that
+client with a strictly higher clock — i.e. only when the client actually
+sends.
+
+`frontend/src/collab/client.ts` emits awareness only on genuine interaction
+plus y-protocols' own `_checkInterval` self-renewal every
+`outdatedTimeout / 2` = 15 s. A probe (real timers, jsdom
+`visibilityState=visible`) confirmed the self-renewal works **foreground**
+(2 sends / 40 s idle). But `setInterval` in a **backgrounded / occluded
+browser tab is throttled** (≥ 1 s, then toward 1/min after ~5 min hidden), so
+a parked IDE tab misses the 15 s renewal → the room `Awareness` deletes it at
+30 s → **every peer's roster / count / avatar-stack drops the collaborator**
+though the socket is alive, with no client-side recovery (the REST
+`/collaborators` fetch feeds only the comment-author roster). M77's repro ran
+against a backgrounded automation tab → the observed ~30–45 s.
+
+Not M74 (its reconcile only removes dead-socket orphans — M77 debug-traced it
+never touching a live entry). Pre-dates the current collab form (no
+`outdatedTime` handling in `git log`).
+
+### Chosen fix — server-side keepalive on the M74 sweep
+
+Alternatives rejected: **client keepalive** (same background-throttle failure
+mode as the y-protocols renewal it would duplicate — violates "one liveness
+mechanism"); **change `outdatedTimeout`** (module `const` in 1.0.7, global,
+also delays legit peer-side stale cleanup).
+
+`CollaborationRoom.refreshLiveAwareness()`, called from the existing M74
+`awarenessReconcileTimer` sweep (`DEFAULT_AWARENESS_RECONCILE_MS` = 15 000 ms,
+< the 30 000 ms timeout with 2× margin; self-cancels when the room empties;
+cleared on dispose — **no new timer**). Each sweep, for every awareness entry
+backed by a `readyState === 1` socket that has been **quiet for a full sweep
+interval** (active clients' own frames already keep `meta` fresh — skipped):
+
+1. advance the server's own `meta` for that entry (`clock + 1`,
+   `lastUpdated = now`) so this room's `Awareness._checkInterval` never emits
+   a `timeout` removal for a live socket; and
+2. re-broadcast the entry's **current stored state, unchanged** to every
+   *other* live socket, so that peer's `Awareness` likewise refreshes
+   `meta.lastUpdated` and never times the collaborator out.
+
+The payload is the state already in `this.awareness` — `status` / `activity`
+/ `lastActive` are exactly what the collaborator last reported (**idle stays
+idle**), and it is deep-equal on the receiver, so **no `change` event and no
+collaborator re-render** (`filteredUpdated` stays empty). The entry's **own
+client is never sent its own entry back** (it self-renders from local state —
+M72/M73 untouched). A dead socket is excluded, so this **can never resurrect
+a genuinely-gone client** — a real disconnect still removes it via
+`removeClient` + M74 reconcile.
+
+**Paired monotonic-clock normalization** in
+`sanitizeIncomingAwarenessUpdate`: the kept entry's clock is forced to
+`max(incoming, serverMeta.clock + 1)`. The keepalive advances the server's
+clock for a quiet client, so a returning backgrounded tab's real frame can
+carry a clock the server has already passed — y-protocols'
+`applyAwarenessUpdate` would then silently drop it. The connection already
+owns the clientID and identity is rebuilt regardless, so forcing the clock
+forward is safe (only ever discards a duplicate/replayed frame). Verified
+live: a headless peer frozen at clock ~9 for 80 s, then editing, was applied
+immediately (no "frozen for N seconds" catch-up).
+
+### Timeout / cadence values
+
+| | value |
+|---|---|
+| y-protocols `outdatedTimeout` (unchanged) | 30 000 ms |
+| its `_checkInterval` granularity | 3 000 ms |
+| M78 keepalive cadence (reuses M74 sweep) | 15 000 ms |
+| "quiet for a sweep" gate before a client is refreshed | `now - meta.lastUpdated >= 15 000 ms` |
+
+### Deterministic reproduction & coverage — `backend/test/m78-idle-presence.test.ts` (8)
+
+Fake timers drive the sweep `setInterval` (lib0 captures `Date.now`, so
+y-protocols' own 30 s timer is not fake-timer-drivable — asserted via the
+manager's observable re-broadcast instead).
+
+1. **REPRO** — 2 live clients publish, then 3 sweep windows pass with zero
+   interaction: **before the fix** the peer receives 0 refreshes for the idle
+   collaborator (a real peer's `Awareness` deletes it at 30 s); after, ≥ 2
+   refreshes and the server still has the entry.
+2. refresh carries a **strictly increasing clock** and the **unchanged idle
+   state** (`status: "idle"`, `activity: viewing`, `lastActive` not bumped,
+   server-stamped `user.name` intact).
+3. a client **never receives its own entry** in a keepalive frame.
+4. a **genuine `removeClient`** → next sweep does not refresh it → gone; any
+   frame the peer got mentioning it is a removal (`state: null`).
+5. a **dead socket** (`readyState !== 1`) is not kept warm (M74 reconcile
+   drops it, the keepalive never re-adds it).
+6. keepalive **stops and the timer is `null`** once the room empties /
+   disposes; nothing emits after dispose.
+7. **MONOTONIC CLOCK** — after 5 sweeps advance the server clock past the
+   idle client's, its real "editing" frame is still applied and re-broadcast
+   with a clock > the server's.
+8. **M74 reconciliation unchanged** — a silently-dead socket's orphan is
+   still dropped on the next `removeClient`.
+
+Revert-sensitivity: remove the `refreshLiveAwareness()` call → tests 1, 2, 7
+fail; remove the monotonic-clock `max()` → test 7 fails.
+
+### Live two-session browser verification (2026-09-07)
+
+Two cookie-jar-isolated sessions (`localhost:5273` owner / `127.0.0.1:5273`
+collaborator), isolated backend on `:3001`, real `/ws/collab`. Collaborator =
+a headless client on the exact wire protocol whose `background` command
+freezes **all** awareness emission (its own 15 s renewal included) — a
+throttled hidden tab.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | B joins A's project | **PROVEN** — A chip "2 collaborators", TeamPanel "TEAM (2)" `bob_m78 EDITOR` |
+| 2 | B backgrounded + idle **~80 s** (then again ~62 s) — past the old 30 s window | **PROVEN** — A still shows B the whole time; server room awareness kept `bob_m78`, its clock incrementing ~1 / sweep |
+| 3 | B shown **Idle / Viewing**, not Active | **PROVEN** — TeamPanel `Viewing`, relative time growing ("1m ago"), never flipped |
+| 4 | B foregrounds + edits → **Active again** | **PROVEN** — server `activity: editing`, clock jumped 12 → 17 (**stale-clock frame accepted** — monotonic fix), A shows "✏️ Editing / main.py" |
+| 5 | B closes tab → A removes B | **PROVEN** — A "1 collaborator", "No other collaborators here right now", server room = A only |
+| 6 | B reconnects → **exactly one** B | **PROVEN** — one row, new clientID, old (`124249917`) gone |
+| 7 | keepalive causes **no reconnect / no new socket** | **PROVEN** — `window.WebSocket` instrumented on A → **0** creations across the whole sequence |
+| 8 | not a flood | **PROVEN** — a peer of a fully-idle 2-collaborator room: **10 awareness frames/min, ~1.7 KB/min** (≈ one coalesced frame per collaborator per 15 s sweep) |
+| 9 | app healthy | **PROVEN** — no error boundary; a real idle browser tab (A, idle 5 min) also stayed present |
+
+**Commit-pass re-verification (2026-09-08, on the committed branch
+`feat/m75-m78-notices-idle-presence`):** the same isolated stack + a
+backgrounded headless peer — B visible past **~85 s** backgrounded (server
+`bob_m78` retained, clock bumped per sweep), shown Idle/Viewing not Active;
+B resume + `edit` → server `activity: editing` (stale-clock frame accepted);
+B close → server room = A only; B reconnect → **exactly one** `bob_m78`
+entry; `window.WebSocket` on A → **0** new sockets throughout; no error
+boundary.
+
+### Fresh real-Chrome two-session re-verification (2026-09-08)
+
+Pre-merge confirmation with **two real Chrome tabs** (not a headless wire
+client): owner `localhost:5180`, collaborator `127.0.0.1:5180` (separate
+cookie jars), fresh backend `tsx watch` on `:3000` running the committed
+branch tip `8f45de3`, real `/ws/collab`, real Monaco, real y-protocols
+`Awareness`. Both tabs were `document.visibilityState === "hidden"` for the
+idle window — genuine hidden-tab timer throttling, the exact condition M78
+addresses. Test users `m78own_1623916` / `m78clb_1626106`, project
+`143a8c60-…`. Instrumentation: `WebSocket.prototype` capture on the live
+collab socket + a per-frame message classifier (message-type byte) + React
+fiber reads of the rendered `collaborators` array.
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | B joins A's project | **PROVEN** — both tabs: avatar chip "2", `TEAM (2)`, roles `OWNER` / `EDITOR`, `collab-status-badge synced` |
+| 2 | B connected + hidden + idle **112 s** (past the old 30 s window) | **PROVEN** — A kept showing B the whole time; A's collab socket stayed `readyState 1`; **0** new sockets on A; B's roster row went `Viewing` → `Idle`, never `Active`/`Editing` |
+| 2t | keepalive cadence / volume on A (peer of one idle collaborator) | **PROVEN** — 62 awareness frames over 380 s ≈ **9.8 frames/min**, **~2.5 KB/min**; frame timestamps cluster in ~15 s pairs (one coalesced entry per collaborator per M74 sweep); 0 sync frames. Same order as the historical ~10 frames/min · ~1.7 KB/min — no regression. |
+| 3 | B foregrounds + edits `main.py` | **PROVEN** — A's entry for B flips to `activity: "editing"`, `activeFile: "main.py"`, title "Editing main.py"; still exactly one B entry; B's stale (background-throttled) awareness clock accepted — the edit propagated |
+| 4 | B closes its tab | **PROVEN** — within one reconcile A's roster dropped B (count `1`, only A's own entry left, B gone from every surface) |
+| 5 | B reconnects (new tab, new `clientID`) | **PROVEN** — A shows **exactly one** B (`clientId 2140178667`), old `clientId 1819151144` gone, `count 2`; A did not reconnect (0 new sockets) |
+| 6 | M74 reconciliation intact | **PROVEN** — live entries never wrongly removed; the server `doc.clientID` `{}` baseline never surfaced as a collaborator (`readPresenceState` drops stateless entries); a transient duplicate (see below) was reconciled away automatically |
+| 7 | single realistic page reload of A | **PROVEN** — a peer saw exactly one A entry with A's new `clientID` by t+64 s; old entry gone |
+
+### Known limitation — transient over-count after an *abrupt* reconnect
+
+Observed during setup when tab A was reloaded **4+ times in ~2 min** through
+the Vite dev proxy: a peer's **avatar-stack count badge** briefly showed `3`
+for a 2-person room. Cause: an abruptly-orphaned collab socket that the
+backend still saw as `readyState === 1` (browser close frame not yet
+propagated — amplified here by the dev proxy not tearing down its upstream
+promptly; in production the browser talks to the backend directly). M78's
+`refreshLiveAwareness` keeps bumping that not-yet-reaped entry's `meta.clock`
+on every peer each 15 s sweep, which defeats y-protocols' 30 s
+`outdatedTimeout` that would otherwise have hidden it from peers — so the
+stale row stays visible on peers until the backend socket is actually reaped
+(the `WS_HEARTBEAT_INTERVAL_MS` reaper, ≤ 60 s in production).
+
+- **Self-heals** — every observation corrected itself once the socket was
+  reaped; no permanent duplicate, no unbounded growth.
+- **`TeamPanel` stayed correct throughout** (it dedupes by `userId`); only
+  the `CollaboratorAvatarStack` count badge (`collaborators.length`,
+  un-deduped) transiently over-counts.
+- **Does not touch disconnect / idle / reconnect semantics** — tests 2/4/5
+  above all pass; a *clean* disconnect reconciles immediately, a *single*
+  realistic reload was clean by t+64 s.
+- Net effect of M78: the transient-duplicate window after an *abrupt*
+  reconnect widens from ~30 s (y-protocols timeout) to ≤ the heartbeat-reaper
+  interval (≤ 60 s in prod). Pre-existing class (M74 already had reconnect
+  transients), bounded, cosmetic. **Classified P3.** No code change here — a
+  fix, if ever wanted, is a `userId` de-dupe on the avatar-stack count, out
+  of scope for M78 and not worth a same-branch change.
+
+### Scaling
+
+Per sweep, per quiet collaborator: one `meta` bump (O(1)) + one
+`encodeAwarenessUpdate` entry (~40–180 B) sent to each *other* live socket.
+Total is O(N) per peer, O(N²) for a **fully-idle** room:
+
+| room (all idle) | bytes / 15 s sweep, total | steady rate, total |
+|---|---|---|
+| 2 | ~0.24 KB | ~16 B/s |
+| 5 | ~2.4 KB | ~160 B/s |
+| 10 | ~10.8 KB | ~720 B/s |
+| 20 | ~45.6 KB | ~3 KB/s |
+
+The `now - meta.lastUpdated >= 15 000 ms` gate skips every collaborator who
+is actively sending, so a busy room's keepalive traffic is near zero — the
+O(N²) only applies to an idle room, which is the low-traffic case regardless.
+The existing awareness broadcast is already O(N²) for active editing, so M78
+adds no new scaling class. Not a P1/P2 problem for realistic IDE room sizes
+(2–20). If 50+-person live-collab rooms ever matter, batch/stagger the sweep
+— premature now.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | `vitest run` → **1206 passed / 9 skipped / 0 failed** (99 files); one earlier run had a `python-deps` flake (real-PyPI pip-in-Docker under load), green on the clean committed-branch re-run |
+| Collab regression (targeted) | `m4-collab` (48), `m6-collab-coalesce-backpressure` (8), `m41-dispose-guards` (8), `m57-presence` (27), `m62-collab-identity` (14), `m73-collab-pronouns` (6), `m74-awareness-reconcile` (5), `m74-collab-scale` (3), `collab-awareness-security` (23) — **142/142** |
+| Frontend collab (targeted) | `collab.awareness` / `collab.presence` / `collab.reconnect` / `collab.selfIdentity` / `collab.connectionState` / `identity-consistency` / `CollaboratorAvatarStack` — **95/95** |
+| Frontend full suite | `vitest run` → **974 passed / 0 failed** (123 files; M71 perf baseline unchanged — the keepalive adds zero frontend renders) |
+| Frontend build | `tsc --noEmit && vite build` exit 0 (Monaco chunk-size warning only) |
+| Backend eslint | `eslint .` → 0 errors / 29 warnings (baseline) |
+| `git diff --check` | clean |
+| Pre-merge re-confirm (2026-09-08, tip `8f45de3`) | backend + frontend `tsc --noEmit` exit 0, `git diff --check` clean, working tree clean; full backend Docker suite (1206/9/0), frontend suite (974/0), `vite build`, `eslint` re-run green earlier the same day on this unchanged tree — not re-run for ceremony per the release checklist |
+
+### Acceptance (M78)
+
+| Criterion | Status |
+|---|---|
+| Idle-but-connected collaborator stays visible past the old 30 s window | **PROVEN** (deterministic REPRO + live ~80 s) |
+| Idle/away stays semantically distinct from liveness; idle not shown active | **PROVEN** (payload unchanged; live TeamPanel `Viewing`, not `Editing`) |
+| Genuine disconnect still removes the collaborator | **PROVEN** (deterministic + live close) |
+| Reconnect → exactly one entry | **PROVEN** (deterministic + live, old clientID gone) |
+| No duplicate socket / timer / subscription | **PROVEN** (reuses the M74 timer; live `WebSocket` count 0) |
+| M74 awareness reconciliation still correct | **PROVEN** (m74 suites green; deterministic test 8) |
+| Deterministic regression coverage | **PROVEN** (`m78-idle-presence.test.ts`, 8, revert-sensitive) |
+| Docker-backed verification green | **PROVEN** (1206 pass / 0 fail on the committed branch) |
+| Scaling acceptable | **PROVEN** — O(N) per peer, O(N²) idle-room total; ≤ 3 KB/s total at N=20; near-zero in a busy room (quiet-gate); no new scaling class |
+| Live two-session Chrome verification | **PROVEN** — headless wire-client run (2026-09-07) **and** fresh real-Chrome two-tab run on the branch tip (2026-09-08): idle 112 s past the 30 s window, Idle-not-Active, clean disconnect removes, reconnect → one entry, 0 new sockets |
+| Resource / traffic impact measured | **PROVEN** — ~1.7 KB/min per peer (2026-09-07 headless); ~2.5 KB/min · ~9.8 frames/min per peer (2026-09-08 real Chrome, one idle collaborator) — same order, no regression |
+| Transient over-count after an *abrupt* reconnect | **KNOWN LIMITATION (P3)** — avatar-stack count badge can briefly over-count a reconnecting user until the ≤60 s heartbeat reaper; self-heals; `TeamPanel` unaffected; disconnect/idle/reconnect semantics unaffected |
+
+### Remaining risk / notes
+
+- The keepalive re-broadcasts even to a **backpressured** peer only if
+  `sendAwarenessBroadcast`'s watermark check passes; a peer backpressured for
+  > 30 s could still locally time a collaborator out until M6 catch-up. Edge
+  case, pre-existing exposure, not worsened.
+- `awarenessReconcileMs` remains constructor-only (not env-configurable) —
+  deliberately not adding an ops knob (scope).
+- A collaborator's **awareness clock** now grows ~1 / 15 s while idle
+  (unbounded uint; years to matter).
+- **Abrupt-reconnect transient over-count (P3)** — see "Known limitation"
+  above. M78 widens the peer-visible duplicate window after an abrupt
+  reconnect (reload storm / crash) from ~30 s to ≤ the heartbeat-reaper
+  interval. Bounded, self-healing, cosmetic (`TeamPanel` dedupes correctly).
+  Not merge-blocking; no fix applied (out of scope, would be a frontend
+  `userId` de-dupe on the avatar-stack count).
+
+
+## M74–M78 history reconstruction (2026-09-08)
+
+M74–M77 and M78 accumulated as one uncommitted working tree (M74's production
+code was already merged in `03eb66f`..`9931441`; M77 was verification-only,
+STATUS text only). Partitioned onto branch
+`feat/m75-m78-notices-idle-presence` (off `master` @ `8d13262`) as seven
+green, bisectable commits — every file traced to its milestone, no
+cross-milestone overlap, no forced splits, no red intermediate states:
+
+| # | commit | milestone | files |
+|---|---|---|---|
+| 1 | `chore(repo): enforce LF line endings via .gitattributes` | M75 | `.gitattributes` |
+| 2 | `feat(collab): route Sidebar/Output/IDE failures through the M64 notice system` | M75 | `utils/notices.ts`, `IDE.tsx`, `Sidebar.tsx`, `Output.tsx` + 4 test files (coupled — the modified `Sidebar.fork`/`Sidebar.templates` tests must land with the feat) |
+| 3 | `feat(admin): route AdminDashboard failures through its own M64 notice instance` | M76 | `Admin/AdminDashboard.tsx` |
+| 4 | `test(admin): lock AdminDashboard notice wiring` | M76 | `AdminDashboard.notices.wiring.test.tsx` |
+| 5 | `test(collab): M76 regression — awareness cycle churn + sandbox rejoin-grace` | M76 | `m74-awareness-reconcile.test.ts`, `m74-sandbox-occupancy.test.ts` (pure additions extending M74's suites) |
+| 6 | `feat(collab): keep idle connected collaborators visible to peers` | M78 | `collab/manager.ts` |
+| 7 | `test(collab): lock idle-presence keepalive + disconnect/reconnect semantics` | M78 | `m78-idle-presence.test.ts` |
+| 8 | this STATUS entry | M74 retro-doc + M75–M78 | `STATUS.md` |
+
+Not pushed, not merged. Full verification (both typechecks, backend 1206/0
+with Docker, frontend 974/0, build, eslint, `diff --check`, live M78
+two-session re-check) green on the branch tip.
