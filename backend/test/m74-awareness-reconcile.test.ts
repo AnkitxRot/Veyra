@@ -212,4 +212,63 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
     clientAwarenessA.destroy();
     clientAwarenessB.destroy();
   });
+
+  /**
+   * The periodic safety-net guard: when a socket dies with no 'close' event,
+   * `removeClient()` never runs for it, so neither commit 1's on-removal
+   * reconcile nor a fresh join is guaranteed to fire. A non-empty room runs
+   * `reconcileAwarenessAgainstLiveSockets()` on a fixed interval
+   * (`DEFAULT_AWARENESS_RECONCILE_MS`, overridden here for speed) so a dead
+   * connection's presence is still cleared within one or two intervals.
+   *
+   * Both A and B drop without a close event (the deploy / connection-storm
+   * case the guard exists for) and `removeClient` is never called for either;
+   * after two intervals the table is back to the server's own baseline.
+   */
+  it("periodic guard reconciles dead sockets even when removeClient never runs", async () => {
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("alice", "h", "user"); // id 1
+    db.prepare(
+      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+    ).run("bob", "h", "user"); // id 2
+
+    const project = await createProject(cfg, db, 1, { name: "PeriodicGuardRoom" });
+    const onDispose = vi.fn();
+    // Short interval so the test does not wait the production 15s.
+    const room = new CollaborationRoom(project.id, cfg, db, onDispose, {
+      awarenessReconcileMs: 25,
+    });
+
+    const wsA = makeMockWs();
+    const wsB = makeMockWs();
+    await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
+    await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
+
+    const clientAwarenessA = new awarenessProtocol.Awareness(new Y.Doc());
+    const clientAwarenessB = new awarenessProtocol.Awareness(new Y.Doc());
+    const clientIdA = clientAwarenessA.clientID;
+    const clientIdB = clientAwarenessB.clientID;
+    room.handleMessage(wsA, buildAwarenessFrame(clientAwarenessA, { name: "Alice" }));
+    room.handleMessage(wsB, buildAwarenessFrame(clientAwarenessB, { name: "Bob" }));
+    expect(room.awareness.getStates().has(clientIdA)).toBe(true);
+    expect(room.awareness.getStates().has(clientIdB)).toBe(true);
+
+    // Both sockets die silently: no 'close', no removeClient, no removal frame.
+    wsA.readyState = 3; // WebSocket.CLOSED
+    wsB.readyState = 3;
+
+    // Wait roughly three guard intervals.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const states = room.awareness.getStates();
+    expect(states.has(clientIdA)).toBe(false);
+    expect(states.has(clientIdB)).toBe(false);
+    // Only the server's own doc.clientID baseline ({}) remains.
+    expect(states.size).toBe(1);
+
+    room.dispose();
+    clientAwarenessA.destroy();
+    clientAwarenessB.destroy();
+  });
 });

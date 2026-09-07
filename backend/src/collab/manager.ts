@@ -52,6 +52,11 @@ export const DEFAULT_AWARENESS_COALESCE_MS = 50;
 export const DEFAULT_HIGH_WATERMARK_BYTES = 1_000_000;
 export const DEFAULT_LOW_WATERMARK_BYTES = 200_000;
 const SLOW_CLIENT_RECHECK_MS = 500;
+// M74: how often a non-empty room reconciles its awareness table against its
+// live sockets, as a safety net for a socket that dies without a 'close' event
+// (so removeClient() never runs for it). Fixed in production; overridable only
+// for tests, exactly like DEFAULT_AWARENESS_COALESCE_MS.
+export const DEFAULT_AWARENESS_RECONCILE_MS = 15_000;
 
 // M54: Collaborative Run Awareness. Ephemeral, in-memory only — no
 // durable/SQLite state, no client->server path. A terminal run status
@@ -219,6 +224,7 @@ export interface RunStatusEntry {
 export interface CollaborationRoomOptions {
   yjsCoalesceMs?: number;
   awarenessCoalesceMs?: number;
+  awarenessReconcileMs?: number;
   highWatermarkBytes?: number;
   lowWatermarkBytes?: number;
 }
@@ -280,6 +286,7 @@ export class CollaborationRoom {
   // in effect.
   private readonly yjsCoalesceMs: number;
   private readonly awarenessCoalesceMs: number;
+  private readonly awarenessReconcileMs: number;
   private readonly highWatermarkBytes: number;
   private readonly lowWatermarkBytes: number;
 
@@ -307,6 +314,9 @@ export class CollaborationRoom {
    *  safe: nothing is ever permanently lost, only deferred. */
   private readonly slowClients: Set<WebSocket> = new Set();
   private slowClientRecheckTimer: NodeJS.Timeout | null = null;
+  // M74: safety-net awareness reconciliation for sockets that die without a
+  // 'close' event. Runs only while the room is non-empty.
+  private awarenessReconcileTimer: NodeJS.Timeout | null = null;
 
   // M54: ephemeral run-status registry, keyed by executionId. Populated
   // exclusively by the real server-side execution lifecycle via
@@ -411,6 +421,8 @@ export class CollaborationRoom {
     this.yjsCoalesceMs = options.yjsCoalesceMs ?? DEFAULT_YJS_COALESCE_MS;
     this.awarenessCoalesceMs =
       options.awarenessCoalesceMs ?? DEFAULT_AWARENESS_COALESCE_MS;
+    this.awarenessReconcileMs =
+      options.awarenessReconcileMs ?? DEFAULT_AWARENESS_RECONCILE_MS;
     this.highWatermarkBytes =
       options.highWatermarkBytes ?? DEFAULT_HIGH_WATERMARK_BYTES;
     this.lowWatermarkBytes =
@@ -878,6 +890,29 @@ export class CollaborationRoom {
       }
     }, RUN_STATUS_SWEEP_MS);
     this.runStatusSweepTimer.unref?.();
+  }
+
+  /**
+   * M74: eventual awareness cleanup for a socket that dies without a 'close'
+   * event, so removeClient() (which reconciles) never runs for it — the
+   * heartbeat-reaper race and dev StrictMode / project-switch churn noted in
+   * STATUS.md:8262-8272, :8308-8310. Started on the first join, self-cancels
+   * once the room is empty or disposed; dispose() also clears it. Mirrors the
+   * ensureRunStatusSweep lifecycle.
+   */
+  private ensureAwarenessReconcileSweep(): void {
+    if (this.awarenessReconcileTimer) return;
+    this.awarenessReconcileTimer = setInterval(() => {
+      if (this.disposed || this.clients.size === 0) {
+        if (this.awarenessReconcileTimer) {
+          clearInterval(this.awarenessReconcileTimer);
+          this.awarenessReconcileTimer = null;
+        }
+        return;
+      }
+      this.reconcileAwarenessAgainstLiveSockets();
+    }, this.awarenessReconcileMs);
+    this.awarenessReconcileTimer.unref?.();
   }
 
   // --- M65: shared run output -------------------------------------------
@@ -1618,6 +1653,10 @@ export class CollaborationRoom {
 
     this.clients.set(ws, clientState);
 
+    // M74: safety-net reconciliation for a socket that later dies without a
+    // 'close' event. No-op if already running.
+    this.ensureAwarenessReconcileSweep();
+
     // M62-3 / M72: resolve this user's effective display name and avatar
     // version once, from the current persisted profile, and cache them for
     // the awareness hot path. Idempotent — a second tab for the same user
@@ -1948,6 +1987,10 @@ export class CollaborationRoom {
 
     // If room is now empty, schedule a grace period before disposing
     if (this.clients.size === 0) {
+      if (this.awarenessReconcileTimer) {
+        clearInterval(this.awarenessReconcileTimer);
+        this.awarenessReconcileTimer = null;
+      }
       this.scheduleIdleDisposal();
     }
   }
@@ -2586,6 +2629,10 @@ export class CollaborationRoom {
     if (this.yjsCoalesceTimer) clearTimeout(this.yjsCoalesceTimer);
     if (this.awarenessCoalesceTimer) clearTimeout(this.awarenessCoalesceTimer);
     if (this.slowClientRecheckTimer) clearInterval(this.slowClientRecheckTimer);
+    if (this.awarenessReconcileTimer) {
+      clearInterval(this.awarenessReconcileTimer);
+      this.awarenessReconcileTimer = null;
+    }
     // M54: run-status registry teardown.
     for (const t of this.runStatusLingerTimers.values()) clearTimeout(t);
     this.runStatusLingerTimers.clear();
@@ -2609,6 +2656,7 @@ export class CollaborationRoom {
     this.yjsCoalesceTimer = null;
     this.awarenessCoalesceTimer = null;
     this.slowClientRecheckTimer = null;
+    this.awarenessReconcileTimer = null;
     this.pendingYjsUpdates = [];
     this.pendingYjsOrigins = new Set();
     this.pendingAwarenessClientIds = new Set();
