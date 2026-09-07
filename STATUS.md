@@ -8878,6 +8878,59 @@ B close → server room = A only; B reconnect → **exactly one** `bob_m78`
 entry; `window.WebSocket` on A → **0** new sockets throughout; no error
 boundary.
 
+### Fresh real-Chrome two-session re-verification (2026-09-08)
+
+Pre-merge confirmation with **two real Chrome tabs** (not a headless wire
+client): owner `localhost:5180`, collaborator `127.0.0.1:5180` (separate
+cookie jars), fresh backend `tsx watch` on `:3000` running the committed
+branch tip `8f45de3`, real `/ws/collab`, real Monaco, real y-protocols
+`Awareness`. Both tabs were `document.visibilityState === "hidden"` for the
+idle window — genuine hidden-tab timer throttling, the exact condition M78
+addresses. Test users `m78own_1623916` / `m78clb_1626106`, project
+`143a8c60-…`. Instrumentation: `WebSocket.prototype` capture on the live
+collab socket + a per-frame message classifier (message-type byte) + React
+fiber reads of the rendered `collaborators` array.
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | B joins A's project | **PROVEN** — both tabs: avatar chip "2", `TEAM (2)`, roles `OWNER` / `EDITOR`, `collab-status-badge synced` |
+| 2 | B connected + hidden + idle **112 s** (past the old 30 s window) | **PROVEN** — A kept showing B the whole time; A's collab socket stayed `readyState 1`; **0** new sockets on A; B's roster row went `Viewing` → `Idle`, never `Active`/`Editing` |
+| 2t | keepalive cadence / volume on A (peer of one idle collaborator) | **PROVEN** — 62 awareness frames over 380 s ≈ **9.8 frames/min**, **~2.5 KB/min**; frame timestamps cluster in ~15 s pairs (one coalesced entry per collaborator per M74 sweep); 0 sync frames. Same order as the historical ~10 frames/min · ~1.7 KB/min — no regression. |
+| 3 | B foregrounds + edits `main.py` | **PROVEN** — A's entry for B flips to `activity: "editing"`, `activeFile: "main.py"`, title "Editing main.py"; still exactly one B entry; B's stale (background-throttled) awareness clock accepted — the edit propagated |
+| 4 | B closes its tab | **PROVEN** — within one reconcile A's roster dropped B (count `1`, only A's own entry left, B gone from every surface) |
+| 5 | B reconnects (new tab, new `clientID`) | **PROVEN** — A shows **exactly one** B (`clientId 2140178667`), old `clientId 1819151144` gone, `count 2`; A did not reconnect (0 new sockets) |
+| 6 | M74 reconciliation intact | **PROVEN** — live entries never wrongly removed; the server `doc.clientID` `{}` baseline never surfaced as a collaborator (`readPresenceState` drops stateless entries); a transient duplicate (see below) was reconciled away automatically |
+| 7 | single realistic page reload of A | **PROVEN** — a peer saw exactly one A entry with A's new `clientID` by t+64 s; old entry gone |
+
+### Known limitation — transient over-count after an *abrupt* reconnect
+
+Observed during setup when tab A was reloaded **4+ times in ~2 min** through
+the Vite dev proxy: a peer's **avatar-stack count badge** briefly showed `3`
+for a 2-person room. Cause: an abruptly-orphaned collab socket that the
+backend still saw as `readyState === 1` (browser close frame not yet
+propagated — amplified here by the dev proxy not tearing down its upstream
+promptly; in production the browser talks to the backend directly). M78's
+`refreshLiveAwareness` keeps bumping that not-yet-reaped entry's `meta.clock`
+on every peer each 15 s sweep, which defeats y-protocols' 30 s
+`outdatedTimeout` that would otherwise have hidden it from peers — so the
+stale row stays visible on peers until the backend socket is actually reaped
+(the `WS_HEARTBEAT_INTERVAL_MS` reaper, ≤ 60 s in production).
+
+- **Self-heals** — every observation corrected itself once the socket was
+  reaped; no permanent duplicate, no unbounded growth.
+- **`TeamPanel` stayed correct throughout** (it dedupes by `userId`); only
+  the `CollaboratorAvatarStack` count badge (`collaborators.length`,
+  un-deduped) transiently over-counts.
+- **Does not touch disconnect / idle / reconnect semantics** — tests 2/4/5
+  above all pass; a *clean* disconnect reconciles immediately, a *single*
+  realistic reload was clean by t+64 s.
+- Net effect of M78: the transient-duplicate window after an *abrupt*
+  reconnect widens from ~30 s (y-protocols timeout) to ≤ the heartbeat-reaper
+  interval (≤ 60 s in prod). Pre-existing class (M74 already had reconnect
+  transients), bounded, cosmetic. **Classified P3.** No code change here — a
+  fix, if ever wanted, is a `userId` de-dupe on the avatar-stack count, out
+  of scope for M78 and not worth a same-branch change.
+
 ### Scaling
 
 Per sweep, per quiet collaborator: one `meta` bump (O(1)) + one
@@ -8912,6 +8965,7 @@ adds no new scaling class. Not a P1/P2 problem for realistic IDE room sizes
 | Frontend build | `tsc --noEmit && vite build` exit 0 (Monaco chunk-size warning only) |
 | Backend eslint | `eslint .` → 0 errors / 29 warnings (baseline) |
 | `git diff --check` | clean |
+| Pre-merge re-confirm (2026-09-08, tip `8f45de3`) | backend + frontend `tsc --noEmit` exit 0, `git diff --check` clean, working tree clean; full backend Docker suite (1206/9/0), frontend suite (974/0), `vite build`, `eslint` re-run green earlier the same day on this unchanged tree — not re-run for ceremony per the release checklist |
 
 ### Acceptance (M78)
 
@@ -8926,8 +8980,9 @@ adds no new scaling class. Not a P1/P2 problem for realistic IDE room sizes
 | Deterministic regression coverage | **PROVEN** (`m78-idle-presence.test.ts`, 8, revert-sensitive) |
 | Docker-backed verification green | **PROVEN** (1206 pass / 0 fail on the committed branch) |
 | Scaling acceptable | **PROVEN** — O(N) per peer, O(N²) idle-room total; ≤ 3 KB/s total at N=20; near-zero in a busy room (quiet-gate); no new scaling class |
-| Live two-session Chrome verification | **PROVEN** (table above) |
-| Resource / traffic impact measured | **PROVEN** (10 frames/min, ~1.7 KB/min per peer, fully-idle room) |
+| Live two-session Chrome verification | **PROVEN** — headless wire-client run (2026-09-07) **and** fresh real-Chrome two-tab run on the branch tip (2026-09-08): idle 112 s past the 30 s window, Idle-not-Active, clean disconnect removes, reconnect → one entry, 0 new sockets |
+| Resource / traffic impact measured | **PROVEN** — ~1.7 KB/min per peer (2026-09-07 headless); ~2.5 KB/min · ~9.8 frames/min per peer (2026-09-08 real Chrome, one idle collaborator) — same order, no regression |
+| Transient over-count after an *abrupt* reconnect | **KNOWN LIMITATION (P3)** — avatar-stack count badge can briefly over-count a reconnecting user until the ≤60 s heartbeat reaper; self-heals; `TeamPanel` unaffected; disconnect/idle/reconnect semantics unaffected |
 
 ### Remaining risk / notes
 
@@ -8939,6 +8994,12 @@ adds no new scaling class. Not a P1/P2 problem for realistic IDE room sizes
   deliberately not adding an ops knob (scope).
 - A collaborator's **awareness clock** now grows ~1 / 15 s while idle
   (unbounded uint; years to matter).
+- **Abrupt-reconnect transient over-count (P3)** — see "Known limitation"
+  above. M78 widens the peer-visible duplicate window after an abrupt
+  reconnect (reload storm / crash) from ~30 s to ≤ the heartbeat-reaper
+  interval. Bounded, self-healing, cosmetic (`TeamPanel` dedupes correctly).
+  Not merge-blocking; no fix applied (out of scope, would be a frontend
+  `userId` de-dupe on the avatar-stack count).
 
 
 ## M74–M78 history reconstruction (2026-09-08)
