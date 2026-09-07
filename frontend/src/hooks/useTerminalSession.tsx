@@ -90,6 +90,38 @@ export function useTerminalSession(
     wsRef.current = null;
   };
 
+  /** (Re)attach the ResizeObserver that keeps the XTerm fitted to its host.
+   *  This — not a one-shot `fit()` on show — is what recovers a correct row
+   *  count after the panel un-hides or the drawer is re-expanded. */
+  const observeContainer = (el: HTMLElement) => {
+    resizeObsRef.current?.disconnect();
+    resizeObsRef.current = null;
+    if (typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(() => {
+      // Only fit once the host actually has room — a display:none → flex
+      // transition can fire this with a stale/zero box first.
+      if (el.clientHeight >= 24 && el.clientWidth >= 24) {
+        try {
+          fitRef.current?.fit();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    obs.observe(el);
+    resizeObsRef.current = obs;
+  };
+
+  const safeFit = () => {
+    const el = containerRef.current;
+    if (!el || el.clientHeight < 24 || el.clientWidth < 24) return;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      /* ignore */
+    }
+  };
+
   const ensureXterm = (): XTerm => {
     if (xtermRef.current) return xtermRef.current;
     const term = new XTerm({
@@ -107,11 +139,10 @@ export function useTerminalSession(
     fitRef.current = fit;
     if (containerRef.current) {
       term.open(containerRef.current);
-      try {
-        fit.fit();
-      } catch {
-        /* pre-layout */
-      }
+      observeContainer(containerRef.current);
+      // Defer the first fit to after layout so it never resizes to a
+      // transitional tiny box.
+      requestAnimationFrame(safeFit);
     }
     term.onData((data) => {
       const ws = wsRef.current;
@@ -252,30 +283,21 @@ export function useTerminalSession(
 
   const bindContainer = useCallback((el: HTMLElement | null) => {
     containerRef.current = el;
-    resizeObsRef.current?.disconnect();
-    resizeObsRef.current = null;
+    if (!el) {
+      resizeObsRef.current?.disconnect();
+      resizeObsRef.current = null;
+      return;
+    }
     const term = xtermRef.current;
-    if (el && term) {
+    if (term) {
       if (!(term as unknown as { element?: HTMLElement }).element) {
         term.open(el);
       }
-      try {
-        fitRef.current?.fit();
-      } catch {
-        /* pre-layout */
-      }
-      if (typeof ResizeObserver !== "undefined") {
-        const obs = new ResizeObserver(() => {
-          try {
-            fitRef.current?.fit();
-          } catch {
-            /* ignore */
-          }
-        });
-        obs.observe(el);
-        resizeObsRef.current = obs;
-      }
+      observeContainer(el);
+      requestAnimationFrame(safeFit);
     }
+    // If the XTerm does not exist yet, `ensureXterm` opens + observes it once
+    // it is created — nothing to do here but remember the element.
   }, []);
 
   const ensureStarted = useCallback(() => {
@@ -291,11 +313,9 @@ export function useTerminalSession(
   }, []);
 
   const fit = useCallback(() => {
-    try {
-      fitRef.current?.fit();
-    } catch {
-      /* ignore */
-    }
+    // Two frames: one for the display:none → flex layout to settle, one to
+    // fit against the real box.
+    requestAnimationFrame(() => requestAnimationFrame(safeFit));
   }, []);
 
   const retry = useCallback(() => {

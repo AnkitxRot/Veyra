@@ -80,9 +80,18 @@ beforeEach(() => {
   FakeXTerm.openCount = 0;
   FakeWS.instances = [];
   (globalThis as any).WebSocket = FakeWS;
+  (globalThis as any).__ro = { observed: [] as HTMLElement[], disconnects: 0 };
   (globalThis as any).ResizeObserver = class {
-    observe() {}
-    disconnect() {}
+    cb: () => void;
+    constructor(cb: () => void) {
+      this.cb = cb;
+    }
+    observe(el: HTMLElement) {
+      (globalThis as any).__ro.observed.push(el);
+    }
+    disconnect() {
+      (globalThis as any).__ro.disconnects++;
+    }
   };
   Object.defineProperty(globalThis, "crypto", {
     value: { randomUUID: () => "tid-fixed" },
@@ -135,10 +144,11 @@ describe("M79 — terminal session lifecycle edges", () => {
 
   it("F2: re-binding the container does not recreate or dispose the XTerm", () => {
     const h = renderHook(() => useTerminalSession("p1", "dark"));
+    const el = document.createElement("div");
+    act(() => h.result.current.bindContainer(el));
     act(() => h.result.current.ensureStarted());
     expect(FakeXTerm.instances).toHaveLength(1);
     const term = FakeXTerm.instances[0];
-    const el = document.createElement("div");
 
     act(() => h.result.current.bindContainer(el));
     act(() => h.result.current.bindContainer(null));
@@ -147,8 +157,23 @@ describe("M79 — terminal session lifecycle edges", () => {
     expect(FakeXTerm.instances).toHaveLength(1);
     expect(FakeXTerm.instances[0]).toBe(term);
     expect(FakeXTerm.disposeCount).toBe(0);
-    // open() is called at most once for one element
     expect(FakeXTerm.openCount).toBeLessThanOrEqual(1);
+  });
+
+  it("attaches a ResizeObserver so the XTerm re-fits after the panel un-hides", () => {
+    (globalThis as any).__ro = { observed: [], disconnects: 0 };
+    const h = renderHook(() => useTerminalSession("p1", "dark"));
+    const el = document.createElement("div");
+    Object.defineProperty(el, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(el, "clientWidth", { value: 800, configurable: true });
+    act(() => h.result.current.bindContainer(el));
+    act(() => h.result.current.ensureStarted());
+    // the host element is observed exactly once (not left unobserved as the
+    // pre-fix bug did when bindContainer ran before the XTerm existed)
+    expect((globalThis as any).__ro.observed).toContain(el);
+    // and teardown disconnects it
+    act(() => h.unmount());
+    expect((globalThis as any).__ro.disconnects).toBeGreaterThan(0);
   });
 
   it("F20 / Scenario I: unmount during a pending reconnect leaves no socket or timer", () => {
