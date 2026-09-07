@@ -38,6 +38,8 @@ import {
 import AdminResourceAnalytics from "./AdminResourceAnalytics";
 import AdminBackupsPanel from "./AdminBackupsPanel";
 import AdminObservabilityPanel from "./AdminObservabilityPanel";
+import { useNotices } from "../../hooks/useNotices";
+import NoticeStack from "../common/NoticeStack";
 
 export default function AdminDashboard({
   user: _user,
@@ -48,6 +50,15 @@ export default function AdminDashboard({
   onLogout: () => void;
   onSwitchToIde: () => void;
 }) {
+  // M76: the /admin route has no IDE mounted, so it cannot reach the IDE's
+  // useNotices owner. It gets its own instance of the same canonical M64
+  // system (not a second notification mechanism) for async-failure feedback.
+  const {
+    notices: adminNotices,
+    notify: notifyAdmin,
+    dismiss: dismissAdminNotice,
+  } = useNotices();
+
   const [activeTab, setActiveTab] = useState<
     | "overview"
     | "sandboxes"
@@ -310,7 +321,11 @@ export default function AdminDashboard({
       const res = await api<AdminUserDetails>(`/api/admin/users/${userId}`);
       setInspectingUser(res);
     } catch (err: any) {
-      alert(`Failed to load user details: ${err.message}`);
+      notifyAdmin({
+        kind: "error",
+        text: `Failed to load user details: ${err.message}`,
+        ttl: 6000,
+      });
     } finally {
       setInspectLoading(false);
     }
@@ -429,7 +444,12 @@ export default function AdminDashboard({
       await fetchOverviewFallback();
       await fetchAudit();
     } catch (err: any) {
-      alert(`Termination failed: ${err.message}`);
+      // Leave the confirm modal open so the operator can retry.
+      notifyAdmin({
+        kind: "error",
+        text: `Sandbox termination failed: ${err.message}`,
+        ttl: 6000,
+      });
     } finally {
       setTerminateLoading(false);
     }
@@ -516,6 +536,10 @@ export default function AdminDashboard({
 
   return (
     <div className="admin-layout">
+      <NoticeStack
+        notices={adminNotices.filter((n) => n.surface === "stack")}
+        onDismiss={dismissAdminNotice}
+      />
       {/* Liquid Glass Admin Header */}
       <header className="admin-header">
         <div className="admin-header-title">
