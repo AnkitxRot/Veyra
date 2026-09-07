@@ -200,6 +200,14 @@ export function useTerminalSession(
         return;
       }
       if (msg.type === "data" && typeof msg.data === "string") {
+        // Defense in depth against a double replay: the server already only
+        // resends `seq > lastSeq`, but never write a frame we've applied.
+        if (
+          typeof msg.seq === "number" &&
+          msg.seq <= lastSeqRef.current
+        ) {
+          return;
+        }
         if (typeof msg.seq === "number") lastSeqRef.current = msg.seq;
         term.write(msg.data);
       } else if (msg.type === "ended") {
