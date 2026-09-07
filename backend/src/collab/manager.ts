@@ -1876,6 +1876,14 @@ export class CollaborationRoom {
       ownedIds.clear();
     }
 
+    // M74: the targeted removal above only withdraws the clientIDs THIS
+    // connection published. A connection whose socket died without a 'close'
+    // event (heartbeat-reaper race, dev StrictMode / project-switch churn)
+    // never runs removeClient at all, so its awareness entry lingers as an
+    // orphan. Reconcile the whole table against currently-live sockets
+    // whenever any client leaves.
+    this.reconcileAwarenessAgainstLiveSockets();
+
     // M58: an author leaving withdraws their outstanding requests (the target
     // is told `author_gone`); a target leaving drops requests aimed at them
     // (never persisted, never replayed — silent). Runs AFTER clients.delete so
@@ -1934,6 +1942,33 @@ export class CollaborationRoom {
     // If room is now empty, schedule a grace period before disposing
     if (this.clients.size === 0) {
       this.scheduleIdleDisposal();
+    }
+  }
+
+  /**
+   * M74: drop awareness entries that are not backed by a live socket. The
+   * server's own `doc.clientID` baseline ({}, seeded by the y-protocols
+   * Awareness constructor) is never a participant and is left alone. Safe to
+   * call repeatedly — a no-op when the table is already consistent, and
+   * idempotent against a later removeClient() for the same dead connection
+   * (removeAwarenessStates skips clientIDs no longer present).
+   */
+  private reconcileAwarenessAgainstLiveSockets(): void {
+    if (this.disposed) return;
+    const liveOwned = new Set<number>();
+    for (const [ws, state] of this.clients.entries()) {
+      if (ws.readyState !== 1) continue;
+      const ids = state.awarenessClientIds;
+      if (ids) for (const id of ids) liveOwned.add(id);
+    }
+    const orphans: number[] = [];
+    for (const clientId of this.awareness.getStates().keys()) {
+      if (clientId === this.doc.clientID) continue;
+      if (liveOwned.has(clientId)) continue;
+      orphans.push(clientId);
+    }
+    if (orphans.length > 0) {
+      awarenessProtocol.removeAwarenessStates(this.awareness, orphans, null);
     }
   }
 
