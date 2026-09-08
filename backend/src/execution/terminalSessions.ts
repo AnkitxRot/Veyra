@@ -283,11 +283,24 @@ export class TerminalSessionRegistry {
     return { ok: true };
   }
 
-  /** Unbind the live socket and arm the bounded grace timer. */
-  detach(userId: number, projectId: string, terminalId: string): void {
+  /**
+   * Unbind the live socket and arm the bounded grace timer.
+   *
+   * `expectedWs`, when given, scopes the detach to a specific socket: if a
+   * newer socket has already taken over this session (single-writer
+   * displacement in `attach`), the displaced socket's late `close` event is a
+   * no-op here instead of detaching the session its successor now owns.
+   */
+  detach(
+    userId: number,
+    projectId: string,
+    terminalId: string,
+    expectedWs?: RegistrySocket,
+  ): void {
     const key = keyOf(userId, projectId, terminalId);
     const entry = this.sessions.get(key);
     if (!entry || entry.state === "ended") return;
+    if (expectedWs !== undefined && entry.liveWs !== expectedWs) return;
 
     entry.liveWs = null;
     entry.state = "detached";

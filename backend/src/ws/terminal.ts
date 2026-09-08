@@ -56,11 +56,19 @@ function wireSocketToSession(
   });
 
   // Both 'close' and 'error' can fire for the same connection; detach once.
+  // Scope the detach to THIS socket — if a newer socket has already displaced
+  // it (single-writer takeover), this socket's late close must not detach the
+  // successor's session.
   let detached = false;
   const detach = () => {
     if (detached) return;
     detached = true;
-    terminalSessions.detach(userId, projectId, terminalId);
+    terminalSessions.detach(
+      userId,
+      projectId,
+      terminalId,
+      ws as unknown as { readyState: number; send(d: string): void; close(): void },
+    );
   };
   ws.on("close", detach);
   ws.on("error", detach);
