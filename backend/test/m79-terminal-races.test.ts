@@ -6,6 +6,8 @@ import { makeTestConfig } from "./helpers.js";
  *
  *  - RACE D: a socket displaced by a newer attach must not, when its own
  *    (late) `close` finally lands, detach the session the newer socket owns.
+ *  - Gate leak: a synchronous `pty.spawn` failure must release the per-user
+ *    terminal slot instead of consuming it for the process lifetime.
  */
 
 function makeFakeWs() {
@@ -35,14 +37,17 @@ function makeFakeWs() {
   };
 }
 
-async function load() {
-  const spawn = vi.fn(() => ({
-    onData: vi.fn(),
-    onExit: vi.fn(),
-    write: vi.fn(),
-    resize: vi.fn(),
-    kill: vi.fn(),
-  }));
+async function load(spawnImpl?: () => any) {
+  const spawn = vi.fn(
+    spawnImpl ??
+      (() => ({
+        onData: vi.fn(),
+        onExit: vi.fn(),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      })),
+  );
   vi.doMock("node-pty", () => ({ spawn }));
   vi.doMock("../src/execution/sandbox.js", () => ({
     sandboxManager: {
@@ -109,5 +114,28 @@ describe("M79 — terminal lifecycle races", () => {
     expect(terminalSessions.describe(1, "p", "tid")?.state).toBe("detached");
     vi.advanceTimersByTime(1001);
     expect(terminalSessions.has(1, "p", "tid")).toBe(false);
+  });
+
+  it("a synchronous pty.spawn failure releases the terminal gate slot", async () => {
+    const { handleTerminalConnection, terminalSessions, terminalGate } =
+      await load(() => {
+        throw new Error("AttachConsole failed");
+      });
+    const cfg = makeTestConfig({ maxTerminalsPerUser: 1 });
+
+    const ws = makeFakeWs();
+    await expect(
+      handleTerminalConnection(ws as any, "p", cfg, 1, undefined, "t1"),
+    ).resolves.toBeUndefined();
+
+    expect(ws.closed).toBe(true);
+    expect(
+      ws.sent.some(
+        (m: any) => m.type === "data" && /failed to start/i.test(m.data),
+      ),
+    ).toBe(true);
+    expect(terminalSessions.has(1, "p", "t1")).toBe(false);
+    // The slot must be free again — not permanently consumed by the failure.
+    expect(terminalGate.activeCount(1)).toBe(0);
   });
 });

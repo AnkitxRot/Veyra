@@ -235,15 +235,36 @@ export async function handleTerminalConnection(
     ? ["bash", "-c", `set -a; . '${secretsFile.path}'; set +a; exec bash`]
     : ["bash"];
 
-  const ptyProcess = pty.spawn(
-    "docker",
-    ["exec", "-it", "-e", "TERM=xterm-256color", containerId, ...bashArgs],
-    {
-      name: "xterm-color",
-      cols: 80,
-      rows: 30,
-    },
-  );
+  // `pty.spawn` can throw synchronously (docker CLI missing, a ConPTY init
+  // failure on Windows, an ENOMEM). If it does, the gate slot acquired above
+  // and the staged secrets file would both leak for the process lifetime —
+  // after `maxTerminalsPerUser` such failures the user can never open a
+  // terminal again. Release both and report the failure instead.
+  let ptyProcess: pty.IPty;
+  try {
+    ptyProcess = pty.spawn(
+      "docker",
+      ["exec", "-it", "-e", "TERM=xterm-256color", containerId, ...bashArgs],
+      {
+        name: "xterm-color",
+        cols: 80,
+        rows: 30,
+      },
+    );
+  } catch (err: any) {
+    releasePermit();
+    if (secretsFile) void secretsFile.cleanup();
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "data",
+          data: `[terminal] failed to start shell: ${err?.message ?? "spawn error"}\r\n`,
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
 
   // Adapter: the registry drives output/exit; every output chunk also keeps
   // the sandbox reaper away from this live shell's container.
@@ -262,20 +283,43 @@ export async function handleTerminalConnection(
   const capturedSecrets = secretsFile;
   secretsFile = null; // ownership transfers to the registry entry
 
-  terminalSessions.create({
-    userId,
-    projectId,
-    terminalId,
-    pty: registryPty,
-    containerId,
-    graceMs: cfg.terminalDetachGraceMs,
-    secretsCleanup: capturedSecrets
-      ? () => capturedSecrets.cleanup()
-      : null,
-    onEnd: releasePermit,
-  });
+  try {
+    terminalSessions.create({
+      userId,
+      projectId,
+      terminalId,
+      pty: registryPty,
+      containerId,
+      graceMs: cfg.terminalDetachGraceMs,
+      secretsCleanup: capturedSecrets
+        ? () => capturedSecrets.cleanup()
+        : null,
+      onEnd: releasePermit,
+    });
+  } catch (err: any) {
+    // e.g. a concurrent connection for the same terminalId won the create
+    // race. No registry entry exists for this call, so nothing will fire
+    // `onEnd`/cleanup — release the slot, drop the secrets, kill this PTY.
+    releasePermit();
+    if (capturedSecrets) void capturedSecrets.cleanup();
+    try {
+      ptyProcess.kill();
+    } catch {
+      /* ignore */
+    }
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "data",
+          data: `[terminal] failed to start shell: ${err?.message ?? "session error"}\r\n`,
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
 
-  terminalSessions.attach(
+  const attached = terminalSessions.attach(
     userId,
     projectId,
     terminalId,
@@ -286,5 +330,19 @@ export async function handleTerminalConnection(
     },
     lastSeq,
   );
+  if (!attached.ok) {
+    // The PTY exited synchronously between create and attach. The registry
+    // already reaped the entry and released the slot via `onEnd`.
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "ended",
+          reason: attached.reason ?? "process_exited",
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
   wireSocketToSession(ws, userId, projectId, terminalId);
 }
