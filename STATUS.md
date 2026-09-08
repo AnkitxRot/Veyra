@@ -9163,7 +9163,7 @@ project teardown / role loss release it exactly once.
 | Backend typecheck | `tsc --noEmit` exit 0 |
 | Frontend typecheck | `tsc --noEmit` exit 0 |
 | Backend full suite (Docker up) | **1244 passed / 9 skipped / 0 failed** — run twice, green both times. `python-deps.test.ts` passes at ~44–47 s (its per-test timeout is 120 s since `96c5426`); the earlier failure was a Docker Desktop crash on the degraded host, not the repo — `pip install six==1.17.0` in a 512 MB runner completes in ~15 s manually. The 9 skips are the standard root-user / cgroup / platform conditional skips (api 2, sandbox 2, backup 2, workspace-backup 1, fork 2). |
-| M79 backend tests | `m79-terminal-sessions` 26/26, `m79-terminal-security` 6/6, `m79-terminal-teardown` 5/5, `terminal.test` 10/10 (updated for close⇒detach), `ws.test` 6/6, `sandbox.test` 24, `secrets.test` 42/42 (M47 unchanged) |
+| M79 backend tests | `m79-terminal-sessions` 26/26, `m79-terminal-security` 6/6, `m79-terminal-teardown` 5/5, `m79-terminal-races` 3/3 (post-M79 hardening), `terminal.test` 10/10 (updated for close⇒detach), `ws.test` 6/6, `sandbox.test` 24, `secrets.test` 42/42 (M47 unchanged) |
 | Frontend full suite | `vitest run` → **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged (~13.5 s) |
 | M79 frontend tests | `terminalSession.persistence` 3, `.reconnect` 9, `.buffer` 3, `.lifecycle` 5, `.mount` 4, `Terminal.theme` 4, `ideTerminalHost.wiring` 3, `ideAppearance.wiring` 7 |
 | Frontend build | `tsc --noEmit && vite build` exit 0 |
@@ -9293,6 +9293,60 @@ non-restarting production backend.
 | 11 | `fix(terminal): open + re-fit the xterm from a container ResizeObserver` | live-Chrome fix — observe-first, `xterm.open()` guarded against a 0×0 host |
 | 12 | `fix(terminal): poll for the host box before opening the XTerm` | **release-hardening** — the terminal connected but never rendered on first open (rAF fired before layout; a `display:none→flex` ancestor change doesn't fire the host's ResizeObserver). Bounded rAF poll + regression test `terminalSession.mount.test.tsx`. |
 | 13 | `fix(ws): report \`ended\` when a reaped terminal is reconnected mid-stream` | **release-hardening** — Scenario D: a reconnect with `lastSeq > 0` to a reaped session was silently spawning a fresh shell (which the client's seq-guard then froze). Now replies `{type:"ended", reason}`; `reapedReason()` tombstone accessor + tests. |
-| 14 | this STATUS entry | `docs(status)` |
+| 14 | `docs(status): M79 release-hardening — live Chrome B–I proven, gates clean` | `docs(status)` |
+| 15 | `fix(terminal): scope socket detach so a displaced socket can't detach its successor` | **post-M79 hardening (RACE D)** — `attach`'s single-writer close of a stale `liveWs` triggered that socket's `wireSocketToSession` close handler, which called `terminalSessions.detach` **by key alone** and detached the freshly-reattached session: output froze and a 90 s grace timer would then reap the live shell. Reachable from a half-open-socket reconnect **and** from the manual "Reconnect Terminal" button while connected. `detach` gains an optional `expectedWs`; the closure passes its own `ws`. Regression: `m79-terminal-races.test.ts` (RACE D + genuine-drop control). |
+| 16 | `fix(terminal): release the gate slot when PTY spawn or session create fails` | **post-M79 hardening (resource leak)** — a synchronous `pty.spawn` throw (Windows ConPTY init failure — seen in this env, missing docker CLI, ENOMEM) or a lost `create` race threw past the `releasePermit` / secrets-cleanup wiring, leaking the per-user `terminalGate` slot **and** the staged secrets file for the process lifetime (after `maxTerminalsPerUser` failures the user can never open a terminal). Both are now wrapped: release the slot, clean the secrets file, kill any spawned PTY, report + close. The previously-ignored `attach` result in the fresh path is now honored too. Regression: `m79-terminal-races.test.ts` (spawn-throw releases the slot). |
+| 17 | this STATUS entry | `docs(status)` |
 
 Not pushed, not merged. No M80 work started.
+
+### Post-M79 hardening pass (2026-09-08)
+
+A final adversarial audit of the M79 terminal lifecycle (PTY / WebSocket /
+docker-exec ownership, reconnect/replay, teardown, races, resource bounds,
+frontend mount/unmount, authorization). Method: reproduce → root-cause →
+smallest safe fix → deterministic regression test → targeted + full suites.
+
+**Fixed (commits 15–16 above), both P2, both M79-introduced:**
+
+1. **RACE D — displaced socket detaches its successor.** Deterministic repro
+   in `m79-terminal-races.test.ts`; the displaced socket's late `close` ran
+   the key-only `detach` against the session the *new* socket owns. Fix
+   scopes `detach` to the caller's socket. The genuine-drop path (socket
+   still bound, `expectedWs` matches or is omitted) is unchanged and
+   covered by a control test + the pre-existing `terminal.test.ts` /
+   `m79-terminal-teardown.test.ts` reap tests.
+2. **`pty.spawn` / `create` failure leaked the gate slot + secrets file.**
+   `terminal.test.ts` already covered the *sandbox*-creation failure path;
+   the `pty.spawn` throw and the `create` race were the gap. Fix mirrors the
+   existing `releasePermit()` pattern.
+
+**Investigated, classified, NOT changed:**
+
+| Observation | Verdict |
+|---|---|
+| Frontend `scheduleMount` starts one rAF poll loop per call — N concurrent `scheduleMount` calls drain the 120-frame budget N× faster | **P3, not fixed.** Still hard-bounded (budget caps every loop; each loop only ever reschedules itself, 1→1); the host `ResizeObserver` re-arms the budget to 120 on every resize during a panel transition, so premature give-up is not reproducible. A single-loop guard is a possible cleanup, not a demonstrated defect — deferred to avoid a speculative refactor. |
+| FRESH-path `attach()` return value was ignored | Was safe (a brand-new PTY cannot `onExit` synchronously in the same tick as `create`), but now honored as part of commit 16 since that region was already being touched. |
+| `create()` does not clear a stale same-key tombstone | Harmless — `tombstone()` deletes-then-sets on the next reap, and `reapedReason` is only consulted when no live session exists. No change. |
+| Ring `since(lastSeq > entry.seq)` → empty replay → client seq-guard freeze | Unreachable in current code: the client's `lastSeq` only advances from received frames (≤ server `seq` on any same-session reattach), and `92ca48c` already routes `lastSeq > 0` + no-session to `{type:"ended"}`. No change. |
+| URL-navigation to a project while another project's terminal is active resolves back to the active project | Pre-existing SPA routing quirk, **not amplified by M79** (M79 does not touch routing; the hook keys everything on `projectId` and tears down cleanly on change). Already documented under "Known limitations". |
+| Windows-dev `pty.kill()` does not reach the container-side `bash` | Pre-existing P3, unchanged — same `pty.kill()` the pre-M79 code used; bounded by container lifetime; `performStop` → `docker rm -f` is the proven backstop (live Scenario F). |
+
+**Verification (final HEAD, clean environment, Docker up):**
+
+| Gate | Result |
+|---|---|
+| Backend full suite | **1247 passed / 9 skipped / 0 failed** (103 files; +3 from `m79-terminal-races.test.ts`); `python-deps` passes ~44 s |
+| Backend typecheck / eslint | `tsc --noEmit` exit 0 · eslint 0 errors / 29 warnings (baseline) |
+| Frontend full suite | **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged |
+| Frontend build / eslint | `tsc --noEmit && vite build` exit 0 · eslint 0 errors |
+| `git diff --check` | clean |
+
+RACE D and the spawn/create leak are timing/failure paths that cannot be
+triggered on demand in a browser; they are proven at the deterministic
+integration level with a mocked PTY. Live Chrome B–I (commit `67c2186`,
+prior task) covered the happy path, reconnect, replay, and every teardown
+path; commits 15–16 do not alter observable happy-path behaviour (both the
+full Docker-backed backend suite and the frontend suite confirm no
+regression). No fresh live pass was run for these two commits — stated here
+rather than implied.
