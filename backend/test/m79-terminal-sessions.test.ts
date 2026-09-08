@@ -338,4 +338,21 @@ describe("M79 — TerminalSessionRegistry", () => {
     });
     expect(JSON.stringify(d)).not.toContain("ide-sandbox");
   });
+
+  it("reapedReason: records why a reaped session ended, for a late reconnect", () => {
+    create();
+    expect(reg.reapedReason(U, P, T)).toBeNull(); // still live
+    reg.detach(U, P, T);
+    vi.advanceTimersByTime(GRACE + 1); // grace expiry
+    expect(reg.has(U, P, T)).toBe(false);
+    expect(reg.reapedReason(U, P, T)).toBe("grace_expired");
+
+    // a different reason on a fresh key
+    const pty2 = create(U, "proj-x", "tx");
+    reg.reapProject("proj-x");
+    expect(reg.reapedReason(U, "proj-x", "tx")).toBe("container_stopped");
+    void pty2;
+    // unknown key → null
+    expect(reg.reapedReason(999, "nope", "nope")).toBeNull();
+  });
 });

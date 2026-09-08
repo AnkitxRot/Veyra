@@ -121,6 +121,24 @@ export async function handleTerminalConnection(
   }
 
   // -------------------------------------------------------------------------
+  // GONE — the client expected a reattach (it was streaming a session on this
+  // terminalId, so it sent a non-zero lastSeq) but the server has no such
+  // session: it was reaped (grace expiry / container teardown / role loss).
+  // Report it honestly and close — a fresh shell needs an explicit new
+  // terminalId from the client, never a silent respawn under the same UI.
+  // -------------------------------------------------------------------------
+  if (lastSeq > 0) {
+    if (ws.readyState === ws.OPEN) {
+      const reason =
+        terminalSessions.reapedReason(userId, projectId, terminalId) ??
+        "grace_expired";
+      ws.send(JSON.stringify({ type: "ended", reason }));
+      ws.close();
+    }
+    return;
+  }
+
+  // -------------------------------------------------------------------------
   // FRESH — spawn a new PTY and register the session.
   // -------------------------------------------------------------------------
   if (!terminalGate.acquire(userId, cfg.maxTerminalsPerUser)) {

@@ -125,7 +125,7 @@ describe("M79 — terminal reattach isolation", () => {
     expect(blob).not.toContain("pid");
   });
 
-  it("a reattach to an ended session returns `ended`, never a fresh shell under the same op", async () => {
+  it("a reconnect after grace expiry gets `ended` (not a silent fresh shell) when the client was mid-stream", async () => {
     const { handleTerminalConnection, terminalSessions, spawn } = await load();
     const cfg = makeTestConfig({ terminalDetachGraceMs: 1000 });
     vi.useFakeTimers();
@@ -136,14 +136,26 @@ describe("M79 — terminal reattach isolation", () => {
     vi.advanceTimersByTime(1001); // grace expiry → session reaped
     expect(terminalSessions.has(1, "p", "tid")).toBe(false);
 
-    // A reconnect for the same key: because has() is false it falls to the
-    // FRESH path (which is a NEW explicit session, gate + sandbox checked) —
-    // the reattach op itself never silently resurrects it.
+    // The client was streaming this session, so it reconnects with a non-zero
+    // lastSeq. The server has no such session — it must report `ended` and
+    // close, NOT spawn a fresh shell under the same UI.
     const ws2 = makeFakeWs();
-    await handleTerminalConnection(ws2 as any, "p", cfg, 1, undefined, "tid");
-    // fresh spawn count went 1 → 2, and the session is brand new
-    expect(spawn).toHaveBeenCalledTimes(2);
+    await handleTerminalConnection(ws2 as any, "p", cfg, 1, undefined, "tid", 42);
+    expect(spawn).toHaveBeenCalledTimes(1); // no new spawn
+    expect(ws2.closed).toBe(true);
+    const ended = ws2.sent.find((m: any) => m.type === "ended");
+    expect(ended?.reason).toBe("grace_expired");
+
     vi.useRealTimers();
+  });
+
+  it("a genuine first-time connect (lastSeq 0) for an unknown terminalId still spawns fresh", async () => {
+    const { handleTerminalConnection, spawn } = await load();
+    const cfg = makeTestConfig();
+    const ws = makeFakeWs();
+    await handleTerminalConnection(ws as any, "p", cfg, 1, undefined, "brand-new");
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(ws.sent.some((m: any) => m.type === "ended")).toBe(false);
   });
 
   it("B26: the secrets cleanup runs exactly once, on the final reap", async () => {

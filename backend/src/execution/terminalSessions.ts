@@ -213,6 +213,20 @@ export class TerminalSessionRegistry {
     return !!e && e.state !== "ended";
   }
 
+  /** If a session for this key existed and was reaped recently, the reason
+   *  (from the bounded tombstone map); otherwise `null`. Lets `/ws/terminal`
+   *  tell a reconnecting client its session is gone instead of silently
+   *  spawning a fresh shell under the same UI. */
+  reapedReason(
+    userId: number,
+    projectId: string,
+    terminalId: string,
+  ): TerminalEndedReason | null {
+    return (
+      this.tombstones.get(keyOf(userId, projectId, terminalId)) ?? null
+    );
+  }
+
   /**
    * Bind `ws` as the session's single live socket. Replays `seq > lastSeq` from
    * the ring FIRST (synchronously), then marks attached so live frames follow
