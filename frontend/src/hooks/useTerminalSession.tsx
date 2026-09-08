@@ -46,6 +46,7 @@ export function useTerminalSession(
   const fitRef = useRef<FitAddon | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
   const resizeObsRef = useRef<ResizeObserver | null>(null);
+  const mountFramesLeftRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
   const terminalIdRef = useRef<string>(newTerminalId());
   const lastSeqRef = useRef<number>(0);
@@ -110,17 +111,40 @@ export function useTerminalSession(
    * so `ensureXterm` can run while the panel is still `display:none`; opening
    * against a zero-size element leaves the renderer broken. Any write that
    * lands before this is buffered by xterm and flushed on open. Idempotent.
+   *
+   * The host gains its box a frame or two after `visible` flips (and a
+   * `display:none → flex` ancestor change does NOT reliably fire this
+   * element's ResizeObserver in Chrome), so while the XTerm exists but the
+   * host is still 0×0 we re-poll on `requestAnimationFrame` for a bounded
+   * number of frames — reset each time the panel is (re)shown.
    */
   const mountXtermIfReady = () => {
+    if (disposedRef.current) return;
     const term = xtermRef.current;
-    const el = containerRef.current;
-    if (!term || !hostHasBox(el)) return;
-    if (!(term as unknown as { element?: HTMLElement }).element) {
-      term.open(el);
+    if (!term) return;
+    const opened = !!(term as unknown as { element?: HTMLElement }).element;
+    if (opened) {
+      safeFit();
+      return;
     }
+    if (!hostHasBox(containerRef.current)) {
+      if (mountFramesLeftRef.current > 0) {
+        mountFramesLeftRef.current -= 1;
+        requestAnimationFrame(mountXtermIfReady);
+      }
+      return;
+    }
+    term.open(containerRef.current);
     safeFit();
   };
-  mountRef.current = mountXtermIfReady;
+
+  /** (Re)arm the bounded frame budget and kick a mount attempt — called when
+   *  the panel is (re)shown or the host element (re)binds. ~2s at 60fps. */
+  const scheduleMount = () => {
+    mountFramesLeftRef.current = 120;
+    requestAnimationFrame(mountXtermIfReady);
+  };
+  mountRef.current = scheduleMount;
 
   /** The single mechanism that recovers a correct size after the panel
    *  un-hides / the drawer re-expands: watch the host box, and whenever it
@@ -130,7 +154,7 @@ export function useTerminalSession(
     resizeObsRef.current?.disconnect();
     resizeObsRef.current = null;
     if (typeof ResizeObserver === "undefined") return;
-    const obs = new ResizeObserver(() => mountXtermIfReady());
+    const obs = new ResizeObserver(() => scheduleMount());
     obs.observe(el);
     resizeObsRef.current = obs;
   };
@@ -151,9 +175,8 @@ export function useTerminalSession(
     term.loadAddon(fit);
     xtermRef.current = term;
     fitRef.current = fit;
-    // Open now if the host is already laid out; otherwise `bindContainer`'s
-    // ResizeObserver opens it once the host gains a box.
-    requestAnimationFrame(mountXtermIfReady);
+    // Poll (bounded) for the host to gain a box, then open into it.
+    scheduleMount();
     term.onData((data) => {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -298,10 +321,10 @@ export function useTerminalSession(
       resizeObsRef.current = null;
       return;
     }
-    // Watch the host from now on — the ResizeObserver fires when it gains a
-    // box (panel shown / drawer expanded) and opens + fits the XTerm then.
+    // Watch the host from now on — the ResizeObserver kicks a mount attempt
+    // when it gains a box (panel shown / drawer expanded).
     observeRef.current(el);
-    requestAnimationFrame(() => mountRef.current());
+    mountRef.current();
   }, []);
 
   const ensureStarted = useCallback(() => {
@@ -317,11 +340,9 @@ export function useTerminalSession(
   }, []);
 
   const fit = useCallback(() => {
-    // Two frames: one for the display:none → flex layout to settle, then open
-    // the XTerm into its now-sized host (if not yet open) and fit it.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => mountRef.current()),
-    );
+    // Re-arm the bounded mount/fit poll — opens the XTerm into its host once
+    // it has a box (panel just shown), or just re-fits if already open.
+    mountRef.current();
   }, []);
 
   const retry = useCallback(() => {
@@ -350,6 +371,7 @@ export function useTerminalSession(
 
     return () => {
       disposedRef.current = true;
+      mountFramesLeftRef.current = 0;
       clearReconnectTimer();
       detachWs();
       resizeObsRef.current?.disconnect();
