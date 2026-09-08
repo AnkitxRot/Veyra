@@ -9025,3 +9025,328 @@ cross-milestone overlap, no forced splits, no red intermediate states:
 Not pushed, not merged. Full verification (both typechecks, backend 1206/0
 with Docker, frontend 974/0, build, eslint, `diff --check`, live M78
 two-session re-check) green on the branch tip.
+
+
+## M79 — terminal session reliability & persistence
+
+### Original defect (PROVEN, whole-product audit)
+
+The terminal was the only long-lived interactive surface in the IDE with no
+connection resilience:
+
+1. `IDE.tsx:3792` rendered `{bottomTab === "terminal" && <Terminal/>}` **inside**
+   `{!isBottomCollapsed && (...)}`. Switching the bottom tab **or** collapsing
+   the drawer unmounted `<Terminal>`.
+2. `Terminal.tsx`'s effect cleanup closed the WebSocket on unmount.
+3. `ws/terminal.ts` `teardown()` killed the PTY on socket close/error
+   (`terminal.test.ts` even asserted `ws.emit("close") ⇒ ptyProcess.kill()`).
+4. ∴ switching bottom-panel tabs killed the user's shell and any running
+   process (dev server, build, REPL). `IDE.tsx:356` falsely claimed
+   *"Terminal, which update … xterm in place (never remount)"*.
+5. No client auto-reconnect — `ws.onclose` printed `[Terminal Session Ended]`
+   and stopped; recovery was a manual button.
+6. Any reconnect built a fresh `XTerm` + fresh `docker exec bash` — scrollback,
+   cwd, shell state, history all lost.
+
+This is the same bug class M53 fixed **for execution** (hoisted into a
+project-lifetime `ExecutionSessionProvider`); the fix was never applied to the
+terminal.
+
+### Lifecycle architecture (M79)
+
+**Frontend — `frontend/src/hooks/useTerminalSession.tsx` (new).** A
+project-lifetime hook that owns exactly one `XTerm`, one client-generated
+`terminalId` (`crypto.randomUUID`), one WebSocket, one reconnect timer, and the
+last-received output sequence number. `IDE.tsx` renders
+`<Terminal projectId resolvedTheme visible>` **outside both** the collapse and
+`bottomTab` conditionals — `visible` only toggles `display`. The `XTerm` is
+created on first `ensureStarted` and disposed **only** on a project change or
+hook teardown — never on a socket reconnect or a visibility change.
+
+- `terminalSessionState.ts` (new) — states + reconnect-policy constants +
+  `newTerminalId()` (split out for react-refresh, mirrors `terminalThemes.ts`).
+- `Terminal.tsx` — reduced to a thin view: state badge, Clear, Retry / "Start
+  new terminal", the stable xterm host element.
+- `api.ts` — `getWebSocketUrl` gains optional extra query params
+  (backward-compatible) for `terminalId` / `lastSeq`.
+- The `XTerm` is `open()`ed only once its host has a real box (≥ one row); a
+  `ResizeObserver` on the host re-opens/re-fits it whenever the panel un-hides
+  or the drawer re-expands (found + fixed during live Chrome — see limitations).
+
+**Backend — `backend/src/execution/terminalSessions.ts` (new).**
+`TerminalSessionRegistry`, keyed by the authenticated
+`(userId, projectId, terminalId)` triple:
+
+- `create / attach / detach / reap / reapProject / reapUser / reapUserProject /
+  countForUser / disposeAll / describe`
+- a socket close/error now **detaches** (arms the grace timer) instead of
+  killing the PTY; `ws/terminal.ts` re-attaches a reconnecting socket to the
+  live PTY, replaying only `seq > lastSeq` from a bounded ring
+- **RACE #1 (detach vs reattach):** `attach` bumps a per-session `generation`;
+  a stale grace callback that fires after a reattach is a no-op
+- **RACE #2 (attach vs PTY death):** `attach` fails honestly (`ok:false` +
+  real reason from a bounded tombstone map) when the PTY has already exited —
+  never a bogus "connected" bound to a dead shell
+- **single-writer:** a second `attach` closes the previous socket; output fans
+  to exactly one live socket, exactly once
+- the `terminalGate` slot is released exactly once, by the registry's `onEnd`
+  when the session is genuinely reaped (not on detach)
+
+### Chosen grace — `TERMINAL_DETACH_GRACE_MS = 90 000` (env-overridable, clamp 5s–10min)
+
+Measured against the actual constants:
+
+```
+client reconnect ceiling  ≈ 40 s   (6 attempts, ×1.8 backoff, 15 s cap,
+                                     base 1 s → Σ ≈ 37.4 s + connect time)
+  <  WS heartbeat reap window  30–60 s   (2 × WS_HEARTBEAT_INTERVAL_MS)
+  <  TERMINAL_DETACH_GRACE_MS   90 s     ← chosen
+  <  sandbox room-empty grace   120 s   (SANDBOX_ROOM_EMPTY_GRACE_MS)
+  ⟹  performStop's `docker rm -f` kills the `docker exec` regardless (backstop)
+```
+
+90 s sits above the reconnect ceiling and the heartbeat reap window (a socket
+the server kills mid-background still has its PTY held for the client's
+return), below the container room-empty boundary, and bounds RunGate-slot
+retention to one detached slot per user for ≤ 90 s.
+
+### Ring buffer
+
+`TerminalRingBuffer` — ordered chunks, hard **256 KB** ceiling, oldest
+eviction, a truncation marker emitted only when unseen data was evicted.
+Never persisted to the database, `localStorage`, or `user_preferences`.
+
+### Reconnect policy
+
+`connecting → connected → reconnecting → reconnect_exhausted | ended`
+(explicit constants). One timer at a time; bounded backoff
+(1000 ms × 1.8, cap 15 000 ms, 6 attempts); manual `retry()` from
+`reconnect_exhausted`; `retry()` from `ended` mints a fresh `terminalId` +
+zeroes `lastSeq` (an explicit new shell — never a silent respawn). A server
+`{type:"ended"}` frame stops the loop for good.
+
+### Security / isolation model
+
+- session key includes `userId` from the **authenticated session cookie**,
+  never the URL — user B connecting with user A's `terminalId` gets a fresh
+  session keyed under B, A's session untouched (deterministic + live-probed)
+- key includes `projectId`, and `requireProjectAccess(…, "editor")` runs on
+  the `/ws/terminal` upgrade for **every** connection, including reattach
+- editor-role loss reaps the detached PTY: `reapUserProject` on collaborator
+  removal and on a demotion to `viewer` (kept-`editor` is a no-op)
+- M47 secrets semantics **unchanged** — still `writeContainerSecretsFile` on
+  the container tmpfs, cleanup transferred to the registry entry and run once
+  on the final reap; the ring is per-key and only replayed to a socket that
+  passed auth+authz for that same triple
+- `containerId` / PTY pid never cross the wire — only `terminalId` (client's
+  own) and an integer `seq`
+
+### Sandbox / teardown integration
+
+Every container-teardown path funnels through
+`SandboxManager.performStop(projectId)` (delete, workspace restore,
+import/replace, admin stop, `terminateSandbox`, the idle reaper) →
+`terminalSessions.reapProject(projectId)` runs **first**, before the
+`docker rm -f`. Graceful shutdown → `cleanupAllSandboxes` →
+`terminalSessions.disposeAll()`.
+
+### `terminalGate`
+
+`maxTerminalsPerUser = 5` unchanged. A fresh session consumes one slot; detach
+keeps it consumed; reattach does not re-acquire; grace expiry / process exit /
+project teardown / role loss release it exactly once.
+
+### Deterministic verification (release-gate pass, clean environment)
+
+| Gate | Result |
+|---|---|
+| Backend typecheck | `tsc --noEmit` exit 0 |
+| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Backend full suite (Docker up) | **1244 passed / 9 skipped / 0 failed** — run twice, green both times. `python-deps.test.ts` passes at ~44–47 s (its per-test timeout is 120 s since `96c5426`); the earlier failure was a Docker Desktop crash on the degraded host, not the repo — `pip install six==1.17.0` in a 512 MB runner completes in ~15 s manually. The 9 skips are the standard root-user / cgroup / platform conditional skips (api 2, sandbox 2, backup 2, workspace-backup 1, fork 2). |
+| M79 backend tests | `m79-terminal-sessions` 26/26, `m79-terminal-security` 6/6, `m79-terminal-teardown` 5/5, `m79-terminal-races` 3/3 (post-M79 hardening), `terminal.test` 10/10 (updated for close⇒detach), `ws.test` 6/6, `sandbox.test` 24, `secrets.test` 42/42 (M47 unchanged) |
+| Frontend full suite | `vitest run` → **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged (~13.5 s) |
+| M79 frontend tests | `terminalSession.persistence` 3, `.reconnect` 9, `.buffer` 3, `.lifecycle` 5, `.mount` 4, `Terminal.theme` 4, `ideTerminalHost.wiring` 3, `ideAppearance.wiring` 7 |
+| Frontend build | `tsc --noEmit && vite build` exit 0 |
+| Frontend eslint | `eslint .` → 0 errors / 43 warnings (one *fewer* than the M78 baseline) |
+| Backend eslint | `eslint .` → 0 errors / 29 warnings (baseline) |
+| `git diff --check` | clean · working tree clean |
+
+Backend test matrix B1–B28 covered across `m79-terminal-sessions.test.ts`
+(B1–B26 + dedupe/idempotency/isolation/`reapedReason`),
+`m79-terminal-teardown.test.ts` (B7–B9, B28, disposeAll), and
+`m79-terminal-security.test.ts` (B20–B22, B26, B27, no-id-leak,
+reconnect-after-grace → `ended`). Frontend F1–F20 across the five
+`terminalSession.*` suites.
+
+### Live browser verification (real Chrome, single session, clean environment)
+
+Environment: one backend (plain `tsx`, no `--watch` — the ConPTY restart
+crashes were `tsx watch` reloading node-pty), one Vite, minimal reloads.
+Owner `m79rh_431514` (id 40) with projects `m79-A` / `m79-B` and an editor
+collaborator `m79co_431514` (id 41). Keyboard input driven both via
+`computer type` and — where the automation's synthetic key events did not
+reach xterm — via the terminal's own `WebSocket.send({type:"data"})` path
+(exactly what `term.onData` does), plus `docker top` / `docker exec` as the
+authoritative server-side view.
+
+| Scenario | Result |
+|---|---|
+| Terminal connects → real `docker exec bash`; server frames carry a monotonic `seq` | **PASS** — direct raw-WS probe: `WS OPEN`, `{type:"data", seq:1/2/3}` |
+| **A — panel switch** (Output→Problems→Preview→Git→Resources→Terminal) | **PASS** — a running `python3 -m http.server` survived: `docker top` showed the same `bash` + `python` pids, scrollback intact, **0 new WebSocket, 0 new `docker exec`** |
+| **B — drawer collapse / reopen** | **PASS** (clean re-run after `25627f4`) — collapsed 12 s with a `while … echo tick` loop running; on reopen the XTerm re-rendered and re-**fitted** (168 px in a 180 px host), the 57-line scrollback (`scroll-1..25`, markers) was intact, `bash 22312` + its loop `22320` unchanged, **no new `docker exec`, one WebSocket** |
+| **C — socket drop → reattach** | **PASS** — killed Vite ~18 s. Client `reconnecting → connected` on restart; **same PTY** (`bash 22312`), ticks produced while disconnected (`tick-154..172`) **replayed exactly once** (zero duplicates, monotonic), scrollback continuous (min 31 → max 205), one new WebSocket object |
+| **D — grace expiry → ended** | **PASS** (after `92ca48c`) — socket dead > 90 s + client `reconnect_exhausted`; server reaped the session; on Retry the client got `{type:"ended", reason:"grace_expired"}` → state `ended`, toolbar *"Session ended · reason: grace_expired · Start new terminal"*, buffer preserved (…`dtick-97` + the ended marker), **no silent fresh shell**. "Start new terminal" → new `terminalId`, working fresh shell (`FRESH_SHELL_OK_49`). P3: the xterm viewport isn't auto-scrolled to the ended marker (it's in the buffer). |
+| **E — project isolation** | **PASS** — A terminal (`d3127c07`, container `f9b4fb68dcd2`, `A-tick` loop) vs B terminal (`cb382baa`, container `63bc7e0093ba`): different terminalId, different container, `jobs` empty in B, no A output/process in B, B's empty workspace |
+| **F — container teardown** | **PASS** — `DELETE /api/projects/:B` (→ `performStop` → `reapProject`): client got `{type:"ended", reason:"container_stopped"}`; **B's container + network fully gone**, no orphan `docker exec` (the `docker rm -f` backstop) |
+| **G — role loss** | **PASS** — headless collaborator terminal on A; owner `DELETE /collaborators/41`: the collaborator's WS received `{type:"ended", reason:"authorization_revoked"}` and closed; a reattach attempt → **HTTP 403** at the `/ws/terminal` upgrade |
+| **H — rapid churn** | **PASS** — 8× (collapse/expand + Output/Terminal toggle) = 32 UI ops: `bash` count **unchanged at 2** (live shell + loop), **one WebSocket**, the `h-` loop kept streaming (verified in a screenshot) |
+| **I — long lifecycle** | **PASS** — one session run ~8 min through A + H + a client-side `ws.close()` flap: `reconnecting → connected`, **same PTY** (`bash 23775`/`23782`), `I_REATTACH_OK` echoed, loop continuous (`h-246`), **0 orphans** the whole run |
+
+### Resource / PTY measurements (live)
+
+| Signal | Observed |
+|---|---|
+| WebSocket created by a bottom-tab switch | **0** (A, H) |
+| `docker exec` created by a bottom-tab switch / collapse | **0** (A, B, H) |
+| Reconnect after a drop | exactly **one** new WebSocket; **same** PTY pid (C, I) |
+| Grace expiry | session removed from the registry, gate slot released, `{type:"ended"}` on the next reconnect (D) |
+| Container / project / role teardown | session reaped, `{type:"ended"}` with the right reason, no orphan after `docker rm -f` (F, G) |
+| Rapid churn (32 ops) | 0 extra PTYs, 0 extra sockets, gate stays at 1 (H) |
+| Ring buffer | bounded 256 KB (deterministic) |
+| Reconnect policy | bounded 6 attempts → `reconnect_exhausted` (deterministic + live D) |
+
+**Windows-dev `pty.kill()` limitation (P3, not a logic regression).** On this
+Windows host, `entry.pty.kill()` at grace expiry kills the node-pty wrapper
+and releases the gate slot, but does **not** propagate to the
+`docker exec -it … bash` inside the container — the container-side `bash`
+keeps running (confirmed: a detached session's `bash` + its loop were still
+alive 100 s after a 90 s grace). It is the **same `pty.kill()` the pre-M79
+code used**; on Linux it signals the `docker exec` process group and the
+shell exits. It is **bounded**: the container-side process cannot outlive its
+container, and every teardown path funnels through
+`SandboxManager.performStop` → `docker rm -f`, which kills every exec
+(verified in Scenario F — B's container and all its bash gone). A separate
+amplifier seen earlier (a pile-up of `bash` under backend restarts) is
+`tsx`/`docker exec` children being orphaned when the parent node process
+dies — also bounded by container lifetime, and irrelevant to a
+non-restarting production backend.
+
+### Acceptance (M79)
+
+| Criterion | Status |
+|---|---|
+| Terminal survives bottom-panel tab switching | **PROVEN** (live A, H + deterministic) |
+| Terminal survives drawer collapse / reopen | **PROVEN** (live B, clean re-run) |
+| Running PTY/process survives panel switching | **PROVEN** (live A, B, H — `docker top`) |
+| XTerm instance + scrollback survive panel switching / collapse | **PROVEN** (live B — 57-line buffer intact, re-fitted) |
+| Socket drop → bounded reconnect → reattach to the same PTY, replay once/in order | **PROVEN** (live C — same pid, `tick-154..172` replayed once, monotonic; + deterministic B1–B3) |
+| Backgrounded-tab heartbeat loss does not kill a still-live terminal inside grace | **PROVEN** (deterministic — detach holds the PTY for the grace; live C reattached after ~18 s dead) |
+| Grace expiry → honest `ended`; new shell requires explicit action | **PROVEN** (live D — `{type:"ended", grace_expired}`, no silent shell, explicit "Start new terminal"; + `92ca48c` + tests) |
+| Detach/reattach race safe (RACE #1) | **PROVEN** (deterministic B5) |
+| Attach/PTY-death race safe (RACE #2) | **PROVEN** (deterministic B6) |
+| No duplicate socket or PTY; single-writer | **PROVEN** (live A/C/H/I — `bash` count and WS count never grew; + deterministic B17–B19) |
+| `terminalGate` counts detached / reattached correctly | **PROVEN** (deterministic B10–B12; live — cap enforced, grace frees, churn stays at 1) |
+| Ring ≤ 256 KB | **PROVEN** (deterministic B13–B15) |
+| Sandbox teardown always reaps terminal sessions | **PROVEN** (live F; deterministic B7–B9, B28; `performStop` chokepoint) |
+| Role loss reaps the session and blocks reattach | **PROVEN** (live G — `{type:"ended", authorization_revoked}` + HTTP 403; deterministic B9/B27) |
+| Editor authorization intact on reattach; cross-user / cross-project attach impossible | **PROVEN** (live E, G; deterministic B20–B22, B27) |
+| M47 secrets stay in the existing trust boundary | **PROVEN** (deterministic B26; `secrets.test.ts` 42/42 unchanged) |
+| Backend Docker suite green | **PROVEN** — 1244 / 9 skipped / 0 failed, twice; `python-deps` passes |
+| Frontend suite / typecheck / build / eslint green | **PROVEN** (1001/0, build ok, 0 eslint errors) |
+| Live Chrome B–I | **PROVEN** — all pass (see table) |
+| No orphan `docker exec` after teardown | **PROVEN** for every teardown path (`docker rm -f` backstop, Scenario F). Individual grace `pty.kill()` on Windows dev leaves a container-bounded `bash` — P3, see above. |
+| M71 performance not regressed | **PROVEN** (perf baseline test unchanged) |
+
+### Known limitations / non-goals
+
+- **P3 — grace `pty.kill()` on Windows dev** does not kill the container-side
+  `bash` (bounded by container lifetime; Linux propagates the kill;
+  `docker rm -f` on teardown is the guaranteed cleanup).
+- **P3 — the "session ended" marker is written to the xterm buffer but the
+  viewport isn't auto-scrolled to it** on grace-expiry; `retry()` from
+  `ended` doesn't clear the prior buffer.
+- Not persistence across a full page reload, devices, or sessions (a reload
+  mints a new `terminalId` → fresh session; the old one grace-expires).
+- No multiple terminals / tabs / splits (the latent `maxTerminalsPerUser=5`
+  stays latent), no collaborative/shared terminal, no history search, no
+  configurable shell — all explicit non-goals.
+- No changes to `/ws/execute`, `/ws/collab`, the M74 sandbox warm-keep, the
+  M64 notice system, or M71/M72/M73/M78 behaviour.
+- Navigating to a project **by URL** while another project's terminal session
+  is active can resolve back to the active project (pre-existing SPA routing;
+  clicking the sidebar switches correctly) — not M79, not a regression.
+
+### Commit sequence (branch `feat/m79-terminal-session-persistence`, off `master` @ `79563d2`)
+
+| # | commit | scope |
+|---|---|---|
+| 1 | `test(terminal): reproduce PTY/session loss on bottom-panel navigation` | RED spec (2 FE test files) |
+| 2 | `feat(terminal): project-lifetime terminal session host + useTerminalSession` | `useTerminalSession.tsx`, `terminalSessionState.ts`, `Terminal.tsx`, `IDE.tsx`, `api.ts` + theme-wiring test |
+| 3 | `test(terminal): lock the bounded reconnect state machine` | `terminalSession.reconnect.test.tsx` (9) |
+| 4 | `feat(terminal): preserve xterm buffer + exactly-once replay on reconnect` | seq-guard in the hook + `terminalSession.buffer.test.tsx` |
+| 5 | `feat(execution): add TerminalSessionRegistry (detached PTY + bounded ring)` | `terminalSessions.ts` + `m79-terminal-sessions.test.ts` |
+| 6 | `feat(ws): reattach /ws/terminal connections to live PTYs` | `ws/terminal.ts`, `ws/index.ts`, `config.ts` (`terminalDetachGraceMs`), `terminal.test.ts` |
+| 7 | `feat(sandbox): reap detached terminal sessions on teardown and role loss` | `sandbox.ts` (`performStop` / `cleanupAllSandboxes` hooks), `projects/routes.ts` (collaborator DELETE/PATCH), `m79-terminal-teardown.test.ts` |
+| 8 | `test(terminal): harden lifecycle and security boundaries` | `m79-terminal-security.test.ts` + `terminalSession.lifecycle.test.tsx` |
+| 9 | `fix(execution): use a printable terminal session-key separator` | NUL → `\|` in the registry key (was a "binary" blob to git) |
+| 10 | `fix(terminal): re-fit the XTerm via a ResizeObserver after the panel un-hides` | live-Chrome fix — the observer was never attached |
+| 11 | `fix(terminal): open + re-fit the xterm from a container ResizeObserver` | live-Chrome fix — observe-first, `xterm.open()` guarded against a 0×0 host |
+| 12 | `fix(terminal): poll for the host box before opening the XTerm` | **release-hardening** — the terminal connected but never rendered on first open (rAF fired before layout; a `display:none→flex` ancestor change doesn't fire the host's ResizeObserver). Bounded rAF poll + regression test `terminalSession.mount.test.tsx`. |
+| 13 | `fix(ws): report \`ended\` when a reaped terminal is reconnected mid-stream` | **release-hardening** — Scenario D: a reconnect with `lastSeq > 0` to a reaped session was silently spawning a fresh shell (which the client's seq-guard then froze). Now replies `{type:"ended", reason}`; `reapedReason()` tombstone accessor + tests. |
+| 14 | `docs(status): M79 release-hardening — live Chrome B–I proven, gates clean` | `docs(status)` |
+| 15 | `fix(terminal): scope socket detach so a displaced socket can't detach its successor` | **post-M79 hardening (RACE D)** — `attach`'s single-writer close of a stale `liveWs` triggered that socket's `wireSocketToSession` close handler, which called `terminalSessions.detach` **by key alone** and detached the freshly-reattached session: output froze and a 90 s grace timer would then reap the live shell. Reachable from a half-open-socket reconnect **and** from the manual "Reconnect Terminal" button while connected. `detach` gains an optional `expectedWs`; the closure passes its own `ws`. Regression: `m79-terminal-races.test.ts` (RACE D + genuine-drop control). |
+| 16 | `fix(terminal): release the gate slot when PTY spawn or session create fails` | **post-M79 hardening (resource leak)** — a synchronous `pty.spawn` throw (Windows ConPTY init failure — seen in this env, missing docker CLI, ENOMEM) or a lost `create` race threw past the `releasePermit` / secrets-cleanup wiring, leaking the per-user `terminalGate` slot **and** the staged secrets file for the process lifetime (after `maxTerminalsPerUser` failures the user can never open a terminal). Both are now wrapped: release the slot, clean the secrets file, kill any spawned PTY, report + close. The previously-ignored `attach` result in the fresh path is now honored too. Regression: `m79-terminal-races.test.ts` (spawn-throw releases the slot). |
+| 17 | this STATUS entry | `docs(status)` |
+
+Not pushed, not merged. No M80 work started.
+
+### Post-M79 hardening pass (2026-09-08)
+
+A final adversarial audit of the M79 terminal lifecycle (PTY / WebSocket /
+docker-exec ownership, reconnect/replay, teardown, races, resource bounds,
+frontend mount/unmount, authorization). Method: reproduce → root-cause →
+smallest safe fix → deterministic regression test → targeted + full suites.
+
+**Fixed (commits 15–16 above), both P2, both M79-introduced:**
+
+1. **RACE D — displaced socket detaches its successor.** Deterministic repro
+   in `m79-terminal-races.test.ts`; the displaced socket's late `close` ran
+   the key-only `detach` against the session the *new* socket owns. Fix
+   scopes `detach` to the caller's socket. The genuine-drop path (socket
+   still bound, `expectedWs` matches or is omitted) is unchanged and
+   covered by a control test + the pre-existing `terminal.test.ts` /
+   `m79-terminal-teardown.test.ts` reap tests.
+2. **`pty.spawn` / `create` failure leaked the gate slot + secrets file.**
+   `terminal.test.ts` already covered the *sandbox*-creation failure path;
+   the `pty.spawn` throw and the `create` race were the gap. Fix mirrors the
+   existing `releasePermit()` pattern.
+
+**Investigated, classified, NOT changed:**
+
+| Observation | Verdict |
+|---|---|
+| Frontend `scheduleMount` starts one rAF poll loop per call — N concurrent `scheduleMount` calls drain the 120-frame budget N× faster | **P3, not fixed.** Still hard-bounded (budget caps every loop; each loop only ever reschedules itself, 1→1); the host `ResizeObserver` re-arms the budget to 120 on every resize during a panel transition, so premature give-up is not reproducible. A single-loop guard is a possible cleanup, not a demonstrated defect — deferred to avoid a speculative refactor. |
+| FRESH-path `attach()` return value was ignored | Was safe (a brand-new PTY cannot `onExit` synchronously in the same tick as `create`), but now honored as part of commit 16 since that region was already being touched. |
+| `create()` does not clear a stale same-key tombstone | Harmless — `tombstone()` deletes-then-sets on the next reap, and `reapedReason` is only consulted when no live session exists. No change. |
+| Ring `since(lastSeq > entry.seq)` → empty replay → client seq-guard freeze | Unreachable in current code: the client's `lastSeq` only advances from received frames (≤ server `seq` on any same-session reattach), and `92ca48c` already routes `lastSeq > 0` + no-session to `{type:"ended"}`. No change. |
+| URL-navigation to a project while another project's terminal is active resolves back to the active project | Pre-existing SPA routing quirk, **not amplified by M79** (M79 does not touch routing; the hook keys everything on `projectId` and tears down cleanly on change). Already documented under "Known limitations". |
+| Windows-dev `pty.kill()` does not reach the container-side `bash` | Pre-existing P3, unchanged — same `pty.kill()` the pre-M79 code used; bounded by container lifetime; `performStop` → `docker rm -f` is the proven backstop (live Scenario F). |
+
+**Verification (final HEAD, clean environment, Docker up):**
+
+| Gate | Result |
+|---|---|
+| Backend full suite | **1247 passed / 9 skipped / 0 failed** (103 files; +3 from `m79-terminal-races.test.ts`); `python-deps` passes ~44 s |
+| Backend typecheck / eslint | `tsc --noEmit` exit 0 · eslint 0 errors / 29 warnings (baseline) |
+| Frontend full suite | **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged |
+| Frontend build / eslint | `tsc --noEmit && vite build` exit 0 · eslint 0 errors |
+| `git diff --check` | clean |
+
+RACE D and the spawn/create leak are timing/failure paths that cannot be
+triggered on demand in a browser; they are proven at the deterministic
+integration level with a mocked PTY. Live Chrome B–I (commit `67c2186`,
+prior task) covered the happy path, reconnect, replay, and every teardown
+path; commits 15–16 do not alter observable happy-path behaviour (both the
+full Docker-backed backend suite and the frontend suite confirm no
+regression). No fresh live pass was run for these two commits — stated here
+rather than implied.

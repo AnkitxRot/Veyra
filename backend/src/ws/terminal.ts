@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import * as pty from "node-pty";
 import type { AppConfig } from "../config.js";
@@ -5,6 +6,10 @@ import type { Db } from "../db.js";
 import { workspacePath } from "../projects/service.js";
 import { sandboxManager } from "../execution/sandbox.js";
 import { RunGate } from "../execution/runGate.js";
+import {
+  terminalSessions,
+  type RegistryPty,
+} from "../execution/terminalSessions.js";
 import { resolveSecretsForInjection } from "../projectsecrets/store.js";
 import {
   writeContainerSecretsFile,
@@ -14,11 +19,60 @@ import {
 
 /**
  * Per-user concurrent terminal PTY count. Separate resource class from
- * `sandboxGate` (sandbox.ts) — a user can have many terminal tabs open
- * against one project's single sandbox — same reasoning as searchGate being
- * separate from runGate. Exported so tests can inspect/reset it directly.
+ * `sandboxGate` (sandbox.ts). M79: a detached session still holds its slot
+ * until reaped, and a reattach does not acquire a second one — the slot is
+ * released exactly once, by the registry's `onEnd` callback wired below.
+ * Exported so tests can inspect/reset it directly.
  */
 export const terminalGate = new RunGate();
+
+const TERMINAL_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+function wireSocketToSession(
+  ws: WebSocket,
+  userId: number,
+  projectId: string,
+  terminalId: string,
+): void {
+  ws.on("message", (msg) => {
+    // Any inbound traffic proves the client is alive and using this terminal.
+    sandboxManager.touch(projectId);
+    try {
+      const parsed = JSON.parse(msg.toString());
+      if (parsed.type === "data") {
+        terminalSessions.writeInput(userId, projectId, terminalId, parsed.data);
+      } else if (parsed.type === "resize") {
+        terminalSessions.resize(
+          userId,
+          projectId,
+          terminalId,
+          parsed.cols || 80,
+          parsed.rows || 30,
+        );
+      }
+    } catch {
+      // ignore parse errors
+    }
+  });
+
+  // Both 'close' and 'error' can fire for the same connection; detach once.
+  // Scope the detach to THIS socket — if a newer socket has already displaced
+  // it (single-writer takeover), this socket's late close must not detach the
+  // successor's session.
+  let detached = false;
+  const detach = () => {
+    if (detached) return;
+    detached = true;
+    terminalSessions.detach(
+      userId,
+      projectId,
+      terminalId,
+      ws as unknown as { readyState: number; send(d: string): void; close(): void },
+    );
+  };
+  ws.on("close", detach);
+  ws.on("error", detach);
+}
 
 export async function handleTerminalConnection(
   ws: WebSocket,
@@ -26,7 +80,75 @@ export async function handleTerminalConnection(
   cfg: AppConfig,
   userId: number,
   db?: Db,
+  terminalIdParam?: string,
+  lastSeqParam = 0,
 ): Promise<void> {
+  const lastSeq =
+    Number.isFinite(lastSeqParam) && lastSeqParam >= 0
+      ? Math.floor(lastSeqParam)
+      : 0;
+  // A well-formed client-supplied id enables reattach. Anything else is a
+  // fresh, server-owned session (back-compat with older clients).
+  const terminalId =
+    typeof terminalIdParam === "string" && TERMINAL_ID_RE.test(terminalIdParam)
+      ? terminalIdParam
+      : randomUUID();
+
+  // -------------------------------------------------------------------------
+  // REATTACH — an existing session for THIS (userId, projectId, terminalId).
+  // Editor authorization was already enforced for this projectId in
+  // ws/index.ts's upgrade handler, so it runs on every reattach too.
+  // -------------------------------------------------------------------------
+  if (terminalSessions.has(userId, projectId, terminalId)) {
+    const res = terminalSessions.attach(
+      userId,
+      projectId,
+      terminalId,
+      ws as unknown as {
+        readyState: number;
+        send(d: string): void;
+        close(): void;
+      },
+      lastSeq,
+    );
+    if (!res.ok) {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: "ended",
+            reason: res.reason ?? "process_exited",
+          }),
+        );
+        ws.close();
+      }
+      return;
+    }
+    sandboxManager.touch(projectId);
+    wireSocketToSession(ws, userId, projectId, terminalId);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // GONE — the client expected a reattach (it was streaming a session on this
+  // terminalId, so it sent a non-zero lastSeq) but the server has no such
+  // session: it was reaped (grace expiry / container teardown / role loss).
+  // Report it honestly and close — a fresh shell needs an explicit new
+  // terminalId from the client, never a silent respawn under the same UI.
+  // -------------------------------------------------------------------------
+  if (lastSeq > 0) {
+    if (ws.readyState === ws.OPEN) {
+      const reason =
+        terminalSessions.reapedReason(userId, projectId, terminalId) ??
+        "grace_expired";
+      ws.send(JSON.stringify({ type: "ended", reason }));
+      ws.close();
+    }
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // FRESH — spawn a new PTY and register the session.
+  // -------------------------------------------------------------------------
   if (!terminalGate.acquire(userId, cfg.maxTerminalsPerUser)) {
     if (ws.readyState === ws.OPEN) {
       ws.send(
@@ -40,10 +162,6 @@ export async function handleTerminalConnection(
     return;
   }
 
-  // Every exit path below — sandbox failure, disconnect-during-startup,
-  // normal close, socket error — must release exactly once. Guard with a
-  // flag rather than relying on a single call site, since 'close' and
-  // 'error' can both fire for the same connection.
   let permitReleased = false;
   const releasePermit = () => {
     if (permitReleased) return;
@@ -75,11 +193,7 @@ export async function handleTerminalConnection(
     return;
   }
 
-  // M47: resolve + stage project secrets before the shell starts. Access
-  // authorization is already enforced upstream (ws/index.ts requires the
-  // 'editor' role for /ws/terminal, so viewers never reach here). Fail
-  // closed: if secrets exist but cannot be prepared, do not open a shell
-  // without them.
+  // M47: resolve + stage project secrets before the shell starts. Fail closed.
   let secretsFile: ContainerSecretsFile | null = null;
   try {
     const env = db
@@ -110,9 +224,7 @@ export async function handleTerminalConnection(
     return;
   }
 
-  // The client may have disconnected while the awaits above were pending; the
-  // ws 'close' listener below is registered too late to ever see that event, so
-  // spawning here would leak an orphaned `docker exec` shell nobody kills.
+  // The client may have disconnected while the awaits above were pending.
   if (ws.readyState !== ws.OPEN) {
     releasePermit();
     if (secretsFile) void secretsFile.cleanup();
@@ -123,68 +235,114 @@ export async function handleTerminalConnection(
     ? ["bash", "-c", `set -a; . '${secretsFile.path}'; set +a; exec bash`]
     : ["bash"];
 
-  const ptyProcess = pty.spawn(
-    "docker",
-    ["exec", "-it", "-e", "TERM=xterm-256color", containerId, ...bashArgs],
-    {
-      name: "xterm-color",
-      cols: 80,
-      rows: 30,
-    },
-  );
-
-  ptyProcess.onData((data) => {
-    // Terminal output is sandbox activity: keep the idle reaper from killing
-    // the container this live shell is running inside.
-    sandboxManager.touch(projectId);
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "data", data }));
-    }
-  });
-
-  ws.on("message", (msg) => {
-    try {
-      // Any inbound traffic means the client is alive and using this terminal,
-      // even if the payload turns out to be malformed.
-      sandboxManager.touch(projectId);
-      const parsed = JSON.parse(msg.toString());
-      if (parsed.type === "data") {
-        ptyProcess.write(parsed.data);
-      } else if (parsed.type === "resize") {
-        ptyProcess.resize(parsed.cols || 80, parsed.rows || 30);
-      }
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  // Both 'close' and 'error' can fire for the same connection (an abrupt
-  // socket error isn't always followed by 'close' promptly); guard the
-  // whole teardown once so the pty is never signaled twice.
-  let torndown = false;
-  const teardown = () => {
-    if (torndown) return;
-    torndown = true;
+  // `pty.spawn` can throw synchronously (docker CLI missing, a ConPTY init
+  // failure on Windows, an ENOMEM). If it does, the gate slot acquired above
+  // and the staged secrets file would both leak for the process lifetime —
+  // after `maxTerminalsPerUser` such failures the user can never open a
+  // terminal again. Release both and report the failure instead.
+  let ptyProcess: pty.IPty;
+  try {
+    ptyProcess = pty.spawn(
+      "docker",
+      ["exec", "-it", "-e", "TERM=xterm-256color", containerId, ...bashArgs],
+      {
+        name: "xterm-color",
+        cols: 80,
+        rows: 30,
+      },
+    );
+  } catch (err: any) {
     releasePermit();
-    ptyProcess.kill();
-    if (secretsFile) {
-      const f = secretsFile;
-      secretsFile = null;
-      void f.cleanup();
-    }
-  };
-  ws.on("close", teardown);
-  ws.on("error", teardown);
-
-  ptyProcess.onExit(() => {
+    if (secretsFile) void secretsFile.cleanup();
     if (ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
           type: "data",
-          data: "\r\n[terminal] Process exited.\r\n",
+          data: `[terminal] failed to start shell: ${err?.message ?? "spawn error"}\r\n`,
         }),
       );
       ws.close();
     }
-  });
+    return;
+  }
+
+  // Adapter: the registry drives output/exit; every output chunk also keeps
+  // the sandbox reaper away from this live shell's container.
+  const registryPty: RegistryPty = {
+    onData: (cb) =>
+      ptyProcess.onData((data) => {
+        sandboxManager.touch(projectId);
+        cb(data);
+      }),
+    onExit: (cb) => ptyProcess.onExit(() => cb()),
+    write: (data) => ptyProcess.write(data),
+    resize: (cols, rows) => ptyProcess.resize(cols, rows),
+    kill: () => ptyProcess.kill(),
+  };
+
+  const capturedSecrets = secretsFile;
+  secretsFile = null; // ownership transfers to the registry entry
+
+  try {
+    terminalSessions.create({
+      userId,
+      projectId,
+      terminalId,
+      pty: registryPty,
+      containerId,
+      graceMs: cfg.terminalDetachGraceMs,
+      secretsCleanup: capturedSecrets
+        ? () => capturedSecrets.cleanup()
+        : null,
+      onEnd: releasePermit,
+    });
+  } catch (err: any) {
+    // e.g. a concurrent connection for the same terminalId won the create
+    // race. No registry entry exists for this call, so nothing will fire
+    // `onEnd`/cleanup — release the slot, drop the secrets, kill this PTY.
+    releasePermit();
+    if (capturedSecrets) void capturedSecrets.cleanup();
+    try {
+      ptyProcess.kill();
+    } catch {
+      /* ignore */
+    }
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "data",
+          data: `[terminal] failed to start shell: ${err?.message ?? "session error"}\r\n`,
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
+
+  const attached = terminalSessions.attach(
+    userId,
+    projectId,
+    terminalId,
+    ws as unknown as {
+      readyState: number;
+      send(d: string): void;
+      close(): void;
+    },
+    lastSeq,
+  );
+  if (!attached.ok) {
+    // The PTY exited synchronously between create and attach. The registry
+    // already reaped the entry and released the slot via `onEnd`.
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "ended",
+          reason: attached.reason ?? "process_exited",
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
+  wireSocketToSession(ws, userId, projectId, terminalId);
 }

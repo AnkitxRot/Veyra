@@ -14,6 +14,7 @@ import {
 } from "../tools.js";
 import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
 import { RunGate } from "./runGate.js";
+import { terminalSessions } from "./terminalSessions.js";
 import {
   renderSecretsEnvFile,
   secretsExecPrefix,
@@ -547,6 +548,14 @@ export class SandboxManager {
   }
 
   private async performStop(projectId: string): Promise<void> {
+    // M79: every container-teardown path funnels through here (delete /
+    // restore / import / admin stop / terminateSandbox / idle reaper). Kill
+    // this project's terminal sessions — attached and detached — before the
+    // container goes, so no `docker exec` PTY is orphaned and every held
+    // terminalGate slot is released.
+    try {
+      terminalSessions.reapProject(projectId);
+    } catch {}
     const info = this.projectContainers.get(projectId);
     const cid = info ? info.containerId : `ide-sandbox-${projectId}`;
     try {
@@ -603,6 +612,10 @@ export class SandboxManager {
           await execFileAsync("docker", ["network", "rm", id]);
         } catch {}
       }
+    } catch {}
+    // M79: graceful shutdown — kill every detached terminal PTY too.
+    try {
+      terminalSessions.disposeAll();
     } catch {}
     for (const info of this.projectContainers.values()) {
       if (info.ownerId !== undefined) sandboxGate.release(info.ownerId);
