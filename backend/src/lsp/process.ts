@@ -1,4 +1,8 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  execFileSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import type { LspLanguageSpec } from "./languages.js";
 
 export interface LspSpawnRequest {
@@ -80,6 +84,49 @@ export function sandboxLspArgv(req: LspSpawnRequest): string[] {
     spec.command,
     ...spec.args,
   ];
+}
+
+const TSSERVER_REAPER = [
+  "const fs=require('fs');",
+  "for (const pid of fs.readdirSync('/proc')) {",
+  "  if (!/^\\d+$/.test(pid)) continue;",
+  "  let cmd='';",
+  "  try { cmd=fs.readFileSync('/proc/'+pid+'/cmdline','utf8'); } catch { continue; }",
+  "  if (",
+  "    cmd.includes('typescript-language-server') ||",
+  "    cmd.includes('typescript/lib/tsserver.js') ||",
+  "    cmd.includes('typescript/lib/typingsInstaller.js')",
+  "  ) {",
+  "    try { process.kill(Number(pid),'SIGKILL'); } catch {}",
+  "  }",
+  "}",
+].join("");
+
+/**
+ * Reap tsserver workers left behind after the host `docker exec` LSP
+ * wrapper is killed. js-debug cannot bind TypeScript source maps while
+ * those workers still hold the workspace.
+ */
+export function killTypeScriptLanguageServersInContainer(
+  containerId: string,
+): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(containerId)) {
+    throw new Error("invalid_container_id");
+  }
+  try {
+    execFileSync(
+      "docker",
+      ["exec", "-u", "ide", containerId, "node", "-e", TSSERVER_REAPER],
+      {
+        timeout: 4_000,
+        stdio: "ignore",
+        windowsHide: true,
+        env: lspHostDockerEnv(),
+      },
+    );
+  } catch {
+    /* container gone or no leftover servers */
+  }
 }
 
 /**

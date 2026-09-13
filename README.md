@@ -168,17 +168,19 @@ exposed.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Python (`.py`) | `debugpy==1.8.21` in `/opt/debug` | yes | yes | over / into / out | yes | locals / scopes | `/workspace` ↔ editor path |
 | Node (`.js` / `.mjs` / `.cjs`) | `vscode-js-debug` v1.117.0 | yes | yes | yes | yes | yes | workspace path |
-| TypeScript (`.ts`) | same adapter, `node --import tsx` | PARTIAL — launch proven; `.ts` breakpoints/source maps not reliably bound | yes | — | — | — | PARTIAL |
+| TypeScript (`.ts`) | same adapter; isolated `tsc` emit in `.cloudide-build-debug` | yes | yes | yes | `.ts` frames | yes | source maps rewrite to `/workspace/...` |
 | TSX / JSX / Java / C / C++ | — | — | — | — | — | — | not in M83 |
 
-**Limitations.** TypeScript files launch in the sandbox, but tsx source maps
-do not reliably bind breakpoints to `.ts` in CI. Use `.js` for a full
-stepping session (proven with the real js-debug adapter in the project
-sandbox). Playwright currently proves the Python pause/variables/continue
-flow end-to-end; Node in the browser is proven to launch and stop, while
-breakpoint pause is proven by the Docker js-debug tests. Expression
-evaluation, watches, and conditional breakpoints are off. Java and C/C++
-debugging are not in this milestone.
+**Limitations.** TypeScript is compiled into `/workspace/.cloudide-build-debug/<pid>`
+(hidden from the file tree, zip, and backups — never into Git). Source maps
+are rewritten so stack frames and breakpoints stay on `/workspace/*.ts`.
+Generated JS is not shown as an editor location. While a debug session is
+live, the TypeScript language server for that project is stopped so tsserver
+and js-debug do not contend for the same files; IntelliSense resumes when
+debugging ends. TSX / JSX React files, Java, and C/C++ are not debug
+targets. Expression evaluation, watches, and conditional breakpoints stay
+off. Rebuild `cloudeeeide-runner:latest` after pulling so the updated
+`veyra-js-debug` bridge is in the image.
 
 **How to start.** Open a supported file, set a breakpoint in the editor
 gutter (or Debug after placing one), click **Debug**. Unsaved buffers are

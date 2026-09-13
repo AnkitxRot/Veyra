@@ -102,7 +102,14 @@ function handle(req) {
     running = true;
     if (lines.includes(3) || lines.includes(line)) {
       line = lines.includes(3) ? 3 : line;
-      setTimeout(() => stop("breakpoint"), 10);
+      setTimeout(() => {
+        stop("breakpoint");
+        if (process.env.FAKE_DAP_PARENT_CONTINUED === "1") {
+          setTimeout(() => {
+            event("continued", { threadId: 1, allThreadsContinued: true });
+          }, 20);
+        }
+      }, 10);
     } else if (process.env.FAKE_DAP_HOLD === "1") {
       // Stay running so tests can pause / terminate without a breakpoint.
     } else {
@@ -220,7 +227,13 @@ function handle(req) {
     terminated = true;
     respond(req, {});
     event("terminated");
-    setTimeout(() => process.exit(0), 20);
+    if (process.env.FAKE_DAP_LATE_EVENTS === "1") {
+      setTimeout(() => {
+        event("stopped", { reason: "stale", threadId: 1 });
+        event("continued", { threadId: 1 });
+      }, 30);
+    }
+    setTimeout(() => process.exit(0), process.env.FAKE_DAP_LATE_EVENTS === "1" ? 80 : 20);
     return;
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { monaco } from "../monacoSetup";
 import { getWebSocketUrl } from "../api";
 import { throttleDirtyPaths } from "../utils/throttleLatest";
@@ -21,6 +21,10 @@ import {
   lspServerIdsForFiles,
   type LspServerId,
 } from "../lsp/languages";
+import {
+  DEBUG_STARTED_EVENT,
+  DEBUG_STOPPED_EVENT,
+} from "../debug/types";
 
 const CHANGE_WAIT_MS = 200;
 const MARKER_OWNER = "lsp";
@@ -125,15 +129,39 @@ export function useLanguageIntelligence(opts: {
   const diagsRef = useRef(new Map<string, Diagnostic[]>());
   const wanted = lspServerIdsForFiles(openFiles);
   const wantedKey = wanted.join(",");
+  const debugSuspendRef = useRef(false);
+  const [debugSuspend, setDebugSuspend] = useState(false);
 
   useEffect(() => {
     ensureLspProviders();
   }, []);
 
   useEffect(() => {
+    const onStart = () => {
+      debugSuspendRef.current = true;
+      setDebugSuspend(true);
+    };
+    const onStop = () => {
+      debugSuspendRef.current = false;
+      setDebugSuspend(false);
+    };
+    document.addEventListener(DEBUG_STARTED_EVENT, onStart);
+    document.addEventListener(DEBUG_STOPPED_EVENT, onStop);
+    return () => {
+      document.removeEventListener(DEBUG_STARTED_EVENT, onStart);
+      document.removeEventListener(DEBUG_STOPPED_EVENT, onStop);
+    };
+  }, []);
+
+  useEffect(() => {
     const wantedIds = (
       wantedKey ? wantedKey.split(",") : []
     ) as LspServerId[];
+    if (debugSuspend) {
+      teardownAll("stopped");
+      emitDiagnostics(new Map());
+      return;
+    }
     if (!projectId || wantedIds.length === 0) {
       teardownAll("stopped");
       emitDiagnostics(new Map());
@@ -184,7 +212,7 @@ export function useLanguageIntelligence(opts: {
       sessionsRef.current.set(serverId, session);
       setLspBridge(serverId, bridge);
       transport.onClose(() => {
-        if (cancelled) return;
+        if (cancelled || debugSuspendRef.current) return;
         const current = sessionsRef.current.get(serverId);
         if (!current || current.gen !== session.gen) return;
         if (current.attempts >= MAX_RECONNECT) {
@@ -280,7 +308,7 @@ export function useLanguageIntelligence(opts: {
     }
     // Document open/close is handled by the effect below. `wantedKey` starts
     // or stops sockets as languages appear/disappear in open tabs.
-  }, [projectId, wantedKey]);
+  }, [projectId, wantedKey, debugSuspend]);
 
   useEffect(() => {
     for (const session of sessionsRef.current.values()) {

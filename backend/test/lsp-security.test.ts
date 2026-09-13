@@ -8,7 +8,12 @@ import {
 } from "../src/lsp/manager.js";
 import type { LspClientSocket } from "../src/lsp/session.js";
 import type { LspSpawnRequest } from "../src/lsp/process.js";
-import { spawnSandboxLsp, sandboxLspArgv, lspHostDockerEnv } from "../src/lsp/process.js";
+import {
+  spawnSandboxLsp,
+  sandboxLspArgv,
+  lspHostDockerEnv,
+  killTypeScriptLanguageServersInContainer,
+} from "../src/lsp/process.js";
 import { PYTHON_LSP, TYPESCRIPT_LSP } from "../src/lsp/languages.js";
 
 const fakeLsp = fileURLToPath(new URL("./fixtures/fake-lsp.mjs", import.meta.url));
@@ -243,6 +248,9 @@ describe("lsp security envelope", () => {
         spec: PYTHON_LSP,
         containerId: "ide-sandbox-abc; rm -rf /",
       }),
+    ).toThrow(/invalid_container_id/);
+    expect(() =>
+      killTypeScriptLanguageServersInContainer("ide-sandbox-abc; rm -rf /"),
     ).toThrow(/invalid_container_id/);
   });
 });

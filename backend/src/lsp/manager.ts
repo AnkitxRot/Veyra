@@ -1,7 +1,11 @@
 import type { AppConfig } from "../config.js";
 import { collabDocumentSource, type LspDocumentSource } from "./canonical.js";
 import { getLspLanguage, type LspLanguageSpec } from "./languages.js";
-import { spawnSandboxLsp, type LspSpawnFn } from "./process.js";
+import {
+  killTypeScriptLanguageServersInContainer,
+  spawnSandboxLsp,
+  type LspSpawnFn,
+} from "./process.js";
 import {
   LspSession,
   type LspClientSocket,
@@ -137,6 +141,27 @@ export class LanguageServerManager {
   disposeProject(projectId: string): void {
     for (const session of this.sessionsForProject(projectId)) {
       session.dispose("project_deleted");
+    }
+  }
+
+  /**
+   * Stop language servers for a project so js-debug can own the sandbox.
+   * tsserver and vscode-js-debug deadlock on TypeScript source maps when
+   * they run at the same time (browser path + live LSP).
+   */
+  suspendForDebug(projectId: string, containerId?: string): void {
+    const ids = new Set<string>();
+    if (containerId) ids.add(containerId);
+    for (const session of this.sessionsForProject(projectId)) {
+      ids.add(session.containerId);
+      session.dispose("debug_started");
+    }
+    for (const id of ids) {
+      try {
+        killTypeScriptLanguageServersInContainer(id);
+      } catch {
+        /* invalid id or docker unavailable */
+      }
     }
   }
 

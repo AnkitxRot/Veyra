@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-09-13.
+Last updated: 2026-09-14.
 
 ## Current state
 
@@ -104,12 +104,14 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M83 Debugging Foundation.
+- **Current work (this commit):** M83 Debugging Foundation — GREEN.
   Sandboxed DAP for Python (`debugpy==1.8.21`) and Node/TypeScript
   (`vscode-js-debug` v1.117.0) inside the existing project sandbox.
   Mediated `/ws/debug` protocol, user-owned sessions, Monaco gutter +
-  Debug panel. See **Milestone 83** at the end of this file. M82 language
-  intelligence remains in place.
+  Debug panel. Node browser pause and TypeScript `.ts` source maps are
+  proven. See **Milestone 83** at the end of this file. M82 language
+  intelligence remains in place (suspended for a project while it is
+  being debugged).
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9619,11 +9621,14 @@ session time):**
 | Python | `debugpy==1.8.21` in `/opt/debug/python` | MIT | `veyra-debugpy` |
 | Node / TypeScript | `js-debug-dap-v1.117.0.tar.gz` | MIT | `veyra-js-debug` → stdio↔TCP bridge |
 
-TypeScript runs in the same Node process via `runtimeArgs: ["--import", "tsx"]`
-(tsx is already pinned in the runner image). **Source-mapped `.ts` breakpoints
-are PARTIAL** — CI proves launch and exit; js-debug does not reliably bind
-breakpoints to the `.ts` source the way it does for `.js`. TSX/JSX React
-files are not a debug target in M83.
+TypeScript is precompiled inside the sandbox by `veyra-js-debug` (`tsc`
+emit under `/workspace/.cloudide-build-debug/<pid>`, source maps rewritten
+to `/workspace/*.ts`). `node --import tsx` is **not** used for debug
+launch — tsx is not resolvable from `/workspace`, and `/tmp` emit made
+js-debug relativize maps to `./../tmp/...`. TSX/JSX React files are not
+a debug target in M83. The TypeScript language server for the project is
+stopped for the duration of a debug session (tsserver + js-debug otherwise
+fail to bind child-session pauses).
 
 **Session ownership.** User-owned. Isolation is the project sandbox;
 control is `(projectId, userId)`. Collaborators cannot operate another
@@ -9658,32 +9663,34 @@ secrets file, no Git PAT, no backend env. Workspace paths use
 editor role.
 
 **Tests.** Fake stdio DAP adapter (no Docker): protocol, lifecycle,
-security, WS authz. Docker-backed (CI-required): real debugpy and
-js-debug in the sandbox, env leakage, path escape, TypeScript source
-maps. Playwright (CI-required when the runner image exists): browser →
-Monaco → `/ws/debug` → sandbox → real adapters. Python pause/variables/continue
-is PROVEN in Playwright. Node js-debug pause/variables/continue is PROVEN in
-Docker; the Playwright Node coverage is launch + stop (PARTIAL) because the
-Monaco session stays Running while the same adapter pauses under FakeSock.
+security, WS authz, stale parent `continued` / late events. Docker-backed
+(CI-required): real debugpy and js-debug in the sandbox, env leakage, path
+escape, TypeScript `.ts` breakpoints + mapped stacks + nested sources,
+TypeScript pause after tsserver was already running. Playwright
+(CI-required when the runner image exists): browser → Monaco → `/ws/debug`
+→ sandbox → real adapters for Python, Node, and TypeScript.
 
 **Deferred:** Java debugger, C/C++ debugger, profiler, remote debugging,
 collaborative debugger control, time-travel, conditional breakpoint UI,
 expression/watch evaluation, user-provided adapters, TSX/JSX debug.
 
-**Verification (2026-09-13, outer repo `D:/cloudide`):**
+**Verification (2026-09-14, outer repo `D:/cloudide`):**
 
 - Backend lint: 0 errors / 0 warnings
-- Frontend lint: 0 errors / 20 warnings (18 pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components` in Admin/Editor/IDE/Settings/Toolbar/execution/perf harness, plus 2 matching `react-refresh` warnings on `useDebugger.tsx` hooks — same pattern as `useExecutionSession`). Adding exhaustive-deps would refetch or rebind on every render.
 - Backend `tsc --noEmit`: clean
+- Frontend lint: 0 errors / 20 warnings (pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components`; adding exhaustive-deps would refetch or rebind on every render)
 - Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
-- Frontend tests: **1036 passed / 0 failed** (137 files)
-- Backend tests: **1324 passed / 76 skipped / 0 failed** (120 files)
-- Focused M83 backend `debug-*.test.ts`: **35 passed / 8 skipped** (6 Docker + 2 Playwright skipped — no Docker CLI on this workstation)
-- Focused M83 frontend `debug.*.test.ts(x)` + toolbar.debug: **13 passed**
-- `git diff --check`: clean
+- Frontend tests: **1041 passed / 0 failed** (138 files)
+- Backend tests: **1411 passed / 9 skipped / 0 failed** (121 files)
+- Docker debugger: Python, Node, TypeScript (including nested maps and tsserver-already-running) **PROVEN**
+- Playwright debugger: Python, Node, TypeScript breakpoint / pause / variables / continue **PROVEN**
+- `git diff --check`: run before commit
 
 `veyra-js-debug` accepts vscode-js-debug's reverse `startDebugging`
 request inside the sandbox by opening a second localhost DAP connection
 to the same `dapDebugServer` — the backend still sees one stdio session.
+After the child session owns the debuggee, parent *events* are dropped
+so a stale parent `continued` cannot overwrite a real child pause
+(the Node browser "stays Running" race).
 
-Pinned runner image debug packages: `debugpy==1.8.21` (MIT), `js-debug-dap-v1.117.0` (MIT), plus existing `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E files.
+Pinned runner image debug packages: `debugpy==1.8.21` (MIT), `js-debug-dap-v1.117.0` (MIT). Playwright `1.55.1` is a backend devDependency used only by the browser E2E files.

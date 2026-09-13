@@ -3,6 +3,7 @@ export type DebugSessionState =
   | "starting"
   | "running"
   | "paused"
+  | "stopping"
   | "terminated"
   | "failed"
   | "unavailable";

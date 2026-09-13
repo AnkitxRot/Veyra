@@ -7,6 +7,11 @@ import {
   debugSessions,
   resetDebugSessionsForTests,
 } from "../src/debug/manager.js";
+import {
+  languageServers,
+  resetLanguageServersForTests,
+} from "../src/lsp/manager.js";
+import type { LspClientSocket } from "../src/lsp/session.js";
 import type { DebugClientSocket } from "../src/debug/session.js";
 import { isDockerRunning, isRunnerImageAvailable } from "../src/tools.js";
 import { sandboxManager } from "../src/execution/sandbox.js";
@@ -16,6 +21,17 @@ if (process.env.CI === "true" && !dockerOk) {
   throw new Error(
     "M83 CI requires Docker and cloudeeeide-runner:latest for live debugger tests",
   );
+}
+
+class LspSock implements LspClientSocket {
+  readyState = 1;
+  messages: any[] = [];
+  send(data: string): void {
+    this.messages.push(JSON.parse(data));
+  }
+  close(): void {
+    this.readyState = 3;
+  }
 }
 
 class FakeSock implements DebugClientSocket {
@@ -77,6 +93,7 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
 
   afterEach(async () => {
     resetDebugSessionsForTests();
+    resetLanguageServersForTests();
     if (projectId) {
       await sandboxManager.stopProjectSandbox(projectId);
       projectId = "";
@@ -85,6 +102,7 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
 
   afterAll(async () => {
     resetDebugSessionsForTests();
+    resetLanguageServersForTests();
     await sandboxManager.cleanupAllSandboxes();
   });
 
@@ -224,16 +242,40 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
   );
 
   it(
-    "TypeScript via tsx: launches; source-mapped .ts breakpoints are PARTIAL",
+    "TypeScript: .ts breakpoint, mapped stack, variables, continue",
     async () => {
       const cfg = makeTestConfig({
         debugStartupTimeoutMs: 45_000,
         debugRequestTimeoutMs: 45_000,
       });
       const ws = makeWorkspace(cfg);
+      mkdirSync(join(ws, "src"), { recursive: true });
       writeFileSync(
-        join(ws, "main.ts"),
-        "const x: number = 1;\nconst y: number = 2;\nconst z: number = x + y;\nconsole.log(z);\n",
+        join(ws, "src", "helper.ts"),
+        [
+          "export function add(a: number, b: number): number {",
+          "  const sum = a + b;",
+          "  return sum;",
+          "}",
+          "",
+          "export function nested(n: number): number {",
+          "  return add(n, 1);",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(ws, "src", "main.ts"),
+        [
+          'import { add, nested } from "./helper";',
+          "",
+          "const x: number = 1;",
+          "const y: number = 2;",
+          "const z: number = add(x, y);",
+          "const w: number = nested(z);",
+          "console.log(z, w);",
+          "",
+        ].join("\n"),
       );
       projectId = `dbg-ts-${randomUUID()}`;
       const sock = new FakeSock();
@@ -247,43 +289,171 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
       session!.handleClientMessage(sock, {
         type: "launch",
         language: "node",
-        entryFile: "main.ts",
-        breakpoints: { "main.ts": [3] },
+        entryFile: "src/main.ts",
+        breakpoints: { "src/main.ts": [5] },
       });
+      const stopped = await waitPaused(sock, 60_000, "ts paused");
+      expect(stopped.frames[0].path).toBe("src/main.ts");
+      expect(stopped.frames[0].line).toBe(5);
+      const locals = Object.values(stopped.variables ?? {})
+        .flat()
+        .map((v: any) => v.name);
+      expect(locals).toEqual(expect.arrayContaining(["x", "y"]));
+      session!.handleClientMessage(sock, { type: "stepIn" });
       await waitFor(
         () =>
-          (sock.lastStatus()?.state === "paused" &&
-            sock.ofType("stopped").length > 0) ||
-          sock.lastStatus()?.state === "terminated" ||
-          sock.ofType("exited").length > 0,
-        45_000,
-        "ts paused-or-exit",
+          sock.ofType("stopped").length >= 2 &&
+          sock
+            .ofType("stopped")
+            .at(-1)
+            ?.frames?.some((f: { path?: string }) => f.path === "src/helper.ts"),
+        20_000,
+        "ts step into helper",
         () => ({
-          status: sock.lastStatus(),
-          types: sock.messages.map((m) => m.type),
-          output: sock
-            .ofType("output")
-            .map((m) => m.text)
-            .join("")
-            .slice(-400),
+          frames: sock.ofType("stopped").at(-1)?.frames?.map((f: any) => f.path),
         }),
       );
-      const stopped = sock.ofType("stopped").at(-1);
-      if (stopped) {
-        expect(stopped.frames[0].path).toBe("main.ts");
-        session!.handleClientMessage(sock, { type: "continue" });
-        await waitFor(
-          () =>
-            sock.lastStatus()?.state === "terminated" ||
-            sock.ofType("exited").length > 0,
-          20_000,
-          "ts exited",
-        );
-      } else {
-        expect(sock.lastStatus()?.state).toBe("terminated");
-      }
+      const stepped = sock.ofType("stopped").at(-1);
+      expect(
+        stepped.frames.some((f: { path?: string }) => f.path === "src/helper.ts"),
+      ).toBe(true);
+      const stepNames = Object.values(stepped.variables ?? {})
+        .flat()
+        .map((v: any) => v.name);
+      expect(stepNames.length).toBeGreaterThan(0);
+      session!.handleClientMessage(sock, { type: "continue" });
+      await waitFor(
+        () =>
+          sock.lastStatus()?.state === "terminated" ||
+          sock.ofType("exited").length > 0,
+        20_000,
+        "ts exited",
+      );
     },
-    90_000,
+    120_000,
+  );
+
+  it(
+    "TypeScript source maps stay inside /workspace across nested files",
+    async () => {
+      const cfg = makeTestConfig({
+        debugStartupTimeoutMs: 45_000,
+        debugRequestTimeoutMs: 45_000,
+      });
+      const ws = makeWorkspace(cfg);
+      mkdirSync(join(ws, "src", "nested"), { recursive: true });
+      writeFileSync(
+        join(ws, "src", "nested", "deep.ts"),
+        [
+          "export type Id = number;",
+          "export interface Box { value: Id }",
+          "export function boxed(v: Id): Box {",
+          "  const inner = v * 2;",
+          "  return { value: inner };",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(ws, "src", "nested", "app.ts"),
+        [
+          'import { boxed, type Box } from "./deep";',
+          "const seed: Box = boxed(3);",
+          "console.log(seed.value);",
+          "",
+        ].join("\n"),
+      );
+      projectId = `dbg-ts-map-${randomUUID()}`;
+      const sock = new FakeSock();
+      const session = await debugSessions.attach({
+        projectId,
+        userId: 1,
+        cfg,
+        socket: sock,
+        workspaceDir: ws,
+      });
+      session!.handleClientMessage(sock, {
+        type: "launch",
+        language: "node",
+        entryFile: "src/nested/app.ts",
+        breakpoints: { "src/nested/app.ts": [2] },
+      });
+      const stopped = await waitPaused(sock, 60_000, "ts nested paused");
+      expect(stopped.frames[0].path).toBe("src/nested/app.ts");
+      expect(stopped.frames[0].line).toBe(2);
+      for (const frame of stopped.frames) {
+        expect(frame.path).toMatch(/^src\//);
+        expect(frame.path).not.toMatch(/node_internals/);
+        expect(frame.path).not.toMatch(/cloudide-build/);
+        expect(frame.path).not.toMatch(/\.\./);
+        expect(frame.path).not.toMatch(/^\/tmp\//);
+        expect(frame.path).not.toMatch(/^\/etc\//);
+      }
+      session!.handleClientMessage(sock, { type: "terminate" });
+      await waitFor(
+        () => sock.lastStatus()?.state === "terminated",
+        20_000,
+        "ts nested terminate",
+      );
+    },
+    120_000,
+  );
+
+  it(
+    "TypeScript still pauses when tsserver was already running",
+    async () => {
+      const cfg = makeTestConfig({
+        debugStartupTimeoutMs: 45_000,
+        debugRequestTimeoutMs: 45_000,
+      });
+      const ws = makeWorkspace(cfg);
+      mkdirSync(join(ws, "src"), { recursive: true });
+      writeFileSync(
+        join(ws, "src", "helper.ts"),
+        "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
+      );
+      writeFileSync(
+        join(ws, "src", "main.ts"),
+        'import { add } from "./helper";\nconst x: number = 1;\nconst y: number = 2;\nconst z: number = add(x, y);\nconsole.log(z);\n',
+      );
+      projectId = `dbg-ts-lsp-${randomUUID()}`;
+      const lspSock = new LspSock();
+      const lsp = await languageServers.attach({
+        projectId,
+        language: "typescript",
+        userId: 1,
+        cfg,
+        socket: lspSock,
+        workspaceDir: ws,
+      });
+      expect(lsp).not.toBeNull();
+      await waitFor(
+        () =>
+          [...lspSock.messages]
+            .reverse()
+            .find((m) => m.type === "status")?.state === "ready",
+        40_000,
+        "tsserver ready",
+      );
+      const sock = new FakeSock();
+      const session = await debugSessions.attach({
+        projectId,
+        userId: 1,
+        cfg,
+        socket: sock,
+        workspaceDir: ws,
+      });
+      session!.handleClientMessage(sock, {
+        type: "launch",
+        language: "node",
+        entryFile: "src/main.ts",
+        breakpoints: { "src/main.ts": [4] },
+      });
+      const stopped = await waitPaused(sock, 60_000, "ts+lsp paused");
+      expect(stopped.frames[0].path).toBe("src/main.ts");
+      expect(stopped.frames[0].line).toBe(4);
+    },
+    120_000,
   );
 
   it("cannot debug another project's workspace via path escape", async () => {

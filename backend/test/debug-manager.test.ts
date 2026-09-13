@@ -437,4 +437,61 @@ describe("debug session lifecycle (fake adapter)", () => {
     });
     await waitPaused(sock, 5000);
   });
+
+  it("does not let a parent-session continued clobber a real pause", async () => {
+    debugSessions.setSpawnForTests(spawnFake({ FAKE_DAP_PARENT_CONTINUED: "1" }));
+    const { sock, session } = await boot();
+    session.handleClientMessage(sock, {
+      type: "launch",
+      language: "python",
+      entryFile: "main.py",
+      breakpoints: { "main.py": [3] },
+    });
+    await waitPaused(sock);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(sock.lastStatus()?.state).toBe("paused");
+    expect(session.currentState).toBe("paused");
+  });
+
+  it("ignores late adapter events after terminate", async () => {
+    debugSessions.setSpawnForTests(spawnFake({ FAKE_DAP_LATE_EVENTS: "1" }));
+    const { sock, session } = await boot();
+    session.handleClientMessage(sock, {
+      type: "launch",
+      language: "python",
+      entryFile: "main.py",
+      breakpoints: { "main.py": [3] },
+    });
+    await waitPaused(sock);
+    session.handleClientMessage(sock, { type: "terminate" });
+    await waitFor(() => sock.lastStatus()?.state === "terminated");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(session.currentState).toBe("terminated");
+    expect(sock.lastStatus()?.state).toBe("terminated");
+    expect(sock.ofType("stopped").every((m) => m.reason !== "stale")).toBe(true);
+  });
+
+  it("a second launch ignores events from the previous generation", async () => {
+    debugSessions.setSpawnForTests(spawnFake({ FAKE_DAP_PARENT_CONTINUED: "1" }));
+    const { sock, session } = await boot();
+    session.handleClientMessage(sock, {
+      type: "launch",
+      language: "python",
+      entryFile: "main.py",
+      breakpoints: { "main.py": [3] },
+    });
+    await waitPaused(sock);
+    session.handleClientMessage(sock, { type: "terminate" });
+    await waitFor(() => sock.lastStatus()?.state === "terminated");
+    debugSessions.setSpawnForTests(spawnFake());
+    session.handleClientMessage(sock, {
+      type: "launch",
+      language: "python",
+      entryFile: "main.py",
+      breakpoints: { "main.py": [3] },
+    });
+    await waitPaused(sock, 5000);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(sock.lastStatus()?.state).toBe("paused");
+  });
 });

@@ -35,20 +35,26 @@ export function fromWorkspaceLocation(value: unknown): string | null {
   }
   if (value.includes("\0")) return null;
   const trimmed = value.replace(/\\/g, "/");
+  if (trimmed.startsWith("<") || trimmed.includes("<node_internals>")) {
+    return null;
+  }
+  let rel: string | null = null;
   if (trimmed.startsWith("file:")) {
-    return fromWorkspaceUri(trimmed);
+    rel = fromWorkspaceUri(trimmed);
+  } else if (
+    trimmed === WORKSPACE_FS_ROOT ||
+    trimmed === `${WORKSPACE_FS_ROOT}/`
+  ) {
+    rel = "";
+  } else if (trimmed.startsWith(WORKSPACE_FS_PREFIX)) {
+    rel = normalizeRelPath(trimmed.slice(WORKSPACE_FS_PREFIX.length));
+  } else if (!trimmed.startsWith("/") && !/^[a-zA-Z]:/.test(trimmed)) {
+    // Bare relative path (already workspace-relative).
+    rel = normalizeRelPath(trimmed);
   }
-  if (trimmed === WORKSPACE_FS_ROOT || trimmed === `${WORKSPACE_FS_ROOT}/`) {
-    return "";
-  }
-  if (trimmed.startsWith(WORKSPACE_FS_PREFIX)) {
-    return normalizeRelPath(trimmed.slice(WORKSPACE_FS_PREFIX.length));
-  }
-  // Bare relative path (already workspace-relative).
-  if (!trimmed.startsWith("/") && !/^[a-zA-Z]:/.test(trimmed)) {
-    return normalizeRelPath(trimmed);
-  }
-  return null;
+  if (rel === null || rel === "") return rel;
+  if (isForbiddenRelPath(rel)) return null;
+  return rel;
 }
 
 export function isWorkspaceLocation(value: unknown): boolean {
@@ -64,7 +70,7 @@ export function basenameOf(relPath: string): string {
 export function isForbiddenRelPath(rel: string): boolean {
   if (rel.length > MAX_PATH) return true;
   const first = rel.split("/")[0];
-  return first === ".git";
+  return first === ".git" || first.startsWith(".cloudide-build-");
 }
 
 export { WORKSPACE_ROOT_URI };

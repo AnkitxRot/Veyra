@@ -34,7 +34,9 @@ function keyOf(projectId: string, userId: number): string {
 
 function isLive(session: DebugSession): boolean {
   const s = session.currentState;
-  return s === "starting" || s === "running" || s === "paused";
+  return (
+    s === "starting" || s === "running" || s === "paused" || s === "stopping"
+  );
 }
 
 /**

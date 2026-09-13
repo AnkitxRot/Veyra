@@ -41,7 +41,28 @@ const enabled = dockerOk && hasFrontend && !!chromiumPath;
 
 const PY_SRC = "x = 1\ny = 2\nz = x + y\nprint(z)\n";
 const JS_SRC =
-  "const x = 1;\nconst y = 2;\nconst z = x + y;\nsetInterval(() => {}, 60000);\n";
+  "const x = 1;\nconst y = 2;\nconst z = x + y;\nconsole.log(z);\n";
+const TS_HELPER = [
+  "export function add(a: number, b: number): number {",
+  "  const sum = a + b;",
+  "  return sum;",
+  "}",
+  "",
+  "export function nested(n: number): number {",
+  "  return add(n, 1);",
+  "}",
+  "",
+].join("\n");
+const TS_MAIN = [
+  'import { add, nested } from "./helper";',
+  "",
+  "const x: number = 1;",
+  "const y: number = 2;",
+  "const z: number = add(x, y);",
+  "const w: number = nested(z);",
+  "console.log(z, w);",
+  "",
+].join("\n");
 
 describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () => {
   let server: Server;
@@ -53,6 +74,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
   const password = "secret123";
   let pythonProjectId = "";
   let nodeProjectId = "";
+  let tsProjectId = "";
 
   beforeAll(async () => {
     cfg = makeTestConfig({
@@ -104,8 +126,21 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     if (!js.project?.id) throw new Error("node template project missing");
     nodeProjectId = js.project.id;
 
+    const ts = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name: "dbg-ts-e2e", language: "typescript" }),
+    }).then((r) => r.json() as Promise<{ project?: { id: string } }>);
+    if (!ts.project?.id) throw new Error("typescript project missing");
+    tsProjectId = ts.project.id;
+
     await writeFile(pythonProjectId, "main.py", PY_SRC);
     await writeFile(nodeProjectId, "main.js", JS_SRC);
+    await writeFile(tsProjectId, "src/helper.ts", TS_HELPER);
+    await writeFile(tsProjectId, "src/main.ts", TS_MAIN);
   }, 60_000);
 
   afterAll(async () => {
@@ -114,7 +149,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
       await sandboxManager.cleanupAllSandboxes();
     } catch {}
     await new Promise<void>((resolve) => server.close(() => resolve()));
-  });
+  }, 120_000);
 
   async function writeFile(projectId: string, path: string, content: string) {
     const res = await fetch(`${base}/api/projects/${projectId}/file`, {
@@ -147,10 +182,37 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
       },
     ]);
     const page = await context.newPage();
+    const debugWs: { dir: string; type?: string; state?: string; text?: string }[] =
+      [];
+    page.on("websocket", (ws) => {
+      if (!ws.url().includes("/ws/debug")) return;
+      const record = (dir: string, payload: string) => {
+        try {
+          const msg = JSON.parse(payload);
+          debugWs.push({
+            dir,
+            type: msg.type,
+            state: msg.state,
+            text:
+              typeof msg.entryFile === "string"
+                ? msg.entryFile
+                : typeof msg.text === "string"
+                  ? String(msg.text).slice(0, 80)
+                  : msg.frames?.[0]
+                    ? `${msg.frames[0].path}:${msg.frames[0].line}`
+                    : undefined,
+          });
+        } catch {
+          debugWs.push({ dir, text: payload.slice(0, 80) });
+        }
+      };
+      ws.on("framesent", (e) => record("out", String(e.payload)));
+      ws.on("framereceived", (e) => record("in", String(e.payload)));
+    });
     await page.goto(`${base}/p/${projectId}`, { waitUntil: "load" });
 
     const login = page.locator("#auth-username");
-    const tree = page.locator('[role="tree"]');
+    const tree = page.locator(".file-tree-container ul.file-tree").first();
     await Promise.race([
       tree.waitFor({ timeout: 60_000 }),
       login.waitFor({ timeout: 60_000 }),
@@ -175,7 +237,8 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     await page
       .locator('[data-testid="debug-start"]')
       .waitFor({ state: "attached", timeout: 30_000 });
-    return { browser, page };
+    (page as any).__debugWs = debugWs;
+    return { browser, page, debugWs };
   }
 
   async function setActiveModelValue(
@@ -206,26 +269,30 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     fileName: string,
     src: string,
     finish: "continue" | "stop" = "continue",
+    line = 3,
+    opts: { writeEditor?: boolean } = {},
   ) {
-    await setActiveModelValue(page, fileName, src);
+    if (opts.writeEditor !== false) {
+      await setActiveModelValue(page, fileName, src);
+      await page.evaluate((fileName) => {
+        (globalThis as any).document.dispatchEvent(
+          new (globalThis as any).CustomEvent("ide-save", {
+            detail: { path: fileName },
+          }),
+        );
+      }, fileName);
+    }
     await page.click('[data-testid="debug-tab"]');
-    await page.evaluate((fileName) => {
-      (globalThis as any).document.dispatchEvent(
-        new (globalThis as any).CustomEvent("ide-save", {
-          detail: { path: fileName },
-        }),
-      );
-    }, fileName);
     await page.evaluate(
-      ({ fileName }) => {
+      ({ fileName, line }) => {
         const CE = (globalThis as any).CustomEvent;
         (globalThis as any).document.dispatchEvent(
           new CE("ide-debug-toggle-breakpoint", {
-            detail: { path: fileName, line: 3 },
+            detail: { path: fileName, line },
           }),
         );
       },
-      { fileName },
+      { fileName, line },
     );
     await page.waitForFunction(
       (fileName) => {
@@ -256,30 +323,6 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
       null,
       { timeout: 45_000 },
     );
-    await page.waitForFunction(
-      () => {
-        const t = (globalThis as any).document.querySelector(
-          '[data-testid="debug-status"]',
-        )?.textContent;
-        return t === "Running" || t === "Paused" || t === "Failed" || t === "Stopped";
-      },
-      null,
-      { timeout: 90_000 },
-    );
-    const running = await page.evaluate(
-      () =>
-        (globalThis as any).document.querySelector(
-          '[data-testid="debug-status"]',
-        )?.textContent === "Running",
-    );
-    if (running) {
-      await page.evaluate(() => {
-        const fn = (globalThis as any).__VEYRA_DEBUG_PAUSE__;
-        if (typeof fn === "function") fn();
-      });
-      const pause = page.locator('[data-testid="debug-pause"]');
-      if (await pause.isEnabled()) await pause.click();
-    }
     try {
       await page.waitForFunction(
         (fileName) => {
@@ -314,7 +357,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
         hook: (globalThis as any).__VEYRA_DEBUG__ ?? null,
       }));
       throw new Error(
-        `debug did not pause on ${fileName}: ${JSON.stringify(diag)}`,
+        `debug did not pause on ${fileName}: ${JSON.stringify(diag)} ws=${JSON.stringify((page as any).__debugWs ?? [])}`,
       );
     }
     const varsText = await page.locator('[data-testid="debug-variables"]').innerText();
@@ -352,70 +395,55 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
   );
 
   it(
-    "Node: editor starts a sandboxed js-debug session",
+    "Node: breakpoint, pause, variables, continue",
     async () => {
       const { browser, page } = await openProject(nodeProjectId, "main.js");
       try {
-        await setActiveModelValue(page, "main.js", JS_SRC);
-        await page.click('[data-testid="debug-tab"]');
-        await page.evaluate((fileName) => {
-          (globalThis as any).document.dispatchEvent(
-            new (globalThis as any).CustomEvent("ide-save", {
-              detail: { path: fileName },
-            }),
-          );
-        }, "main.js");
+        await debugFlow(page, "main.js", JS_SRC);
+      } finally {
+        await browser.close();
+      }
+    },
+    180_000,
+  );
+
+  it(
+    "TypeScript: .ts breakpoint, mapped source, variables, continue",
+    async () => {
+      const { browser, page, debugWs } = await openProject(
+        tsProjectId,
+        "helper.ts",
+      );
+      try {
         await page.evaluate(() => {
           (globalThis as any).document.dispatchEvent(
-            new (globalThis as any).CustomEvent("ide-debug-toggle-breakpoint", {
-              detail: { path: "main.js", line: 3 },
+            new (globalThis as any).CustomEvent("ide-open-and-reveal", {
+              detail: { filePath: "src/main.ts", line: 1, column: 1 },
             }),
           );
         });
-        await page.evaluate(() => {
-          (globalThis as any).document.dispatchEvent(
-            new (globalThis as any).CustomEvent("ide-debug", {
-              detail: { activeFile: "main.js" },
-            }),
-          );
-        });
         await page.waitForFunction(
           () => {
-            const t = (globalThis as any).document.querySelector(
-              '[data-testid="debug-status"]',
-            )?.textContent;
-            return t === "Starting" || t === "Running" || t === "Paused";
-          },
-          null,
-          { timeout: 45_000 },
-        );
-        await page.waitForFunction(
-          () => {
-            const t = (globalThis as any).document.querySelector(
-              '[data-testid="debug-status"]',
-            )?.textContent;
-            return t === "Running" || t === "Paused" || t === "Failed";
-          },
-          null,
-          { timeout: 60_000 },
-        );
-        const status = await page.locator('[data-testid="debug-status"]').innerText();
-        expect(["Running", "Paused"]).toContain(status);
-        if (status === "Paused") {
-          const stackText = await page.locator('[data-testid="debug-stack"]').innerText();
-          expect(stackText).toMatch(/main\.js/);
-        }
-        await page.click('[data-testid="debug-stop"]');
-        await page.waitForFunction(
-          () => {
-            const t = (globalThis as any).document.querySelector(
-              '[data-testid="debug-status"]',
-            )?.textContent;
-            return t === "Stopped" || t === "Idle";
+            const monaco = (globalThis as any).monaco;
+            const models = monaco?.editor.getModels() ?? [];
+            return models.some((m: { uri: { path: string } }) =>
+              String(m.uri.path ?? "")
+                .replace(/\\/g, "/")
+                .endsWith("/src/main.ts"),
+            );
           },
           null,
           { timeout: 30_000 },
         );
+        try {
+          await debugFlow(page, "src/main.ts", TS_MAIN, "continue", 5, {
+            writeEditor: false,
+          });
+        } catch (err) {
+          throw new Error(
+            `${(err as Error).message} capturedWs=${JSON.stringify(debugWs)}`,
+          );
+        }
       } finally {
         await browser.close();
       }

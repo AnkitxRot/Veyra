@@ -15,6 +15,8 @@ function stateLabel(state: string): string {
       return "Running";
     case "paused":
       return "Paused";
+    case "stopping":
+      return "Stopping";
     case "failed":
       return "Failed";
     case "unavailable":
@@ -38,7 +40,8 @@ export default function DebugPanel() {
   const paused = dbg.state === "paused";
   const running = dbg.state === "running";
   const starting = dbg.state === "starting";
-  const live = starting || running || paused;
+  const stopping = dbg.state === "stopping";
+  const live = starting || running || paused || stopping;
 
   return (
     <div className="debug-panel" data-testid="debug-panel">

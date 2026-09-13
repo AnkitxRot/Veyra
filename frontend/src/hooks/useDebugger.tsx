@@ -15,6 +15,7 @@ import {
   type BreakpointMap,
 } from "../debug/breakpoints";
 import { debugLanguageForPath } from "../debug/languages";
+import { shouldApplyContinued, shouldApplyStatus } from "../debug/state";
 import {
   DEBUG_BREAKPOINTS_EVENT,
   DEBUG_EXECUTION_EVENT,
@@ -56,6 +57,12 @@ export interface DebugSessionValue {
 const DebugSessionContext = createContext<DebugSessionValue | null>(null);
 
 const LIVE = new Set<DebugSessionState>(["starting", "running", "paused"]);
+const ACTIVE = new Set<DebugSessionState>([
+  "starting",
+  "running",
+  "paused",
+  "stopping",
+]);
 
 function emitBreakpoints(
   path: string,
@@ -120,6 +127,7 @@ export function DebugSessionProvider({
   const stateRef = useRef(state);
   stateRef.current = state;
   const socketReadyRef = useRef(false);
+  const expectContinueRef = useRef(false);
 
   useEffect(() => {
     const map = projectId ? loadBreakpoints(projectId) : {};
@@ -174,9 +182,7 @@ export function DebugSessionProvider({
     if (msg.type === "status") {
       const next = msg.state as DebugSessionState;
       socketReadyRef.current = true;
-      // Socket attach broadcasts idle. That means "ready to launch", not
-      // "the session ended". Ignore it while the user has already started.
-      if (next === "idle" && stateRef.current === "starting") {
+      if (!shouldApplyStatus(stateRef.current, next, expectContinueRef.current)) {
         return;
       }
       setState(next);
@@ -209,12 +215,14 @@ export function DebugSessionProvider({
       const nextFrames: DebugFrame[] = Array.isArray(msg.frames)
         ? msg.frames
         : [];
+      expectContinueRef.current = false;
       setFrames(nextFrames);
       setScopes(Array.isArray(msg.scopes) ? msg.scopes : []);
       setVariables(
         msg.variables && typeof msg.variables === "object" ? msg.variables : {},
       );
       setState("paused");
+      stateRef.current = "paused";
       const top = nextFrames[0];
       setPausedPath(top?.path ?? null);
       setPausedLine(top?.line ?? null);
@@ -227,7 +235,12 @@ export function DebugSessionProvider({
       return;
     }
     if (msg.type === "continued") {
+      if (!shouldApplyContinued(stateRef.current, expectContinueRef.current)) {
+        return;
+      }
+      expectContinueRef.current = false;
       setState("running");
+      stateRef.current = "running";
       setPausedPath(null);
       setPausedLine(null);
       document.dispatchEvent(
@@ -300,8 +313,9 @@ export function DebugSessionProvider({
     ws.onmessage = (ev) => handleMessage(String(ev.data));
     ws.onclose = () => {
       if (wsRef.current === ws) wsRef.current = null;
-      if (LIVE.has(stateRef.current)) {
+      if (ACTIVE.has(stateRef.current)) {
         setState("terminated");
+        stateRef.current = "terminated";
         document.dispatchEvent(new Event(DEBUG_STOPPED_EVENT));
       }
     };
@@ -328,6 +342,7 @@ export function DebugSessionProvider({
       setVariables({});
       setState("starting");
       stateRef.current = "starting";
+      document.dispatchEvent(new Event(DEBUG_STARTED_EVENT));
       void ensureSocket()
         .then(async (ws) => {
           const deadline = Date.now() + 30_000;
@@ -368,7 +383,10 @@ export function DebugSessionProvider({
       document.removeEventListener("ide-debug-confirmed", onConfirmed);
   }, [start]);
 
-  const continueRun = useCallback(() => send({ type: "continue" }), [send]);
+  const continueRun = useCallback(() => {
+    expectContinueRef.current = true;
+    send({ type: "continue" });
+  }, [send]);
   const pause = useCallback(() => send({ type: "pause" }), [send]);
   const stepOver = useCallback(() => send({ type: "next" }), [send]);
   const stepIn = useCallback(() => send({ type: "stepIn" }), [send]);

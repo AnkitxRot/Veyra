@@ -35,6 +35,7 @@ export type DebugSessionState =
   | "starting"
   | "running"
   | "paused"
+  | "stopping"
   | "terminated"
   | "failed"
   | "unavailable";
@@ -105,6 +106,17 @@ interface ClientVariable {
   variablesReference: number;
 }
 
+function shouldPrefetchScope(name: string): boolean {
+  const n = name.toLowerCase();
+  return (
+    n === "local" ||
+    n === "locals" ||
+    n === "closure" ||
+    n === "arguments" ||
+    n.startsWith("local ")
+  );
+}
+
 /**
  * One user-owned debug session for one project. Isolation is the sandbox
  * container; ownership is (projectId, userId). Collaborators do not share it.
@@ -137,6 +149,13 @@ export class DebugSession {
   private initializedEvent = false;
   private containerId: string;
   private acquired = false;
+  /** Incremented on every launch so late child events cannot apply. */
+  private generation = 0;
+  private stopSerial = 0;
+  private continueExpected = false;
+  private stopInFlight = false;
+  /** Drain js-debug's compiled-TS stop-on-entry before surfacing the user pause. */
+  private drainEntryStop = false;
 
   constructor(
     projectId: string,
@@ -233,6 +252,13 @@ export class DebugSession {
         void this.control("stepOut");
         return;
       case "terminate":
+        if (
+          this.state === "starting" ||
+          this.state === "running" ||
+          this.state === "paused"
+        ) {
+          this.setState("stopping", "stopping");
+        }
         this.finishTerminated("terminated");
         return;
       case "stackTrace":
@@ -298,6 +324,7 @@ export class DebugSession {
       return;
     }
 
+    await this.suspendLanguageServers();
     this.killAdapter("relaunch");
     this.releaseSlot();
     if (!this.hooks.tryAcquire()) {
@@ -315,6 +342,11 @@ export class DebugSession {
     this.stderrTail = "";
     this.parser.reset();
     this.nextSeq = 1;
+    this.generation += 1;
+    this.stopSerial = 0;
+    this.continueExpected = false;
+    this.stopInFlight = false;
+    this.drainEntryStop = cfg.entryFile.toLowerCase().endsWith(".ts");
     this.setState("starting", "starting debugger");
     this.armStartupTimer();
     this.armSessionTimer();
@@ -411,7 +443,7 @@ export class DebugSession {
     await launchPromise;
     this.clearStartupTimer();
     await this.refreshThreadId();
-    if (this.state === "starting") {
+    if (this.state === "starting" && !this.stopInFlight) {
       this.setState("running");
     }
   }
@@ -461,7 +493,6 @@ export class DebugSession {
         gevent: false,
       };
     }
-    const isTs = cfg.entryFile.toLowerCase().endsWith(".ts");
     return {
       name: "Node",
       type: "pwa-node",
@@ -471,7 +502,12 @@ export class DebugSession {
       args: cfg.args,
       console: "internalConsole",
       sourceMaps: true,
-      resolveSourceMapLocations: ["/workspace/**", "!**/node_modules/**"],
+      outFiles: ["/workspace/.cloudide-build-debug/**/*.js"],
+      resolveSourceMapLocations: [
+        "/workspace/**",
+        "/workspace/.cloudide-build-debug/**",
+        "!**/node_modules/**",
+      ],
       skipFiles: [
         "<node_internals>/**",
         "/opt/debug/**",
@@ -481,8 +517,16 @@ export class DebugSession {
       autoAttachChildProcesses: false,
       stopOnEntry: false,
       enableContentValidation: false,
-      ...(isTs ? { runtimeArgs: ["--import", "tsx"] } : {}),
     };
+  }
+
+  private async suspendLanguageServers(): Promise<void> {
+    try {
+      const { languageServers } = await import("../lsp/manager.js");
+      languageServers.suspendForDebug(this.projectId, this.containerId);
+    } catch {
+      /* LSP manager unavailable in some unit tests */
+    }
   }
 
   private resolvePython(): string {
@@ -563,12 +607,16 @@ export class DebugSession {
       this.sendError("cannot step or continue unless the program is paused");
       return;
     }
+    if (command === "continue") {
+      this.continueExpected = true;
+    }
     try {
       await this.dapRequest(command, { threadId: this.threadId });
       if (command === "continue" && this.state === "paused") {
         this.setState("running");
       }
     } catch (err: any) {
+      if (command === "continue") this.continueExpected = false;
       this.sendError(err?.message ?? `${command} failed`);
     }
   }
@@ -631,7 +679,7 @@ export class DebugSession {
       const raw = Array.isArray(result?.stackFrames) ? result.stackFrames : [];
       return clipArray(raw, this.limits.maxStackFrames)
         .map((f) => this.mapFrame(f))
-        .filter((f): f is ClientFrame => f !== null && !!f.path);
+        .filter((f): f is ClientFrame => f !== null);
     } catch {
       return [];
     }
@@ -643,6 +691,7 @@ export class DebugSession {
     if (typeof o.id !== "number") return null;
     const src = o.source as { path?: unknown; name?: unknown } | undefined;
     const mapped = src?.path != null ? fromWorkspaceLocation(src.path) : null;
+    if (!mapped) return null;
     const line = typeof o.line === "number" ? o.line : 0;
     const column = typeof o.column === "number" ? o.column : 1;
     return {
@@ -706,24 +755,76 @@ export class DebugSession {
     }
   }
 
-  private async onStopped(body: Record<string, unknown>): Promise<void> {
+  private isDeadState(): boolean {
+    return (
+      this.disposed ||
+      this.state === "terminated" ||
+      this.state === "failed" ||
+      this.state === "unavailable" ||
+      this.state === "stopping"
+    );
+  }
+
+  private async onStopped(
+    body: Record<string, unknown>,
+    generation: number,
+  ): Promise<void> {
+    if (generation !== this.generation || this.isDeadState()) return;
+    const serial = ++this.stopSerial;
+    this.stopInFlight = true;
+    this.continueExpected = false;
     if (typeof body.threadId === "number") this.threadId = body.threadId;
     this.clearStartupTimer();
     const reason = typeof body.reason === "string" ? body.reason : "pause";
+    if (this.drainEntryStop) {
+      const peek = await this.fetchStack();
+      const userFrame = peek.find((f) => f.path);
+      const bpLines =
+        userFrame?.path != null
+          ? (this.breakpoints.get(userFrame.path) ?? [])
+          : [];
+      const onUserBreakpoint =
+        !!userFrame && bpLines.includes(userFrame.line);
+      if (onUserBreakpoint) {
+        this.drainEntryStop = false;
+      } else if (!userFrame || reason === "entry") {
+        this.drainEntryStop = false;
+        if (generation !== this.generation || this.isDeadState()) return;
+        await this.pushBreakpoints();
+        if (generation !== this.generation || this.isDeadState()) return;
+        this.continueExpected = true;
+        this.stopInFlight = false;
+        try {
+          await this.dapRequest("continue", { threadId: this.threadId });
+        } catch {
+          this.continueExpected = false;
+        }
+        return;
+      } else {
+        this.drainEntryStop = false;
+      }
+    }
     const frames = await this.fetchStack();
+    if (generation !== this.generation || this.stopSerial !== serial || this.isDeadState()) {
+      return;
+    }
     const top = frames.find((f) => f.path) ?? frames[0];
     let scopes: ClientScope[] = [];
     const variables: Record<number, ClientVariable[]> = {};
     if (top) {
       scopes = await this.fetchScopes(top.id);
       for (const scope of scopes) {
-        if (scope.variablesReference > 0) {
-          variables[scope.variablesReference] = await this.fetchVariables(
-            scope.variablesReference,
-          );
-        }
+        if (scope.variablesReference <= 0) continue;
+        if (!shouldPrefetchScope(scope.name)) continue;
+        variables[scope.variablesReference] = await this.fetchVariables(
+          scope.variablesReference,
+        );
       }
     }
+    if (generation !== this.generation || this.stopSerial !== serial || this.isDeadState()) {
+      return;
+    }
+    this.stopInFlight = false;
     this.setState(
       "paused",
       typeof body.description === "string"
@@ -741,12 +842,24 @@ export class DebugSession {
     });
   }
 
+  private onContinued(): void {
+    if (this.isDeadState()) return;
+    if (this.stopInFlight) return;
+    if (this.state === "paused" && !this.continueExpected) return;
+    if (this.state === "paused" || this.state === "starting") {
+      this.setState("running");
+    }
+    this.continueExpected = false;
+    this.sendToSocket({ type: "continued", threadId: this.threadId });
+  }
+
   private onAdapterMessage(raw: unknown): void {
     if (!raw || typeof raw !== "object") return;
+    const generation = this.generation;
     const msg = raw as Record<string, unknown>;
     const kind = msg.type;
     if (kind === "event") {
-      this.onAdapterEvent(msg);
+      this.onAdapterEvent(msg, generation);
       return;
     }
     if (kind === "response") {
@@ -772,7 +885,12 @@ export class DebugSession {
     }
   }
 
-  private onAdapterEvent(msg: Record<string, unknown>): void {
+  private onAdapterEvent(
+    msg: Record<string, unknown>,
+    generation = this.generation,
+  ): void {
+    if (generation !== this.generation) return;
+    if (this.isDeadState()) return;
     const event = msg.event;
     const body =
       msg.body && typeof msg.body === "object"
@@ -783,17 +901,15 @@ export class DebugSession {
       return;
     }
     if (event === "stopped") {
-      void this.onStopped(body);
+      void this.onStopped(body, generation);
       return;
     }
     if (event === "continued") {
-      if (this.state === "paused" || this.state === "starting") {
-        this.setState("running");
-      }
-      this.sendToSocket({ type: "continued", threadId: this.threadId });
+      this.onContinued();
       return;
     }
     if (event === "exited" || event === "terminated") {
+      if (this.isDeadState()) return;
       const code = typeof body.exitCode === "number" ? body.exitCode : null;
       this.sendToSocket({ type: "exited", exitCode: code });
       this.finishTerminated("program exited");

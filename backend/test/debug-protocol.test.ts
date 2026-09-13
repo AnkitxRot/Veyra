@@ -22,6 +22,7 @@ describe("debug path mapping", () => {
     expect(fromWorkspaceLocation("/workspace/../etc/passwd")).toBeNull();
     expect(fromWorkspaceLocation("file:///etc/passwd")).toBeNull();
     expect(fromWorkspaceLocation("C:\\Windows\\system32")).toBeNull();
+    expect(fromWorkspaceLocation("/tmp/veyra-debug/1/src/main.js")).toBeNull();
     expect(fromWorkspaceLocation("\\\\server\\share")).toBeNull();
     expect(fromWorkspaceLocation("../../secret")).toBeNull();
     expect(toWorkspaceFsPath("../x")).toBeNull();
@@ -30,7 +31,18 @@ describe("debug path mapping", () => {
 
   it("rejects .git internals", () => {
     expect(isForbiddenRelPath(".git/config")).toBe(true);
+    expect(isForbiddenRelPath(".cloudide-build-debug/main.js")).toBe(true);
     expect(isForbiddenRelPath("src/main.py")).toBe(false);
+  });
+
+  it("rejects Node internals and generated debug emit", () => {
+    expect(
+      fromWorkspaceLocation("<node_internals>/internal/modules/cjs/loader"),
+    ).toBeNull();
+    expect(
+      fromWorkspaceLocation("/workspace/.cloudide-build-debug/1/src/main.js"),
+    ).toBeNull();
+    expect(fromWorkspaceLocation("src/main.ts")).toBe("src/main.ts");
   });
 });
 
