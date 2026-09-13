@@ -12,6 +12,10 @@ import {
   resolveSecretsForInjection,
   toGenericSecretError,
 } from "../projectsecrets/store.js";
+import { debugSessions } from "../debug/manager.js";
+import { parseWorkflowRequest } from "../workflow/resolve.js";
+import { runWorkflowTask } from "../workflow/run.js";
+import type { TestCaseResult } from "../workflow/parse.js";
 
 // --- M54: collaborative run awareness — safe metadata derivation ------------
 //
@@ -172,55 +176,92 @@ export async function handleExecutionConnection(
         activeCleanup = finish;
 
         let result: RunResult | undefined;
+        let workflowTests: TestCaseResult[] | undefined;
         try {
-          let secretEnv: Record<string, string> | undefined;
-          if (db) {
-            try {
-              const resolved = resolveSecretsForInjection(db, cfg, projectId, {
-                userId,
-                context: "run",
-              });
-              if (Object.keys(resolved).length > 0) secretEnv = resolved;
-            } catch (err) {
-              throw toGenericSecretError(err);
-            }
+          const streamOut = (channel: "stdout" | "stderr", data: string) => {
+            if (ws.readyState === ws.OPEN)
+              ws.send(JSON.stringify({ type: channel, data }));
+            collaborationManager.notifyRunOutput(
+              projectId,
+              executionId,
+              channel,
+              data,
+            );
+          };
+          const streamStatus = (data: string) => {
+            if (ws.readyState === ws.OPEN)
+              ws.send(JSON.stringify({ type: "status", data }));
+          };
+
+          const workflowReq =
+            parsed.workflow !== undefined && parsed.workflow !== null
+              ? parseWorkflowRequest(parsed.workflow)
+              : null;
+          if (workflowReq && !workflowReq.ok) {
+            throw new Error(workflowReq.error);
           }
-          result = await runProject(cfg, projectId, cwd, {
-            language: parsed.language,
-            activeFile: parsed.activeFile,
-            userId,
-            secretEnv,
-            onStdout: (data) => {
-              if (ws.readyState === ws.OPEN)
-                ws.send(JSON.stringify({ type: "stdout", data }));
-              // M65: mirror to the collaboration room's bounded, ephemeral
-              // shared-output buffer (owner/editor only — enforced room-side).
-              collaborationManager.notifyRunOutput(
-                projectId,
-                executionId,
-                "stdout",
-                data,
+          if (workflowReq?.ok && debugSessions.hasLiveForProject(projectId)) {
+            throw new Error(
+              "Debugger is active; stop it before running tests or builds.",
+            );
+          }
+
+          if (workflowReq?.ok) {
+            const wf = await runWorkflowTask({
+              cfg,
+              projectId,
+              workspaceDir: cwd,
+              userId,
+              taskId: workflowReq.taskId,
+              targetPath: workflowReq.targetPath,
+              onStdout: (data) => streamOut("stdout", data),
+              onStderr: (data) => streamOut("stderr", data),
+              onStatus: streamStatus,
+              onController: (ctrl) => {
+                controller = ctrl;
+              },
+              isCancelled: () => disconnected,
+            });
+            if (!wf.ok) throw new Error(wf.error);
+            result = wf.value.result;
+            workflowTests = wf.value.tests;
+            if (ws.readyState === ws.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "workflow",
+                  taskId: wf.value.taskId,
+                  kind: wf.value.kind,
+                  tests: wf.value.tests,
+                }),
               );
-            },
-            onStderr: (data) => {
-              if (ws.readyState === ws.OPEN)
-                ws.send(JSON.stringify({ type: "stderr", data }));
-              collaborationManager.notifyRunOutput(
-                projectId,
-                executionId,
-                "stderr",
-                data,
-              );
-            },
-            onStatus: (data) => {
-              if (ws.readyState === ws.OPEN)
-                ws.send(JSON.stringify({ type: "status", data }));
-            },
-            onController: (ctrl) => {
-              controller = ctrl;
-            },
-            isCancelled: () => disconnected,
-          });
+            }
+          } else {
+            let secretEnv: Record<string, string> | undefined;
+            if (db) {
+              try {
+                const resolved = resolveSecretsForInjection(db, cfg, projectId, {
+                  userId,
+                  context: "run",
+                });
+                if (Object.keys(resolved).length > 0) secretEnv = resolved;
+              } catch (err) {
+                throw toGenericSecretError(err);
+              }
+            }
+            result = await runProject(cfg, projectId, cwd, {
+              language: parsed.language,
+              activeFile: parsed.activeFile,
+              userId,
+              secretEnv,
+              onStdout: (data) => streamOut("stdout", data),
+              onStderr: (data) => streamOut("stderr", data),
+              onStatus: streamStatus,
+              onController: (ctrl) => {
+                controller = ctrl;
+              },
+              isCancelled: () => disconnected,
+            });
+          }
 
           const execSummary = telemetryHistorian.queryExecutionTelemetry(
             projectId,
@@ -279,6 +320,7 @@ export async function handleExecutionConnection(
                 executionId,
                 result,
                 telemetrySummary: execSummary,
+                tests: workflowTests,
               }),
             );
           }

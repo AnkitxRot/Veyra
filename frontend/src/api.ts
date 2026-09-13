@@ -78,6 +78,36 @@ export async function getCapabilities(): Promise<Capabilities> {
   return api<Capabilities>("/api/system/capabilities");
 }
 
+export type WorkflowKind = "test" | "build";
+export type WorkflowOrigin = "package.json" | "pytest";
+
+export interface WorkflowTask {
+  id: string;
+  name: string;
+  kind: WorkflowKind;
+  origin: WorkflowOrigin;
+}
+
+export interface WorkflowManifest {
+  tasks: WorkflowTask[];
+}
+
+export type WorkflowTestStatus = "passed" | "failed" | "skipped" | "error";
+
+export interface WorkflowTestResult {
+  name: string;
+  suite?: string;
+  file?: string;
+  line?: number;
+  status: WorkflowTestStatus;
+  durationMs?: number;
+  message?: string;
+}
+
+export async function getWorkflow(projectId: string): Promise<WorkflowManifest> {
+  return api<WorkflowManifest>(`/api/projects/${projectId}/workflow`);
+}
+
 export interface AIResponsePayload {
   action: string;
   providerType: string;

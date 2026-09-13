@@ -42,6 +42,7 @@ import Preview from "../Preview/Preview";
 import { ExecutionSessionProvider } from "../../hooks/useExecutionSession";
 import { DebugSessionProvider } from "../../hooks/useDebugger";
 import DebugPanel from "../Debug/DebugPanel";
+import TestExplorer from "../Workflow/TestExplorer";
 import SourceControlPanel from "../Git/SourceControlPanel";
 import ProblemsPanel from "../Output/ProblemsPanel";
 import ResourcesView from "../Resources/ResourcesView";
@@ -113,6 +114,7 @@ import {
   addRecentProject,
 } from "../../utils/recentStore";
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
+import { workflowResultsToDiagnostics } from "../../utils/workflowDiagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import {
   resolveKeymap,
@@ -2755,11 +2757,15 @@ export default function IDE({
         result,
         activeFile: runFile,
         language,
+        tests,
       } = (e as CustomEvent).detail || {};
       if (!result) return;
 
       const rawCombined = `${result.stdout || ""}\n${result.stderr || ""}`;
-      const newDiags = parseDiagnostics(rawCombined, language, runFile);
+      const newDiags = [
+        ...workflowResultsToDiagnostics(tests),
+        ...parseDiagnostics(rawCombined, language, runFile),
+      ];
 
       if (newDiags.length > 0) {
         setDiagnostics(newDiags);
@@ -3151,6 +3157,30 @@ export default function IDE({
         },
       },
       {
+        id: "execution.action.openTests",
+        title: "Switch to Test Explorer",
+        description: "Discover and run project tests and builds",
+        category: "Execution",
+        handler: () => {
+          setBottomTab("tests");
+          setIsBottomCollapsed(false);
+        },
+      },
+      {
+        id: "execution.action.runTests",
+        title: "Run Project Tests",
+        description: "Run the discovered test task in the project sandbox",
+        category: "Execution",
+        available: () => !!project && projectRole !== "viewer",
+        handler: () => {
+          flushSync(() => {
+            setBottomTab("tests");
+            setIsBottomCollapsed(false);
+          });
+          document.dispatchEvent(new Event("ide-workflow-run-all"));
+        },
+      },
+      {
         id: "workbench.action.openProjectHealth",
         title: "Open Project Health Center",
         description:
@@ -3324,6 +3354,7 @@ export default function IDE({
     };
   }, [
     project,
+    projectRole,
     activeFile,
     user.role,
     onSwitchToAdmin,
@@ -3865,6 +3896,19 @@ export default function IDE({
                   <IconPlay size={12} />
                   <span>Debug</span>
                 </button>
+
+                <button
+                  className={`panel-tab ${bottomTab === "tests" && !isBottomCollapsed ? "active" : ""}`}
+                  onClick={() => {
+                    setBottomTab("tests");
+                    setIsBottomCollapsed(false);
+                  }}
+                  role="tab"
+                  data-testid="tests-tab"
+                >
+                  <IconCheck size={12} />
+                  <span>Tests</span>
+                </button>
               </div>
 
               <div className="panel-actions">
@@ -3967,6 +4011,9 @@ export default function IDE({
                   />
                 )}
                 {bottomTab === "debug" && <DebugPanel />}
+                {bottomTab === "tests" && (
+                  <TestExplorer projectRole={projectRole} />
+                )}
               </div>
             )}
 

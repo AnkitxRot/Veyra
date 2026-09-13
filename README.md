@@ -219,6 +219,32 @@ works; Debug stays disabled / the panel shows **Unavailable**.
 Rename, workspace-wide refactor, Java/C++ language servers, debugger, and
 AI coding assistants are out of scope.
 
+## Testing, tasks, and builds (M84)
+
+The **Tests** bottom panel discovers and runs project tests and builds
+inside the existing sandbox. The browser never names an executable,
+shell string, environment, container, or host path. Execution reuses
+`/ws/execute` and the same run slot, quotas, and Stop path as **Run**.
+A live debugger on the project blocks test/build start.
+
+| Kind | Discovery | Execution | Notes |
+| --- | --- | --- | --- |
+| Node / TypeScript tests | `package.json` scripts named exactly `test` or `test:*` | `npm run <name>` (argv only) | Script **bodies** are never interpolated. Prefer `node --test`. |
+| Node / TypeScript builds | scripts named `build` or `build:*` | `npm run <name>` | Same argv rule. |
+| Python tests | `pytest.ini`, `conftest.py`, `[tool.pytest` in `pyproject.toml`, `pytest` in `requirements.txt`, or `test_*.py` | `python3 -m pytest -v --tb=short` | Requires pytest **in the sandbox**. The runner image does not preinstall pytest. |
+| Other `package.json` scripts (`start`, `pretest`, …) | ignored | not offered | Not an arbitrary-command UI. |
+
+Results (pass / fail / skip / error) are bounded (200 cases, 64 KiB
+output). Failures with a workspace-relative file/line open that location
+in the editor and appear in **Problems** (source `test`) without
+replacing LSP diagnostics.
+
+**Limitations.** No Jest/Vitest/pytest installation is added to the
+runner image. Python test **execution** is only available after the
+project installs pytest. `start` / `dev` / arbitrary scripts are not
+tasks. Test/build and Debug are mutually exclusive. Output is ephemeral
+(not a second history store).
+
 ## Git support (M80)
 
 Supported:

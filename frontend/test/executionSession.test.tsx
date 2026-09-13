@@ -276,6 +276,37 @@ describe("M53 — persistent project-scoped execution session", () => {
     await waitFor(() => expect(activitySpy).toHaveBeenCalledWith("restore"));
   });
 
+  it("runWorkflow sends a structured start frame without a command", async () => {
+    function Probe() {
+      const { runWorkflow } = useExecutionSession();
+      return (
+        <button
+          type="button"
+          onClick={() => runWorkflow({ taskId: "npm:test", targetPath: "a.js" })}
+        >
+          wf
+        </button>
+      );
+    }
+    const view = render(
+      <ExecutionSessionProvider projectId={project.id}>
+        <Probe />
+      </ExecutionSessionProvider>,
+    );
+    fireEvent.click(view.getByText("wf"));
+    await waitFor(() =>
+      expect(FakeWebSocket.instances.length).toBeGreaterThan(0),
+    );
+    const ws = FakeWebSocket.latest();
+    act(() => ws.simulateOpen());
+    const start = ws.sent.map((m) => JSON.parse(m)).find((m) => m.type === "start");
+    expect(start).toEqual({
+      type: "start",
+      workflow: { taskId: "npm:test", targetPath: "a.js" },
+    });
+    expect(start.command).toBeUndefined();
+  });
+
   it("useExecutionSession() outside a provider throws", () => {
     function Bare() {
       useExecutionSession();

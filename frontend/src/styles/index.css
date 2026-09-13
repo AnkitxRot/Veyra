@@ -17,6 +17,7 @@
 @import "./profile.css";
 @import "./notice.css";
 @import "./debug.css";
+@import "./workflow.css";
 @import "@xterm/xterm/css/xterm.css";
 
 /* Global Box Sizing & Defaults */

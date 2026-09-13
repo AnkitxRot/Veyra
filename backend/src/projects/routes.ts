@@ -56,6 +56,7 @@ import { upsertGitHttpsCredentials } from "../git/credentials.js";
 import { validateHttpsGitRemoteUrl, httpsRemoteHost } from "../git/remoteUrl.js";
 import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
+import { discoverWorkflow } from "../workflow/discover.js";
 import { telemetryHistorian } from "../execution/historian.js";
 import { collaborationManager } from "../collab/manager.js";
 import {
@@ -700,6 +701,21 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         fileCount: result.fileCount,
         totalBytes: result.totalBytes,
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/:id/workflow", async (req, res, next) => {
+    try {
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id,
+        "viewer",
+      );
+      const cwd = await workspacePath(cfg, project.id);
+      res.json(await discoverWorkflow(cwd));
     } catch (err) {
       next(err);
     }

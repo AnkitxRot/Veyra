@@ -7,7 +7,12 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { getWebSocketUrl } from "../api";
+import {
+  getWebSocketUrl,
+  getWorkflow,
+  type WorkflowTask,
+  type WorkflowTestResult,
+} from "../api";
 import {
   detectMissingDependency,
   MissingDependencyMatch,
@@ -30,6 +35,12 @@ export type RunDetail = {
   langDisplay?: string;
 };
 
+export type WorkflowRunDetail = {
+  taskId: string;
+  targetPath?: string;
+  label?: string;
+};
+
 export type ExecutionSessionValue = {
   logs: LogLine[];
   status: ExecutionStatus;
@@ -37,7 +48,13 @@ export type ExecutionSessionValue = {
   isInstalling: boolean;
   executionId: string | null;
   missingDependencyHint: MissingDependencyMatch | null;
+  workflowTasks: WorkflowTask[];
+  testResults: WorkflowTestResult[];
+  lastWorkflowTaskId: string | null;
+  lastWorkflowKind: "test" | "build" | null;
   run: (detail: RunDetail) => void;
+  runWorkflow: (detail: WorkflowRunDetail) => void;
+  refreshWorkflow: () => void;
   stop: () => void;
   sendStdin: (text: string) => void;
   clearLogs: () => void;
@@ -75,6 +92,14 @@ export function ExecutionSessionProvider({
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [missingDependencyHint, setMissingDependencyHint] =
     useState<MissingDependencyMatch | null>(null);
+  const [workflowTasks, setWorkflowTasks] = useState<WorkflowTask[]>([]);
+  const [testResults, setTestResults] = useState<WorkflowTestResult[]>([]);
+  const [lastWorkflowTaskId, setLastWorkflowTaskId] = useState<string | null>(
+    null,
+  );
+  const [lastWorkflowKind, setLastWorkflowKind] = useState<
+    "test" | "build" | null
+  >(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const runRafIdRef = useRef<number | null>(null);
@@ -95,22 +120,51 @@ export function ExecutionSessionProvider({
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
-  const run = useCallback(
-    (detail: RunDetail) => {
+  const refreshWorkflow = useCallback(() => {
+    if (!projectId) {
+      setWorkflowTasks([]);
+      return;
+    }
+    try {
+      void getWorkflow(projectId)
+        .then((manifest) => {
+          setWorkflowTasks(Array.isArray(manifest?.tasks) ? manifest.tasks : []);
+        })
+        .catch(() => {
+          setWorkflowTasks([]);
+        });
+    } catch {
+      setWorkflowTasks([]);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    refreshWorkflow();
+  }, [refreshWorkflow]);
+
+  const startExecution = useCallback(
+    (opts: {
+      startMessage: Record<string, unknown>;
+      label: string;
+      activeFile?: string;
+      language?: string;
+      workflowTaskId?: string;
+      workflowKind?: "test" | "build";
+    }) => {
       if (!projectId) return;
-      const { language, activeFile, langDisplay } = detail || ({} as RunDetail);
 
       const time = new Date().toLocaleTimeString();
       setLogs([
         {
           type: "system",
-          text: `Starting execution (${activeFile ? `${activeFile} → ` : ""}${langDisplay || language})...`,
+          text: opts.label,
           time,
         },
       ]);
-      // M44: a new run starts with a clean slate — any missing-dependency
-      // hint belongs to the run that produced it, never to this new one.
       setMissingDependencyHint(null);
+      if (opts.workflowKind === "test") setTestResults([]);
+      if (opts.workflowTaskId) setLastWorkflowTaskId(opts.workflowTaskId);
+      if (opts.workflowKind) setLastWorkflowKind(opts.workflowKind);
       runInFlightRef.current = true;
       setIsRunning(true);
       setExecutionId(
@@ -134,6 +188,7 @@ export function ExecutionSessionProvider({
       let accStdout = "";
       let accStderr = "";
       let logBuffer: LogLine[] = [];
+      let workflowTests: WorkflowTestResult[] | undefined;
 
       const flushLogs = () => {
         if (logBuffer.length === 0) return;
@@ -154,7 +209,7 @@ export function ExecutionSessionProvider({
       };
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "start", language, activeFile }));
+        ws.send(JSON.stringify(opts.startMessage));
       };
 
       ws.onmessage = (msg) => {
@@ -173,9 +228,21 @@ export function ExecutionSessionProvider({
             accStderr += parsed.data;
             appendLog({ type: "error", text: parsed.data });
             setStatus({ text: "Error", type: "error" });
+          } else if (parsed.type === "workflow") {
+            if (Array.isArray(parsed.tests)) {
+              const next = parsed.tests.slice(0, 200) as WorkflowTestResult[];
+              workflowTests = next;
+              setTestResults(next);
+            }
+            if (parsed.kind === "test" || parsed.kind === "build") {
+              setLastWorkflowKind(parsed.kind);
+            }
+            if (typeof parsed.taskId === "string") {
+              setLastWorkflowTaskId(parsed.taskId);
+            }
           } else if (parsed.type === "exit") {
             exitedNormally = true;
-            const { exitCode, signal, timedOut, oom } = parsed.result;
+            const { exitCode, signal, timedOut, oom } = parsed.result ?? {};
             let statusText = `Process exited with code ${exitCode}`;
             if (signal) statusText += ` (signal: ${signal})`;
             if (timedOut) statusText = "Process timed out";
@@ -193,6 +260,12 @@ export function ExecutionSessionProvider({
               });
             }
 
+            if (Array.isArray(parsed.tests)) {
+              const next = parsed.tests.slice(0, 200) as WorkflowTestResult[];
+              workflowTests = next;
+              setTestResults(next);
+            }
+
             if (runRafIdRef.current !== null) {
               cancelAnimationFrame(runRafIdRef.current);
               runRafIdRef.current = null;
@@ -206,7 +279,6 @@ export function ExecutionSessionProvider({
               text: exitCode === 0 ? "Exited (0)" : `Exited (${exitCode})`,
               type: exitCode === 0 ? "success" : "error",
             });
-            // M44: only a failing run's own stderr is ever inspected.
             setMissingDependencyHint(
               exitCode !== 0 ? detectMissingDependency(accStderr) : null,
             );
@@ -220,8 +292,9 @@ export function ExecutionSessionProvider({
                     stdout: accStdout || parsed.result?.stdout || "",
                     stderr: accStderr || parsed.result?.stderr || "",
                   },
-                  activeFile,
-                  language,
+                  activeFile: opts.activeFile,
+                  language: opts.language,
+                  tests: workflowTests,
                 },
               }),
             );
@@ -272,6 +345,40 @@ export function ExecutionSessionProvider({
       };
     },
     [projectId],
+  );
+
+  const run = useCallback(
+    (detail: RunDetail) => {
+      const { language, activeFile, langDisplay } = detail || ({} as RunDetail);
+      startExecution({
+        startMessage: { type: "start", language, activeFile },
+        label: `Starting execution (${activeFile ? `${activeFile} → ` : ""}${langDisplay || language})...`,
+        activeFile,
+        language,
+      });
+    },
+    [startExecution],
+  );
+
+  const runWorkflow = useCallback(
+    (detail: WorkflowRunDetail) => {
+      if (!detail?.taskId) return;
+      const task = workflowTasks.find((t) => t.id === detail.taskId);
+      startExecution({
+        startMessage: {
+          type: "start",
+          workflow: {
+            taskId: detail.taskId,
+            ...(detail.targetPath ? { targetPath: detail.targetPath } : {}),
+          },
+        },
+        label: `Starting ${task?.kind ?? "task"} (${detail.label || task?.name || detail.taskId})...`,
+        language: task?.kind,
+        workflowTaskId: detail.taskId,
+        workflowKind: task?.kind,
+      });
+    },
+    [startExecution, workflowTasks],
   );
 
   const stop = useCallback(() => {
@@ -440,6 +547,16 @@ export function ExecutionSessionProvider({
     };
   }, [run, stop, install]);
 
+  useEffect(() => {
+    const onWorkflowAll = () => {
+      const task = workflowTasks.find((t) => t.kind === "test");
+      if (task) runWorkflow({ taskId: task.id });
+    };
+    document.addEventListener("ide-workflow-run-all", onWorkflowAll);
+    return () =>
+      document.removeEventListener("ide-workflow-run-all", onWorkflowAll);
+  }, [workflowTasks, runWorkflow]);
+
   // Lifecycle reset — on projectId change AND on provider unmount, run the
   // teardown that was previously Output's run-effect + install-effect cleanup.
   useEffect(() => {
@@ -483,6 +600,12 @@ export function ExecutionSessionProvider({
     };
   }, [projectId]);
 
+  useEffect(() => {
+    setTestResults([]);
+    setLastWorkflowTaskId(null);
+    setLastWorkflowKind(null);
+  }, [projectId]);
+
   const value = useMemo<ExecutionSessionValue>(
     () => ({
       logs,
@@ -491,7 +614,13 @@ export function ExecutionSessionProvider({
       isInstalling,
       executionId,
       missingDependencyHint,
+      workflowTasks,
+      testResults,
+      lastWorkflowTaskId,
+      lastWorkflowKind,
       run,
+      runWorkflow,
+      refreshWorkflow,
       stop,
       sendStdin,
       clearLogs,
@@ -506,7 +635,13 @@ export function ExecutionSessionProvider({
       isInstalling,
       executionId,
       missingDependencyHint,
+      workflowTasks,
+      testResults,
+      lastWorkflowTaskId,
+      lastWorkflowKind,
       run,
+      runWorkflow,
+      refreshWorkflow,
       stop,
       sendStdin,
       clearLogs,

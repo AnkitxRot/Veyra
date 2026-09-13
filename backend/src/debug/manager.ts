@@ -74,6 +74,14 @@ export class DebugSessionManager {
     return this.sessions.get(keyOf(projectId, userId));
   }
 
+  /** True when any user has a live debugger on this project. */
+  hasLiveForProject(projectId: string): boolean {
+    for (const session of this.sessions.values()) {
+      if (session.projectId === projectId && isLive(session)) return true;
+    }
+    return false;
+  }
+
   async attach(opts: AttachDebugOpts): Promise<DebugSession | null> {
     if (this.attachDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.attachDelayMs));

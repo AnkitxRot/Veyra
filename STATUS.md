@@ -104,14 +104,11 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M83 Debugging Foundation — GREEN.
-  Sandboxed DAP for Python (`debugpy==1.8.21`) and Node/TypeScript
-  (`vscode-js-debug` v1.117.0) inside the existing project sandbox.
-  Mediated `/ws/debug` protocol, user-owned sessions, Monaco gutter +
-  Debug panel. Node browser pause and TypeScript `.ts` source maps are
-  proven. See **Milestone 83** at the end of this file. M82 language
-  intelligence remains in place (suspended for a project while it is
-  being debugged).
+- **Current work (this commit):** M84 Test / Task / Build workflow.
+  M83 Debugging Foundation remains **GREEN** (see Milestone 83).
+  Deterministic Test Explorer + allowlisted `package.json` test/build
+  scripts + optional pytest discovery, all via the existing sandbox
+  `/ws/execute` slot. See **Milestone 84** at the end of this file.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9694,3 +9691,64 @@ so a stale parent `continued` cannot overwrite a real child pause
 (the Node browser "stays Running" race).
 
 Pinned runner image debug packages: `debugpy==1.8.21` (MIT), `js-debug-dap-v1.117.0` (MIT). Playwright `1.55.1` is a backend devDependency used only by the browser E2E files.
+
+## Milestone 84 — Test / Task / Build Workflow
+
+**Objective:** first-class discovery and execution of project tests and
+builds without an arbitrary command UI, and without a second process
+engine. No AI.
+
+**Architecture.**
+
+```text
+Test Explorer (Tests tab)
+  → GET /api/projects/:id/workflow   (viewer+; discovery only)
+  → /ws/execute { type: start, workflow: { taskId, targetPath? } }
+  → resolveWorkflowTask (allowlist)
+  → sandboxRun (same slot / runGate / Stop as Run)
+  → bounded parse → Test Explorer / Problems
+```
+
+The client may send only `taskId` and an optional workspace-relative
+`targetPath`. Extra keys (`command`, `args`, `env`, `cwd`, `container`)
+are rejected. Script **bodies** are never interpolated; npm is invoked
+as `npm run <validated-name>`.
+
+**Discovery (explicit adapters).**
+
+| Origin | Included | Excluded |
+| --- | --- | --- |
+| `package.json` scripts | `test`, `build`, `test:*`, `build:*` matching `^[A-Za-z0-9][A-Za-z0-9:._/-]{0,63}$` | `start`, `pretest`, `dev`, arbitrary names |
+| pytest | `pytest.ini`, `conftest.py`, `[tool.pytest`, `pytest` in requirements, `test_*.py` | invented runners |
+
+**Security.** Same sandbox as Run. No project secrets injected (same as
+install). No host execution. Paths use `normalizeRelPath` +
+`isForbiddenRelPath`. Live debugger on the project refuses workflow
+start. Viewers can discover; `/ws/execute` remains editor+.
+
+**Resource limits.** Shared `maxConcurrentRuns` / `runGate`. Output
+capped at 64 KiB. Parsed cases capped at 200. Timeout is
+`buildTimeoutMs` (60s default). Stop uses the existing controller kill.
+
+**Python.** Discovery and resolve are implemented. Execution is
+`python3 -m pytest -v --tb=short`. The runner image does **not**
+preinstall pytest — execution is PARTIAL until the project installs it.
+
+**Verification (2026-09-14, outer repo `D:/cloudide`):**
+
+- Backend lint: 0 errors / 0 warnings
+- Backend `tsc --noEmit`: clean
+- Frontend lint: 0 errors / 19 warnings (pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components`)
+- Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests: **1047 passed / 0 failed**
+- Backend tests: **1436 passed / 9 skipped**; one pre-existing local flake
+  (`python-deps.test.ts` pip install hit the 60s `sandboxRun` watchdog —
+  not an M84 change). Workflow unit/security/docker/Playwright **passed**.
+- Docker: `npm run test` / `npm run build` / cancel hang **PROVEN**
+- Playwright: Test Explorer discover → run → failure location → build;
+  Stop on hanging task **PROVEN**
+- `git diff --check`: run before commit
+
+**Deferred:** Jest/Vitest-specific adapters, per-test-name reruns,
+watch mode, coverage UI, Java/C++ builds, arbitrary task JSON,
+persisted task history. pytest is not preinstalled on the runner image.

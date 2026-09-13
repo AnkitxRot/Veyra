@@ -14,6 +14,7 @@ export const BOTTOM_PANEL_TABS = [
   "preview",
   "git",
   "debug",
+  "tests",
 ] as const;
 export type BottomPanelTab = (typeof BOTTOM_PANEL_TABS)[number];
 
