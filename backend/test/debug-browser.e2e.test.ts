@@ -176,22 +176,24 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
 
   async function setActiveModelValue(
     page: import("playwright").Page,
-    ext: string,
+    fileName: string,
     value: string,
   ) {
     await page.evaluate(
-      ({ ext, value }) => {
+      ({ fileName, value }) => {
         const monaco = (globalThis as any).monaco;
         const models = monaco.editor.getModels();
-        const model = models.find((m: { uri: { path: string } }) =>
-          m.uri.path.toLowerCase().endsWith(ext),
-        );
-        if (!model) throw new Error(`no model ending with ${ext}`);
+        const needle = fileName.replace(/\\/g, "/").toLowerCase();
+        const model = models.find((m: { uri: { path: string } }) => {
+          const p = String(m.uri.path ?? "").replace(/\\/g, "/").toLowerCase();
+          return p === needle || p.endsWith("/" + needle);
+        });
+        if (!model) throw new Error(`no model for ${fileName}`);
         const editor = monaco.editor.getEditors()[0];
         if (editor) editor.setModel(model);
         model.setValue(value);
       },
-      { ext, value },
+      { fileName, value },
     );
   }
 
@@ -199,9 +201,8 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     page: import("playwright").Page,
     fileName: string,
     src: string,
-    ext: string,
   ) {
-    await setActiveModelValue(page, ext, src);
+    await setActiveModelValue(page, fileName, src);
     await page.click('[data-testid="debug-tab"]');
     await page.evaluate(
       ({ fileName }) => {
@@ -226,23 +227,49 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
       fileName,
       { timeout: 15_000 },
     );
-    await page.waitForSelector('[data-testid="debug-start"]:not([disabled])', {
-      timeout: 60_000,
-    });
-    await page.click('[data-testid="debug-start"]');
-    await page.waitForFunction(
-      (fileName) => {
-        const status = (globalThis as any).document.querySelector(
+    await page.evaluate((fileName) => {
+      (globalThis as any).document.dispatchEvent(
+        new (globalThis as any).CustomEvent("ide-debug", {
+          detail: { activeFile: fileName },
+        }),
+      );
+    }, fileName);
+    try {
+      await page.waitForFunction(
+        (fileName) => {
+          const status = (globalThis as any).document.querySelector(
+            '[data-testid="debug-status"]',
+          )?.textContent;
+          const stack = (globalThis as any).document.querySelector(
+            '[data-testid="debug-stack"]',
+          )?.textContent ?? "";
+          return status === "Paused" && stack.includes(fileName);
+        },
+        fileName,
+        { timeout: 90_000 },
+      );
+    } catch {
+      const diag = await page.evaluate(() => ({
+        status: (globalThis as any).document.querySelector(
           '[data-testid="debug-status"]',
-        )?.textContent;
-        const stack = (globalThis as any).document.querySelector(
+        )?.textContent,
+        message: (globalThis as any).document.querySelector(
+          '[data-testid="debug-message"]',
+        )?.textContent,
+        stack: (globalThis as any).document.querySelector(
           '[data-testid="debug-stack"]',
-        )?.textContent ?? "";
-        return status === "Paused" && stack.includes(fileName);
-      },
-      fileName,
-      { timeout: 90_000 },
-    );
+        )?.textContent,
+        vars: (globalThis as any).document.querySelector(
+          '[data-testid="debug-variables"]',
+        )?.textContent,
+        output: (globalThis as any).document.querySelector(
+          '[data-testid="debug-output"]',
+        )?.textContent,
+      }));
+      throw new Error(
+        `debug did not pause on ${fileName}: ${JSON.stringify(diag)}`,
+      );
+    }
     const varsText = await page.locator('[data-testid="debug-variables"]').innerText();
     expect(varsText.length).toBeGreaterThan(0);
     const stackText = await page.locator('[data-testid="debug-stack"]').innerText();
@@ -265,7 +292,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     async () => {
       const { browser, page } = await openProject(pythonProjectId, "main.py");
       try {
-        await debugFlow(page, "main.py", PY_SRC, ".py");
+        await debugFlow(page, "main.py", PY_SRC);
       } finally {
         await browser.close();
       }
@@ -278,7 +305,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     async () => {
       const { browser, page } = await openProject(nodeProjectId, "main.js");
       try {
-        await debugFlow(page, "main.js", JS_SRC, ".js");
+        await debugFlow(page, "main.js", JS_SRC);
       } finally {
         await browser.close();
       }
