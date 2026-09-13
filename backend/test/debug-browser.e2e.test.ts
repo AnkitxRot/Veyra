@@ -40,7 +40,8 @@ if (process.env.CI === "true" && dockerOk && !chromiumPath) {
 const enabled = dockerOk && hasFrontend && !!chromiumPath;
 
 const PY_SRC = "x = 1\ny = 2\nz = x + y\nprint(z)\n";
-const JS_SRC = "const x = 1;\nconst y = 2;\nconst z = x + y;\nconsole.log(z);\n";
+const JS_SRC =
+  "const x = 1;\nconst y = 2;\nconst z = x + y;\nsetInterval(() => {}, 60000);\n";
 
 describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () => {
   let server: Server;
@@ -204,6 +205,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     page: import("playwright").Page,
     fileName: string,
     src: string,
+    finish: "continue" | "stop" = "continue",
   ) {
     await setActiveModelValue(page, fileName, src);
     await page.click('[data-testid="debug-tab"]');
@@ -315,7 +317,11 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     expect(varsText.length).toBeGreaterThan(0);
     const stackText = await page.locator('[data-testid="debug-stack"]').innerText();
     expect(stackText).toMatch(new RegExp(fileName.replace(".", "\\.")));
-    await page.click('[data-testid="debug-continue"]');
+    await page.click(
+      finish === "stop"
+        ? '[data-testid="debug-stop"]'
+        : '[data-testid="debug-continue"]',
+    );
     await page.waitForFunction(
       () => {
         const t = (globalThis as any).document.querySelector(
@@ -346,7 +352,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     async () => {
       const { browser, page } = await openProject(nodeProjectId, "main.js");
       try {
-        await debugFlow(page, "main.js", JS_SRC);
+        await debugFlow(page, "main.js", JS_SRC, "stop");
       } finally {
         await browser.close();
       }

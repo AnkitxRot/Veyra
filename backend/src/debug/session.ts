@@ -410,6 +410,7 @@ export class DebugSession {
     await this.dapRequest("configurationDone", {}, bootMs);
     await launchPromise;
     this.clearStartupTimer();
+    await this.refreshThreadId();
     if (this.state === "starting") {
       this.setState("running");
     }
@@ -557,6 +558,7 @@ export class DebugSession {
         this.sendError("cannot pause unless the program is running");
         return;
       }
+      await this.refreshThreadId();
     } else if (this.state !== "paused") {
       this.sendError("cannot step or continue unless the program is paused");
       return;
@@ -568,6 +570,19 @@ export class DebugSession {
       }
     } catch (err: any) {
       this.sendError(err?.message ?? `${command} failed`);
+    }
+  }
+
+  private async refreshThreadId(): Promise<void> {
+    try {
+      const result = (await this.dapRequest("threads", {})) as {
+        threads?: { id?: number }[];
+      };
+      const threads = Array.isArray(result?.threads) ? result.threads : [];
+      const id = threads.find((t) => typeof t?.id === "number")?.id;
+      if (typeof id === "number") this.threadId = id;
+    } catch {
+      /* some adapters only report a thread after the first stop */
     }
   }
 
