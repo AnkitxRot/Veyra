@@ -45,6 +45,8 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
   let cfg: AppConfig;
   let base = "";
   let token = "";
+  let username = "";
+  const password = "secret123";
   let pythonProjectId = "";
   let tsProjectId = "";
 
@@ -63,12 +65,13 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
+    username = `lspb${Date.now().toString(36)}`;
     const regRes = await fetch(`${base}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: `lspb${Date.now().toString(36)}`,
-        password: "secret123",
+        username,
+        password,
       }),
     });
     const reg = (await regRes.json()) as { token?: string };
@@ -108,7 +111,7 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  async function openProject(projectId: string) {
+  async function openProject(projectId: string, fileName: string) {
     const { chromium } = await import("playwright");
     const browser = await chromium.launch({
       headless: true,
@@ -125,7 +128,55 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
       },
     ]);
     const page = await context.newPage();
-    await page.goto(`${base}/p/${projectId}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${base}/p/${projectId}`, { waitUntil: "load" });
+
+    const login = page.locator("#auth-username");
+    const tree = page.locator('[role="tree"]');
+    await Promise.race([
+      tree.waitFor({ timeout: 60_000 }),
+      login.waitFor({ timeout: 60_000 }),
+    ]);
+    if (await login.isVisible().catch(() => false)) {
+      await login.fill(username);
+      await page.locator("#auth-password").fill(password);
+      await page.locator('form.auth-form button[type="submit"]').click();
+    }
+
+    try {
+      await tree.waitFor({ timeout: 60_000 });
+    } catch (err) {
+      const body = (await page.locator("body").innerText().catch(() => "")).slice(
+        0,
+        800,
+      );
+      throw new Error(
+        `IDE file tree did not appear for ${projectId}. url=${page.url()} body=${body}`,
+        { cause: err },
+      );
+    }
+
+    const fileRow = page
+      .locator('[role="treeitem"]')
+      .filter({ hasText: fileName })
+      .first();
+    await fileRow.click();
+
+    try {
+      await page.waitForFunction(
+        () => ((globalThis as any).monaco?.editor.getModels().length ?? 0) > 0,
+        null,
+        { timeout: 60_000 },
+      );
+    } catch (err) {
+      const body = (await page.locator("body").innerText().catch(() => "")).slice(
+        0,
+        800,
+      );
+      throw new Error(
+        `Monaco models never appeared after opening ${fileName}. url=${page.url()} body=${body}`,
+        { cause: err },
+      );
+    }
     return { browser, page };
   }
 
@@ -215,14 +266,8 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
   it(
     "Python: Monaco diagnostics and completion via real pylsp",
     async () => {
-      const { browser, page } = await openProject(pythonProjectId);
+      const { browser, page } = await openProject(pythonProjectId, "main.py");
       try {
-        await page.waitForFunction(
-          () =>
-            ((globalThis as any).monaco?.editor.getModels().length ?? 0) > 0,
-          null,
-          { timeout: 60_000 },
-        );
         await page.waitForSelector(
           '[data-testid="lsp-chip-python"] .capability-dot.ready',
           { timeout: 60_000 },
@@ -274,14 +319,8 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
   it(
     "TypeScript: Monaco diagnostics and completion via real typescript-language-server",
     async () => {
-      const { browser, page } = await openProject(tsProjectId);
+      const { browser, page } = await openProject(tsProjectId, "main.ts");
       try {
-        await page.waitForFunction(
-          () =>
-            ((globalThis as any).monaco?.editor.getModels().length ?? 0) > 0,
-          null,
-          { timeout: 60_000 },
-        );
         await page.waitForSelector(
           '[data-testid="lsp-chip-typescript"] .capability-dot.ready',
           { timeout: 60_000 },

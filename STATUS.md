@@ -9584,6 +9584,6 @@ debugger, profiler, notebooks, AI coding assistant, AI agents.
 - Focused M82 frontend `lsp.*.test.ts(x)` + throttle: included in the 1023
 - `git diff --check`: clean
 
-This workstation cannot run Docker or Playwright-against-runner-image. Those tests **throw in CI** if Docker/the runner image/`frontend/dist`/Chromium are missing (`CI=true`). Live `pylsp` / `typescript-language-server` / browser E2E are therefore **CI-gated**, not locally proven.
+This workstation cannot run Docker or Playwright-against-runner-image. Those tests **throw in CI** if Docker/the runner image/`frontend/dist`/Chromium are missing (`CI=true`). Live `pylsp` / `typescript-language-server` Docker tests **passed** on GitHub Actions for `7ae30ee` (1355 tests green); the first CI run failed only the Playwright file-open step because API-created projects do not auto-open the template entry file (Sidebar `onProjectBootstrapped` is the create-from-UI path). The e2e now clicks `main.py` / `main.ts` in the file tree.
 
 Pinned runner image packages: `python-lsp-server[pyflakes,pycodestyle]==1.12.2`, `typescript@5.8.3`, `typescript-language-server@5.3.0` (Apache-2.0), `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E file.
