@@ -102,10 +102,19 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
     - `ce2007c` — new projects runnable by default: 9 self-contained starter
       templates, each with a detector-recognised entry file that auto-opens
       after creation; `validateTemplates()` module-load fail-fast.
-- **Current uncommitted work:** none. Milestone 80 (first-class HTTPS Git
-  remotes — clone / origin / fetch / fast-forward-only pull / push,
-  M47-backed credentials, M56 pull gate) is in this commit. See the M80
-  section below.
+- **Current work (this commit):** M80 stabilization on top of `95d0679`.
+  HTTPS remotes are unchanged in product scope. This pass:
+  - makes backend lint CI-green by replacing the control-character regex
+    in `backend/src/git/remoteUrl.ts` with a `charCodeAt` loop (the
+    `no-control-regex` rule stays enforced);
+  - host-pins Git HTTPS credentials (`GIT_HTTPS_HOST`) so a PAT cannot
+    follow `origin` onto a different host;
+  - strips query strings from client-visible remote URLs;
+  - fixes nested file-tree paths, upload collab conflicts, collab
+    dispose/`addClient` races, terminal logout reaping, proxy/tree cache
+    eviction on project delete, and a few frontend listener/timer leaks.
+  See **M80 stabilization** below. Historical M80 verification numbers
+  remain in the Milestone 80 section.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -3937,6 +3946,51 @@ error path.
 - `backend` `tsc --noEmit` clean; `frontend` `tsc --noEmit && vite build` clean (pre-existing Monaco chunk-size warning only).
 - `git diff --check` clean against this repository (Git was available via `C:\Program Files\Git\cmd\git.exe`; earlier notes that the workspace root was not a git repository were stale).
 - Live browser QA was last exercised in the implementation session (`localhost:5173` + backend on `:3000`): Create Project exposes **Clone HTTPS repo** (URL / username / token, HTTPS-only copy). Cloning `git@github.com:org/repo.git` shows `Could not clone repository: only HTTPS Git remotes are supported` and leaves **Projects 0**. Blank project → Initialize Git → Source Control **Remote** section: save `origin`, save PAT (token field clears; page text never contains the token; "credentials saved" + Remove), Fetch against a dummy GitHub URL shows `authentication with the remote failed` and leaves the working tree clean. Not re-run during this finalize pass; clone/fetch/pull/push behaviour was re-proven by the HTTPS e2e suite above.
+
+---
+
+## M80 stabilization
+
+**Objective:** take the M80 commit (`95d0679`) to a CI-green, host-safe
+release without expanding Git product scope.
+
+**CI.** GitHub Actions failed on backend lint:
+`@typescript-eslint/no-control-regex` in `remoteUrl.ts` (`\x00`–`\x1f` in a
+character class). Control-character rejection is implemented as
+`containsAsciiControlChars()` (a `charCodeAt` loop). The lint rule is still
+enforced; there is no file-level disable.
+
+**Credential host pin.** Stored PATs are bound to `GIT_HTTPS_HOST`.
+`PUT .../git/remote` with `replace: true` onto a different host **deletes**
+the credentials. A terminal `git remote set-url` to another HTTPS host
+makes fetch/push/pull fail with `credential_host_mismatch` (409) and does
+not invoke askpass with the PAT. A non-HTTPS rewrite of origin fails with
+`invalid_remote_url` and likewise does not send credentials.
+
+**Other substantiated fixes in this commit**
+
+- Client-visible remotes drop query strings (`?access_token=`).
+- File tree `path` is workspace-relative for nested files (`src/lib/util.ts`),
+  matching `listFiles` / the sidebar.
+- Dirty-gate for Git mutations includes rename `origPath`.
+- Uploads honor M56 `notifyExternalFileMutation` conflicts (`409
+  collab_external_conflict`).
+- CollaborationRoom `dispose()` is idempotent; `addClient` on a disposed
+  room closes with 1001; `getOrCreateRoom` drops disposed map entries.
+- M4 import-race tests wait on `fs.rm` entry instead of a fixed 20ms sleep.
+- Logout / session revoke / demo GC **reap** PTYs instead of only detaching
+  them; graceful shutdown calls `terminalSessions.disposeAll("server_shutdown")`.
+- Terminal gate slot is released if `workspacePath` throws after acquire.
+- Project delete evicts tree cache and preview `proxyCache`.
+- Admin username/role updates invalidate the session cache.
+- Search skips files larger than 5 MiB before `readFileSync`; `maxResults`
+  is capped at 2000. Run-history query uses a composite index
+  `(project_id, user_id, created_at DESC)` (schema v17).
+- Editor: leftover Monaco models disposed after unmount; Preview
+  `run-started` timeout and Source Control toasts are cleared on unmount.
+
+**Out of scope (unchanged):** SSH Git, OAuth, PR UI, merge/rebase, force-push,
+LFS, submodules, terminal reload persistence, speculative caches.
 
 ---
 

@@ -169,7 +169,22 @@ export async function handleTerminalConnection(
     terminalGate.release(userId);
   };
 
-  const cwd = await workspacePath(cfg, projectId);
+  let cwd: string;
+  try {
+    cwd = await workspacePath(cfg, projectId);
+  } catch (err: any) {
+    releasePermit();
+    if (ws.readyState === ws.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "data",
+          data: `[terminal] failed to resolve workspace: ${err?.message ?? "error"}\r\n`,
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
 
   let containerId: string;
   try {

@@ -1961,7 +1961,6 @@ export default function IDE({
         /* surfaced by the api error path */
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [project?.id, reloadActiveComments],
   );
 
@@ -1975,7 +1974,6 @@ export default function IDE({
     } catch {
       /* api error path */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, openCommentThreadId, reloadActiveComments]);
 
   const handleCommentReopen = useCallback(async () => {
@@ -1988,7 +1986,6 @@ export default function IDE({
     } catch {
       /* api error path */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, openCommentThreadId, reloadActiveComments]);
 
   const handleCommentReply = useCallback(
@@ -2003,7 +2000,6 @@ export default function IDE({
         /* api error path */
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [project?.id, openCommentThreadId, reloadActiveComments],
   );
 
@@ -2019,7 +2015,6 @@ export default function IDE({
         /* api error path */
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [project?.id, reloadActiveComments],
   );
 
@@ -2035,7 +2030,6 @@ export default function IDE({
         /* api error path */
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [project?.id, reloadActiveComments],
   );
 
@@ -2051,7 +2045,6 @@ export default function IDE({
         /* api error path */
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [project?.id, reloadActiveComments],
   );
 
@@ -2067,7 +2060,6 @@ export default function IDE({
         /* api error path */
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [project?.id, reloadActiveComments],
   );
 

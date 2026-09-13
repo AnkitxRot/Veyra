@@ -350,6 +350,9 @@ export class CollaborationRoom {
    *  awarenessCoalesceTimer via queueAwarenessUpdate() *after* dispose()'s
    *  timer-clearing block already ran, leaking one timer per disposal. */
   private disposed = false;
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
 
   /** M56: in-flight `flushBeforeDestructiveDispose()` promise. Reused by a
    *  concurrent caller so a destructive replacement can never trigger two
@@ -1714,6 +1717,12 @@ export class CollaborationRoom {
     ws: WebSocket,
     clientState: CollaboratorClientState,
   ): Promise<void> {
+    if (this.disposed) {
+      try {
+        ws.close(1001, "Room disposed");
+      } catch {}
+      return;
+    }
     if (this.idleDisposeTimer) {
       clearTimeout(this.idleDisposeTimer);
       this.idleDisposeTimer = null;
@@ -2712,6 +2721,7 @@ export class CollaborationRoom {
    * Closes room, flushes files, and frees all memory.
    */
   public dispose(): void {
+    if (this.disposed) return;
     // M60: close every open burst BEFORE `disposed` is set and the Y.Doc is
     // destroyed — synchronous, in-memory; the historian's own flush loop
     // persists them. Runs first so the "collab_change" broadcast (via the
@@ -2795,6 +2805,10 @@ export class CollaborationManager {
 
   public getOrCreateRoom(projectId: string): CollaborationRoom {
     let room = this.rooms.get(projectId);
+    if (room && room.isDisposed) {
+      this.rooms.delete(projectId);
+      room = undefined;
+    }
     if (!room) {
       room = new CollaborationRoom(
         projectId,

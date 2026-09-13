@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
-import { AdminObservabilityData, LatencySnapshot } from "../../types";
+import { AdminObservabilityData } from "../../types";
 import {
   IconActivity,
   IconCpu,
@@ -8,7 +8,6 @@ import {
   IconRefresh,
   IconServer,
   IconAlertTriangle,
-  IconCheck,
   IconLayers,
 } from "../common/Icons";
 

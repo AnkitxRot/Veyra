@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { promises as fs, existsSync } from "node:fs";
+import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
 import {
   createZipArchive,
   extractZipArchive,
-  crc32,
   type ZipFileEntry,
 } from "../src/projects/zip.js";
 import {
@@ -16,7 +15,6 @@ import {
 import {
   createProject,
   projectDir,
-  listProjects,
 } from "../src/projects/service.js";
 import { writeProjectFile, readProjectFile, listFiles } from "../src/files/service.js";
 import type { AppConfig } from "../src/config.js";

@@ -73,3 +73,15 @@ export async function resolveProxyEntry(
 
   return { entry, port, prefix };
 }
+
+/** Drop cached preview proxies for one project (or all of them). */
+export function evictProxyCache(projectId?: string): void {
+  if (!projectId) {
+    proxyCache.clear();
+    return;
+  }
+  const prefix = `${projectId}:`;
+  for (const key of [...proxyCache.keys()]) {
+    if (key.startsWith(prefix)) proxyCache.delete(key);
+  }
+}

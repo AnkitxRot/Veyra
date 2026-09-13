@@ -49,7 +49,7 @@ async function measureColdConcurrency(concurrency: number): Promise<{
       const elapsed = performance.now() - t0;
       await sandboxManager.stopProjectSandbox(p.id);
       return elapsed;
-    } catch (err: any) {
+    } catch (_err: unknown) {
       await sandboxManager.stopProjectSandbox(p.id);
       return performance.now() - t0;
     }

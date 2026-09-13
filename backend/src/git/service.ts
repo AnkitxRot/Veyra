@@ -7,7 +7,10 @@ import type { AppConfig } from "../config.js";
 import { IS_WINDOWS } from "../config.js";
 import { projectDir, workspacePath } from "../projects/service.js";
 import { firstRedactedLine } from "./redact.js";
-import { sanitizeRemoteUrlForClient } from "./remoteUrl.js";
+import {
+  containsAsciiControlChars,
+  sanitizeRemoteUrlForClient,
+} from "./remoteUrl.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -296,8 +299,7 @@ async function assertValidBranchName(
   ) {
     throw new ApiError(400, "invalid branch name", "invalid_branch_name");
   }
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f\x7f]/.test(name) || name.startsWith("-")) {
+  if (containsAsciiControlChars(name) || name.startsWith("-")) {
     throw new ApiError(400, "invalid branch name", "invalid_branch_name");
   }
   // Git's own grammar is the authoritative check.
@@ -1142,6 +1144,7 @@ export function collectMutationBlockingPaths(
   const worktreeDirty = new Set<string>();
   for (const f of [...status.staged, ...status.unstaged]) {
     worktreeDirty.add(f.path);
+    if (f.origPath) worktreeDirty.add(f.origPath);
   }
   const clientDirty = new Set(
     Array.isArray(dirtyOpenPaths)

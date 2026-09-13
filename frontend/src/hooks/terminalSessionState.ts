@@ -29,6 +29,7 @@ export type TerminalEndedReason =
   | "process_exited"
   | "container_stopped"
   | "authorization_revoked"
+  | "server_shutdown"
   | "session_gone"
   | "unknown";
 
@@ -37,6 +38,7 @@ export const TERMINAL_ENDED_REASONS: TerminalEndedReason[] = [
   "process_exited",
   "container_stopped",
   "authorization_revoked",
+  "server_shutdown",
   "session_gone",
 ];
 

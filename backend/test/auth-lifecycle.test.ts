@@ -11,7 +11,6 @@ import { cleanupExpiredDemoAccounts } from "../src/auth/demoGc.js";
 import { createProject, projectDir } from "../src/projects/service.js";
 import { createSnapshot } from "../src/projects/snapshots.js";
 import { hashPassword } from "../src/auth/passwords.js";
-import { issueSession } from "../src/auth/middleware.js";
 import { writeProjectFile } from "../src/files/service.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";

@@ -71,7 +71,6 @@ describe("M58 — attention x Follow / M57 coexistence", () => {
         collaborators: [collab],
         currentUserId: 1,
         attention: [callout],
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any),
     );
     expect(document.querySelectorAll(".editor-samefile-strip")).toHaveLength(1);

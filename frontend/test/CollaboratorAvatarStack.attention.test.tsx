@@ -73,7 +73,6 @@ describe("CollaboratorAvatarStack — M58 attention badge", () => {
       },
     ];
     render(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       <CollaboratorAvatarStack {...base} attention={attention as any} />,
     );
     fireEvent.click(

@@ -11,7 +11,15 @@ import { ApiError } from "../errors.js";
 
 export const MAX_REMOTE_URL_LENGTH = 2048;
 
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+/** C0 controls + DEL. Implemented without a control-character regex so
+ *  `no-control-regex` stays enforced. */
+export function containsAsciiControlChars(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
 
 export function validateHttpsGitRemoteUrl(raw: unknown): string {
   if (typeof raw !== "string") {
@@ -21,7 +29,7 @@ export function validateHttpsGitRemoteUrl(raw: unknown): string {
   if (trimmed.length === 0 || trimmed.length > MAX_REMOTE_URL_LENGTH) {
     throw new ApiError(400, "invalid remote URL", "invalid_remote_url");
   }
-  if (CONTROL_CHARS.test(trimmed)) {
+  if (containsAsciiControlChars(trimmed)) {
     throw new ApiError(400, "invalid remote URL", "invalid_remote_url");
   }
   // WHATWG URL parsers rewrite `\` to `/`. Reject rather than silently
@@ -95,7 +103,7 @@ export function validateHttpsGitRemoteUrl(raw: unknown): string {
   if (path === "" || path === "/") {
     throw new ApiError(400, "invalid remote URL", "invalid_remote_url");
   }
-  if (path.includes("\\") || path.includes("\0")) {
+  if (path.includes("\\") || containsAsciiControlChars(path)) {
     throw new ApiError(400, "invalid remote URL", "invalid_remote_url");
   }
 
@@ -132,6 +140,7 @@ export function sanitizeRemoteUrlForClient(raw: string): string {
     u.username = "";
     u.password = "";
     u.hash = "";
+    u.search = "";
     return u.href;
   } catch {
     return "(invalid remote url)";

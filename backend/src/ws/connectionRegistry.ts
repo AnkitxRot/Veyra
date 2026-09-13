@@ -1,5 +1,6 @@
 import type { WebSocket } from "ws";
 import type { Socket } from "node:net";
+import { terminalSessions } from "../execution/terminalSessions.js";
 
 /**
  * Tracks every live, authenticated WebSocket connection (terminal, execute,
@@ -71,6 +72,15 @@ export function closeAllConnectionsForUser(
   code = 4401,
   reason = "Session revoked",
 ): void {
+  // Kill detached PTYs immediately. WS close below would otherwise only
+  // detach them for terminalDetachGraceMs, leaving shells running after
+  // logout / admin revoke / demo GC.
+  try {
+    terminalSessions.reapUser(userId);
+  } catch {
+    // Registry may not be in use (unit tests that never opened a PTY).
+  }
+
   const set = connectionsByUser.get(userId);
   if (set) {
     for (const ws of Array.from(set)) {

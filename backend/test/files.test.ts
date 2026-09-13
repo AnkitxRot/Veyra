@@ -99,6 +99,27 @@ describe("tree", () => {
     );
   });
 
+  it("returns workspace-relative paths for nested files", async () => {
+    const root = join(tmp, "nested-root");
+    mkdirSync(join(root, "src", "lib"), { recursive: true });
+    writeFileSync(join(root, "src", "lib", "util.ts"), "export {};");
+    writeFileSync(join(root, "src", "main.ts"), "import './lib/util';");
+    invalidateTreeCache(root);
+    const nodes = await tree(root);
+    const src = nodes.find((n) => n.path === "src");
+    expect(src?.type).toBe("dir");
+    const main = src?.children?.find((n) => n.path === "src/main.ts");
+    expect(main).toMatchObject({ name: "main.ts", path: "src/main.ts", type: "file" });
+    const lib = src?.children?.find((n) => n.path === "src/lib");
+    expect(lib?.type).toBe("dir");
+    const util = lib?.children?.find((n) => n.path === "src/lib/util.ts");
+    expect(util).toMatchObject({
+      name: "util.ts",
+      path: "src/lib/util.ts",
+      type: "file",
+    });
+  });
+
   // M42: tree()'s in-memory cache (500ms TTL, single-flight) is a pure
   // read-side cache in front of a recursive real filesystem walk. A fetch
   // that is still in flight when invalidateTreeCache(root) runs (e.g. an

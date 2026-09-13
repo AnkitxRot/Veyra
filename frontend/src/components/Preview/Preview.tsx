@@ -96,14 +96,16 @@ export default function Preview({ project }: any) {
     };
     tick();
     const id = window.setInterval(tick, POLL_MS);
+    let runStartedTimer: number | undefined;
     const onRunStarted = () => {
       // a run just started — a dev server may be about to bind
-      window.setTimeout(tick, 800);
+      runStartedTimer = window.setTimeout(tick, 800);
     };
     document.addEventListener('run-started', onRunStarted);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      if (runStartedTimer !== undefined) window.clearTimeout(runStartedTimer);
       document.removeEventListener('run-started', onRunStarted);
     };
   }, [projectId, scan]);

@@ -240,7 +240,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
 
   it("11. selecting a project loads the correct workspace-backups endpoint", async () => {
     apiMock.mockResolvedValueOnce({ backups: [] }); // db init
-    const { findByText, getByDisplayValue, getByRole } = renderPanel();
+    const { findByText, getByRole } = renderPanel();
     await findByText(/No database backups yet/);
 
     apiMock.mockResolvedValueOnce({ backups: [wsBackup()] });

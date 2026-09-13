@@ -120,7 +120,7 @@ describe("preview proxy WebSocket upgrade", () => {
         resolve({ open: false, status: res.statusCode });
         res.resume();
       });
-      ws.on("error", (err: any) => {
+      ws.on("error", (_err: unknown) => {
         clearTimeout(timer);
         // Some Node/ws versions surface a rejected upgrade as a plain
         // 'error' (ECONNRESET-style) rather than 'unexpected-response' once

@@ -275,6 +275,105 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
     }
   });
 
+  it("drops stored credentials when origin is replaced onto a different host", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    await api.request("PUT", g("/remote"), {
+      token: ownerToken,
+      body: { url: "https://example.com/org/repo.git" },
+    });
+    await api.request("PUT", g("/credentials"), {
+      token: ownerToken,
+      body: { username: "git", token: TOKEN },
+    });
+    const before = await api.request("GET", g("/credentials"), {
+      token: ownerToken,
+    });
+    expect(before.data.configured).toBe(true);
+
+    const replaced = await api.request("PUT", g("/remote"), {
+      token: ownerToken,
+      body: { url: "https://evil.test/org/repo.git", replace: true },
+    });
+    expect(replaced.status).toBe(200);
+    expect(replaced.data.credentialsConfigured).toBe(false);
+    const after = await api.request("GET", g("/credentials"), {
+      token: ownerToken,
+    });
+    expect(after.data.configured).toBe(false);
+
+    git._takeCapturedGitArgvForTests();
+    const fetchRes = await api.request("POST", g("/fetch"), {
+      token: ownerToken,
+    });
+    const argv = JSON.stringify(git._takeCapturedGitArgvForTests());
+    expect(argv).not.toContain(TOKEN);
+    expect(JSON.stringify(fetchRes.data)).not.toContain(TOKEN);
+  });
+
+  it("refuses to use unpinned or host-mismatched credentials on fetch", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    await api.request("PUT", g("/credentials"), {
+      token: ownerToken,
+      body: { username: "git", token: TOKEN },
+    });
+    await api.request("PUT", g("/remote"), {
+      token: ownerToken,
+      body: { url: "https://example.com/org/repo.git" },
+    });
+    // Origin set after credentials: host is pinned to example.com.
+    const status = await api.request("GET", g("/status"), { token: ownerToken });
+    expect(status.data.credentialsConfigured).toBe(true);
+
+    execFileSync(
+      "git",
+      ["-C", cwd, "remote", "set-url", "origin", "https://evil.test/org/repo.git"],
+      { stdio: "ignore" },
+    );
+    git._takeCapturedGitArgvForTests();
+    const fetchRes = await api.request("POST", g("/fetch"), {
+      token: ownerToken,
+    });
+    expect(fetchRes.status).toBe(409);
+    expect(fetchRes.data.error.code).toBe("credential_host_mismatch");
+    const argv = JSON.stringify(git._takeCapturedGitArgvForTests());
+    expect(argv).not.toContain(TOKEN);
+    expect(JSON.stringify(fetchRes.data)).not.toContain(TOKEN);
+  });
+
+  it("does not send credentials when origin is rewritten to a non-HTTPS URL", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    await api.request("PUT", g("/remote"), {
+      token: ownerToken,
+      body: { url: "https://example.com/org/repo.git" },
+    });
+    await api.request("PUT", g("/credentials"), {
+      token: ownerToken,
+      body: { username: "git", token: TOKEN },
+    });
+    execFileSync(
+      "git",
+      [
+        "-C",
+        cwd,
+        "remote",
+        "set-url",
+        "origin",
+        "ssh://git@evil.test/org/repo.git",
+      ],
+      { stdio: "ignore" },
+    );
+    git._takeCapturedGitArgvForTests();
+    const fetchRes = await api.request("POST", g("/fetch"), {
+      token: ownerToken,
+    });
+    expect(fetchRes.status).toBe(409);
+    expect(fetchRes.data.error.code).toBe("invalid_remote_url");
+    expect(JSON.stringify(git._takeCapturedGitArgvForTests())).not.toContain(
+      TOKEN,
+    );
+    expect(JSON.stringify(fetchRes.data)).not.toContain(TOKEN);
+  });
+
   it("credentials never enter Yjs, exports, or forks", async () => {
     await api.request("PUT", g("/credentials"), {
       token: ownerToken,

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFileSync } from "node:fs";
-import { openDb } from "../src/db.js";
 import {
   createDatabaseBackup,
   listDatabaseBackups,

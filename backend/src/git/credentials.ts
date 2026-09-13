@@ -9,18 +9,23 @@ import {
   hasProjectSecret,
   GIT_HTTPS_TOKEN_SECRET,
   GIT_HTTPS_USERNAME_SECRET,
+  GIT_HTTPS_HOST_SECRET,
 } from "../projectsecrets/store.js";
+import { httpsRemoteHost, normalizeHttpsHostname } from "./remoteUrl.js";
 
 /**
  * M80 — Git HTTPS credentials stored as reserved M47 project secrets.
  *
- * Names: GIT_HTTPS_USERNAME, GIT_HTTPS_TOKEN. Both is_secret=1 (write-only
- * in the public secrets API). They are excluded from run/terminal injection
- * so a PAT never appears in a collaborator's sandbox environment by accident.
+ * Names: GIT_HTTPS_USERNAME, GIT_HTTPS_TOKEN, GIT_HTTPS_HOST. All
+ * is_secret=1 (write-only in the public secrets API). They are excluded
+ * from run/terminal injection so a PAT never appears in a collaborator's
+ * sandbox environment by accident. The host pin stops a stored PAT from
+ * being presented to a different remote after origin is replaced.
  */
 
 const MAX_USERNAME = 256;
 const MAX_TOKEN = 32 * 1024;
+const MAX_HOST = 255;
 
 export interface GitHttpsCredentials {
   username: string;
@@ -35,6 +40,7 @@ export function resolveGitHttpsCredentials(
   db: Db,
   cfg: AppConfig,
   projectId: string,
+  originUrl: string,
 ): GitHttpsCredentials | null {
   const token = decryptProjectSecret(
     db,
@@ -44,6 +50,33 @@ export function resolveGitHttpsCredentials(
     null,
   );
   if (token === null || token.length === 0) return null;
+  let originHost: string;
+  try {
+    originHost = httpsRemoteHost(originUrl);
+  } catch {
+    throw new ApiError(
+      409,
+      "saved Git credentials belong to a different host; save credentials again for this remote",
+      "credential_host_mismatch",
+    );
+  }
+  const pinned = decryptProjectSecret(
+    db,
+    cfg,
+    projectId,
+    GIT_HTTPS_HOST_SECRET,
+    null,
+  );
+  if (
+    !pinned ||
+    normalizeHttpsHostname(pinned).toLowerCase() !== originHost.toLowerCase()
+  ) {
+    throw new ApiError(
+      409,
+      "saved Git credentials belong to a different host; save credentials again for this remote",
+      "credential_host_mismatch",
+    );
+  }
   const username =
     decryptProjectSecret(db, cfg, projectId, GIT_HTTPS_USERNAME_SECRET, null) ||
     "git";
@@ -54,7 +87,12 @@ export function upsertGitHttpsCredentials(
   db: Db,
   cfg: AppConfig,
   projectId: string,
-  input: { username?: unknown; token: unknown; createdBy: number | null },
+  input: {
+    username?: unknown;
+    token: unknown;
+    host?: string | null;
+    createdBy: number | null;
+  },
 ): { configured: true } {
   const token = validateToken(input.token);
   const username = validateUsername(input.username);
@@ -71,13 +109,59 @@ export function upsertGitHttpsCredentials(
     value: username,
     createdBy: input.createdBy,
   });
+  if (input.host) {
+    pinGitHttpsCredentialHost(db, cfg, projectId, input.host, input.createdBy);
+  }
   return { configured: true };
+}
+
+/**
+ * Bind existing credentials to `remoteUrl`'s host, or drop them if they are
+ * already pinned to a different host. No-op when no token is stored.
+ */
+export function syncGitCredentialHost(
+  db: Db,
+  cfg: AppConfig,
+  projectId: string,
+  remoteUrl: string,
+  createdBy: number | null,
+): void {
+  if (!hasGitHttpsCredentials(db, projectId)) return;
+  const host = httpsRemoteHost(remoteUrl);
+  const pinned = decryptProjectSecret(
+    db,
+    cfg,
+    projectId,
+    GIT_HTTPS_HOST_SECRET,
+    null,
+  );
+  if (pinned && normalizeHttpsHostname(pinned).toLowerCase() !== host.toLowerCase()) {
+    deleteGitHttpsCredentials(db, projectId);
+    return;
+  }
+  pinGitHttpsCredentialHost(db, cfg, projectId, host, createdBy);
 }
 
 export function deleteGitHttpsCredentials(db: Db, projectId: string): boolean {
   const a = deleteProjectSecret(db, projectId, GIT_HTTPS_TOKEN_SECRET, null);
   const b = deleteProjectSecret(db, projectId, GIT_HTTPS_USERNAME_SECRET, null);
-  return a || b;
+  const c = deleteProjectSecret(db, projectId, GIT_HTTPS_HOST_SECRET, null);
+  return a || b || c;
+}
+
+function pinGitHttpsCredentialHost(
+  db: Db,
+  cfg: AppConfig,
+  projectId: string,
+  host: string,
+  createdBy: number | null,
+): void {
+  upsertOne(db, cfg, {
+    projectId,
+    name: GIT_HTTPS_HOST_SECRET,
+    value: validateHost(host),
+    createdBy,
+  });
 }
 
 function upsertOne(
@@ -147,4 +231,18 @@ function validateUsername(raw: unknown): string {
     );
   }
   return u;
+}
+
+function validateHost(raw: string): string {
+  const h = normalizeHttpsHostname(raw.trim()).toLowerCase();
+  if (
+    h.length === 0 ||
+    h.length > MAX_HOST ||
+    h.includes("\0") ||
+    /[\r\n/\\]/.test(h) ||
+    h.includes("@")
+  ) {
+    throw new ApiError(400, "invalid credential host", "invalid_git_credential");
+  }
+  return h;
 }

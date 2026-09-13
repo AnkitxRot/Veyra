@@ -234,6 +234,8 @@ export function openDb(dbPath: string): Db {
     CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
     CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id);
     CREATE INDEX IF NOT EXISTS idx_runs_created ON runs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_runs_project_user_created
+      ON runs(project_id, user_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS audit_logs (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -777,6 +779,17 @@ const MIGRATIONS: Migration[] = [
           "ALTER TABLE user_preferences ADD COLUMN keymap TEXT NOT NULL DEFAULT '{}'",
         );
       }
+    },
+  },
+  {
+    version: 17,
+    description:
+      "Composite index for per-user per-project run history (project_id, user_id, created_at DESC) matching the History list query.",
+    up(db: Db) {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_runs_project_user_created
+          ON runs(project_id, user_id, created_at DESC);
+      `);
     },
   },
 ];

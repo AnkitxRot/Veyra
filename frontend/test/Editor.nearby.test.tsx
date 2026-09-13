@@ -56,7 +56,6 @@ function renderEditor(opts: {
       currentUserId: 1,
       attention: [],
       onViewCollaborator: opts.onViewCollaborator,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any),
   );
   const editor = __getLastEditorInstance()!;

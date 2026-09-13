@@ -8,7 +8,7 @@ import type { RunStatusEntry } from "../../types";
 import type { AttentionEvent } from "../../collab/attention";
 import { buildFocusContext } from "../../collab/focus";
 import { displayLabel, secondaryHandle } from "../../collab/presence";
-import { IconUsers, IconSparkles } from "../common/Icons";
+import { IconUsers } from "../common/Icons";
 import UserAvatar from "../common/UserAvatar";
 import ProfileCard, {
   type ProfilePresenceTone,
@@ -74,15 +74,11 @@ export default function CollaboratorAvatarStack({
   }, [anyRunning]);
   const [selectedCollaborator, setSelectedCollaborator] =
     useState<CollaboratorPresence | null>(null);
-  const [isSelfMenuOpen, setIsSelfMenuOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const staleNote = rosterStalenessNote(status);
   const otherCollaborators = collaborators.filter(
     (c) => c.userId !== currentUserId,
-  );
-  const selfCollaborator = collaborators.find(
-    (c) => c.userId === currentUserId,
   );
 
   // Close popover on outside click
@@ -93,7 +89,6 @@ export default function CollaboratorAvatarStack({
         !popoverRef.current.contains(e.target as Node)
       ) {
         setSelectedCollaborator(null);
-        setIsSelfMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -277,7 +272,6 @@ export default function CollaboratorAvatarStack({
               >
                 <button
                   onClick={() => {
-                    setIsSelfMenuOpen(false);
                     setSelectedCollaborator(
                       selectedCollaborator?.clientId === c.clientId ? null : c,
                     );

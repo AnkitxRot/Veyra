@@ -23,7 +23,8 @@ export type TerminalEndedReason =
   | "grace_expired"
   | "process_exited"
   | "container_stopped"
-  | "authorization_revoked";
+  | "authorization_revoked"
+  | "server_shutdown";
 
 /** The subset of a node-pty process the registry drives. */
 export interface RegistryPty {
@@ -471,13 +472,13 @@ export class TerminalSessionRegistry {
     return this.sessions.size;
   }
 
-  disposeAll(): void {
+  disposeAll(reason: TerminalEndedReason = "container_stopped"): void {
     for (const entry of [...this.sessions.values()]) {
       this.reap(
         entry.userId,
         entry.projectId,
         entry.terminalId,
-        "container_stopped",
+        reason,
       );
     }
   }

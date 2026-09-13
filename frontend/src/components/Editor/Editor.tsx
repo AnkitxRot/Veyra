@@ -160,7 +160,7 @@ export default function Editor({
   collaborators = [],
   currentUserId,
   attention = [],
-  onAttentionNavigate,
+  onAttentionNavigate: _onAttentionNavigate,
   onViewCollaborator,
   onUserEdit,
   isReadOnly = false,
@@ -175,9 +175,6 @@ export default function Editor({
   onOpenCommentThread,
   onCreateComment,
 }: EditorProps) {
-  // Local cursor line is tracked only to feed the collab client; the M58
-  // spatial memo uses the full selection range instead.
-  const [, setLocalCursorLine] = React.useState<number>(1);
   // M61-A: mirror the created editor instance into state so <CommentGutter>
   // (which needs the live instance) mounts once it exists.
   const [commentEditor, setCommentEditor] =
@@ -448,7 +445,6 @@ export default function Editor({
       }
 
       monacoRef.current.onDidChangeCursorPosition((e) => {
-        setLocalCursorLine(e.position.lineNumber);
         if (collabClientRef.current) {
           collabClientRef.current.updateCursorPosition(
             e.position.lineNumber,
@@ -712,10 +708,20 @@ export default function Editor({
       liveModels.clear();
       saveActionRef.current?.dispose();
       saveActionRef.current = null;
+      const leftover = monaco.editor.getModels().slice();
       if (monacoRef.current) {
         monacoRef.current.dispose();
         monacoRef.current = null;
       }
+      queueMicrotask(() => {
+        for (const model of leftover) {
+          try {
+            if (!model.isDisposed()) model.dispose();
+          } catch {
+            /* binding teardown may race this */
+          }
+        }
+      });
       setCommentEditor(null);
     };
     // liveApiRef / editorViewApiRef are stable ref objects passed down from

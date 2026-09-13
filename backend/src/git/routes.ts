@@ -22,9 +22,10 @@ import {
   deleteGitHttpsCredentials,
   hasGitHttpsCredentials,
   resolveGitHttpsCredentials,
+  syncGitCredentialHost,
   upsertGitHttpsCredentials,
 } from "./credentials.js";
-import { httpsRemoteHost } from "./remoteUrl.js";
+import { httpsRemoteHost, validateHttpsGitRemoteUrl } from "./remoteUrl.js";
 
 /**
  * M51 — local Git version control API.
@@ -45,6 +46,21 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
 
   const locked = <T>(projectId: string, fn: () => Promise<T>) =>
     withProjectSnapshotLock(projectId, fn);
+
+  const credsForRemote = async (projectId: string) => {
+    const originUrl = await remotes.getOriginUrl(cfg, projectId);
+    if (!originUrl) return null;
+    // getOriginUrl is client-safe (placeholders for ssh/file remotes).
+    // Re-validate before touching the PAT so a terminal-set non-HTTPS
+    // origin never reaches askpass or throws an untyped URL error.
+    let validated: string;
+    try {
+      validated = validateHttpsGitRemoteUrl(originUrl);
+    } catch {
+      return null;
+    }
+    return resolveGitHttpsCredentials(db, cfg, projectId, validated);
+  };
 
   // ---- reads -------------------------------------------------------------
 
@@ -336,10 +352,18 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireWrite(req);
       const user = userOf(req);
+      const existingUrl = await remotes.getOriginUrl(cfg, req.params.id);
       const result = await locked(req.params.id, () =>
         remotes.addOriginRemote(cfg, req.params.id, req.body?.url, {
           replace: req.body?.replace === true,
         }),
+      );
+      syncGitCredentialHost(
+        db,
+        cfg,
+        req.params.id,
+        result.url,
+        user.id,
       );
       recordAuditLog(db, {
         userId: user.id,
@@ -348,10 +372,14 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
         details: {
           host: httpsRemoteHost(result.url),
           replaced: result.replaced,
+          previousHost: existingUrl ? httpsRemoteHost(existingUrl) : null,
         },
         ipAddress: req.ip,
       });
-      res.json({ remote: { name: result.name, url: result.url } });
+      res.json({
+        remote: { name: result.name, url: result.url },
+        credentialsConfigured: hasGitHttpsCredentials(db, req.params.id),
+      });
     } catch (err) {
       next(err);
     }
@@ -376,9 +404,20 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
           "demo_forbidden",
         );
       }
+      let originHost: string | undefined;
+      try {
+        const originUrl = await remotes.getOriginUrl(cfg, project.id);
+        if (originUrl) {
+          originHost = httpsRemoteHost(validateHttpsGitRemoteUrl(originUrl));
+        }
+      } catch {
+        // Not a repository yet, origin unset, or origin isn't HTTPS —
+        // leave the PAT unpinned until origin is configured.
+      }
       upsertGitHttpsCredentials(db, cfg, project.id, {
         username: req.body?.username,
         token: req.body?.token,
+        host: originHost,
         createdBy: userOf(req).id,
       });
       recordAuditLog(db, {
@@ -418,7 +457,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireWrite(req);
       const user = userOf(req);
-      const creds = resolveGitHttpsCredentials(db, cfg, req.params.id);
+      const creds = await credsForRemote(req.params.id);
       const result = await locked(req.params.id, () =>
         remotes.fetchOrigin(cfg, req.params.id, creds),
       );
@@ -446,7 +485,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
       requireWrite(req);
       const user = userOf(req);
       const force = req.body?.force === true;
-      const creds = resolveGitHttpsCredentials(db, cfg, req.params.id);
+      const creds = await credsForRemote(req.params.id);
       const result = await locked(req.params.id, async () => {
         const preview = await remotes.previewPull(
           cfg,
@@ -525,7 +564,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireWrite(req);
       const user = userOf(req);
-      const creds = resolveGitHttpsCredentials(db, cfg, req.params.id);
+      const creds = await credsForRemote(req.params.id);
       const result = await locked(req.params.id, () =>
         remotes.pushCurrentBranch(cfg, req.params.id, creds),
       );

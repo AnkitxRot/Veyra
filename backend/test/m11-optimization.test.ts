@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tree, listFiles } from "../src/files/service.js";
+import { tree } from "../src/files/service.js";
 import {
   isDockerRunningAsync,
   isRunnerImageAvailableAsync,

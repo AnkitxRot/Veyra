@@ -50,7 +50,6 @@ function editorEl(attention: AttentionEvent[]) {
     collaborators: [],
     currentUserId: 1,
     attention,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 

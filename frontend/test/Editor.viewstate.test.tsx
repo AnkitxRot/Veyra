@@ -33,7 +33,6 @@ function el(
     collaborators: [],
     currentUserId: 1,
     editorViewApiRef: viewRef,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 

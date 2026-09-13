@@ -222,7 +222,6 @@ async function runExecutionBenchmarks() {
 
     const success = burstResults.filter((r) => r.status === 200);
     const latencies = burstResults.map((r) => r.elapsedMs).sort((a, b) => a - b);
-    const successLatencies = success.map((r) => r.elapsedMs).sort((a, b) => a - b);
 
     const report = {
       timestamp: new Date().toISOString(),

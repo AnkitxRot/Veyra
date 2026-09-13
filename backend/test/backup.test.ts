@@ -267,6 +267,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       };
 
       const b2 = await createDatabaseBackup(db, tightByteCfg);
+      void b2;
       const b3 = await createDatabaseBackup(db, tightByteCfg);
 
       const list = await listDatabaseBackups(tightByteCfg);

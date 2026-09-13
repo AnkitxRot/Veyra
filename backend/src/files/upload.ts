@@ -1,11 +1,10 @@
-import { promises as fs, constants } from 'node:fs';
-import { dirname, join, normalize, relative, resolve } from 'node:path';
+import { promises as fs } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Request } from 'express';
 import type { Db } from '../db.js';
 import type { AppConfig } from '../config.js';
 import { ApiError } from '../errors.js';
-import { requireOwnedProject, workspacePath, projectDir, touchProject } from '../projects/service.js';
+import { requireOwnedProject, workspacePath, touchProject } from '../projects/service.js';
 import { safeResolve, assertInsideWorkspace, invalidateTreeCache } from './service.js';
 import { collaborationManager } from '../collab/manager.js';
 import { recordAuditLog } from '../audit.js';
@@ -270,15 +269,23 @@ export async function uploadProjectFiles(
   touchProject(db, project.id);
 
   // Sync open collab buffers if text
+  const conflictedPaths: string[] = [];
   const mutatedRelPaths: string[] = [];
   for (const item of normalizedItems) {
     try {
       const isLikelyText = !item.buffer.includes(0);
       if (isLikelyText) {
         const textContent = item.buffer.toString('utf8');
-        await collaborationManager.notifyExternalFileMutation(project.id, item.relDest, textContent);
+        const mutation = await collaborationManager.notifyExternalFileMutation(
+          project.id,
+          item.relDest,
+          textContent,
+        );
+        if (mutation.conflict) conflictedPaths.push(item.relDest);
       }
-    } catch {}
+    } catch {
+      // A single-file notify failure must not roll back files already on disk.
+    }
     mutatedRelPaths.push(item.relDest);
   }
 
@@ -310,6 +317,15 @@ export async function uploadProjectFiles(
       },
     });
   } catch {}
+
+  if (conflictedPaths.length > 0) {
+    throw new ApiError(
+      409,
+      "One or more uploaded files have unsaved changes from another collaborator in the live session. Their edits were preserved.",
+      "collab_external_conflict",
+      { conflictedPaths },
+    );
+  }
 
   return {
     ok: true,

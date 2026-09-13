@@ -12,10 +12,9 @@
  * Does NOT modify production code or admission semantics.
  */
 
-import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import { bootstrapLoadTestServer } from "./server.js";
 import { isDockerRunningAsync, isRunnerImageAvailableAsync } from "../src/tools.js";
@@ -432,9 +431,6 @@ function simulateSchedulingStrategies(
 
   // C=40 analysis: how many are rejected because maxSandboxes=20?
   const c40Rejections = c40Data?.rejections ?? 0;
-  const c40Successes = c40Data
-    ? c40Data.results.filter((r) => r.success).length
-    : 0;
 
   return {
     currentImmediate: {

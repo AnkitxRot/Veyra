@@ -40,6 +40,20 @@ function makeMockWs() {
   } as any;
 }
 
+async function waitUntil(
+  predicate: () => boolean,
+  label: string,
+  timeoutMs = 8000,
+): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`timed out waiting for ${label}`);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 /**
  * Builds a real MESSAGE_AWARENESS frame the way an actual client would:
  * a throwaway Y.Doc + Awareness instance represents "the client's own Yjs
@@ -1844,12 +1858,14 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const rmGate = new Promise<void>((resolve) => {
       releaseRm = resolve;
     });
+    let rmEntered = false;
     const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      rmEntered = true;
       await rmGate;
     });
 
     const deletePromise = deleteProject(cfg, db, 1, project.id);
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => rmEntered, "fs.rm");
 
     // The first dispose already ran and removed preRoom...
     expect(collaborationManager.getRoom(project.id)).toBeUndefined();
@@ -1907,12 +1923,14 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const rmGate = new Promise<void>((resolve) => {
       releaseRm = resolve;
     });
+    let rmEntered = false;
     const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      rmEntered = true;
       await rmGate;
     });
 
     const deletePromise = deleteProject(cfg, db, 1, project.id);
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => rmEntered, "fs.rm");
 
     // Race-created room, plus a real collaborative edit sent into it while
     // the project row is still (briefly) visible — exactly the scenario
@@ -2034,7 +2052,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const rmGate = new Promise<void>((resolve) => {
       releaseRm = resolve;
     });
+    let rmEntered = false;
     const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      rmEntered = true;
       await rmGate;
     });
 
@@ -2047,7 +2067,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const importPromise = importProjectZip(cfg, db, 1, project.id, zip, {
       replace: true,
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => rmEntered, "fs.rm");
 
     // The first dispose already ran (nothing was registered before this
     // test's own race room, so nothing to observe there directly) -- the
@@ -2104,7 +2124,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const rmGate = new Promise<void>((resolve) => {
       releaseRm = resolve;
     });
+    let rmEntered = false;
     const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      rmEntered = true;
       await rmGate;
     });
 
@@ -2117,7 +2139,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const importPromise = importProjectZip(cfg, db, 1, project.id, zip, {
       replace: true,
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => rmEntered, "fs.rm");
 
     // Race-created room, loaded with stale content, plus a REAL
     // collaborative edit sent into it before the import finishes -- exactly
@@ -2172,7 +2194,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const rmGate = new Promise<void>((resolve) => {
       releaseRm = resolve;
     });
+    let rmEntered = false;
     const rmSpy = vi.spyOn(fs, "rm").mockImplementation(async () => {
+      rmEntered = true;
       await rmGate;
     });
 
@@ -2185,7 +2209,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const importPromise = importProjectZip(cfg, db, 1, project.id, zip, {
       replace: true,
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => rmEntered, "fs.rm");
 
     // Step 2: the first dispose already ran -- the old client is gone, not
     // preserved. There is no such thing as a client that "remains

@@ -31,7 +31,6 @@ function el(resolvedTheme: "dark" | "light", openFiles: unknown[], activeFile: s
     isReadOnly: false,
     collaborators: [],
     currentUserId: 1,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 

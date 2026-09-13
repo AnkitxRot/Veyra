@@ -69,7 +69,9 @@ export interface ReplaceResponse {
 }
 
 const DEFAULT_MAX_RESULTS = 500;
+const MAX_RESULTS_CAP = 2000;
 const MAX_REPLACE_FILE_CHARS = 5_000_000;
+const MAX_SEARCH_FILE_BYTES = 5_000_000;
 
 // Matches the worker's own internal budget below plus a small margin: the
 // worker should normally finish (or self-truncate) within its own budget,
@@ -93,13 +95,14 @@ const WORKER_HARD_TIMEOUT_MS = 9000;
  * `require(...)` here instead of `import`.
  */
 const WORKER_SOURCE = `
-const { readdirSync, readFileSync } = require('node:fs');
+const { readdirSync, readFileSync, statSync } = require('node:fs');
 const { join, relative } = require('node:path');
 const { parentPort, workerData } = require('node:worker_threads');
 
 const MAX_LINE_LENGTH_FOR_MATCH = 4000;
 const MAX_SEARCH_DURATION_MS = 8000;
-const MAX_REPLACE_FILE_CHARS = 5000000;
+const MAX_REPLACE_FILE_CHARS = ${MAX_REPLACE_FILE_CHARS};
+const MAX_SEARCH_FILE_BYTES = ${MAX_SEARCH_FILE_BYTES};
 
 const IGNORE_DIRS = new Set([
   '.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.venv', '__pycache__', '.cache',
@@ -207,6 +210,13 @@ function run(workspaceDir, options, regex, mode) {
         if (excludeRegex && (excludeRegex.test(relPath) || excludeRegex.test(name))) continue;
 
         filesSearched++;
+
+        try {
+          const st = statSync(fullPath);
+          if (st.size > MAX_SEARCH_FILE_BYTES) continue;
+        } catch {
+          continue;
+        }
 
         let content;
         try {
@@ -396,7 +406,10 @@ async function runContentWorker<
         workspaceDir,
         options: {
           ...options,
-          maxResults: options.maxResults ?? DEFAULT_MAX_RESULTS,
+          maxResults: Math.min(
+            Math.max(1, Number(options.maxResults) || DEFAULT_MAX_RESULTS),
+            MAX_RESULTS_CAP,
+          ),
         },
         patternSource,
         patternFlags,

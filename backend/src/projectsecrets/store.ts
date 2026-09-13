@@ -30,10 +30,13 @@ export const SECRET_SCOPE_PROJECT = "project";
  *  run/terminal environments. */
 export const GIT_HTTPS_USERNAME_SECRET = "GIT_HTTPS_USERNAME";
 export const GIT_HTTPS_TOKEN_SECRET = "GIT_HTTPS_TOKEN";
+/** Host the stored PAT is pinned to. Never injected; write-only. */
+export const GIT_HTTPS_HOST_SECRET = "GIT_HTTPS_HOST";
 
 const NON_INJECTABLE_SECRET_NAMES = new Set([
   GIT_HTTPS_USERNAME_SECRET,
   GIT_HTTPS_TOKEN_SECRET,
+  GIT_HTTPS_HOST_SECRET,
 ]);
 
 const MAX_NAME_LEN = 128;

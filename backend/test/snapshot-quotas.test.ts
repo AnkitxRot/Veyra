@@ -22,7 +22,6 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
   let api: TestApi;
   let db: Db;
   let userId: number;
-  let userToken: string;
 
   beforeEach(async () => {
     cfg = makeTestConfig({
@@ -37,7 +36,6 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
       body: { username: "snap_user_1", password: "password123" },
     });
     userId = reg.data.user.id;
-    userToken = reg.data.token;
   });
 
   afterEach(async () => {
@@ -136,13 +134,16 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
 
       // Write ~500 byte files
       await writeProjectFile(wsDir, "data.txt", "A".repeat(400));
-      const s1 = await createSnapshot(smallByteCfg, smallApi.db, uId, project.id, "S1");
+      const _s1 = await createSnapshot(smallByteCfg, smallApi.db, uId, project.id, "S1");
+      void _s1;
 
       await writeProjectFile(wsDir, "data.txt", "B".repeat(400));
-      const s2 = await createSnapshot(smallByteCfg, smallApi.db, uId, project.id, "S2");
+      const _s2 = await createSnapshot(smallByteCfg, smallApi.db, uId, project.id, "S2");
+      void _s2;
 
       await writeProjectFile(wsDir, "data.txt", "C".repeat(400));
-      const s3 = await createSnapshot(smallByteCfg, smallApi.db, uId, project.id, "S3");
+      const _s3 = await createSnapshot(smallByteCfg, smallApi.db, uId, project.id, "S3");
+      void _s3;
 
       // Adding S4 should evict S1 and/or S2 to stay under 2000 bytes
       await writeProjectFile(wsDir, "data.txt", "D".repeat(400));
@@ -193,6 +194,7 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
 
     await writeProjectFile(wsDir, "main.py", "print('v4')\n");
     const s4 = await createSnapshot(cfg, db, userId, project.id, "S4");
+    void s4;
 
     // S1 was evicted. Restore S3.
     await restoreSnapshot(cfg, db, userId, project.id, s3.id);

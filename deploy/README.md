@@ -164,10 +164,12 @@ repository). No configuration is required.
   rejected. Git LFS, submodules, force-push, merge, and rebase are not
   supported.
 - **Credentials.** HTTPS PATs/passwords are stored as reserved M47 project
-  secrets (`GIT_HTTPS_USERNAME`, `GIT_HTTPS_TOKEN`): encrypted at rest,
-  owner-set, never returned by the API, never written into `.git/config` or
-  the remote URL, never placed on a Git argv, never injected into
-  run/terminal environments, and never copied on export/fork. Git is
+  secrets (`GIT_HTTPS_USERNAME`, `GIT_HTTPS_TOKEN`, `GIT_HTTPS_HOST`):
+  encrypted at rest, owner-set, never returned by the API, never written into
+  `.git/config` or the remote URL, never placed on a Git argv, never injected
+  into run/terminal environments, and never copied on export/fork. The host
+  pin stops a stored PAT from being presented after `origin` is pointed at a
+  different host (API replace or a terminal `git remote set-url`). Git is
   authenticated via a transient askpass helper (0600 files outside the
   workspace). Unset `SECRETS_MASTER_KEY` makes credentialed operations fail
   closed.

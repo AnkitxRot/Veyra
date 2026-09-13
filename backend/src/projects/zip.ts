@@ -1,6 +1,6 @@
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { promises as fs } from "node:fs";
-import { join, dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { ApiError } from "../errors.js";
 import type { AppConfig } from "../config.js";
 

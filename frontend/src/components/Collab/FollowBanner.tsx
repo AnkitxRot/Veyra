@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import type { CollaboratorPresence } from "../../collab/client";
 import { displayLabel } from "../../collab/presence";
-import { IconClose, IconUsers } from "../common/Icons";
+import { IconClose } from "../common/Icons";
 import UserAvatar from "../common/UserAvatar";
 
 export interface FollowBannerProps {

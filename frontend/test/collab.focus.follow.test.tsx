@@ -378,8 +378,8 @@ describe("M59 — attention → focus handoff (Decision: acting ends current fol
   });
 
   it("IDE resolves the clicked id against the live attention list", () => {
-    const blk = block(ideSrc, 'document.addEventListener("ide-attention-activate"', 60);
     expect(ideSrc).toContain("attentionRef.current.find");
+    expect(ideSrc).toContain('document.addEventListener("ide-attention-activate"');
   });
 });
 

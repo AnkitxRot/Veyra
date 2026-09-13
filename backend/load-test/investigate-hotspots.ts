@@ -397,12 +397,12 @@ async function runFilesystemDecomposition() {
 
       // Measure tree()
       const t0 = performance.now();
-      const treeResult = await tree(pDir);
+      await tree(pDir);
       const t1 = performance.now();
 
       // Measure listFiles()
       const t2 = performance.now();
-      const listResult = await listFiles(pDir);
+      await listFiles(pDir);
       const t3 = performance.now();
 
       results[p.name] = {

@@ -135,11 +135,26 @@ export default function SourceControlPanel({
   // Project-switch isolation: a stale in-flight refresh must never paint
   // another project's repository state.
   const genRef = useRef(0);
+  const toastTimerRef = useRef<number | null>(null);
 
   const flashToast = (msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 4000);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      setToast((t) => (t === msg ? null : t));
+    }, 4000);
   };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   const refreshAll = useCallback(async () => {
     if (!projectId) return;

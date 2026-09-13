@@ -156,6 +156,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           upsertGitHttpsCredentials(db, cfg, project.id, {
             username: creds.username,
             token: creds.token,
+            host: httpsRemoteHost(url),
             createdBy: user.id,
           });
         }

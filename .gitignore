@@ -177,3 +177,6 @@
 *.lz
 *.lzma
 *.iso
+
+# Local toolchain caches (never part of the Veyra source tree)
+.tools/

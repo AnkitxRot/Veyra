@@ -654,6 +654,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
           newRole,
           userId,
         );
+        invalidateCachedSessionsForUser(userId);
 
         recordAuditLog(db, {
           userId: req.user?.id,

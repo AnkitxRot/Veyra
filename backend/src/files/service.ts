@@ -167,7 +167,7 @@ export function invalidateTreeCache(root?: string): void {
   }
 }
 
-async function doTree(root: string): Promise<TreeNode[]> {
+async function doTree(root: string, prefix = ""): Promise<TreeNode[]> {
   let entries;
   try {
     entries = await fs.readdir(root, { withFileTypes: true });
@@ -189,11 +189,11 @@ async function doTree(root: string): Promise<TreeNode[]> {
     filtered,
     8,
     async (e): Promise<TreeNode | null> => {
-      const relPath = e.name;
-      const abs = join(root, relPath);
+      const relPath = prefix ? `${prefix}/${e.name}` : e.name;
+      const abs = join(root, e.name);
       if (e.isDirectory()) {
         if (SKIP_DIRS.has(e.name)) return null;
-        const children = await doTree(abs);
+        const children = await doTree(abs, relPath);
         return { name: e.name, path: relPath, type: "dir", children };
       } else if (e.isFile()) {
         try {

@@ -131,6 +131,7 @@ describe("M80 — HTTPS remote URL validator", () => {
       "https://github.com/org/repo.git?foo=1",
       "https://github.com/org/repo.git#branch",
       "https://github.com/org/repo.git\nhttps://evil.test",
+      "https://github.com/org/repo.git\u0000.git",
       "https://github.com\\org\\repo.git",
     ]) {
       expectCode(
@@ -166,6 +167,16 @@ describe("M80 — HTTPS remote URL validator", () => {
     expect(
       sanitizeRemoteUrlForClient("https://user:supersecret@github.com/org/repo.git"),
     ).not.toContain("user:");
+    expect(
+      sanitizeRemoteUrlForClient(
+        "https://github.com/org/repo.git?access_token=supersecret",
+      ),
+    ).not.toContain("supersecret");
+    expect(
+      sanitizeRemoteUrlForClient(
+        "https://github.com/org/repo.git?access_token=supersecret",
+      ),
+    ).not.toContain("?");
   });
 });
 
