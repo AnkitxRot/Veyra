@@ -9661,7 +9661,10 @@ editor role.
 security, WS authz. Docker-backed (CI-required): real debugpy and
 js-debug in the sandbox, env leakage, path escape, TypeScript source
 maps. Playwright (CI-required when the runner image exists): browser →
-Monaco → `/ws/debug` → sandbox → real adapters.
+Monaco → `/ws/debug` → sandbox → real adapters. Python pause/variables/continue
+is PROVEN in Playwright. Node js-debug pause/variables/continue is PROVEN in
+Docker; the Playwright Node coverage is launch + stop (PARTIAL) because the
+Monaco session stays Running while the same adapter pauses under FakeSock.
 
 **Deferred:** Java debugger, C/C++ debugger, profiler, remote debugging,
 collaborative debugger control, time-travel, conditional breakpoint UI,

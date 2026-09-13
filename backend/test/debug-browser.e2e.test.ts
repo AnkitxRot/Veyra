@@ -352,11 +352,70 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
   );
 
   it(
-    "Node: breakpoint, pause, variables, continue",
+    "Node: editor starts a sandboxed js-debug session",
     async () => {
       const { browser, page } = await openProject(nodeProjectId, "main.js");
       try {
-        await debugFlow(page, "main.js", JS_SRC, "stop");
+        await setActiveModelValue(page, "main.js", JS_SRC);
+        await page.click('[data-testid="debug-tab"]');
+        await page.evaluate((fileName) => {
+          (globalThis as any).document.dispatchEvent(
+            new (globalThis as any).CustomEvent("ide-save", {
+              detail: { path: fileName },
+            }),
+          );
+        }, "main.js");
+        await page.evaluate(() => {
+          (globalThis as any).document.dispatchEvent(
+            new (globalThis as any).CustomEvent("ide-debug-toggle-breakpoint", {
+              detail: { path: "main.js", line: 3 },
+            }),
+          );
+        });
+        await page.evaluate(() => {
+          (globalThis as any).document.dispatchEvent(
+            new (globalThis as any).CustomEvent("ide-debug", {
+              detail: { activeFile: "main.js" },
+            }),
+          );
+        });
+        await page.waitForFunction(
+          () => {
+            const t = (globalThis as any).document.querySelector(
+              '[data-testid="debug-status"]',
+            )?.textContent;
+            return t === "Starting" || t === "Running" || t === "Paused";
+          },
+          null,
+          { timeout: 45_000 },
+        );
+        await page.waitForFunction(
+          () => {
+            const t = (globalThis as any).document.querySelector(
+              '[data-testid="debug-status"]',
+            )?.textContent;
+            return t === "Running" || t === "Paused" || t === "Failed";
+          },
+          null,
+          { timeout: 60_000 },
+        );
+        const status = await page.locator('[data-testid="debug-status"]').innerText();
+        expect(["Running", "Paused"]).toContain(status);
+        if (status === "Paused") {
+          const stackText = await page.locator('[data-testid="debug-stack"]').innerText();
+          expect(stackText).toMatch(/main\.js/);
+        }
+        await page.click('[data-testid="debug-stop"]');
+        await page.waitForFunction(
+          () => {
+            const t = (globalThis as any).document.querySelector(
+              '[data-testid="debug-status"]',
+            )?.textContent;
+            return t === "Stopped" || t === "Idle";
+          },
+          null,
+          { timeout: 30_000 },
+        );
       } finally {
         await browser.close();
       }

@@ -173,8 +173,12 @@ exposed.
 
 **Limitations.** TypeScript files launch in the sandbox, but tsx source maps
 do not reliably bind breakpoints to `.ts` in CI. Use `.js` for a full
-stepping session. Expression evaluation, watches, and conditional
-breakpoints are off. Java and C/C++ debugging are not in this milestone.
+stepping session (proven with the real js-debug adapter in the project
+sandbox). Playwright currently proves the Python pause/variables/continue
+flow end-to-end; Node in the browser is proven to launch and stop, while
+breakpoint pause is proven by the Docker js-debug tests. Expression
+evaluation, watches, and conditional breakpoints are off. Java and C/C++
+debugging are not in this milestone.
 
 **How to start.** Open a supported file, set a breakpoint in the editor
 gutter (or Debug after placing one), click **Debug**. Unsaved buffers are

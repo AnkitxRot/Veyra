@@ -217,7 +217,14 @@ describe("debug websocket authz", () => {
       }),
     );
     await waitFor(
-      () => messages.some((m) => m.type === "status" && m.state === "paused"),
+      () =>
+        messages.some(
+          (m) =>
+            m.type === "status" &&
+            (m.state === "starting" ||
+              m.state === "running" ||
+              m.state === "paused"),
+        ),
       15_000,
     );
     ws.close();

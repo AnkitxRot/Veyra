@@ -410,11 +410,7 @@ export class DebugSession {
     await this.dapRequest("configurationDone", {}, bootMs);
     await launchPromise;
     this.clearStartupTimer();
-    const threadDeadline = this.now() + Math.min(10_000, bootMs);
-    while (this.now() < threadDeadline && this.state === "starting") {
-      if (await this.refreshThreadId()) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    await this.refreshThreadId();
     if (this.state === "starting") {
       this.setState("running");
     }
@@ -579,7 +575,7 @@ export class DebugSession {
 
   private async refreshThreadId(): Promise<boolean> {
     try {
-      const result = (await this.dapRequest("threads", {})) as {
+      const result = (await this.dapRequest("threads", {}, 1_500)) as {
         threads?: { id?: number }[];
       };
       const threads = Array.isArray(result?.threads) ? result.threads : [];
