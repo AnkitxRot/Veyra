@@ -7,6 +7,7 @@ import type { AppConfig } from "../config.js";
 import { requireProjectAccess } from "../projects/service.js";
 import { handleTerminalConnection } from "./terminal.js";
 import { handleExecutionConnection } from "./execution.js";
+import { handleLspConnection } from "../lsp/ws.js";
 import { hashToken } from "../auth/middleware.js";
 import { AdminTelemetryStreamManager } from "../admin/telemetry-stream.js";
 import { collaborationManager } from "../collab/manager.js";
@@ -422,6 +423,27 @@ export function setupWebSocketServer(
             console.error("[ws] execution connection error:", err);
             ws.close();
           });
+        });
+      } else if (pathname === "/ws/lsp") {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          adoptClient(ws, {
+            pathname: pathname ?? undefined,
+            userId: String(row.id),
+          });
+          registerConnection(row.id, ws);
+          ws.on("close", () => unregisterConnection(row.id, ws));
+          ws.on("error", (err) => {
+            console.error("[ws] lsp socket error:", err);
+            unregisterConnection(row.id, ws);
+          });
+          const language =
+            typeof query.language === "string" ? query.language : "";
+          handleLspConnection(ws, projectId, language, row.id, cfg).catch(
+            (err) => {
+              console.error("[ws] lsp connection error:", err);
+              ws.close();
+            },
+          );
         });
       } else {
         socket.write("HTTP/1.1 404 Not Found\r\n\r\n");

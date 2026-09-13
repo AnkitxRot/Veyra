@@ -132,6 +132,12 @@ import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
 import { appendOpenFile } from "../../utils/openFiles";
 import {
+  LSP_DIAGNOSTICS_EVENT,
+  LSP_OPEN_REVEAL_EVENT,
+  LSP_STATUS_EVENT,
+  type LspStatus,
+} from "../../lsp/types";
+import {
   readProjectSession,
   writeProjectSession,
   getLastProjectId,
@@ -253,6 +259,8 @@ export default function IDE({
   // M2: Full Workspace Search & Problems Diagnostics States
   const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
+  const [lspDiagnostics, setLspDiagnostics] = useState<Diagnostic[]>([]);
+  const [lspStatus, setLspStatus] = useState<LspStatus | null>(null);
   // M22: User Preferences & Editor Settings States
   const [preferences, setPreferences] =
     useState<UserPreferences>(DEFAULT_PREFERENCES);
@@ -2704,6 +2712,41 @@ export default function IDE({
       );
   }, [setIsBottomCollapsed]);
 
+  useEffect(() => {
+    const onStatus = (e: Event) => {
+      const status = (e as CustomEvent).detail as LspStatus | undefined;
+      if (!status) return;
+      setLspStatus(status.state === "stopped" ? null : status);
+    };
+    const onDiags = (e: Event) => {
+      const diagnostics = (e as CustomEvent).detail?.diagnostics as
+        | Diagnostic[]
+        | undefined;
+      setLspDiagnostics(Array.isArray(diagnostics) ? diagnostics : []);
+    };
+    const onReveal = (e: Event) => {
+      const d = (e as CustomEvent).detail as {
+        filePath?: string;
+        line?: number;
+        column?: number;
+      };
+      if (!d?.filePath) return;
+      void openAndRevealLocation(handleOpenFile, {
+        filePath: d.filePath,
+        line: d.line || 1,
+        column: d.column,
+      });
+    };
+    document.addEventListener(LSP_STATUS_EVENT, onStatus);
+    document.addEventListener(LSP_DIAGNOSTICS_EVENT, onDiags);
+    document.addEventListener(LSP_OPEN_REVEAL_EVENT, onReveal);
+    return () => {
+      document.removeEventListener(LSP_STATUS_EVENT, onStatus);
+      document.removeEventListener(LSP_DIAGNOSTICS_EVENT, onDiags);
+      document.removeEventListener(LSP_OPEN_REVEAL_EVENT, onReveal);
+    };
+  }, [handleOpenFile]);
+
   // M5: AI Action Trigger Handler
   const handleTriggerAIAction = useCallback(
     async (
@@ -3306,8 +3349,13 @@ export default function IDE({
     setBottomHeight,
   ]);
 
-  const errorCount = diagnostics.filter((d) => d.severity === "error").length;
-  const warningCount = diagnostics.filter(
+  const problemDiagnostics = useMemo(
+    () => [...diagnostics, ...lspDiagnostics],
+    [diagnostics, lspDiagnostics],
+  );
+  const errorCount = problemDiagnostics.filter((d) => d.severity === "error")
+    .length;
+  const warningCount = problemDiagnostics.filter(
     (d) => d.severity === "warning",
   ).length;
 
@@ -3388,6 +3436,7 @@ export default function IDE({
           onOpenTeamPanel={() => setTeamPanelOpen((v) => !v)}
           incomingRequestCount={incomingRequestCount}
           attention={attention}
+          lspStatus={lspStatus}
         />
         {user && (
           <AttentionTray
@@ -3631,7 +3680,7 @@ export default function IDE({
                     }
                   />
                   <span>Problems</span>
-                  {diagnostics.length > 0 && (
+                  {problemDiagnostics.length > 0 && (
                     <span
                       className={`glass-badge ${errorCount > 0 ? "glass-badge-error" : "glass-badge-warning"}`}
                       style={{
@@ -3640,7 +3689,7 @@ export default function IDE({
                         marginLeft: "4px",
                       }}
                     >
-                      {diagnostics.length}
+                      {problemDiagnostics.length}
                     </span>
                   )}
                 </button>
@@ -3750,7 +3799,7 @@ export default function IDE({
                 )}
                 {bottomTab === "problems" && (
                   <ProblemsPanel
-                    diagnostics={diagnostics}
+                    diagnostics={problemDiagnostics}
                     onSelectDiagnostic={(filePath, line, column) => {
                       // The diagnostic's file may not be an open tab (an error
                       // in a file the user never opened). Open it first —
@@ -3761,7 +3810,10 @@ export default function IDE({
                         column,
                       });
                     }}
-                    onClearDiagnostics={() => setDiagnostics([])}
+                    onClearDiagnostics={() => {
+                      setDiagnostics([]);
+                      setLspDiagnostics([]);
+                    }}
                     onExplainDiagnostic={(diag) => {
                       handleTriggerAIAction("explain", {
                         path: diag.filePath,

@@ -15,6 +15,7 @@ import {
 import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
 import { RunGate } from "./runGate.js";
 import { terminalSessions } from "./terminalSessions.js";
+import { languageServers } from "../lsp/manager.js";
 import {
   renderSecretsEnvFile,
   secretsExecPrefix,
@@ -556,6 +557,9 @@ export class SandboxManager {
     try {
       terminalSessions.reapProject(projectId);
     } catch {}
+    try {
+      languageServers.disposeProject(projectId);
+    } catch {}
     const info = this.projectContainers.get(projectId);
     const cid = info ? info.containerId : `ide-sandbox-${projectId}`;
     try {
@@ -616,6 +620,9 @@ export class SandboxManager {
     // M79: graceful shutdown — kill every detached terminal PTY too.
     try {
       terminalSessions.disposeAll();
+    } catch {}
+    try {
+      languageServers.disposeAll("sandbox_cleanup");
     } catch {}
     for (const info of this.projectContainers.values()) {
       if (info.ownerId !== undefined) sandboxGate.release(info.ownerId);

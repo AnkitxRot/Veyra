@@ -137,6 +137,9 @@ export interface Capabilities {
     'g++': boolean;
     jdk: boolean;
   };
+  languageServers: {
+    python: boolean;
+  };
 }
 
 export async function getSystemCapabilitiesAsync(): Promise<Capabilities> {
@@ -162,7 +165,10 @@ export async function getSystemCapabilitiesAsync(): Promise<Capabilities> {
       gcc: hasToolchains,
       'g++': hasToolchains,
       jdk: hasToolchains
-    }
+    },
+    languageServers: {
+      python: hasToolchains,
+    },
   };
 }
 
@@ -189,6 +195,9 @@ export function getSystemCapabilities(): Capabilities {
       gcc: hasToolchains,
       'g++': hasToolchains,
       jdk: hasToolchains
-    }
+    },
+    languageServers: {
+      python: hasToolchains,
+    },
   };
 }

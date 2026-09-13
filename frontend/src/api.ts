@@ -64,6 +64,9 @@ export interface Capabilities {
     "g++": boolean;
     jdk: boolean;
   };
+  languageServers: {
+    python: boolean;
+  };
 }
 
 export async function getCapabilities(): Promise<Capabilities> {

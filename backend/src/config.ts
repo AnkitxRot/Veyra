@@ -55,6 +55,15 @@ export interface AppConfig {
    *  client of the same user before it is reaped. Must sit above the client
    *  reconnect ceiling and below the sandbox room-empty grace. */
   terminalDetachGraceMs: number;
+  /** M81 — global cap on live language-server processes. */
+  maxLspServers: number;
+  /** M81 — per-project cap (M81 is one language). */
+  maxLspServersPerProject: number;
+  lspIdleTimeoutMs: number;
+  lspStartupTimeoutMs: number;
+  lspRestartWindowMs: number;
+  lspMaxRestarts: number;
+  lspMessageMaxBytes: number;
   shutdownGraceMs: number;
   frontendDist: string;
   containerized: boolean;
@@ -292,6 +301,42 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       boundedIntEnv("TERMINAL_DETACH_GRACE_MS", 90_000, {
         min: 5_000,
         max: 600_000,
+      }),
+    // M81 — language servers are long-lived sandbox processes. 8 concurrent
+    // pylsp processes is a hard ceiling under the default 20-sandbox host
+    // cap; idle sessions are evicted first when the ceiling is hit.
+    maxLspServers:
+      overrides.maxLspServers ??
+      boundedIntEnv("MAX_LSP_SERVERS", 8, { min: 1, max: 64 }),
+    maxLspServersPerProject:
+      overrides.maxLspServersPerProject ??
+      boundedIntEnv("MAX_LSP_SERVERS_PER_PROJECT", 1, { min: 1, max: 8 }),
+    lspIdleTimeoutMs:
+      overrides.lspIdleTimeoutMs ??
+      boundedIntEnv("LSP_IDLE_TIMEOUT_MS", 120_000, {
+        min: 5_000,
+        max: 3_600_000,
+      }),
+    lspStartupTimeoutMs:
+      overrides.lspStartupTimeoutMs ??
+      boundedIntEnv("LSP_STARTUP_TIMEOUT_MS", 15_000, {
+        min: 1_000,
+        max: 120_000,
+      }),
+    lspRestartWindowMs:
+      overrides.lspRestartWindowMs ??
+      boundedIntEnv("LSP_RESTART_WINDOW_MS", 60_000, {
+        min: 1_000,
+        max: 600_000,
+      }),
+    lspMaxRestarts:
+      overrides.lspMaxRestarts ??
+      boundedIntEnv("LSP_MAX_RESTARTS", 3, { min: 0, max: 20 }),
+    lspMessageMaxBytes:
+      overrides.lspMessageMaxBytes ??
+      boundedIntEnv("LSP_MESSAGE_MAX_BYTES", 1024 * 1024, {
+        min: 16_384,
+        max: 4 * 1024 * 1024,
       }),
     // Defaults mirror collab/manager.ts's DEFAULT_* constants — duplicated
     // here as literals rather than imported, to keep this foundational

@@ -16,6 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install tsx globally for TypeScript execution
 RUN npm install -g tsx typescript
 
+# M81 — Python language server. Isolated venv so it cannot shadow the
+# system interpreter used for user runs. Pinned; never a floating "latest".
+RUN python3 -m venv /opt/lsp \
+ && /opt/lsp/bin/pip install --upgrade pip \
+ && /opt/lsp/bin/pip install --no-cache-dir \
+      'python-lsp-server[pyflakes,pycodestyle]==1.12.2'
+ENV PATH="/opt/lsp/bin:${PATH}"
+
 # The workspace .git is created by the backend process; inside this already
 # isolated sandbox the terminal git must operate on it regardless of which
 # uid owns the files. The sandbox container IS the security boundary here.

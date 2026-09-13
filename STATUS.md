@@ -102,19 +102,12 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
     - `ce2007c` — new projects runnable by default: 9 self-contained starter
       templates, each with a detector-recognised entry file that auto-opens
       after creation; `validateTemplates()` module-load fail-fast.
-- **Current work (this commit):** M80 stabilization on top of `95d0679`.
-  HTTPS remotes are unchanged in product scope. This pass:
-  - makes backend lint CI-green by replacing the control-character regex
-    in `backend/src/git/remoteUrl.ts` with a `charCodeAt` loop (the
-    `no-control-regex` rule stays enforced);
-  - host-pins Git HTTPS credentials (`GIT_HTTPS_HOST`) so a PAT cannot
-    follow `origin` onto a different host;
-  - strips query strings from client-visible remote URLs;
-  - fixes nested file-tree paths, upload collab conflicts, collab
-    dispose/`addClient` races, terminal logout reaping, proxy/tree cache
-    eviction on project delete, and a few frontend listener/timer leaks.
-  See **M80 stabilization** below. Historical M80 verification numbers
-  remain in the Milestone 80 section.
+  - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
+    sections. HEAD before this work: `e9a5350`.
+- **Current work (this commit):** M81 Language Intelligence. Python-only
+  first slice: a project-scoped `pylsp` process inside the existing Docker
+  sandbox, bridged to Monaco over `/ws/lsp`. See **Milestone 81** at the
+  end of this file.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9457,3 +9450,84 @@ path; commits 15–16 do not alter observable happy-path behaviour (both the
 full Docker-backed backend suite and the frontend suite confirm no
 regression). No fresh live pass was run for these two commits — stated here
 rather than implied.
+
+## Milestone 81 — Language Intelligence
+
+**Objective:** first live language-server slice for Veyra without a new
+daemon, without rewriting Monaco/Yjs, and without making the editor depend
+on LSP availability.
+
+**Slice.** Python only (`pylsp` from pinned `python-lsp-server==1.12.2` in
+`docker/Dockerfile.runner`, venv `/opt/lsp`). Java JDT LS and clangd were
+rejected for image size and startup cost. The allowlist in
+`backend/src/lsp/languages.ts` is the only way to add a language.
+
+**Architecture.**
+
+```text
+Monaco providers (once per browser process)
+  → /ws/lsp?projectId=&language=python
+  → LanguageServerManager (one LspSession per project+python)
+  → docker exec -i -u ide -w /workspace <sandbox> pylsp
+```
+
+- Process lives **inside the project sandbox**, not on the app host.
+- Executable and argv come from the server allowlist, never the client.
+- Document URIs must be under `file:///workspace/…`; others are dropped.
+- `workspace/executeCommand`, client `initialize`/`shutdown`/`exit` are
+  blocked. Backend owns initialize.
+- Environment inside the container is explicit (`HOME=/tmp`, XDG_*,
+  `PYTHONUNBUFFERED`) — no Git PAT, no `SECRETS_MASTER_KEY`, no host env.
+- Host `docker` CLI env is a PATH/DOCKER_* allowlist, not `process.env`.
+- No SQLite/Yjs storage of LSP state.
+
+**Editor.** `useLanguageIntelligence` connects when a project has an open
+`.py` / `.pyi` file. `didChange` is throttled (200ms) from the live Monaco
+model, not from disk. Diagnostics use Monaco marker owner `lsp`, separate
+from post-run `cloudeee-problems`. Providers no-op when the bridge is not
+`ready`. Toolbar **Py LSP** chip; Problems panel merges run + LSP
+diagnostics.
+
+**Lifecycle.** Start once per project; reuse across collaborators; idle
+reap (default 120s); startup timeout (15s) → `unavailable` without a
+restart storm; crash → bounded restart (3 / 60s) then `failed`; project
+delete / sandbox `performStop` / process shutdown dispose sessions.
+
+**Caps.** `maxLspServers=8`, `maxLspServersPerProject=1`. Hitting the
+global cap with no idle victim returns `busy`; the editor stays usable.
+
+**Authz.** `/ws/lsp` uses the same project access check as collab (viewer+).
+Unauthenticated → 401; non-member → 403; unknown language → 1008.
+
+**Proven in tests (fake stdio language server, no Docker required):**
+diagnostics, completion, hover, definition, references, document symbols,
+workspace/symbol, session reuse, project isolation, idle reap, crash cap,
+startup timeout, spawn failure, malformed frame, process cap, executeCommand
+blocked, URI escape rejected, WS authz.
+
+**Not proven against a live `pylsp` in this environment** (no Docker CLI on
+the Windows workstation). CI builds `cloudeeeide-runner:latest` which
+installs the pinned server. Treat live pylsp as CI / deployment-proven
+once Actions is green.
+
+**Deferred:** rename, Java, C++, TypeScript LSP, workspace refactor,
+client-chosen servers, debugger.
+
+**Verification (2026-09-13, outer repo `D:/cloudide`, no Docker CLI in this
+environment so Docker-dependent tests skipped as usual):**
+
+- Backend lint: 0 errors / 0 warnings
+- Frontend lint: 0 errors / 18 warnings (pre-existing exhaustive-deps /
+  react-refresh; none in M81 files)
+- Backend `tsc --noEmit`: clean
+- Frontend `tsc --noEmit`: clean
+- Frontend `vite build`: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests: **1019 passed / 0 failed** (133 files; +10 M81)
+- Backend tests: **1273 passed / 63 skipped / 0 failed** (111 files;
+  +37 M81; Docker-dependent skipped)
+- Focused M81 backend: `lsp-*.test.ts` **37 passed**
+- Focused M81 frontend: `lsp.*.test.ts(x)` **10 passed**
+- `git diff --check`: clean
+
+Live `pylsp` inside `cloudeeeide-runner` is installed by the Dockerfile
+CI job, not exercised on this Windows workstation.

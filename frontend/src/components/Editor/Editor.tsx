@@ -5,6 +5,7 @@ import { getLanguageInfo } from "../../utils/language";
 import { Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
+import { useLanguageIntelligence } from "../../hooks/useLanguageIntelligence";
 import type { CollaborationClient, CollaboratorPresence } from "../../collab/client";
 import { collaboratorsInFile, displayLabel } from "../../collab/presence";
 import {
@@ -187,6 +188,12 @@ export default function Editor({
   const onUserEditRef = useRef(onUserEdit);
   const onCreateCommentRef = useRef(onCreateComment);
   const isReadOnlyRef = useRef(isReadOnly);
+
+  useLanguageIntelligence({
+    projectId,
+    openFiles,
+    getLiveContent,
+  });
   // M69: Monaco built-in theme id for the resolved appearance. Kept in a ref
   // so the mount-time create() closure reads the current value; a later
   // change is applied in place by the effect below (never a remount).
@@ -483,6 +490,15 @@ export default function Editor({
 
         const currentPath = activeFileRef.current;
         if (!currentPath) return;
+
+        const live = getLiveContent(currentPath);
+        if (live !== null) {
+          document.dispatchEvent(
+            new CustomEvent("ide-live-content-change", {
+              detail: { path: currentPath },
+            }),
+          );
+        }
 
         setOpenFiles((prev: any) => {
           const currentFile = prev.find((f: any) => f.path === currentPath);
