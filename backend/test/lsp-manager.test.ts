@@ -372,4 +372,296 @@ describe("lsp manager lifecycle", () => {
       "malformed frame",
     );
   });
+
+  it("runs python and typescript as two sessions in one project", async () => {
+    const cfg = makeTestConfig();
+    const py = new FakeSock();
+    const ts = new FakeSock();
+    const sPy = await languageServers.attach({
+      projectId: "both",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: py,
+      workspaceDir: cfg.workspacesDir,
+    });
+    const sTs = await languageServers.attach({
+      projectId: "both",
+      language: "typescript",
+      userId: 1,
+      cfg,
+      socket: ts,
+      workspaceDir: cfg.workspacesDir,
+    });
+    expect(sPy).not.toBe(sTs);
+    expect(languageServers.sessionCount()).toBe(2);
+    await waitFor(() => py.lastStatus()?.state === "ready", 5000, "py ready");
+    await waitFor(() => ts.lastStatus()?.state === "ready", 5000, "ts ready");
+  });
+
+  it("enforces the per-project cap of two servers", async () => {
+    const cfg = makeTestConfig({ maxLspServersPerProject: 1 });
+    const a = new FakeSock();
+    const b = new FakeSock();
+    await languageServers.attach({
+      projectId: "cap",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: a,
+      workspaceDir: cfg.workspacesDir,
+    });
+    const second = await languageServers.attach({
+      projectId: "cap",
+      language: "typescript",
+      userId: 1,
+      cfg,
+      socket: b,
+      workspaceDir: cfg.workspacesDir,
+    });
+    expect(second).toBeNull();
+    expect(languageServers.sessionCount()).toBe(1);
+  });
+
+  it("does not let a second opener clobber the canonical document", async () => {
+    const cfg = makeTestConfig();
+    const a = new FakeSock();
+    const b = new FakeSock();
+    const session = await languageServers.attach({
+      projectId: "canon",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: a,
+      workspaceDir: cfg.workspacesDir,
+    });
+    await languageServers.attach({
+      projectId: "canon",
+      language: "python",
+      userId: 2,
+      cfg,
+      socket: b,
+      workspaceDir: cfg.workspacesDir,
+    });
+    await waitFor(() => a.lastStatus()?.state === "ready", 5000, "ready");
+    session!.handleClientMessage(a, {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: "file:///workspace/main.py",
+          text: "undefined_name\n",
+        },
+      },
+    });
+    await waitFor(
+      () =>
+        a.messages.some(
+          (m) =>
+            m.method === "textDocument/publishDiagnostics" &&
+            m.params?.diagnostics?.length > 0,
+        ),
+      5000,
+      "diags from A",
+    );
+    a.messages = a.messages.filter(
+      (m) => m.method !== "textDocument/publishDiagnostics",
+    );
+    session!.handleClientMessage(b, {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: "file:///workspace/main.py",
+          text: "x = 1\n",
+        },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    const cleared = a.messages.some(
+      (m) =>
+        m.method === "textDocument/publishDiagnostics" &&
+        Array.isArray(m.params?.diagnostics) &&
+        m.params.diagnostics.length === 0,
+    );
+    expect(cleared).toBe(false);
+  });
+
+  it("does not double-count refs when the same socket re-sends didOpen", async () => {
+    const cfg = makeTestConfig();
+    const sock = new FakeSock();
+    const session = await languageServers.attach({
+      projectId: "reopen",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: sock,
+      workspaceDir: cfg.workspacesDir,
+    });
+    await waitFor(() => sock.lastStatus()?.state === "ready", 5000, "ready");
+    const open = {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: "file:///workspace/main.py",
+          text: "undefined_name\n",
+        },
+      },
+    };
+    session!.handleClientMessage(sock, open);
+    session!.handleClientMessage(sock, open);
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didClose",
+      params: { textDocument: { uri: "file:///workspace/main.py" } },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    sock.messages = sock.messages.filter(
+      (m) => m.method !== "textDocument/publishDiagnostics",
+    );
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: "file:///workspace/main.py",
+          text: "x = 1\n",
+        },
+      },
+    });
+    await waitFor(
+      () =>
+        sock.messages.some(
+          (m) =>
+            m.method === "textDocument/publishDiagnostics" &&
+            m.params?.uri === "file:///workspace/main.py",
+        ),
+      5000,
+      "reopen after single close",
+    );
+  });
+
+  it("applies canonical subscribe updates as didChange", async () => {
+    const cfg = makeTestConfig();
+    const sock = new FakeSock();
+    let listener: ((text: string) => void) | null = null;
+    const source = {
+      read: () => "undefined_name\n",
+      subscribe: (_path: string, onChange: (text: string) => void) => {
+        listener = onChange;
+        return () => {
+          listener = null;
+        };
+      },
+    };
+    const session = await languageServers.attach({
+      projectId: "sub",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: sock,
+      workspaceDir: cfg.workspacesDir,
+      documentSource: source,
+    });
+    await waitFor(() => sock.lastStatus()?.state === "ready", 5000, "ready");
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: "file:///workspace/main.py",
+          text: "x = 1\n",
+        },
+      },
+    });
+    await waitFor(
+      () =>
+        sock.messages.some(
+          (m) =>
+            m.method === "textDocument/publishDiagnostics" &&
+            m.params?.diagnostics?.length > 0,
+        ),
+      5000,
+      "open diags",
+    );
+    expect(listener).not.toBeNull();
+    listener!("x = 1\n");
+    await waitFor(() => {
+      const last = [...sock.messages]
+        .reverse()
+        .find(
+          (m) =>
+            m.method === "textDocument/publishDiagnostics" &&
+            m.params?.uri === "file:///workspace/main.py",
+        );
+      return Array.isArray(last?.params?.diagnostics) && last.params.diagnostics.length === 0;
+    }, 5000, "subscribe cleared diags");
+  });
+
+  it("prefers the canonical document source over a stale client payload", async () => {
+    const cfg = makeTestConfig();
+    const sock = new FakeSock();
+    const source = {
+      read: () => "undefined_name\n",
+      subscribe: () => () => {},
+    };
+    const session = await languageServers.attach({
+      projectId: "yjs",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: sock,
+      workspaceDir: cfg.workspacesDir,
+      documentSource: source,
+    });
+    await waitFor(() => sock.lastStatus()?.state === "ready", 5000, "ready");
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: "file:///workspace/main.py",
+          text: "x = 1\n",
+        },
+      },
+    });
+    await waitFor(
+      () =>
+        sock.messages.some(
+          (m) =>
+            m.method === "textDocument/publishDiagnostics" &&
+            m.params?.diagnostics?.length > 0,
+        ),
+      5000,
+      "canonical diags",
+    );
+  });
+
+  it("keeps the shared server when one collaborator disconnects", async () => {
+    const cfg = makeTestConfig();
+    const a = new FakeSock();
+    const b = new FakeSock();
+    const session = await languageServers.attach({
+      projectId: "collab",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: a,
+      workspaceDir: cfg.workspacesDir,
+    });
+    await languageServers.attach({
+      projectId: "collab",
+      language: "python",
+      userId: 2,
+      cfg,
+      socket: b,
+      workspaceDir: cfg.workspacesDir,
+    });
+    await waitFor(() => a.lastStatus()?.state === "ready", 5000, "ready");
+    session!.removeClient(a);
+    expect(languageServers.sessionCount()).toBe(1);
+    expect(session!.clientCount).toBe(1);
+    expect(session!.currentState).toBe("ready");
+  });
 });

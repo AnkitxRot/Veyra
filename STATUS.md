@@ -104,10 +104,11 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M81 Language Intelligence. Python-only
-  first slice: a project-scoped `pylsp` process inside the existing Docker
-  sandbox, bridged to Monaco over `/ws/lsp`. See **Milestone 81** at the
-  end of this file.
+- **Current work (this commit):** M82 Production Language Intelligence.
+  Hardens M81 Python LSP, adds TypeScript/JavaScript/TSX/JSX via the same
+  sandbox LSP infrastructure, canonical Yjs document sync, real pylsp and
+  typescript-language-server Docker tests, and Playwright browser E2E.
+  See **Milestone 82** at the end of this file.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9510,24 +9511,79 @@ the Windows workstation). CI builds `cloudeeeide-runner:latest` which
 installs the pinned server. Treat live pylsp as CI / deployment-proven
 once Actions is green.
 
-**Deferred:** rename, Java, C++, TypeScript LSP, workspace refactor,
-client-chosen servers, debugger.
-
-**Verification (2026-09-13, outer repo `D:/cloudide`, no Docker CLI in this
-environment so Docker-dependent tests skipped as usual):**
-
-- Backend lint: 0 errors / 0 warnings
-- Frontend lint: 0 errors / 18 warnings (pre-existing exhaustive-deps /
-  react-refresh; none in M81 files)
-- Backend `tsc --noEmit`: clean
-- Frontend `tsc --noEmit`: clean
-- Frontend `vite build`: clean (pre-existing Monaco chunk-size warning)
-- Frontend tests: **1019 passed / 0 failed** (133 files; +10 M81)
-- Backend tests: **1273 passed / 63 skipped / 0 failed** (111 files;
-  +37 M81; Docker-dependent skipped)
-- Focused M81 backend: `lsp-*.test.ts` **37 passed**
-- Focused M81 frontend: `lsp.*.test.ts(x)` **10 passed**
-- `git diff --check`: clean
+**Deferred (at M81):** rename, Java, C++, TypeScript LSP, workspace refactor,
+client-chosen servers, debugger. TypeScript LSP is implemented in M82.
 
 Live `pylsp` inside `cloudeeeide-runner` is installed by the Dockerfile
-CI job, not exercised on this Windows workstation.
+CI job; M82 adds Docker-backed and Playwright proofs.
+
+## Milestone 82 — Production Language Intelligence
+
+**Objective:** evolve Veyra from "Python LSP works" into a reusable
+language-intelligence subsystem with first-class TypeScript/JavaScript
+(and TSX/JSX) intelligence, real pylsp E2E, canonical document sync, and
+lifecycle/security hardening. No AI assistant, debugger, rename engine, or
+Java/C++ LSP.
+
+**Architecture.**
+
+```text
+Monaco providers (once per browser process; python + typescript + javascript)
+  → /ws/lsp?projectId=&language=python|typescript
+  → LanguageServerManager (one LspSession per project+language)
+  → docker exec -i -u ide -w /workspace <sandbox> pylsp
+                                           typescript-language-server --stdio
+```
+
+Adapter layer is `backend/src/lsp/languages.ts` (`LspLanguageSpec`):
+executable, args, extra env, initializationOptions, documentLanguageId.
+Shared: JSON-RPC framing, URI allowlist, process caps, idle/crash/timeout.
+
+**TypeScript implementation.** `typescript-language-server@5.3.0` (Apache-2.0)
+wrapping pinned `typescript@5.8.3` / tsserver. Chosen over talking to
+tsserver directly (custom protocol) and over 6.0.0 (requires Node >= 22.22).
+Installed in `docker/Dockerfile.runner`. Never downloaded at runtime. Does
+not run `npm install`.
+
+**Document sync.** One authoritative stream per file. Additional client
+`didOpen` does not overwrite. When a Yjs room holds the path, that text
+wins over a stale socket payload; Y.Text observers push `didChange`.
+Frontend coalesces dirty paths for 200ms and **flushes** on teardown so
+the last keystroke is not dropped.
+
+**Caps.** `maxLspServers=8` (unchanged — tsserver is heavier than pylsp).
+`maxLspServersPerProject=2` (Python + TypeScript/JS). Startup timeout 30s.
+Idle 120s. 3 restarts / 60s then `failed`. Logout closes that user's
+socket only.
+
+**Security.** Language and executable from the server allowlist. Workspace
+from authenticated project metadata. Host `docker` CLI env is a PATH/DOCKER_*
+allowlist. Container env is HOME/XDG/TMPDIR/LANG plus language-specific
+PYTHON* for pylsp only. `workspace/executeCommand` still blocked.
+
+**Tests.** Fake stdio server (no Docker): protocol, lifecycle, security,
+canonical docs, dual-language sessions. Docker-backed (CI-required): real
+pylsp and typescript-language-server diagnostics/completion/hover/definition/
+references/symbols, TSX, missing-module degradation. Playwright (CI-required
+when the runner image exists): browser → Monaco → `/ws/lsp` → sandbox →
+real servers.
+
+**Deferred:** rename, workspace-wide refactor, Java LSP, C/C++ LSP,
+debugger, profiler, notebooks, AI coding assistant, AI agents.
+
+
+**Verification (2026-09-13, outer repo `D:/cloudide`):**
+
+- Backend lint: 0 errors / 0 warnings
+- Frontend lint: 0 errors / 18 warnings (pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components` in Admin/Editor/IDE/Settings/Toolbar/execution/perf harness). Adding those deps would refetch or rebind on every render. **No M82-file warnings.**
+- Backend `tsc --noEmit`: clean
+- Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests: **1023 passed / 0 failed** (133 files)
+- Backend tests: **1289 passed / 68 skipped / 0 failed** (114 files)
+- Focused M82 backend `lsp-*.test.ts`: **53 passed / 5 skipped** (3 Docker + 2 Playwright skipped — no Docker CLI on this workstation)
+- Focused M82 frontend `lsp.*.test.ts(x)` + throttle: included in the 1023
+- `git diff --check`: clean
+
+This workstation cannot run Docker or Playwright-against-runner-image. Those tests **throw in CI** if Docker/the runner image/`frontend/dist`/Chromium are missing (`CI=true`). Live `pylsp` / `typescript-language-server` / browser E2E are therefore **CI-gated**, not locally proven.
+
+Pinned runner image packages: `python-lsp-server[pyflakes,pycodestyle]==1.12.2`, `typescript@5.8.3`, `typescript-language-server@5.3.0` (Apache-2.0), `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E file.

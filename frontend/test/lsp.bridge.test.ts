@@ -86,7 +86,7 @@ describe("didOpen uses workspace uris", () => {
     t.handlers.forEach((cb) =>
       cb({ type: "status", state: "ready", language: "python" }),
     );
-    bridge.didOpen("main.py", "print(1)\n");
+    bridge.didOpen("main.py", "print(1)\n", "python");
     expect(t.sent[0]).toMatchObject({
       method: "textDocument/didOpen",
       params: {

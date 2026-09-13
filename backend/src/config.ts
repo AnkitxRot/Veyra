@@ -57,7 +57,7 @@ export interface AppConfig {
   terminalDetachGraceMs: number;
   /** M81 — global cap on live language-server processes. */
   maxLspServers: number;
-  /** M81 — per-project cap (M81 is one language). */
+  /** M81/M82 — per-project cap: one Python + one TypeScript/JavaScript server. */
   maxLspServersPerProject: number;
   lspIdleTimeoutMs: number;
   lspStartupTimeoutMs: number;
@@ -302,15 +302,17 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
         min: 5_000,
         max: 600_000,
       }),
-    // M81 — language servers are long-lived sandbox processes. 8 concurrent
-    // pylsp processes is a hard ceiling under the default 20-sandbox host
-    // cap; idle sessions are evicted first when the ceiling is hit.
+    // M82 — language servers are long-lived sandbox processes. 8 concurrent
+    // servers is a hard ceiling under the default 20-sandbox host cap (a
+    // TypeScript server is heavier than pylsp, so we do not raise this). Idle
+    // sessions are evicted first when the ceiling is hit. Per project: one
+    // Python + one TypeScript/JavaScript server.
     maxLspServers:
       overrides.maxLspServers ??
       boundedIntEnv("MAX_LSP_SERVERS", 8, { min: 1, max: 64 }),
     maxLspServersPerProject:
       overrides.maxLspServersPerProject ??
-      boundedIntEnv("MAX_LSP_SERVERS_PER_PROJECT", 1, { min: 1, max: 8 }),
+      boundedIntEnv("MAX_LSP_SERVERS_PER_PROJECT", 2, { min: 1, max: 8 }),
     lspIdleTimeoutMs:
       overrides.lspIdleTimeoutMs ??
       boundedIntEnv("LSP_IDLE_TIMEOUT_MS", 120_000, {
@@ -319,7 +321,7 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       }),
     lspStartupTimeoutMs:
       overrides.lspStartupTimeoutMs ??
-      boundedIntEnv("LSP_STARTUP_TIMEOUT_MS", 15_000, {
+      boundedIntEnv("LSP_STARTUP_TIMEOUT_MS", 30_000, {
         min: 1_000,
         max: 120_000,
       }),

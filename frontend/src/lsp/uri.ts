@@ -46,7 +46,10 @@ export function normalizeRelPath(relPath: unknown): string | null {
   return parts.join("/");
 }
 
-export function isPythonPath(path: string): boolean {
-  const base = path.split("/").pop() ?? "";
-  return /\.pyi?$/i.test(base);
-}
+export {
+  isPythonPath,
+  isTypeScriptPath,
+  isLspPath,
+  lspLanguageForPath,
+  documentLanguageId,
+} from "./languages";

@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import { collabDocumentSource, type LspDocumentSource } from "./canonical.js";
 import { getLspLanguage, type LspLanguageSpec } from "./languages.js";
 import { spawnSandboxLsp, type LspSpawnFn } from "./process.js";
 import {
@@ -23,11 +24,16 @@ export interface AttachLspOpts {
   spawn?: LspSpawnFn;
   /** Test injection: skip `ensureProjectSandbox`. */
   containerId?: string;
+  /** Test injection: replace the Yjs-backed canonical document source. */
+  documentSource?: LspDocumentSource | null;
 }
 
-function limitsFromConfig(cfg: AppConfig): LspSessionLimits {
+function limitsFromConfig(
+  cfg: AppConfig,
+  spec: LspLanguageSpec,
+): LspSessionLimits {
   return {
-    startupTimeoutMs: cfg.lspStartupTimeoutMs,
+    startupTimeoutMs: spec.startupTimeoutMs ?? cfg.lspStartupTimeoutMs,
     idleTimeoutMs: cfg.lspIdleTimeoutMs,
     restartWindowMs: cfg.lspRestartWindowMs,
     maxRestarts: cfg.lspMaxRestarts,
@@ -111,12 +117,16 @@ export class LanguageServerManager {
       containerId,
       {
         spawn,
+        documentSource:
+          opts.documentSource === undefined
+            ? collabDocumentSource(opts.projectId)
+            : opts.documentSource,
         onDead: (s) => {
           const k = keyOf(s.projectId, s.language.id);
           if (this.sessions.get(k) === s) this.sessions.delete(k);
         },
       },
-      limitsFromConfig(opts.cfg),
+      limitsFromConfig(opts.cfg, spec),
     );
     this.sessions.set(keyOf(opts.projectId, spec.id), session);
     session.addClient(opts.socket);

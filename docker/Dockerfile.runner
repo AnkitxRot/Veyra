@@ -13,11 +13,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install tsx globally for TypeScript execution
-RUN npm install -g tsx typescript
+# Install pinned runtimes used for execution AND language intelligence.
+# tsx: TypeScript execution. typescript: compiler + tsserver for the LSP.
+# typescript-language-server@5.3.0: maintained LSP adapter (Apache-2.0);
+# 5.3.x does not require Node >= 22.22 (6.0.0 does). Never a floating "latest".
+RUN npm install -g \
+      tsx@4.19.4 \
+      typescript@5.8.3 \
+      typescript-language-server@5.3.0
 
-# M81 — Python language server. Isolated venv so it cannot shadow the
-# system interpreter used for user runs. Pinned; never a floating "latest".
+# M81/M82 — language servers. Python is isolated in a venv so it cannot
+# shadow the system interpreter used for user runs. Pinned; never floating.
 RUN python3 -m venv /opt/lsp \
  && /opt/lsp/bin/pip install --upgrade pip \
  && /opt/lsp/bin/pip install --no-cache-dir \

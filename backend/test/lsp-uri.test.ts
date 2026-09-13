@@ -46,17 +46,35 @@ describe("lsp uri mapping", () => {
 });
 
 describe("lsp language allowlist", () => {
-  it("accepts python and rejects executable-like ids", () => {
+  it("accepts python and typescript and rejects executable-like ids", () => {
     expect(getLspLanguage("python")?.command).toBe("pylsp");
+    expect(getLspLanguage("typescript")?.command).toBe(
+      "typescript-language-server",
+    );
     expect(getLspLanguage("python; rm -rf /")).toBeNull();
     expect(getLspLanguage("../../bin/sh")).toBeNull();
     expect(getLspLanguage("PYTHON")).toBeNull();
     expect(getLspLanguage("java")).toBeNull();
+    expect(getLspLanguage("clangd")).toBeNull();
   });
 
-  it("maps .py files and ignores others", () => {
+  it("maps python and typescript/javascript files", () => {
     expect(lspLanguageForPath("main.py")?.id).toBe("python");
     expect(lspLanguageForPath("pkg/mod.pyi")?.id).toBe("python");
-    expect(lspLanguageForPath("main.js")).toBeNull();
+    expect(lspLanguageForPath("src/index.ts")?.id).toBe("typescript");
+    expect(lspLanguageForPath("src/App.tsx")?.id).toBe("typescript");
+    expect(lspLanguageForPath("src/main.js")?.id).toBe("typescript");
+    expect(lspLanguageForPath("src/widget.jsx")?.id).toBe("typescript");
+    expect(lspLanguageForPath("src/mod.mjs")?.id).toBe("typescript");
+    expect(lspLanguageForPath("src/mod.cjs")?.id).toBe("typescript");
+    expect(lspLanguageForPath("Main.java")).toBeNull();
+  });
+
+  it("assigns LSP languageIds for TSX/JSX/JS", () => {
+    const ts = getLspLanguage("typescript")!;
+    expect(ts.documentLanguageId("src/App.tsx")).toBe("typescriptreact");
+    expect(ts.documentLanguageId("src/w.jsx")).toBe("javascriptreact");
+    expect(ts.documentLanguageId("src/a.ts")).toBe("typescript");
+    expect(ts.documentLanguageId("src/a.js")).toBe("javascript");
   });
 });

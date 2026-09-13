@@ -50,4 +50,21 @@ describe("lsp jsonrpc framing", () => {
     );
     expect(isJsonRpcResponse({ jsonrpc: "2.0", method: "x" })).toBe(false);
   });
+
+  it("parses two messages delivered in one chunk", () => {
+    const parser = new LspFrameParser();
+    const a = encodeLspFrame({ jsonrpc: "2.0", method: "a" });
+    const b = encodeLspFrame({ jsonrpc: "2.0", method: "b" });
+    const frames = parser.push(Buffer.concat([a, b]));
+    expect(frames).toHaveLength(2);
+    expect(frames[0].method).toBe("a");
+    expect(frames[1].method).toBe("b");
+  });
+
+  it("rejects a header without Content-Length", () => {
+    const parser = new LspFrameParser();
+    expect(() =>
+      parser.push(Buffer.from("Content-Type: application/json\r\n\r\n{}", "ascii")),
+    ).toThrow(/lsp_malformed_header/);
+  });
 });

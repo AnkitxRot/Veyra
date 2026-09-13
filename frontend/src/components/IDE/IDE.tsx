@@ -260,7 +260,9 @@ export default function IDE({
   const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [lspDiagnostics, setLspDiagnostics] = useState<Diagnostic[]>([]);
-  const [lspStatus, setLspStatus] = useState<LspStatus | null>(null);
+  const [lspStatuses, setLspStatuses] = useState<Record<string, LspStatus>>(
+    {},
+  );
   // M22: User Preferences & Editor Settings States
   const [preferences, setPreferences] =
     useState<UserPreferences>(DEFAULT_PREFERENCES);
@@ -2715,8 +2717,13 @@ export default function IDE({
   useEffect(() => {
     const onStatus = (e: Event) => {
       const status = (e as CustomEvent).detail as LspStatus | undefined;
-      if (!status) return;
-      setLspStatus(status.state === "stopped" ? null : status);
+      if (!status?.language) return;
+      setLspStatuses((prev) => {
+        const next = { ...prev };
+        if (status.state === "stopped") delete next[status.language];
+        else next[status.language] = status;
+        return next;
+      });
     };
     const onDiags = (e: Event) => {
       const diagnostics = (e as CustomEvent).detail?.diagnostics as
@@ -3436,7 +3443,7 @@ export default function IDE({
           onOpenTeamPanel={() => setTeamPanelOpen((v) => !v)}
           incomingRequestCount={incomingRequestCount}
           attention={attention}
-          lspStatus={lspStatus}
+          lspStatuses={Object.values(lspStatuses)}
         />
         {user && (
           <AttentionTray

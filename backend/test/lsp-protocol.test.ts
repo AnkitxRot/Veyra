@@ -11,7 +11,8 @@ describe("lsp method allowlist", () => {
     expect(isAllowedClientRequest("textDocument/hover")).toBe(true);
     expect(isAllowedClientRequest("textDocument/definition")).toBe(true);
     expect(isAllowedClientRequest("textDocument/references")).toBe(true);
-    expect(isAllowedClientRequest("textDocument/documentSymbol")).toBe(true);
+    expect(isAllowedClientRequest("textDocument/signatureHelp")).toBe(true);
+    expect(isAllowedClientRequest("workspace/symbol")).toBe(true);
     expect(isAllowedClientNotification("textDocument/didOpen")).toBe(true);
     expect(isAllowedClientNotification("textDocument/didChange")).toBe(true);
     expect(isAllowedClientNotification("textDocument/didClose")).toBe(true);

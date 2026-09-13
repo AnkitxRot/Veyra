@@ -71,12 +71,14 @@ DOCKER_GID=$(getent group docker | cut -d: -f3) docker compose build
 docker compose up -d
 ```
 
-The runner image includes a pinned Python language server at `/opt/lsp`
-(`python-lsp-server[pyflakes,pycodestyle]==1.12.2`). Rebuild it after pull
-or Python intelligence stays degraded (the editor still works). Language
-servers run as `docker exec` inside each project sandbox, not on the app
-host. Caps: `MAX_LSP_SERVERS` (default 8), `MAX_LSP_SERVERS_PER_PROJECT`
-(default 1), `LSP_IDLE_TIMEOUT_MS` (default 120000).
+The runner image includes pinned language servers: Python
+`python-lsp-server[pyflakes,pycodestyle]==1.12.2` in `/opt/lsp`, and
+`typescript@5.8.3` + `typescript-language-server@5.3.0`. Rebuild it after
+pull or language intelligence stays degraded (the editor still works).
+Language servers run as `docker exec` inside each project sandbox, not on
+the app host. Caps: `MAX_LSP_SERVERS` (default 8),
+`MAX_LSP_SERVERS_PER_PROJECT` (default 2), `LSP_IDLE_TIMEOUT_MS`
+(default 120000), `LSP_STARTUP_TIMEOUT_MS` (default 30000).
 
 ## Required environment variables
 
@@ -94,7 +96,7 @@ will refuse to start without it. Everything else is optional and has a safe defa
 | `PROJECT_QUOTA`           | `20`         | Max projects per user.                                                                                                                                                                             |
 | `MAX_CONCURRENT_RUNS`     | `3`          | Max concurrent executions per user.                                                                                                                                                                |
 | `SANDBOX_IDLE_TIMEOUT_MS` | `1800000`    | Idle time before a sandbox is reaped.                                                                                                                                                              |
-| `MAX_LSP_SERVERS`         | `8`          | Concurrent Python language-server processes (M81).                                                                                                                                                 |
+| `MAX_LSP_SERVERS`         | `8`          | Concurrent language-server processes (Python + TypeScript/JavaScript, M82).                                                                                                                       |
 | `SANDBOX_ROOM_EMPTY_GRACE_MS` | `120000` | Grace period after a project's collaboration room empties before its sandbox becomes eligible for early reaping (before the full idle timeout).                                                     |
 | `SECRETS_MASTER_KEY`      | _(unset)_    | Master key for **project secrets & environment variables** (M47). 32 bytes, encoded as base64 or 64 hex characters. Required only if any project uses the Secrets feature — see the section below. |
 

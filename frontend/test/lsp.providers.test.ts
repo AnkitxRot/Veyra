@@ -6,6 +6,7 @@ vi.mock("../src/monacoSetup", () => ({ monaco }));
 import {
   ensureLspProviders,
   setActiveLspBridge,
+  setLspBridge,
   resetLspProvidersForTests,
 } from "../src/lsp/providers";
 import type { LspBridge } from "../src/lsp/bridge";
@@ -19,7 +20,7 @@ describe("lsp monaco providers", () => {
   it("registers providers once and no-ops without a bridge", async () => {
     ensureLspProviders();
     ensureLspProviders();
-    expect(monaco.languages._completion).toHaveLength(1);
+    expect(monaco.languages._completion).toHaveLength(3);
     const provider = monaco.languages._completion[0] as {
       provideCompletionItems: (
         model: unknown,
@@ -65,6 +66,35 @@ describe("lsp monaco providers", () => {
     expect(request).toHaveBeenCalled();
     expect(result.suggestions[0].label).toBe("hello");
     setActiveLspBridge(null);
+  });
+
+  it("routes a TypeScript model to the typescript bridge", async () => {
+    ensureLspProviders();
+    const request = vi.fn().mockResolvedValue({
+      items: [{ label: "greet", kind: 3, insertText: "greet" }],
+    });
+    setLspBridge("typescript", {
+      status: { state: "ready", language: "typescript" },
+      request,
+    } as unknown as LspBridge);
+    const provider = monaco.languages._completion[1] as {
+      provideCompletionItems: (
+        model: any,
+        position: { lineNumber: number; column: number },
+      ) => Promise<{ suggestions: { label: string }[] }>;
+    };
+    const model = monaco.editor.createModel(
+      "export const x = 1;\n",
+      "typescript",
+      monaco.Uri.file("src/index.ts"),
+    );
+    const result = await provider.provideCompletionItems(model, {
+      lineNumber: 1,
+      column: 1,
+    });
+    expect(request).toHaveBeenCalled();
+    expect(result.suggestions[0].label).toBe("greet");
+    setLspBridge("typescript", null);
   });
 
   it("reveals the first definition target and does not auto-open references", async () => {

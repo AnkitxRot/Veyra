@@ -16,7 +16,7 @@ export type LspSpawnFn = (
  * inside the sandbox and receives the `-e` values below — never the backend
  * process environment (secrets, Git PATs, admin password, DB path).
  */
-function dockerCliEnv(): NodeJS.ProcessEnv {
+export function lspHostDockerEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH ?? "",
     LANG: process.env.LANG ?? "C",
@@ -35,10 +35,38 @@ function dockerCliEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+const SHARED_CONTAINER_ENV = [
+  "HOME=/tmp",
+  "XDG_CACHE_HOME=/tmp/xdg-cache",
+  "XDG_CONFIG_HOME=/tmp/xdg-config",
+  "XDG_DATA_HOME=/tmp/xdg-data",
+  "TMPDIR=/tmp",
+  "LC_ALL=C.UTF-8",
+  "LANG=C.UTF-8",
+];
+
+function envFlags(spec: LspLanguageSpec): string[] {
+  const out: string[] = [];
+  for (const pair of [...SHARED_CONTAINER_ENV, ...spec.extraEnv]) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(pair)) continue;
+    if (/SECRET|TOKEN|PASSWORD|DATABASE|PAT|MASTER_KEY/i.test(pair)) continue;
+    out.push("-e", pair);
+  }
+  return out;
+}
+
 export function sandboxLspArgv(req: LspSpawnRequest): string[] {
   const { spec, containerId } = req;
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(containerId)) {
     throw new Error("invalid_container_id");
+  }
+  if (!/^[A-Za-z0-9._+-]+$/.test(spec.command)) {
+    throw new Error("invalid_lsp_command");
+  }
+  for (const arg of spec.args) {
+    if (typeof arg !== "string" || arg.length > 128) {
+      throw new Error("invalid_lsp_args");
+    }
   }
   return [
     "exec",
@@ -47,22 +75,7 @@ export function sandboxLspArgv(req: LspSpawnRequest): string[] {
     "/workspace",
     "-u",
     "ide",
-    "-e",
-    "HOME=/tmp",
-    "-e",
-    "XDG_CACHE_HOME=/tmp/xdg-cache",
-    "-e",
-    "XDG_CONFIG_HOME=/tmp/xdg-config",
-    "-e",
-    "XDG_DATA_HOME=/tmp/xdg-data",
-    "-e",
-    "PYTHONUNBUFFERED=1",
-    "-e",
-    "PYTHONDONTWRITEBYTECODE=1",
-    "-e",
-    "LC_ALL=C.UTF-8",
-    "-e",
-    "LANG=C.UTF-8",
+    ...envFlags(spec),
     containerId,
     spec.command,
     ...spec.args,
@@ -80,7 +93,7 @@ export function spawnSandboxLsp(
   const child = spawn("docker", sandboxLspArgv(req), {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
-    env: dockerCliEnv(),
+    env: lspHostDockerEnv(),
   });
   child.on("error", () => {});
   return child;

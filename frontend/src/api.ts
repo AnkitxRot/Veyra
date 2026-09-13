@@ -66,6 +66,7 @@ export interface Capabilities {
   };
   languageServers: {
     python: boolean;
+    typescript: boolean;
   };
 }
 

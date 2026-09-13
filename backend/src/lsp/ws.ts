@@ -10,7 +10,7 @@ const WS_OPEN = 1;
  * `/ws/lsp` — authenticated, project-authorized language-server bridge.
  *
  * Query: `projectId` (required, already authorized by the upgrade handler)
- *        `language` (allowlisted; currently `python`)
+ *        `language` (allowlisted: `python` | `typescript`)
  *
  * The client never names an executable. Messages are JSON-RPC 2.0 objects
  * (one WebSocket text frame per message), plus server `status` frames.

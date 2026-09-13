@@ -358,6 +358,10 @@ const languages = {
     Function: 11,
     Variable: 12,
   },
+  typescript: {
+    typescriptDefaults: { setModeConfiguration() {} },
+    javascriptDefaults: { setModeConfiguration() {} },
+  },
 };
 
 class Range {

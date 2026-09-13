@@ -26,19 +26,19 @@ export class LspBridge {
   private disposed = false;
   onStatus: ((status: LspStatus) => void) | null = null;
   onDiagnostics: ((uri: string, items: LspDiagnostic[]) => void) | null = null;
-  status: LspStatus = { state: "starting", language: "python" };
+  status: LspStatus = { state: "starting", language: "" };
 
   constructor(private readonly transport: LspTransport) {
     this.unsub = transport.onMessage((payload) => this.onPayload(payload));
   }
 
-  didOpen(relPath: string, text: string): void {
+  didOpen(relPath: string, text: string, languageId?: string): void {
     const uri = toWorkspaceUri(relPath);
     if (!uri) return;
     this.notify("textDocument/didOpen", {
       textDocument: {
         uri,
-        languageId: "python",
+        languageId: languageId ?? "plaintext",
         version: 1,
         text,
       },

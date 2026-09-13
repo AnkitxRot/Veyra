@@ -18,6 +18,8 @@ import type {
   CollabConnectionStatus,
 } from "../../collab/client";
 import type { AttentionEvent } from "../../collab/attention";
+import type { LspStatus } from "../../lsp/types";
+import { PYTHON_LSP, TYPESCRIPT_LSP } from "../../lsp/languages";
 
 interface ToolbarProps {
   project: Project | null;
@@ -44,12 +46,8 @@ interface ToolbarProps {
   incomingRequestCount?: number;
   /** M59: full attention list, threaded to the collaborator popover focus block. */
   attention?: AttentionEvent[];
-  /** M81: live language-server status for the active project. */
-  lspStatus?: {
-    state: string;
-    language: string;
-    message?: string;
-  } | null;
+  /** M82: live language-server statuses for the active project. */
+  lspStatuses?: LspStatus[];
 }
 
 export default function Toolbar({
@@ -75,7 +73,7 @@ export default function Toolbar({
   onOpenTeamPanel,
   incomingRequestCount,
   attention = [],
-  lspStatus = null,
+  lspStatuses = [],
 }: ToolbarProps) {
   const [isRunning, setIsRunning] = React.useState(false);
   // M43: mirrors the isRunning/run-started/run-stopped pattern above.
@@ -368,39 +366,41 @@ export default function Toolbar({
         </div>
       )}
 
-      {lspStatus && lspStatus.state !== "stopped" && (
-        <span
-          className={`capability-chip ${
-            lspStatus.state === "ready"
-              ? "ready"
-              : lspStatus.state === "starting" ||
-                  lspStatus.state === "restarting"
-                ? ""
-                : "error"
-          }`}
-          title={
-            lspStatus.message ||
-            (lspStatus.state === "ready"
-              ? "Python language server ready"
-              : lspStatus.state === "starting" ||
-                  lspStatus.state === "restarting"
-                ? "Python language server starting"
-                : "Python language server unavailable — editing still works")
-          }
-        >
-          <span
-            className={`capability-dot ${
-              lspStatus.state === "ready"
-                ? "ready"
-                : lspStatus.state === "starting" ||
-                    lspStatus.state === "restarting"
-                  ? ""
-                  : "error"
-            }`}
-          />
-          Py LSP
-        </span>
-      )}
+      {lspStatuses
+        .filter((s) => s.state !== "stopped")
+        .map((lspStatus) => {
+          const spec =
+            lspStatus.language === "typescript"
+              ? TYPESCRIPT_LSP
+              : PYTHON_LSP;
+          const ready = lspStatus.state === "ready";
+          const pending =
+            lspStatus.state === "starting" || lspStatus.state === "restarting";
+          return (
+            <span
+              key={lspStatus.language}
+              data-testid={`lsp-chip-${lspStatus.language}`}
+              className={`capability-chip ${
+                ready ? "ready" : pending ? "" : "error"
+              }`}
+              title={
+                lspStatus.message ||
+                (ready
+                  ? `${spec.chipLabel} ready`
+                  : pending
+                    ? `${spec.chipLabel} starting`
+                    : `${spec.chipLabel} unavailable — editing still works`)
+              }
+            >
+              <span
+                className={`capability-dot ${
+                  ready ? "ready" : pending ? "" : "error"
+                }`}
+              />
+              {spec.chipLabel}
+            </span>
+          );
+        })}
 
       {/* Real-Time Multiplayer Collaborator Presence */}
       {project && user && (

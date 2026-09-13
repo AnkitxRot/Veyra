@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fromWorkspaceUri, toWorkspaceUri, isPythonPath } from "../src/lsp/uri";
+import { fromWorkspaceUri, toWorkspaceUri, isPythonPath, isTypeScriptPath } from "../src/lsp/uri";
 
 describe("frontend lsp uri helpers", () => {
   it("round-trips workspace paths used by Monaco", () => {
@@ -12,9 +12,13 @@ describe("frontend lsp uri helpers", () => {
     expect(fromWorkspaceUri("file:///etc/passwd")).toBeNull();
   });
 
-  it("detects python files only", () => {
+  it("detects python and typescript files", () => {
     expect(isPythonPath("main.py")).toBe(true);
     expect(isPythonPath("a/b.pyi")).toBe(true);
     expect(isPythonPath("main.js")).toBe(false);
+    expect(isTypeScriptPath("src/index.ts")).toBe(true);
+    expect(isTypeScriptPath("src/App.tsx")).toBe(true);
+    expect(isTypeScriptPath("src/main.js")).toBe(true);
+    expect(isTypeScriptPath("main.py")).toBe(false);
   });
 });

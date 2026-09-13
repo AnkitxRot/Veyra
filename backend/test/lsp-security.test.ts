@@ -8,7 +8,8 @@ import {
 } from "../src/lsp/manager.js";
 import type { LspClientSocket } from "../src/lsp/session.js";
 import type { LspSpawnRequest } from "../src/lsp/process.js";
-import { spawnSandboxLsp, sandboxLspArgv } from "../src/lsp/process.js";
+import { spawnSandboxLsp, sandboxLspArgv, lspHostDockerEnv } from "../src/lsp/process.js";
+import { PYTHON_LSP, TYPESCRIPT_LSP } from "../src/lsp/languages.js";
 
 const fakeLsp = fileURLToPath(new URL("./fixtures/fake-lsp.mjs", import.meta.url));
 
@@ -170,14 +171,7 @@ describe("lsp security envelope", () => {
 
   it("sandbox LSP argv is docker exec of the allowlisted binary only", () => {
     const argv = sandboxLspArgv({
-      spec: {
-        id: "python",
-        monacoId: "python",
-        displayName: "Python",
-        extensions: ["py"],
-        command: "pylsp",
-        args: [],
-      },
+      spec: PYTHON_LSP,
       containerId: "ide-sandbox-abc",
     });
     expect(argv).toContain("exec");
@@ -196,17 +190,57 @@ describe("lsp security envelope", () => {
     expect(envFlags).toContain("HOME=/tmp");
   });
 
+  it("host docker CLI env is an allowlist and does not inherit secrets", () => {
+    const prev = {
+      SECRETS_MASTER_KEY: process.env.SECRETS_MASTER_KEY,
+      GIT_HTTPS_TOKEN: process.env.GIT_HTTPS_TOKEN,
+      ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
+      DATABASE_PATH: process.env.DATABASE_PATH,
+    };
+    process.env.SECRETS_MASTER_KEY = "super-secret";
+    process.env.GIT_HTTPS_TOKEN = "ghp_example";
+    process.env.ADMIN_PASSWORD = "admin-secret";
+    process.env.DATABASE_PATH = "/tmp/secrets.db";
+    try {
+      const env = lspHostDockerEnv();
+      expect(env.SECRETS_MASTER_KEY).toBeUndefined();
+      expect(env.GIT_HTTPS_TOKEN).toBeUndefined();
+      expect(env.ADMIN_PASSWORD).toBeUndefined();
+      expect(env.DATABASE_PATH).toBeUndefined();
+      expect(Object.keys(env).every((k) => !/SECRET|TOKEN|PASSWORD/i.test(k))).toBe(
+        true,
+      );
+    } finally {
+      for (const [k, v] of Object.entries(prev)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+  it("typescript argv is the allowlisted language server with --stdio", () => {
+    const argv = sandboxLspArgv({
+      spec: TYPESCRIPT_LSP,
+      containerId: "ide-sandbox-ts",
+    });
+    expect(argv).toContain("typescript-language-server");
+    expect(argv).toContain("--stdio");
+    expect(argv.join(" ")).not.toMatch(
+      /SECRETS_MASTER_KEY|GIT_HTTPS_TOKEN|ADMIN_PASSWORD/,
+    );
+    const envFlags: string[] = [];
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] === "-e" && argv[i + 1]) envFlags.push(argv[i + 1]);
+    }
+    expect(envFlags.some((e) => e.startsWith("PYTHON"))).toBe(false);
+    expect(
+      envFlags.every((e) => !/SECRET|TOKEN|PASSWORD|DATABASE/i.test(e)),
+    ).toBe(true);
+  });
+
   it("rejects a malformed container id before spawn", () => {
     expect(() =>
       spawnSandboxLsp({
-        spec: {
-          id: "python",
-          monacoId: "python",
-          displayName: "Python",
-          extensions: ["py"],
-          command: "pylsp",
-          args: [],
-        },
+        spec: PYTHON_LSP,
         containerId: "ide-sandbox-abc; rm -rf /",
       }),
     ).toThrow(/invalid_container_id/);

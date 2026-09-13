@@ -5,10 +5,11 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M81 Language Intelligence is implemented (Python via `pylsp` in
-the project sandbox). M80 HTTPS Git remotes remain in place. This is a
-working single-node product, not a hosted SaaS. See [`STATUS.md`](STATUS.md)
-for the milestone history.
+**Status:** M82 Production Language Intelligence is implemented (Python
+`pylsp` and TypeScript/JavaScript `typescript-language-server` in the
+project sandbox). M81 Python LSP and M80 HTTPS Git remotes remain in
+place. This is a working single-node product, not a hosted SaaS. See
+[`STATUS.md`](STATUS.md) for the milestone history.
 
 ## What it is
 
@@ -26,7 +27,7 @@ the Veyra source repository. Do not confuse the two.
 | Area | What exists |
 | --- | --- |
 | Editing | Monaco, tabs, search/replace, comments |
-| Language intelligence | Python: live diagnostics, completion, hover, definition, references, document symbols (M81). Other languages: syntax + post-run diagnostics only. |
+| Language intelligence | Python and TypeScript/JavaScript/TSX/JSX: live diagnostics, completion, hover, definition, references, document symbols (M82). Other languages: syntax + post-run diagnostics only. |
 | Collaboration | Yjs CRDT, awareness, follow, mutation gates (M56) |
 | Execution | Docker runner (`python`, Node, C/C++, Java, TypeScript, …) |
 | Terminals | PTY in the sandbox; detach/reattach (M79) |
@@ -39,8 +40,8 @@ the Veyra source repository. Do not confuse the two.
 | Auth | Cookie sessions (httpOnly, signed) + optional Bearer token |
 
 Not in this tree: SSH Git, GitHub OAuth, pull-request UI, merge/rebase UI,
-force-push, LFS, submodules, billing, analytics, Java/C++/TypeScript language
-servers, rename/refactor, debugger.
+force-push, LFS, submodules, billing, analytics, Java/C++ language
+servers, rename/refactor, debugger, AI coding assistants.
 
 ## Architecture
 
@@ -60,7 +61,8 @@ SQLite + workspace filesystem + Docker (ide-sandbox-<projectId>)
   `node-pty`. One process.
 - **Sandboxes**: image `cloudeeeide-runner:latest`, non-root, capabilities
   dropped. Code runs with `docker exec`, not a fresh `docker run` per
-  invocation. The same container hosts the Python language server (`pylsp`).
+  invocation. The same container hosts language servers (`pylsp`,
+  `typescript-language-server`).
 - **Git control plane**: `execFile` only (no shell). Isolated env, empty
   `core.hooksPath`, no credential helper. HTTPS credentials never appear on
   argv or in `.git/config`.
@@ -93,39 +95,61 @@ SQLite + workspace filesystem + Docker (ide-sandbox-<projectId>)
 Do not treat this README as a threat model. The implementation and tests
 are the source of truth.
 
-## Language intelligence (M81)
+## Language intelligence (M82)
 
-Python files get a project-scoped language server inside the existing Docker
-sandbox (`docker exec pylsp`). The browser talks JSON-RPC over `/ws/lsp`;
-the backend owns process lifecycle, initialize/shutdown, and URI rewriting
-so clients cannot name an executable or escape `/workspace`.
+Python and TypeScript/JavaScript files get a project-scoped language server
+inside the existing Docker sandbox (`docker exec pylsp` or
+`typescript-language-server --stdio`). The browser talks JSON-RPC over
+`/ws/lsp`; the backend owns process lifecycle, initialize/shutdown, URI
+rewriting, and a single authoritative document stream per file (Yjs is
+canonical when a collab room holds the file). Clients cannot name an
+executable or escape `/workspace`.
 
 | Language | Syntax | Live diagnostics | Completion / hover | Navigation | Runtime |
 | --- | --- | --- | --- | --- | --- |
-| Python | Monaco | `pylsp` (pyflakes / pycodestyle) when the runner image and sandbox are available | `pylsp` | Go to definition, references, document symbols | `python3` |
-| JavaScript / TypeScript | Monaco | Post-run parser only | — | — | Node / tsx |
+| Python (`.py`, `.pyi`) | Monaco | `pylsp` (pyflakes / pycodestyle) when the runner image and sandbox are available | `pylsp` | Go to definition, references, document symbols | `python3` |
+| TypeScript (`.ts`) | Monaco | `typescript-language-server` / tsserver against the workspace `tsconfig.json` | same | Go to definition, references, document symbols | Node / tsx |
+| TSX (`.tsx`) | Monaco | same server (`typescriptreact`) | same | same | — |
+| JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) | Monaco | same TypeScript server | same | same | Node |
 | C / C++ | Monaco | Post-run gcc/g++ parser only | — | — | gcc / g++ |
 | Java | Monaco | Post-run javac parser only | — | — | JDK |
 
-**Degraded behaviour.** Opening and editing files never depends on the
-language server. If Docker, the runner image, or `pylsp` is missing, the
-editor still works; the toolbar **Py LSP** chip shows unavailable/failed
-and Monaco providers return empty results. No toast loop.
+Live LSP diagnostics are independent of post-run parser diagnostics
+(Problems panel owner `lsp` vs `cloudeee-problems`).
 
-**Lifecycle.** One process per `(project, python)`. Collaborators on the
-same project share it. Caps: 8 servers host-wide, 1 per project, 120s idle
-reap, 15s startup timeout, 3 restarts per minute. Project delete, sandbox
-stop, and process shutdown dispose the session. LSP state is not stored in
-Yjs or SQLite; unsaved buffers are synced from the live Monaco/Yjs model
-(`didOpen` / throttled `didChange`).
+**Workspace / packages.** The TypeScript server reads the project
+`tsconfig.json`, path aliases, and `node_modules` as they exist on disk.
+**LSP startup never runs `npm install` / `yarn` / `pnpm`.** Missing
+dependencies degrade to module-resolution diagnostics; the editor stays
+usable. `package.json` and lockfiles are not modified.
+
+**Degraded behaviour.** Opening and editing files never depends on the
+language server. If Docker, the runner image, `pylsp`, or
+`typescript-language-server` is missing, the editor still works; the
+toolbar **Py LSP** / **TS LSP** chips show unavailable/failed/busy and
+Monaco providers return empty results. No toast loop.
+
+**Lifecycle.** One process per `(project, language)`. Collaborators share
+it. Caps: 8 servers host-wide, 2 per project (Python + TypeScript/JS),
+120s idle reap, 30s startup timeout, 3 restarts per minute. Project
+delete, sandbox stop, and process shutdown dispose the session. Logout
+closes that user's socket only — other collaborators keep the shared
+server. LSP state is not stored in Yjs or SQLite.
+
+**Document sync.** Full-document `didChange` (not incremental). Edits are
+coalesced for 200ms per dirty path; the last keystroke is flushed on
+tab close and project switch. A second client opening the same file does
+not overwrite the canonical buffer.
 
 **Deployment.** Rebuild `cloudeeeide-runner:latest` so `/opt/lsp` contains
-pinned `python-lsp-server[pyflakes,pycodestyle]==1.12.2`. Local `npm run
-dev` without that image degrades as above. CI builds the image before
-backend tests.
+pinned `python-lsp-server[pyflakes,pycodestyle]==1.12.2` and the image
+has pinned `typescript@5.8.3` + `typescript-language-server@5.3.0`.
+Local `npm run dev` without that image degrades as above. CI builds the
+image before backend tests (including Docker-backed pylsp/tsserver tests
+and Playwright browser E2E).
 
-Rename, workspace-wide refactor, Java/C++/TypeScript language servers, and
-client-chosen executables are out of scope.
+Rename, workspace-wide refactor, Java/C++ language servers, debugger, and
+AI coding assistants are out of scope.
 
 ## Git support (M80)
 
@@ -221,10 +245,10 @@ process environment directly (`PORT`, `DATA_DIR`, …).
 | `PROJECT_QUOTA` | `20` | |
 | `MAX_CONCURRENT_RUNS` | `3` | |
 | `SANDBOX_IDLE_TIMEOUT_MS` | `1800000` | |
-| `MAX_LSP_SERVERS` | `8` | Concurrent `pylsp` processes (M81). |
-| `MAX_LSP_SERVERS_PER_PROJECT` | `1` | |
+| `MAX_LSP_SERVERS` | `8` | Concurrent language-server processes (M82). |
+| `MAX_LSP_SERVERS_PER_PROJECT` | `2` | Python + TypeScript/JavaScript. |
 | `LSP_IDLE_TIMEOUT_MS` | `120000` | Reap after last client disconnects. |
-| `LSP_STARTUP_TIMEOUT_MS` | `15000` | |
+| `LSP_STARTUP_TIMEOUT_MS` | `30000` | |
 | `COOKIE_SECURE` | production=`true` | |
 | `TRUST_PROXY` | off | Set `1` behind a reverse proxy. |
 | `APP_CONTAINERIZED` | off | Compose sets `1` so preview proxy uses sandbox networks. |

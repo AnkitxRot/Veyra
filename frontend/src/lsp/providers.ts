@@ -2,35 +2,91 @@ import { monaco } from "../monacoSetup";
 import type { LspBridge } from "./bridge";
 import { LSP_OPEN_REVEAL_EVENT } from "./types";
 import { fromWorkspaceUri, toWorkspaceUri } from "./uri";
+import { lspLanguageForPath } from "./languages";
 
-let activeBridge: LspBridge | null = null;
+const bridges = new Map<string, LspBridge>();
 let registered = false;
 
 export function resetLspProvidersForTests(): void {
   registered = false;
-  activeBridge = null;
+  bridges.clear();
 }
 
+export function setLspBridge(serverId: string, bridge: LspBridge | null): void {
+  if (bridge) bridges.set(serverId, bridge);
+  else bridges.delete(serverId);
+}
+
+/** @deprecated M81 single-bridge helper; use setLspBridge. */
 export function setActiveLspBridge(bridge: LspBridge | null): void {
-  activeBridge = bridge;
+  if (bridge) {
+    const id = bridge.status.language || "python";
+    setLspBridge(id, bridge);
+  } else {
+    bridges.clear();
+  }
 }
 
 export function getActiveLspBridge(): LspBridge | null {
-  return activeBridge;
+  return bridges.values().next().value ?? null;
+}
+
+export function getLspBridgeForPath(relPath: string): LspBridge | null {
+  const spec = lspLanguageForPath(relPath);
+  if (!spec) return null;
+  return bridges.get(spec.id) ?? null;
+}
+
+function silenceMonacoBuiltinTs(): void {
+  const ts = (
+    monaco.languages as unknown as {
+      typescript?: {
+        typescriptDefaults?: { setModeConfiguration?: (c: object) => void };
+        javascriptDefaults?: { setModeConfiguration?: (c: object) => void };
+      };
+    }
+  ).typescript;
+  if (!ts) return;
+  const off = {
+    completionItems: false,
+    hovers: false,
+    documentSymbols: false,
+    definitions: false,
+    references: false,
+    documentHighlights: false,
+    rename: false,
+    diagnostics: false,
+    signatureHelp: false,
+    codeActions: false,
+    inlayHints: false,
+  };
+  ts.typescriptDefaults?.setModeConfiguration?.(off);
+  ts.javascriptDefaults?.setModeConfiguration?.(off);
+}
+
+function bridgeForModel(model: monaco.editor.ITextModel): LspBridge | null {
+  const rel = modelPath(model);
+  if (!rel) return null;
+  const bridge = getLspBridgeForPath(rel);
+  if (!bridge || bridge.status.state !== "ready") return null;
+  return bridge;
 }
 
 export function ensureLspProviders(): void {
   if (registered) return;
   registered = true;
-  const python = "python";
+  silenceMonacoBuiltinTs();
+  for (const lang of ["python", "typescript", "javascript"] as const) {
+    registerProvidersFor(lang);
+  }
+}
 
-  monaco.languages.registerCompletionItemProvider(python, {
-    triggerCharacters: [".", "_"],
+function registerProvidersFor(lang: string): void {
+  monaco.languages.registerCompletionItemProvider(lang, {
+    triggerCharacters: [".", "_", "<", '"', "'", "/"],
     provideCompletionItems: async (model, position) => {
-      const bridge = activeBridge;
-      if (!bridge || bridge.status.state !== "ready") {
-        return { suggestions: [] };
-      }
+      const bridge = bridgeForModel(model);
+      if (!bridge) return { suggestions: [] };
       const rel = modelPath(model);
       const uri = rel ? toWorkspaceUri(rel) : null;
       if (!uri) return { suggestions: [] };
@@ -66,10 +122,10 @@ export function ensureLspProviders(): void {
     },
   });
 
-  monaco.languages.registerHoverProvider(python, {
+  monaco.languages.registerHoverProvider(lang, {
     provideHover: async (model, position) => {
-      const bridge = activeBridge;
-      if (!bridge || bridge.status.state !== "ready") return null;
+      const bridge = bridgeForModel(model);
+      if (!bridge) return null;
       const rel = modelPath(model);
       const uri = rel ? toWorkspaceUri(rel) : null;
       if (!uri) return null;
@@ -87,10 +143,10 @@ export function ensureLspProviders(): void {
     },
   });
 
-  monaco.languages.registerDefinitionProvider(python, {
+  monaco.languages.registerDefinitionProvider(lang, {
     provideDefinition: async (model, position) => {
-      const bridge = activeBridge;
-      if (!bridge || bridge.status.state !== "ready") return [];
+      const bridge = bridgeForModel(model);
+      if (!bridge) return [];
       const rel = modelPath(model);
       const uri = rel ? toWorkspaceUri(rel) : null;
       if (!uri) return [];
@@ -102,10 +158,10 @@ export function ensureLspProviders(): void {
     },
   });
 
-  monaco.languages.registerReferenceProvider(python, {
+  monaco.languages.registerReferenceProvider(lang, {
     provideReferences: async (model, position) => {
-      const bridge = activeBridge;
-      if (!bridge || bridge.status.state !== "ready") return [];
+      const bridge = bridgeForModel(model);
+      if (!bridge) return [];
       const rel = modelPath(model);
       const uri = rel ? toWorkspaceUri(rel) : null;
       if (!uri) return [];
@@ -118,10 +174,10 @@ export function ensureLspProviders(): void {
     },
   });
 
-  monaco.languages.registerDocumentSymbolProvider(python, {
+  monaco.languages.registerDocumentSymbolProvider(lang, {
     provideDocumentSymbols: async (model) => {
-      const bridge = activeBridge;
-      if (!bridge || bridge.status.state !== "ready") return [];
+      const bridge = bridgeForModel(model);
+      if (!bridge) return [];
       const rel = modelPath(model);
       const uri = rel ? toWorkspaceUri(rel) : null;
       if (!uri) return [];
@@ -135,11 +191,11 @@ export function ensureLspProviders(): void {
     },
   });
 
-  monaco.languages.registerSignatureHelpProvider(python, {
-    signatureHelpTriggerCharacters: ["(", ","],
+  monaco.languages.registerSignatureHelpProvider(lang, {
+    signatureHelpTriggerCharacters: ["(", ",", "<"],
     provideSignatureHelp: async (model, position) => {
-      const bridge = activeBridge;
-      if (!bridge || bridge.status.state !== "ready") return null;
+      const bridge = bridgeForModel(model);
+      if (!bridge) return null;
       const rel = modelPath(model);
       const uri = rel ? toWorkspaceUri(rel) : null;
       if (!uri) return null;

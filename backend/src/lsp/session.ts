@@ -9,6 +9,10 @@ import {
 } from "./jsonrpc.js";
 import type { LspLanguageSpec } from "./languages.js";
 import {
+  resolveCanonicalText,
+  type LspDocumentSource,
+} from "./canonical.js";
+import {
   CLIENT_REQUESTS,
   isAllowedClientNotification,
   isAllowedClientRequest,
@@ -81,12 +85,20 @@ interface OpenDoc {
   version: number;
   text: string;
   refs: number;
+  languageId: string;
+  unsubscribe: (() => void) | null;
 }
 
 export interface LspSessionHooks {
   spawn: LspSpawnFn;
   onDead: (session: LspSession) => void;
   now?: () => number;
+  /**
+   * Canonical document text (typically the live Yjs room). When present,
+   * client didOpen/didChange payloads are ignored whenever the source has
+   * the file — one authoritative stream per path, not last-socket-wins.
+   */
+  documentSource?: LspDocumentSource | null;
 }
 
 /**
@@ -115,6 +127,7 @@ export class LspSession {
   private stderrTail = "";
   private disposed = false;
   private initializeSent = false;
+  private readonly documentSource: LspDocumentSource | null;
   lastActivity = Date.now();
 
   constructor(
@@ -130,6 +143,7 @@ export class LspSession {
     this.hooks = hooks;
     this.limits = { ...DEFAULT_LSP_SESSION_LIMITS, ...limits };
     this.parser = new LspFrameParser(this.limits.messageMaxBytes);
+    this.documentSource = hooks.documentSource ?? null;
   }
 
   get pid(): number | undefined {
@@ -313,7 +327,7 @@ export class LspSession {
       } catch {}
     }
     this.clients.clear();
-    this.docs.clear();
+    this.clearDocs();
     this.hooks.onDead(this);
   }
 
@@ -328,37 +342,22 @@ export class LspSession {
       const text = typeof doc?.text === "string" ? doc.text : null;
       if (!rel || text === null) return;
       if (text.length > this.limits.messageMaxBytes) return;
+      const alreadyTracked = tracked.openDocs.has(rel);
       tracked.openDocs.add(rel);
+      const languageId = this.language.documentLanguageId(rel);
+      const canonical = resolveCanonicalText(this.documentSource, rel, text);
       const existing = this.docs.get(rel);
       if (existing) {
-        existing.refs += 1;
-        existing.version += 1;
-        existing.text = text;
-        this.sendServer({
-          jsonrpc: "2.0",
-          method: "textDocument/didChange",
-          params: {
-            textDocument: {
-              uri: toWorkspaceUri(rel),
-              version: existing.version,
-            },
-            contentChanges: [{ text }],
-          },
-        });
+        if (!alreadyTracked) existing.refs += 1;
+        // Additional openers must not overwrite the authoritative stream
+        // with a possibly-stale snapshot. If Yjs/collab has the file, sync
+        // to that; otherwise keep the already-open buffer until a didChange.
+        const fromSource = this.documentSource?.read(rel);
+        if (fromSource !== null && fromSource !== undefined) {
+          this.syncDocText(rel, existing, fromSource);
+        }
       } else {
-        this.docs.set(rel, { version: 1, text, refs: 1 });
-        this.sendServer({
-          jsonrpc: "2.0",
-          method: "textDocument/didOpen",
-          params: {
-            textDocument: {
-              uri: toWorkspaceUri(rel),
-              languageId: this.language.id,
-              version: 1,
-              text,
-            },
-          },
-        });
+        this.openDoc(rel, languageId, canonical);
       }
       return;
     }
@@ -376,16 +375,8 @@ export class LspSession {
       if (text.length > this.limits.messageMaxBytes) return;
       const existing = this.docs.get(rel);
       if (!existing) return;
-      existing.version += 1;
-      existing.text = text;
-      this.sendServer({
-        jsonrpc: "2.0",
-        method: "textDocument/didChange",
-        params: {
-          textDocument: { uri: toWorkspaceUri(rel), version: existing.version },
-          contentChanges: [{ text }],
-        },
-      });
+      const canonical = resolveCanonicalText(this.documentSource, rel, text);
+      this.syncDocText(rel, existing, canonical);
       return;
     }
     if (msg.method === "textDocument/didClose") {
@@ -533,7 +524,13 @@ export class LspSession {
       return;
     }
     if (msg.method === "workspace/configuration") {
-      this.sendServer({ jsonrpc: "2.0", id: msg.id, result: [{}] });
+      const items = (msg.params as { items?: unknown[] } | undefined)?.items;
+      const n = Array.isArray(items) && items.length > 0 ? items.length : 1;
+      this.sendServer({
+        jsonrpc: "2.0",
+        id: msg.id,
+        result: Array.from({ length: n }, () => ({})),
+      });
       return;
     }
     this.sendServer({ jsonrpc: "2.0", id: msg.id, result: null });
@@ -567,22 +564,57 @@ export class LspSession {
             publishDiagnostics: {},
           },
         },
-        initializationOptions:
-          this.language.id === "python"
-            ? {
-                pylsp: {
-                  plugins: {
-                    pycodestyle: { enabled: true, maxLineLength: 100 },
-                    pyflakes: { enabled: true },
-                    autopep8: { enabled: false },
-                    yapf: { enabled: false },
-                    mccabe: { enabled: false },
-                  },
-                },
-              }
-            : {},
+        initializationOptions: this.language.initializationOptions,
         trace: "off",
       },
+    });
+  }
+
+  private openDoc(rel: string, languageId: string, text: string): void {
+    const doc: OpenDoc = {
+      version: 1,
+      text,
+      refs: 1,
+      languageId,
+      unsubscribe: null,
+    };
+    this.docs.set(rel, doc);
+    this.sendServer({
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: toWorkspaceUri(rel),
+          languageId,
+          version: 1,
+          text,
+        },
+      },
+    });
+    this.watchCanonical(rel, doc);
+  }
+
+  private syncDocText(rel: string, existing: OpenDoc, text: string): void {
+    if (existing.text === text) return;
+    existing.version += 1;
+    existing.text = text;
+    this.sendServer({
+      jsonrpc: "2.0",
+      method: "textDocument/didChange",
+      params: {
+        textDocument: { uri: toWorkspaceUri(rel), version: existing.version },
+        contentChanges: [{ text }],
+      },
+    });
+  }
+
+  private watchCanonical(rel: string, doc: OpenDoc): void {
+    if (!this.documentSource) return;
+    doc.unsubscribe = this.documentSource.subscribe(rel, (text) => {
+      if (this.disposed || this.state !== "ready") return;
+      const current = this.docs.get(rel);
+      if (!current || current !== doc) return;
+      this.syncDocText(rel, current, text);
     });
   }
 
@@ -591,6 +623,12 @@ export class LspSession {
     if (!existing) return;
     existing.refs -= 1;
     if (existing.refs > 0) return;
+    if (existing.unsubscribe) {
+      try {
+        existing.unsubscribe();
+      } catch {}
+      existing.unsubscribe = null;
+    }
     this.docs.delete(rel);
     if (this.state === "ready") {
       this.sendServer({
@@ -599,6 +637,18 @@ export class LspSession {
         params: { textDocument: { uri: toWorkspaceUri(rel) } },
       });
     }
+  }
+
+  private clearDocs(): void {
+    for (const doc of this.docs.values()) {
+      if (doc.unsubscribe) {
+        try {
+          doc.unsubscribe();
+        } catch {}
+        doc.unsubscribe = null;
+      }
+    }
+    this.docs.clear();
   }
 
   private onChildExit(): void {
@@ -618,7 +668,7 @@ export class LspSession {
     this.setState("restarting", "language server restarting");
     this.parser.reset();
     this.pending.clear();
-    this.docs.clear();
+    this.clearDocs();
     for (const tracked of this.clients.values()) {
       tracked.openDocs.clear();
       tracked.pendingCount = 0;
