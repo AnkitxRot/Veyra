@@ -9619,8 +9619,9 @@ session time):**
 | Python | `debugpy==1.8.21` in `/opt/debug/python` | MIT | `veyra-debugpy` |
 | Node / TypeScript | `js-debug-dap-v1.117.0.tar.gz` | MIT | `veyra-js-debug` → stdio↔TCP bridge |
 
-TypeScript uses `runtimeExecutable: tsx` (already in the runner image).
-TSX/JSX React files are not a debug target in M83.
+TypeScript runs in the same Node process via `runtimeArgs: ["--import", "tsx"]`
+(tsx is already pinned in the runner image). TSX/JSX React files are not a
+debug target in M83.
 
 **Session ownership.** User-owned. Isolation is the project sandbox;
 control is `(projectId, userId)`. Collaborators cannot operate another

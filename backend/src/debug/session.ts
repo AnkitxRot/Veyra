@@ -471,10 +471,16 @@ export class DebugSession {
       console: "internalConsole",
       sourceMaps: true,
       resolveSourceMapLocations: ["/workspace/**", "!**/node_modules/**"],
-      skipFiles: ["<node_internals>/**", "/opt/debug/**"],
+      skipFiles: [
+        "<node_internals>/**",
+        "/opt/debug/**",
+        "/usr/local/lib/node_modules/tsx/**",
+        "/usr/local/lib/node_modules/esbuild/**",
+      ],
       autoAttachChildProcesses: false,
       stopOnEntry: false,
-      ...(isTs ? { runtimeExecutable: "tsx" } : {}),
+      enableContentValidation: false,
+      ...(isTs ? { runtimeArgs: ["--import", "tsx"] } : {}),
     };
   }
 

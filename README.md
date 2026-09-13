@@ -168,7 +168,7 @@ exposed.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Python (`.py`) | `debugpy==1.8.21` in `/opt/debug` | yes | yes | over / into / out | yes | locals / scopes | `/workspace` ↔ editor path |
 | Node (`.js` / `.mjs` / `.cjs`) | `vscode-js-debug` v1.117.0 | yes | yes | yes | yes | yes | workspace path |
-| TypeScript (`.ts`) | same adapter, `tsx` runtime | yes | yes | yes | yes | yes | source maps via tsx + js-debug |
+| TypeScript (`.ts`) | same adapter, `node --import tsx` (same process) | yes | yes | yes | yes | yes | source maps via tsx + js-debug |
 | TSX / JSX / Java / C / C++ | — | — | — | — | — | — | not in M83 |
 
 **How to start.** Open a supported file, set a breakpoint in the editor

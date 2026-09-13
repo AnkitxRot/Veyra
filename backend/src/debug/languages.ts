@@ -37,7 +37,7 @@ export const NODE_DEBUG: DebugLanguageSpec = {
   extensions: ["js", "mjs", "cjs", "ts"],
   command: "veyra-js-debug",
   args: [],
-  extraEnv: [],
+  extraEnv: ["NODE_PATH=/usr/local/lib/node_modules"],
   adapterId: "pwa-node",
 };
 
