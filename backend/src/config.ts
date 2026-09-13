@@ -120,6 +120,9 @@ export interface AppConfig {
    *  the server still starts, but any operation that must decrypt an existing
    *  secret fails closed. NEVER logged, backed up, or returned by the API. */
   secretsMasterKey: string | undefined;
+  /** Optional extra CA bundle for Git HTTPS (corporate MITM / test remotes).
+   *  Unset in production. Never a secret. */
+  gitSslCaInfo?: string;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -493,5 +496,7 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     // fail closed.
     secretsMasterKey:
       overrides.secretsMasterKey ?? process.env.SECRETS_MASTER_KEY ?? undefined,
+    gitSslCaInfo:
+      overrides.gitSslCaInfo ?? process.env.GIT_SSL_CAINFO ?? undefined,
   };
 }

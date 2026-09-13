@@ -25,6 +25,17 @@ import {
 
 export const SECRET_SCOPE_PROJECT = "project";
 
+/** M80: reserved names for Git HTTPS credentials. Stored as ordinary
+ *  project secrets (encrypted, write-only) but never injected into
+ *  run/terminal environments. */
+export const GIT_HTTPS_USERNAME_SECRET = "GIT_HTTPS_USERNAME";
+export const GIT_HTTPS_TOKEN_SECRET = "GIT_HTTPS_TOKEN";
+
+const NON_INJECTABLE_SECRET_NAMES = new Set([
+  GIT_HTTPS_USERNAME_SECRET,
+  GIT_HTTPS_TOKEN_SECRET,
+]);
+
 const MAX_NAME_LEN = 128;
 const MAX_VALUE_BYTES = 32 * 1024;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -178,6 +189,39 @@ export function getProjectSecretMetadata(
   return rows.map(toMetadata);
 }
 
+export function hasProjectSecret(
+  db: Db,
+  projectId: string,
+  name: string,
+  environment: string | null,
+): boolean {
+  return selectRow(db, projectId, name, environment) !== null;
+}
+
+/**
+ * Server-side decrypt of a single secret. Returns null when the row does
+ * not exist. Never used by a public route for is_secret=1 values.
+ */
+export function decryptProjectSecret(
+  db: Db,
+  cfg: AppConfig,
+  projectId: string,
+  name: string,
+  environment: string | null,
+): string | null {
+  const row = selectRow(db, projectId, name, environment);
+  if (!row) return null;
+  return decryptSecret(
+    {
+      ciphertext: Buffer.from(row.ciphertext),
+      nonce: Buffer.from(row.nonce),
+      keyVersion: row.key_version,
+    },
+    cfg.secretsMasterKey,
+    identityOf(projectId, name, environment),
+  );
+}
+
 export function countProjectSecrets(db: Db, projectId: string): number {
   const row = db
     .prepare(
@@ -195,6 +239,19 @@ export function anyEncryptedSecretsExist(db: Db): boolean {
   return row !== undefined;
 }
 
+function assertReservedGitSecretWriteOnly(
+  name: string,
+  isSecret: boolean,
+): void {
+  if (NON_INJECTABLE_SECRET_NAMES.has(name) && !isSecret) {
+    throw new ApiError(
+      400,
+      "Git HTTPS credentials must remain write-only secrets",
+      "reserved_secret",
+    );
+  }
+}
+
 /** Owner-only retrieval of a plain-configuration value (is_secret = 0). */
 export function getConfigValue(
   db: Db,
@@ -207,7 +264,9 @@ export function getConfigValue(
   if (!row) {
     throw new ApiError(404, "secret not found", "not_found");
   }
-  if (row.is_secret !== 0) {
+  // Reserved Git credential names are never readable via the config API,
+  // even if a row were marked is_secret=0.
+  if (row.is_secret !== 0 || NON_INJECTABLE_SECRET_NAMES.has(name)) {
     throw new ApiError(
       403,
       "this entry is a secret and its value is write-only",
@@ -239,6 +298,7 @@ export function createProjectSecret(
   cfg: AppConfig,
   input: UpsertInput,
 ): SecretMetadata {
+  assertReservedGitSecretWriteOnly(input.name, input.isSecret);
   const value = validateValue(input.value);
   if (selectRow(db, input.projectId, input.name, input.environment)) {
     throw new ApiError(
@@ -280,6 +340,7 @@ export function updateProjectSecret(
   cfg: AppConfig,
   input: UpsertInput,
 ): SecretMetadata {
+  assertReservedGitSecretWriteOnly(input.name, input.isSecret);
   const existing = selectRow(
     db,
     input.projectId,
@@ -360,7 +421,9 @@ export function resolveInjectableSecrets(
     return {};
   }
   const out: Record<string, string> = {};
+  const injectedNames: string[] = [];
   for (const row of rows) {
+    if (NON_INJECTABLE_SECRET_NAMES.has(row.name)) continue;
     out[row.name] = decryptSecret(
       {
         ciphertext: Buffer.from(row.ciphertext),
@@ -370,10 +433,16 @@ export function resolveInjectableSecrets(
       cfg.secretsMasterKey,
       identityOf(projectId, row.name, row.environment ?? null),
     );
+    injectedNames.push(row.name);
   }
+  if (injectedNames.length === 0) {
+    return {};
+  }
+  const placeholders = injectedNames.map(() => "?").join(",");
   db.prepare(
-    "UPDATE secrets SET last_used_at = datetime('now') WHERE scope = ? AND scope_id = ?",
-  ).run(SECRET_SCOPE_PROJECT, projectId);
+    `UPDATE secrets SET last_used_at = datetime('now')
+     WHERE scope = ? AND scope_id = ? AND name IN (${placeholders})`,
+  ).run(SECRET_SCOPE_PROJECT, projectId, ...injectedNames);
   return out;
 }
 

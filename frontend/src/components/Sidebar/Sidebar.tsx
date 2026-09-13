@@ -174,6 +174,36 @@ function Sidebar({
     }
   };
 
+  const handleCloneProject = async (opts: {
+    name: string;
+    url: string;
+    username: string;
+    token: string;
+  }) => {
+    if (!opts.name.trim() || !opts.url.trim() || isCreatingProject) return;
+    setIsCreatingProject(true);
+    try {
+      const res = await api<{ project: Project }>(`/api/projects/clone`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: opts.name.trim(),
+          url: opts.url.trim(),
+          ...(opts.username.trim() ? { username: opts.username.trim() } : {}),
+          ...(opts.token ? { token: opts.token } : {}),
+        }),
+      });
+      onCreateProject();
+      if (res.project) {
+        onSelectProject(res.project);
+      }
+    } catch (err: any) {
+      emitErrorNotice(`Could not clone repository: ${err.message}`);
+    } finally {
+      setIsCreatingProject(false);
+      setModalState({ type: null });
+    }
+  };
+
   const handleForkProject = async (name: string) => {
     if (!project || isForking) return;
     setIsForking(true);
@@ -797,6 +827,7 @@ function Sidebar({
         isOpen={modalState.type === "new_project"}
         isCreating={isCreatingProject}
         onConfirm={handleCreateProject}
+        onClone={handleCloneProject}
         onCancel={() => setModalState({ type: null })}
       />
 

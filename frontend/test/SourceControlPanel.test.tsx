@@ -31,6 +31,8 @@ const CLEAN_STATUS = {
   clean: true,
   staged: [],
   unstaged: [],
+  remote: null as { name: string; url: string } | null,
+  credentialsConfigured: false,
 };
 
 function dirtyStatus() {
@@ -470,6 +472,154 @@ describe("SourceControlPanel — M51", () => {
     renderPanel({ projectRole: "viewer" });
     await screen.findByText("No repository yet");
     expect(screen.queryByText("Initialize Git Repository")).toBeNull();
+  });
+
+  it("M80. remote section shows origin and fetch/pull/push", async () => {
+    const calls = installApi({
+      status: {
+        ...CLEAN_STATUS,
+        remote: { name: "origin", url: "https://example.com/org/repo.git" },
+        credentialsConfigured: true,
+      },
+    });
+    renderPanel();
+    expect(await screen.findByText(/origin:/)).toBeTruthy();
+    expect(screen.getByText("https://example.com/org/repo.git")).toBeTruthy();
+    expect(screen.getByText("credentials saved")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Fetch/ }));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.path.endsWith("/git/fetch") && c.method === "POST"),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Push/ }));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.path.endsWith("/git/push") && c.method === "POST"),
+      ).toBe(true),
+    );
+  });
+
+  it("M80. Save origin PUTs the HTTPS URL", async () => {
+    const calls = installApi();
+    renderPanel();
+    const input = await screen.findByLabelText("HTTPS remote URL");
+    fireEvent.change(input, {
+      target: { value: "https://gitlab.com/org/repo.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save origin" }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.path.endsWith("/git/remote") && c.method === "PUT")
+          ?.body,
+      ).toEqual({ url: "https://gitlab.com/org/repo.git" }),
+    );
+  });
+
+  it("M80. pull 409 divergence shows a banner and does not reconcile", async () => {
+    installApi({
+      status: {
+        ...CLEAN_STATUS,
+        remote: { name: "origin", url: "https://example.com/org/repo.git" },
+      },
+    });
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: {
+          code: "branch_diverged",
+          message: "local and remote branches have diverged",
+        },
+      }),
+    });
+    const { onReconcileBuffers } = renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Pull" }));
+    const banner = await screen.findByTestId("git-divergence");
+    expect(banner.textContent).toMatch(/diverged/i);
+    expect(onReconcileBuffers).not.toHaveBeenCalled();
+  });
+
+  it("M80. pull dirty worktree shows blocking paths", async () => {
+    installApi({
+      status: {
+        ...CLEAN_STATUS,
+        remote: { name: "origin", url: "https://example.com/org/repo.git" },
+      },
+    });
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: { code: "dirty_worktree" },
+        blockingPaths: ["app.py"],
+      }),
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Pull" }));
+    const banner = await screen.findByTestId("git-pull-dirty");
+    expect(banner.textContent).toContain("app.py");
+  });
+
+  it("M80. successful pull reconciles changed paths", async () => {
+    installApi({
+      status: {
+        ...CLEAN_STATUS,
+        remote: { name: "origin", url: "https://example.com/org/repo.git" },
+      },
+    });
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        branch: "main",
+        alreadyUpToDate: false,
+        changedPaths: ["app.py"],
+      }),
+    });
+    const { onReconcileBuffers, getDirtyOpenPaths } = renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Pull" }));
+    await waitFor(() =>
+      expect(onReconcileBuffers).toHaveBeenCalledWith(
+        ["app.py"],
+        expect.objectContaining({ noticeLabel: "Git pull" }),
+      ),
+    );
+    expect(getDirtyOpenPaths).toHaveBeenCalled();
+  });
+
+  it("M80. viewer cannot configure remotes or credentials", async () => {
+    installApi({
+      status: {
+        ...CLEAN_STATUS,
+        remote: { name: "origin", url: "https://example.com/org/repo.git" },
+      },
+    });
+    renderPanel({ projectRole: "viewer" });
+    await screen.findByText(/origin:/);
+    expect(screen.queryByLabelText("HTTPS remote URL")).toBeNull();
+    expect(screen.queryByText("Save origin")).toBeNull();
+    expect(screen.queryByText("Save credentials")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Fetch/ })).toBeNull();
+  });
+
+  it("M80. owner can save credentials without keeping the token in the field", async () => {
+    const calls = installApi();
+    renderPanel();
+    fireEvent.change(await screen.findByLabelText("Git token"), {
+      target: { value: "ghp_not_a_real_token" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save credentials" }));
+    await waitFor(() =>
+      expect(
+        calls.find(
+          (c) => c.path.endsWith("/git/credentials") && c.method === "PUT",
+        )?.body,
+      ).toEqual({ username: "git", token: "ghp_not_a_real_token" }),
+    );
+    expect(
+      (screen.getByLabelText("Git token") as HTMLInputElement).value,
+    ).toBe("");
   });
 });
 

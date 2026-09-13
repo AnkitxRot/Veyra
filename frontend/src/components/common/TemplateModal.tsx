@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectTemplate } from "../../types";
 import { api } from "../../api";
-import { IconCheck, IconPlus } from "./Icons";
+import { IconCheck, IconPlus, IconDownload } from "./Icons";
+
+export const CLONE_HTTPS_ID = "__clone_https__";
 
 interface TemplateModalProps {
   isOpen: boolean;
@@ -11,6 +13,12 @@ interface TemplateModalProps {
     templateId: string | null;
     name: string;
     entryFile: string | null;
+  }) => void;
+  onClone?: (opts: {
+    name: string;
+    url: string;
+    username: string;
+    token: string;
   }) => void;
   onCancel: () => void;
 }
@@ -33,6 +41,7 @@ export function TemplateModal({
   isOpen,
   isCreating,
   onConfirm,
+  onClone,
   onCancel,
 }: TemplateModalProps) {
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
@@ -42,6 +51,9 @@ export function TemplateModal({
     null,
   );
   const [name, setName] = useState("");
+  const [cloneUrl, setCloneUrl] = useState("");
+  const [cloneUser, setCloneUser] = useState("");
+  const [cloneToken, setCloneToken] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   // Once the user clicks any card, stop letting the async catalog load move
   // the selection out from under them.
@@ -55,6 +67,9 @@ export function TemplateModal({
     userPickedRef.current = false;
     setSelectedTemplateId(null);
     setName("");
+    setCloneUrl("");
+    setCloneUser("");
+    setCloneToken("");
     setCatalogError(null);
     setCatalogLoading(true);
     // Discard any templates from a previous successful open — otherwise a
@@ -116,9 +131,21 @@ export function TemplateModal({
     setName(tpl.name);
   };
 
+  const cloneSelected = selectedTemplateId === CLONE_HTTPS_ID;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || isCreating) return;
+    if (cloneSelected) {
+      if (!cloneUrl.trim() || !onClone) return;
+      onClone({
+        name: name.trim(),
+        url: cloneUrl.trim(),
+        username: cloneUser,
+        token: cloneToken,
+      });
+      return;
+    }
     const tpl = templates.find((t) => t.id === selectedTemplateId);
     onConfirm({
       templateId: selectedTemplateId,
@@ -190,7 +217,8 @@ export function TemplateModal({
             }}
           >
             Pick a starter and press Run — every starter works with no setup.
-            Or choose Blank for an empty workspace.
+            Or choose Blank for an empty workspace, or clone an HTTPS Git
+            repository.
           </p>
         </div>
 
@@ -205,6 +233,43 @@ export function TemplateModal({
               gap: "10px",
             }}
           >
+            <button
+              type="button"
+              onClick={() => {
+                userPickedRef.current = true;
+                setSelectedTemplateId(CLONE_HTTPS_ID);
+                if (!name) setName("cloned-repo");
+              }}
+              style={{
+                ...cardBaseStyle,
+                ...(cloneSelected ? selectedCardStyle : {}),
+              }}
+              aria-pressed={cloneSelected}
+            >
+              {cloneSelected && (
+                <IconCheck
+                  size={14}
+                  color="var(--accent)"
+                  style={{ position: "absolute", top: "10px", right: "10px" }}
+                />
+              )}
+              <IconDownload size={16} color="var(--fg-muted)" />
+              <span
+                style={{
+                  fontSize: "var(--text-sm)",
+                  fontWeight: 600,
+                  color: "var(--fg-primary)",
+                }}
+              >
+                Clone HTTPS repo
+              </span>
+              <span
+                style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}
+              >
+                New project from a remote
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={selectBlank}
@@ -338,6 +403,48 @@ export function TemplateModal({
             autoFocus
           />
 
+          {cloneSelected && (
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+            >
+              <input
+                className="glass-input"
+                aria-label="HTTPS repository URL"
+                value={cloneUrl}
+                onChange={(e) => setCloneUrl(e.target.value)}
+                placeholder="https://host/org/repo.git"
+                autoComplete="off"
+              />
+              <input
+                className="glass-input"
+                aria-label="Git username"
+                value={cloneUser}
+                onChange={(e) => setCloneUser(e.target.value)}
+                placeholder="username (optional, default git)"
+                autoComplete="off"
+              />
+              <input
+                className="glass-input"
+                aria-label="Git token"
+                type="password"
+                value={cloneToken}
+                onChange={(e) => setCloneToken(e.target.value)}
+                placeholder="personal access token (optional)"
+                autoComplete="new-password"
+              />
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "var(--text-xs)",
+                  color: "var(--fg-muted)",
+                }}
+              >
+                HTTPS only. Credentials are stored as encrypted project secrets
+                and never written into the remote URL.
+              </p>
+            </div>
+          )}
+
           <div
             style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}
           >
@@ -347,9 +454,19 @@ export function TemplateModal({
             <button
               type="submit"
               className="glass-btn glass-btn-primary"
-              disabled={!name.trim() || isCreating}
+              disabled={
+                !name.trim() ||
+                isCreating ||
+                (cloneSelected && !cloneUrl.trim())
+              }
             >
-              {isCreating ? "Creating…" : "Create"}
+              {isCreating
+                ? cloneSelected
+                  ? "Cloning…"
+                  : "Creating…"
+                : cloneSelected
+                  ? "Clone"
+                  : "Create"}
             </button>
           </div>
         </form>

@@ -46,6 +46,13 @@ export type AuditEventType =
   | "GIT_BRANCH_CREATED"
   | "GIT_BRANCH_DELETED"
   | "GIT_CHECKOUT"
+  | "GIT_CLONE"
+  | "GIT_REMOTE_SET"
+  | "GIT_FETCH"
+  | "GIT_PULL"
+  | "GIT_PUSH"
+  | "GIT_CREDENTIAL_UPDATED"
+  | "GIT_CREDENTIAL_DELETED"
   | "COMMENT_ADDED"
   | "COMMENT_RESOLVED"
   | "ADMIN_ACTION";
@@ -79,6 +86,13 @@ const REDACTED_KEYS = new Set([
   "secret_value",
   "secretvalue",
   "ciphertext",
+  "pat",
+  "authorization",
+  "access_token",
+  "accesstoken",
+  "git_token",
+  "credential",
+  "token_value",
 ]);
 
 function sanitizeDetails(details: any): any {

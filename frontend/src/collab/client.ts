@@ -64,6 +64,7 @@ export type CollabConnectionStatus =
 export type MutationType =
   | "replace"
   | "git_checkout"
+  | "git_pull"
   | "workspace_restore"
   | "workspace_import"
   | "snapshot_restore"

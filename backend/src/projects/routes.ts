@@ -50,6 +50,10 @@ import {
   resolveSecretsForInjection,
   toGenericSecretError,
 } from "../projectsecrets/store.js";
+import { recordAuditLog } from "../audit.js";
+import { cloneIntoProject } from "../git/remotes.js";
+import { upsertGitHttpsCredentials } from "../git/credentials.js";
+import { validateHttpsGitRemoteUrl, httpsRemoteHost } from "../git/remoteUrl.js";
 import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { telemetryHistorian } from "../execution/historian.js";
@@ -110,6 +114,84 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       res.status(201).json({ project });
     } catch (err) {
       next(err);
+    }
+  });
+
+  // M80: clone an HTTPS remote into a brand-new project.
+  router.post("/clone", async (req, res, next) => {
+    try {
+      const user = userOf(req);
+      const body = req.body ?? {};
+      if (typeof body.name !== "string" || body.name.trim().length === 0) {
+        throw new ApiError(400, "name is required", "invalid_name");
+      }
+      const url = validateHttpsGitRemoteUrl(body.url);
+
+      const hasToken = typeof body.token === "string" && body.token.length > 0;
+      if (hasToken && user.username.startsWith("evaluator_")) {
+        throw new ApiError(
+          403,
+          "demo accounts cannot store secrets",
+          "demo_forbidden",
+        );
+      }
+
+      const creds = hasToken
+        ? {
+            username:
+              typeof body.username === "string" && body.username.trim()
+                ? body.username.trim()
+                : "git",
+            token: body.token as string,
+          }
+        : null;
+
+      const project = await createProject(cfg, db, user.id, {
+        name: body.name,
+        language: "auto",
+      });
+
+      try {
+        if (creds) {
+          upsertGitHttpsCredentials(db, cfg, project.id, {
+            username: creds.username,
+            token: creds.token,
+            createdBy: user.id,
+          });
+        }
+        const result = await cloneIntoProject(
+          cfg,
+          project.id,
+          url,
+          { username: user.username },
+          creds,
+        );
+        recordAuditLog(db, {
+          userId: user.id,
+          projectId: project.id,
+          eventType: "GIT_CLONE",
+          details: {
+            host: httpsRemoteHost(result.remote),
+            branch: result.branch,
+            credentialsUsed: Boolean(creds),
+          },
+          ipAddress: req.ip,
+        });
+        res.status(201).json({
+          project,
+          branch: result.branch,
+          remote: result.remote,
+        });
+      } catch (err) {
+        try {
+          await deleteProject(cfg, db, user.id, project.id);
+        } catch {
+          // still surface the original clone failure
+        }
+        throw err;
+      }
+    } catch (err) {
+      next(toGenericSecretError(err));
     }
   });
 

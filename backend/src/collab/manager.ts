@@ -115,11 +115,13 @@ const DESTRUCTIVE_MUTATION_MAX_ENTRIES = 200;
 /**
  * The closed set of workspace mutations that can produce an external-mutation
  * notice. Every value maps to an operation that actually exists in the
- * codebase today — no free-form types.
+ * codebase today — no free-form types. M80 added `git_pull` (fast-forward
+ * only) alongside `git_checkout`.
  */
 export const MUTATION_TYPES = [
   "replace",
   "git_checkout",
+  "git_pull",
   "workspace_restore",
   "workspace_import",
   "snapshot_restore",

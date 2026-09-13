@@ -179,6 +179,11 @@ export interface GitFileEntry {
   origPath?: string;
 }
 
+export interface GitRemote {
+  name: string;
+  url: string;
+}
+
 export interface GitStatus {
   initialized: boolean;
   branch: string | null;
@@ -187,6 +192,8 @@ export interface GitStatus {
   clean: boolean;
   staged: GitFileEntry[];
   unstaged: GitFileEntry[];
+  remote?: GitRemote | null;
+  credentialsConfigured?: boolean;
 }
 
 export interface GitDiffLine {

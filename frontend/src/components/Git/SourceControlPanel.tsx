@@ -19,6 +19,9 @@ import {
   IconCheck,
   IconTrash,
   IconAlertTriangle,
+  IconDownload,
+  IconUpload,
+  IconShield,
 } from "../common/Icons";
 import CollaboratorImpactNotice, {
   type CollaboratorImpact,
@@ -120,6 +123,14 @@ export default function SourceControlPanel({
     branch: string;
     impacts: CollaboratorImpact[];
   } | null>(null);
+  const [remoteUrl, setRemoteUrl] = useState("");
+  const [credUser, setCredUser] = useState("");
+  const [credToken, setCredToken] = useState("");
+  const [divergence, setDivergence] = useState<string | null>(null);
+  const [pullDirty, setPullDirty] = useState<string[] | null>(null);
+  const [pullCollab, setPullCollab] = useState<CollaboratorImpact[] | null>(
+    null,
+  );
 
   // Project-switch isolation: a stale in-flight refresh must never paint
   // another project's repository state.
@@ -140,6 +151,7 @@ export default function SourceControlPanel({
       if (gen !== genRef.current) return;
       setStatus(st);
       onGitState?.({ initialized: st.initialized, branch: st.branch });
+      if (st.remote?.url) setRemoteUrl(st.remote.url);
       if (st.initialized) {
         const [log, br] = await Promise.all([
           api<{ commits: GitCommit[] }>(
@@ -175,6 +187,12 @@ export default function SourceControlPanel({
     setCommitMessage("");
     setConflict(null);
     setCollabConflict(null);
+    setRemoteUrl("");
+    setCredUser("");
+    setCredToken("");
+    setDivergence(null);
+    setPullDirty(null);
+    setPullCollab(null);
     setError(null);
     setToast(null);
     if (projectId) void refreshAll();
@@ -214,6 +232,12 @@ export default function SourceControlPanel({
         await fn();
         await refreshAll();
       } catch (err: any) {
+        if (
+          err?.code === "branch_diverged" ||
+          err?.code === "non_fast_forward"
+        ) {
+          setDivergence(err.message);
+        }
         setError(err?.message || "Git operation failed");
       } finally {
         setBusy(false);
@@ -355,6 +379,124 @@ export default function SourceControlPanel({
       setDeleteTarget(null);
       flashToast(`Branch "${name}" deleted`);
     });
+
+  const setRemote = () =>
+    mutate(async () => {
+      await api(`/api/projects/${projectId}/git/remote`, {
+        method: "PUT",
+        body: JSON.stringify({ url: remoteUrl.trim() }),
+      });
+      flashToast("Remote origin saved");
+    });
+
+  const saveCredentials = () =>
+    mutate(async () => {
+      await api(`/api/projects/${projectId}/git/credentials`, {
+        method: "PUT",
+        body: JSON.stringify({
+          username: credUser.trim() || "git",
+          token: credToken,
+        }),
+      });
+      setCredToken("");
+      flashToast("Git credentials saved");
+    });
+
+  const removeCredentials = () =>
+    mutate(async () => {
+      await api(`/api/projects/${projectId}/git/credentials`, {
+        method: "DELETE",
+      });
+      flashToast("Git credentials removed");
+    });
+
+  const doFetch = () =>
+    mutate(async () => {
+      setDivergence(null);
+      await api(`/api/projects/${projectId}/git/fetch`, { method: "POST" });
+      flashToast("Fetched from origin");
+    });
+
+  const doPush = () =>
+    mutate(async () => {
+      setDivergence(null);
+      const res = await api<{ branch: string }>(
+        `/api/projects/${projectId}/git/push`,
+        { method: "POST" },
+      );
+      flashToast(`Pushed ${res.branch}`);
+    });
+
+  const doPull = async (force = false) => {
+    if (!projectId || busy) return;
+    setBusy(true);
+    setError(null);
+    setDivergence(null);
+    if (!force) {
+      setPullDirty(null);
+      setPullCollab(null);
+    }
+    try {
+      const res = await fetch(`/api/projects/${projectId}/git/pull`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dirtyOpenPaths: getDirtyOpenPaths(),
+          ...(force ? { force: true } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && Array.isArray(data.blockingPaths)) {
+        setPullDirty(data.blockingPaths);
+        return;
+      }
+      if (
+        res.status === 409 &&
+        data?.error?.code === "collaborator_dirty_conflict"
+      ) {
+        setPullCollab(
+          Array.isArray(data.collaboratorImpacts)
+            ? data.collaboratorImpacts
+            : [],
+        );
+        return;
+      }
+      if (res.status === 409 && data?.error?.code === "branch_diverged") {
+        setDivergence(
+          data?.error?.message ||
+            "Local and remote have diverged. Pull is fast-forward only.",
+        );
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(data?.error?.message || "Pull failed");
+      }
+      setPullCollab(null);
+      setPullDirty(null);
+      if (Array.isArray(data.changedPaths) && data.changedPaths.length > 0) {
+        onReconcileBuffers(data.changedPaths, {
+          noticeLabel: "Git pull",
+          authoritative: true,
+        });
+      }
+      const conflictNote = bulkConflictSummary(
+        Array.isArray(data.conflictedPaths) ? data.conflictedPaths : undefined,
+        "Pull",
+      );
+      flashToast(
+        conflictNote ??
+          (data.alreadyUpToDate
+            ? "Already up to date"
+            : `Pulled ${data.branch}`),
+      );
+      await refreshAll();
+    } catch (err: any) {
+      setError(err?.message || "Pull failed");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // ---- render ----------------------------------------------------------
 
@@ -571,6 +713,269 @@ export default function SourceControlPanel({
                 </div>
               </div>
             )}
+
+            {divergence && (
+              <div
+                data-testid="git-divergence"
+                style={{
+                  fontSize: 11,
+                  border: "1px solid #fab387",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  marginBottom: 10,
+                  color: "var(--fg-primary)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <IconAlertTriangle size={12} color="#fab387" />
+                  <strong>Branches have diverged</strong>
+                </div>
+                <div style={{ marginTop: 4, color: "var(--fg-muted)" }}>
+                  {divergence} Fast-forward pull/push refused — no merge or
+                  rebase is performed.
+                </div>
+                <button
+                  type="button"
+                  className="glass-btn glass-btn-ghost"
+                  style={{ fontSize: 10, padding: "2px 7px", marginTop: 6 }}
+                  onClick={() => setDivergence(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {pullDirty && (
+              <div
+                data-testid="git-pull-dirty"
+                style={{
+                  fontSize: 11,
+                  border: "1px solid #fab387",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  marginBottom: 10,
+                  color: "var(--fg-primary)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <IconAlertTriangle size={12} color="#fab387" />
+                  <strong>Cannot pull</strong>
+                </div>
+                <div style={{ marginTop: 4, color: "var(--fg-muted)" }}>
+                  Commit or discard uncommitted changes to:{" "}
+                  {pullDirty.join(", ")}
+                </div>
+                <button
+                  type="button"
+                  className="glass-btn glass-btn-ghost"
+                  style={{ fontSize: 10, padding: "2px 7px", marginTop: 6 }}
+                  onClick={() => setPullDirty(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {pullCollab && (
+              <div
+                data-testid="git-pull-collab"
+                style={{
+                  fontSize: 11,
+                  border: "1px solid #fab387",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  marginBottom: 10,
+                  color: "var(--fg-primary)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <IconAlertTriangle size={12} color="#fab387" />
+                  <strong>
+                    Another collaborator has unsaved changes this pull would
+                    overwrite
+                  </strong>
+                </div>
+                <CollaboratorImpactNotice
+                  impacts={pullCollab}
+                  heading="Pulling would overwrite files in use:"
+                />
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="glass-btn"
+                    style={{ fontSize: 10, padding: "2px 7px" }}
+                    disabled={busy}
+                    onClick={() => void doPull(true)}
+                  >
+                    Pull anyway
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn glass-btn-ghost"
+                    style={{ fontSize: 10, padding: "2px 7px" }}
+                    onClick={() => setPullCollab(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <Section title="Remote" count={status.remote ? 1 : 0}>
+              <div style={{ fontSize: 11, padding: "4px 2px 8px" }}>
+                <div style={{ color: "var(--fg-muted)", marginBottom: 6 }}>
+                  {status.remote?.url ? (
+                    <>
+                      origin:{" "}
+                      <span
+                        style={{
+                          color: "var(--fg-secondary)",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {status.remote.url}
+                      </span>
+                    </>
+                  ) : (
+                    "No HTTPS remote configured."
+                  )}
+                  {status.credentialsConfigured ? (
+                    <span style={{ marginLeft: 8, color: "#a6e3a1" }}>
+                      credentials saved
+                    </span>
+                  ) : (
+                    <span style={{ marginLeft: 8, color: "var(--fg-muted)" }}>
+                      no credentials
+                    </span>
+                  )}
+                </div>
+                {canWrite && (
+                  <>
+                    <input
+                      aria-label="HTTPS remote URL"
+                      className="glass-input"
+                      value={remoteUrl}
+                      onChange={(e) => setRemoteUrl(e.target.value)}
+                      placeholder="https://host/org/repo.git"
+                      style={{
+                        fontSize: 11,
+                        width: "100%",
+                        marginBottom: 6,
+                      }}
+                    />
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 6,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="glass-btn"
+                        style={{ fontSize: 10, padding: "2px 7px" }}
+                        disabled={busy || !remoteUrl.trim()}
+                        onClick={setRemote}
+                      >
+                        Save origin
+                      </button>
+                      <button
+                        type="button"
+                        className="glass-btn"
+                        style={{ fontSize: 10, padding: "2px 7px" }}
+                        disabled={busy || !status.remote}
+                        onClick={doFetch}
+                      >
+                        <IconDownload size={10} /> Fetch
+                      </button>
+                      <button
+                        type="button"
+                        className="glass-btn"
+                        style={{ fontSize: 10, padding: "2px 7px" }}
+                        disabled={busy || !status.remote}
+                        onClick={() => void doPull(false)}
+                      >
+                        Pull
+                      </button>
+                      <button
+                        type="button"
+                        className="glass-btn"
+                        style={{ fontSize: 10, padding: "2px 7px" }}
+                        disabled={busy || !status.remote}
+                        onClick={doPush}
+                      >
+                        <IconUpload size={10} /> Push
+                      </button>
+                    </div>
+                  </>
+                )}
+                {projectRole === "owner" && (
+                  <div style={{ marginTop: 4 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        color: "var(--fg-muted)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <IconShield size={11} /> HTTPS credentials (PAT)
+                    </div>
+                    <input
+                      aria-label="Git username"
+                      className="glass-input"
+                      value={credUser}
+                      onChange={(e) => setCredUser(e.target.value)}
+                      placeholder="username (default: git)"
+                      autoComplete="off"
+                      style={{
+                        fontSize: 11,
+                        width: "100%",
+                        marginBottom: 4,
+                      }}
+                    />
+                    <input
+                      aria-label="Git token"
+                      className="glass-input"
+                      type="password"
+                      value={credToken}
+                      onChange={(e) => setCredToken(e.target.value)}
+                      placeholder="personal access token"
+                      autoComplete="new-password"
+                      style={{
+                        fontSize: 11,
+                        width: "100%",
+                        marginBottom: 6,
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        type="button"
+                        className="glass-btn"
+                        style={{ fontSize: 10, padding: "2px 7px" }}
+                        disabled={busy || !credToken}
+                        onClick={saveCredentials}
+                      >
+                        Save credentials
+                      </button>
+                      {status.credentialsConfigured && (
+                        <button
+                          type="button"
+                          className="glass-btn glass-btn-ghost"
+                          style={{ fontSize: 10, padding: "2px 7px" }}
+                          disabled={busy}
+                          onClick={removeCredentials}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Section>
 
             {/* CHANGES (unstaged) */}
             <Section

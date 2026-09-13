@@ -6,6 +6,8 @@ import { ApiError } from "../errors.js";
 import type { AppConfig } from "../config.js";
 import { IS_WINDOWS } from "../config.js";
 import { projectDir, workspacePath } from "../projects/service.js";
+import { firstRedactedLine } from "./redact.js";
+import { sanitizeRemoteUrlForClient } from "./remoteUrl.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -31,6 +33,7 @@ const execFileAsync = promisify(execFile);
  */
 
 const GIT_TIMEOUT_MS = 15_000;
+export const GIT_REMOTE_TIMEOUT_MS = 120_000;
 const GIT_MAX_BUFFER = 12 * 1024 * 1024;
 const LOG_DEFAULT_LIMIT = 50;
 const LOG_MAX_LIMIT = 200;
@@ -60,9 +63,16 @@ async function ensureNoHooksDir(cfg: AppConfig): Promise<string> {
   return noHooksDirPromise;
 }
 
-function gitEnv(isolatedHome: string): NodeJS.ProcessEnv {
+function gitEnv(
+  isolatedHome: string,
+  opts: {
+    allowHttps?: boolean;
+    extraEnv?: NodeJS.ProcessEnv;
+    sslCaInfo?: string;
+  } = {},
+): NodeJS.ProcessEnv {
   const devNull = IS_WINDOWS ? "NUL" : "/dev/null";
-  return {
+  const env: NodeJS.ProcessEnv = {
     // `git` must still be found on PATH.
     PATH: process.env.PATH ?? "",
     SystemRoot: process.env.SystemRoot, // Windows: git needs this to run
@@ -72,14 +82,22 @@ function gitEnv(isolatedHome: string): NodeJS.ProcessEnv {
     GIT_ATTR_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: IS_WINDOWS ? "cmd /c exit 1" : "true",
-    GIT_ALLOW_PROTOCOL: "", // no transport protocols at all
     GIT_PAGER: "cat",
     // No `~/.gitconfig`, no `~/.git-credentials`.
     HOME: isolatedHome,
     USERPROFILE: isolatedHome,
     LANG: "C",
     LC_ALL: "C",
+    ...(opts.extraEnv ?? {}),
   };
+  // Protocol isolation is not overridable via extraEnv: local operations stay
+  // transport-less; remote operations may enable HTTPS and nothing else.
+  env.GIT_ALLOW_PROTOCOL = opts.allowHttps ? "https" : "";
+  if (opts.allowHttps && opts.sslCaInfo) {
+    env.GIT_SSL_CAINFO = opts.sslCaInfo;
+    env.SSL_CERT_FILE = opts.sslCaInfo;
+  }
+  return env;
 }
 
 function baseArgs(hooksDir: string): string[] {
@@ -116,21 +134,16 @@ async function gitCwd(cfg: AppConfig, projectId: string): Promise<string> {
   return workspacePath(cfg, projectId);
 }
 
-function mapGitError(err: any): ApiError {
+export function mapGitError(err: any, secrets: string[] = []): ApiError {
   const raw = String(err?.stderr ?? err?.message ?? "");
-  const stderr = raw.slice(0, 800);
-  const first =
-    stderr
-      .split("\n")
-      .map((l) => l.trim())
-      .find(Boolean) ?? "git command failed";
+  const blob = firstRedactedLine(raw, secrets).slice(0, 800);
 
-  if (/not a git repository/i.test(stderr)) {
+  if (/not a git repository/i.test(raw)) {
     return new ApiError(409, "not a git repository", "not_a_repo");
   }
   if (
     /would be overwritten by checkout|would be overwritten by merge|Please commit your changes or stash/i.test(
-      stderr,
+      raw,
     )
   ) {
     return new ApiError(
@@ -139,27 +152,45 @@ function mapGitError(err: any): ApiError {
       "checkout_conflict",
     );
   }
-  if (/not fully merged/i.test(stderr)) {
+  if (/not fully merged/i.test(raw)) {
     return new ApiError(409, "branch is not fully merged", "branch_not_merged");
   }
   if (
     /does not have any commits yet|bad (revision|default revision) '?HEAD'?|ambiguous argument 'HEAD'|unknown revision/i.test(
-      stderr,
+      raw,
     )
   ) {
     return new ApiError(400, "repository has no commits yet", "no_commits");
   }
-  if (/already exists/i.test(stderr) && /branch/i.test(stderr)) {
+  if (/already exists/i.test(raw) && /branch/i.test(raw)) {
     return new ApiError(409, "branch already exists", "branch_exists");
   }
-  return new ApiError(422, `git: ${first}`, "git_error");
+  return new ApiError(422, `git: ${blob}`, "git_error");
 }
 
-async function runGit(
+export interface RunGitOpts {
+  allowNonZero?: boolean;
+  input?: string;
+  /** Remote HTTPS operations only. Default remains no-protocol. */
+  allowHttps?: boolean;
+  timeoutMs?: number;
+  extraEnv?: NodeJS.ProcessEnv;
+  /** Values to strip from mapped errors (tokens, usernames). */
+  redact?: string[];
+}
+
+const capturedGitArgv: string[][] = [];
+
+/** Test-only: drain argv recorded by `runGit` (never includes env values). */
+export function _takeCapturedGitArgvForTests(): string[][] {
+  return capturedGitArgv.splice(0);
+}
+
+export async function runGit(
   cfg: AppConfig,
   projectId: string,
   args: string[],
-  opts: { allowNonZero?: boolean; input?: string } = {},
+  opts: RunGitOpts = {},
 ): Promise<GitResult> {
   for (const a of args) {
     if (typeof a !== "string" || a.includes("\0")) {
@@ -168,13 +199,19 @@ async function runGit(
   }
   const cwd = await gitCwd(cfg, projectId);
   const hooksDir = await ensureNoHooksDir(cfg);
+  const argv = [...baseArgs(hooksDir), ...args];
+  capturedGitArgv.push([...argv]);
 
   try {
-    const child = execFileAsync("git", [...baseArgs(hooksDir), ...args], {
+    const child = execFileAsync("git", argv, {
       cwd,
-      timeout: GIT_TIMEOUT_MS,
+      timeout: opts.timeoutMs ?? GIT_TIMEOUT_MS,
       maxBuffer: GIT_MAX_BUFFER,
-      env: gitEnv(hooksDir),
+      env: gitEnv(hooksDir, {
+        allowHttps: opts.allowHttps === true,
+        extraEnv: opts.extraEnv,
+        sslCaInfo: cfg.gitSslCaInfo,
+      }),
       windowsHide: true,
       encoding: "utf8" as const,
     });
@@ -204,7 +241,7 @@ async function runGit(
         code: err.code,
       };
     }
-    throw mapGitError(err);
+    throw mapGitError(err, opts.redact);
   }
 }
 
@@ -292,6 +329,11 @@ export interface GitFileEntry {
   origPath?: string;
 }
 
+export interface GitRemoteInfo {
+  name: string;
+  url: string;
+}
+
 export interface GitStatus {
   initialized: boolean;
   branch: string | null;
@@ -300,6 +342,7 @@ export interface GitStatus {
   clean: boolean;
   staged: GitFileEntry[];
   unstaged: GitFileEntry[];
+  remote: GitRemoteInfo | null;
 }
 
 export interface GitDiffStatEntry {
@@ -437,7 +480,7 @@ export async function getCurrentBranch(
   };
 }
 
-async function hasCommits(cfg: AppConfig, projectId: string): Promise<boolean> {
+export async function hasCommits(cfg: AppConfig, projectId: string): Promise<boolean> {
   const res = await runGit(
     cfg,
     projectId,
@@ -481,6 +524,7 @@ export async function getStatus(
       clean: true,
       staged: [],
       unstaged: [],
+      remote: null,
     };
   }
 
@@ -535,7 +579,21 @@ export async function getStatus(
     clean: staged.length === 0 && unstaged.length === 0,
     staged,
     unstaged,
+    remote: await readOriginRemote(cfg, projectId),
   };
+}
+
+async function readOriginRemote(
+  cfg: AppConfig,
+  projectId: string,
+): Promise<GitRemoteInfo | null> {
+  const rem = await runGit(cfg, projectId, ["remote", "get-url", "origin"], {
+    allowNonZero: true,
+  });
+  if (rem.code !== 0) return null;
+  const raw = rem.stdout.trim();
+  if (!raw) return null;
+  return { name: "origin", url: sanitizeRemoteUrlForClient(raw) };
 }
 
 export async function getDiffStat(
@@ -1010,25 +1068,13 @@ export async function checkoutBranch(
   //    by the client BEFORE the checkout request, so a switch that would
   //    overwrite one of those files on disk is rejected rather than
   //    orphaning the editor buffer.
-  const worktreeDirty = new Set<string>();
   const st = await getStatus(cfg, projectId);
-  for (const f of [...st.staged, ...st.unstaged]) worktreeDirty.add(f.path);
 
-  const clientDirty = new Set(
-    Array.isArray(dirtyOpenPaths)
-      ? (dirtyOpenPaths as unknown[]).flatMap((raw) => {
-          try {
-            return [normalizePathspec(raw)];
-          } catch {
-            return [];
-          }
-        })
-      : [],
+  const blocking = collectMutationBlockingPaths(
+    [...changed],
+    st,
+    dirtyOpenPaths,
   );
-
-  const blocking = [...changed]
-    .filter((p) => worktreeDirty.has(p) || clientDirty.has(p))
-    .sort();
 
   if (blocking.length > 0) {
     return { ok: false, conflict: true, blockingPaths: blocking };
@@ -1083,7 +1129,37 @@ export async function deleteBranch(
   return { name: branchName, forced: force };
 }
 
-async function assertRepo(cfg: AppConfig, projectId: string): Promise<void> {
+/**
+ * Shared M56-style dirty-buffer gate: a disk-mutating Git operation may not
+ * overwrite a path that is worktree/index dirty or listed in the initiator's
+ * unsaved editor buffers.
+ */
+export function collectMutationBlockingPaths(
+  changedPaths: string[],
+  status: GitStatus,
+  dirtyOpenPaths: unknown,
+): string[] {
+  const worktreeDirty = new Set<string>();
+  for (const f of [...status.staged, ...status.unstaged]) {
+    worktreeDirty.add(f.path);
+  }
+  const clientDirty = new Set(
+    Array.isArray(dirtyOpenPaths)
+      ? (dirtyOpenPaths as unknown[]).flatMap((raw) => {
+          try {
+            return [normalizePathspec(raw)];
+          } catch {
+            return [];
+          }
+        })
+      : [],
+  );
+  return [...new Set(changedPaths)]
+    .filter((p) => worktreeDirty.has(p) || clientDirty.has(p))
+    .sort();
+}
+
+export async function assertRepo(cfg: AppConfig, projectId: string): Promise<void> {
   if (!(await isRepository(cfg, projectId))) {
     throw new ApiError(
       409,

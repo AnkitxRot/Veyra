@@ -3,14 +3,28 @@ import type { Request } from "express";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
-import { requireProjectAccess, workspacePath } from "../projects/service.js";
+import {
+  requireOwnedProject,
+  requireProjectAccess,
+  workspacePath,
+} from "../projects/service.js";
 import { withProjectSnapshotLock } from "../projects/snapshots.js";
 import { recordAuditLog } from "../audit.js";
 import { collaborationManager } from "../collab/manager.js";
+import type { MutationType } from "../collab/manager.js";
 import { invalidateTreeCache } from "../files/service.js";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
+import { toGenericSecretError } from "../projectsecrets/store.js";
 import * as git from "./service.js";
+import * as remotes from "./remotes.js";
+import {
+  deleteGitHttpsCredentials,
+  hasGitHttpsCredentials,
+  resolveGitHttpsCredentials,
+  upsertGitHttpsCredentials,
+} from "./credentials.js";
+import { httpsRemoteHost } from "./remoteUrl.js";
 
 /**
  * M51 — local Git version control API.
@@ -37,7 +51,11 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/:id/git/status", async (req, res, next) => {
     try {
       requireRead(req);
-      res.json(await git.getStatus(cfg, req.params.id));
+      const status = await git.getStatus(cfg, req.params.id);
+      res.json({
+        ...status,
+        credentialsConfigured: hasGitHttpsCredentials(db, req.params.id),
+      });
     } catch (err) {
       next(err);
     }
@@ -274,38 +292,13 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
       // `conflictedPaths` collects any file the room kept at a collaborator's
       // unsaved version (and reconverges disk to). Additive response info —
       // the branch switch itself still stands.
-      const conflictedPaths: string[] = [];
-      if (result.changedPaths.length > 0) {
-        try {
-          const cwd = await workspacePath(cfg, req.params.id);
-          for (const rel of result.changedPaths) {
-            let content = "";
-            try {
-              content = await fsp.readFile(join(cwd, rel), "utf8");
-            } catch {
-              // file does not exist on the target branch — treat as removed
-            }
-            const mutation =
-              await collaborationManager.notifyExternalFileMutation(
-                req.params.id,
-                rel,
-                content,
-              );
-            if (mutation.conflict) conflictedPaths.push(rel);
-          }
-          invalidateTreeCache(cwd);
-        } catch {
-          // Best-effort convergence; the checkout itself already succeeded.
-        }
-
-        // M56: metadata-only notice to affected non-initiating collaborators.
-        collaborationManager.emitExternalMutationNotice(req.params.id, {
-          paths: result.changedPaths,
-          mutationType: "git_checkout",
-          actorUserId: user.id,
-          actorUsername: user.username,
-        });
-      }
+      const conflictedPaths = await reconcileGitWorkspaceMutation(
+        cfg,
+        req.params.id,
+        result.changedPaths,
+        "git_checkout",
+        user,
+      );
 
       recordAuditLog(db, {
         userId: user.id,
@@ -321,6 +314,235 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
       });
     } catch (err) {
       next(err);
+    }
+  });
+
+  // ---- M80 remotes -------------------------------------------------------
+
+  router.get("/:id/git/remote", async (req, res, next) => {
+    try {
+      requireRead(req);
+      const url = await remotes.getOriginUrl(cfg, req.params.id);
+      res.json({
+        remote: url ? { name: remotes.ORIGIN, url } : null,
+        credentialsConfigured: hasGitHttpsCredentials(db, req.params.id),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put("/:id/git/remote", async (req, res, next) => {
+    try {
+      requireWrite(req);
+      const user = userOf(req);
+      const result = await locked(req.params.id, () =>
+        remotes.addOriginRemote(cfg, req.params.id, req.body?.url, {
+          replace: req.body?.replace === true,
+        }),
+      );
+      recordAuditLog(db, {
+        userId: user.id,
+        projectId: req.params.id,
+        eventType: "GIT_REMOTE_SET",
+        details: {
+          host: httpsRemoteHost(result.url),
+          replaced: result.replaced,
+        },
+        ipAddress: req.ip,
+      });
+      res.json({ remote: { name: result.name, url: result.url } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/:id/git/credentials", async (req, res, next) => {
+    try {
+      requireRead(req);
+      res.json({ configured: hasGitHttpsCredentials(db, req.params.id) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put("/:id/git/credentials", async (req, res, next) => {
+    try {
+      const project = requireOwnedProject(db, userOf(req).id, req.params.id);
+      if (userOf(req).username.startsWith("evaluator_")) {
+        throw new ApiError(
+          403,
+          "demo accounts cannot store secrets",
+          "demo_forbidden",
+        );
+      }
+      upsertGitHttpsCredentials(db, cfg, project.id, {
+        username: req.body?.username,
+        token: req.body?.token,
+        createdBy: userOf(req).id,
+      });
+      recordAuditLog(db, {
+        userId: userOf(req).id,
+        projectId: project.id,
+        eventType: "GIT_CREDENTIAL_UPDATED",
+        details: { configured: true },
+        ipAddress: req.ip,
+      });
+      res.json({ configured: true });
+    } catch (err) {
+      next(toGenericSecretError(err));
+    }
+  });
+
+  router.delete("/:id/git/credentials", async (req, res, next) => {
+    try {
+      const project = requireOwnedProject(db, userOf(req).id, req.params.id);
+      const removed = deleteGitHttpsCredentials(db, project.id);
+      if (!removed) {
+        throw new ApiError(404, "git credentials are not configured", "not_found");
+      }
+      recordAuditLog(db, {
+        userId: userOf(req).id,
+        projectId: project.id,
+        eventType: "GIT_CREDENTIAL_DELETED",
+        details: { configured: false },
+        ipAddress: req.ip,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/:id/git/fetch", async (req, res, next) => {
+    try {
+      requireWrite(req);
+      const user = userOf(req);
+      const creds = resolveGitHttpsCredentials(db, cfg, req.params.id);
+      const result = await locked(req.params.id, () =>
+        remotes.fetchOrigin(cfg, req.params.id, creds),
+      );
+      recordAuditLog(db, {
+        userId: user.id,
+        projectId: req.params.id,
+        eventType: "GIT_FETCH",
+        details: {
+          host: httpsRemoteHost(result.remote),
+          credentialsUsed: Boolean(creds),
+        },
+        ipAddress: req.ip,
+      });
+      res.json({
+        ok: true,
+        status: await git.getStatus(cfg, req.params.id),
+      });
+    } catch (err) {
+      next(toGenericSecretError(err));
+    }
+  });
+
+  router.post("/:id/git/pull", async (req, res, next) => {
+    try {
+      requireWrite(req);
+      const user = userOf(req);
+      const force = req.body?.force === true;
+      const creds = resolveGitHttpsCredentials(db, cfg, req.params.id);
+      const result = await locked(req.params.id, async () => {
+        const preview = await remotes.previewPull(
+          cfg,
+          req.params.id,
+          req.body?.dirtyOpenPaths,
+          creds,
+        );
+        if (preview.ok === false) return preview;
+
+        const collaboratorImpacts =
+          collaborationManager.getCollaboratorFileState(
+            req.params.id,
+            preview.changedPaths,
+            user.id,
+          );
+        if (collaboratorImpacts.some((i) => i.dirty === true) && !force) {
+          throw new ApiError(
+            409,
+            "Another collaborator has unsaved changes in a file this pull would overwrite. Confirm to pull anyway.",
+            "collaborator_dirty_conflict",
+            { collaboratorImpacts },
+          );
+        }
+
+        if (!preview.alreadyUpToDate) {
+          await remotes.commitFastForwardPull(cfg, req.params.id, preview.branch);
+        }
+        return { ...preview, collaboratorImpacts };
+      });
+
+      if (result.ok === false) {
+        res.status(409).json({
+          error: {
+            code: "dirty_worktree",
+            message:
+              "Pull would overwrite uncommitted changes. Commit or discard them first.",
+          },
+          blockingPaths: result.blockingPaths,
+        });
+        return;
+      }
+
+      const conflictedPaths = await reconcileGitWorkspaceMutation(
+        cfg,
+        req.params.id,
+        result.changedPaths,
+        "git_pull",
+        user,
+      );
+
+      recordAuditLog(db, {
+        userId: user.id,
+        projectId: req.params.id,
+        eventType: "GIT_PULL",
+        details: {
+          host: httpsRemoteHost(result.remote),
+          branch: result.branch,
+          alreadyUpToDate: result.alreadyUpToDate,
+          credentialsUsed: Boolean(creds),
+        },
+        ipAddress: req.ip,
+      });
+      res.json({
+        ok: true,
+        branch: result.branch,
+        alreadyUpToDate: result.alreadyUpToDate,
+        changedPaths: result.changedPaths,
+        conflictedPaths,
+      });
+    } catch (err) {
+      next(toGenericSecretError(err));
+    }
+  });
+
+  router.post("/:id/git/push", async (req, res, next) => {
+    try {
+      requireWrite(req);
+      const user = userOf(req);
+      const creds = resolveGitHttpsCredentials(db, cfg, req.params.id);
+      const result = await locked(req.params.id, () =>
+        remotes.pushCurrentBranch(cfg, req.params.id, creds),
+      );
+      recordAuditLog(db, {
+        userId: user.id,
+        projectId: req.params.id,
+        eventType: "GIT_PUSH",
+        details: {
+          host: httpsRemoteHost(result.remote),
+          branch: result.branch,
+          credentialsUsed: Boolean(creds),
+        },
+        ipAddress: req.ip,
+      });
+      res.json({ ok: true, branch: result.branch });
+    } catch (err) {
+      next(toGenericSecretError(err));
     }
   });
 
@@ -346,4 +568,42 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
   });
 
   return router;
+}
+
+async function reconcileGitWorkspaceMutation(
+  cfg: AppConfig,
+  projectId: string,
+  changedPaths: string[],
+  mutationType: MutationType,
+  user: { id: number; username: string },
+): Promise<string[]> {
+  const conflictedPaths: string[] = [];
+  if (changedPaths.length === 0) return conflictedPaths;
+  try {
+    const cwd = await workspacePath(cfg, projectId);
+    for (const rel of changedPaths) {
+      let content = "";
+      try {
+        content = await fsp.readFile(join(cwd, rel), "utf8");
+      } catch {
+        // file does not exist on the incoming revision — treat as removed
+      }
+      const mutation = await collaborationManager.notifyExternalFileMutation(
+        projectId,
+        rel,
+        content,
+      );
+      if (mutation.conflict) conflictedPaths.push(rel);
+    }
+    invalidateTreeCache(cwd);
+  } catch {
+    // Best-effort convergence; the Git mutation itself already succeeded.
+  }
+  collaborationManager.emitExternalMutationNotice(projectId, {
+    paths: changedPaths,
+    mutationType,
+    actorUserId: user.id,
+    actorUsername: user.username,
+  });
+  return conflictedPaths;
 }

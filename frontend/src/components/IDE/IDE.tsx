@@ -160,6 +160,8 @@ function describeMutationType(t: MutationType): string {
       return "Replace All";
     case "git_checkout":
       return "Branch checkout";
+    case "git_pull":
+      return "Git pull";
     case "workspace_restore":
       return "restored the workspace";
     case "workspace_import":

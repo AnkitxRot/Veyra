@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-09-06.
+Last updated: 2026-09-13.
 
 ## Current state
 
@@ -102,16 +102,10 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
     - `ce2007c` — new projects runnable by default: 9 self-contained starter
       templates, each with a detector-recognised entry file that auto-opens
       after creation; `validateTemplates()` module-load fail-fast.
-- **Current uncommitted work:** the "Post-M56 bounded fixes" pass (its own
-  section below) plus this reconciliation — namely the `/ws/execute` stdin
-  `uncaughtException` fix (`backend/src/execution/sandbox.ts` +
-  `backend/test/sandbox-stdin.test.ts`, `backend/test/sandbox.test.ts`), the
-  Problems-panel closed-file navigation fix
-  (`frontend/src/utils/revealLocation.ts` + `frontend/test/revealLocation.test.ts`
-  + `frontend/test/ProblemsPanel.navigation.test.tsx` +
-  `frontend/src/components/IDE/IDE.tsx`), the `m16-optimization.test.ts`
-  skip-without-Docker guard, the `deploy/README.md` restore-claim
-  correction, and this `STATUS.md` update. Not committed.
+- **Current uncommitted work:** none. Milestone 80 (first-class HTTPS Git
+  remotes — clone / origin / fetch / fast-forward-only pull / push,
+  M47-backed credentials, M56 pull gate) is in this commit. See the M80
+  section below.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -3875,7 +3869,9 @@ With a live collaboration room, `notifyExternalFileMutation` still flows the rep
 **Files added:** `backend/src/git/{service,routes}.ts`, `backend/test/git.test.ts` (43 tests), `frontend/src/components/Git/SourceControlPanel.tsx`, `frontend/test/SourceControlPanel.test.tsx` (21 tests).
 **Files changed:** `backend/src/app.ts` (mount), `backend/src/audit.ts` (`GIT_*` events), `backend/src/files/service.ts` (`assertNotGitInternal`), `docker/Dockerfile.runner`, `docker/Dockerfile.app`, `frontend/src/components/IDE/IDE.tsx`, `frontend/src/components/common/Icons.tsx` (`IconGitBranch`/`IconGitCommit`), `frontend/src/types.ts` (`Git*` types), `deploy/README.md`, `STATUS.md`.
 
-**NOT done (deliberately):** remotes/push/pull/fetch, GitHub/GitLab/OAuth/PAT/SSH, merge/rebase/cherry-pick/stash UI, per-match anything, arbitrary author/config from the client, a second lock, `notifyExternalFileMutation` on non-checkout git ops, "shared Git awareness". A terminal `git checkout` that changes files under an open editor does not push into the editor (same limitation as any other terminal file mutation) — the panel's manual Refresh reflects it.
+**NOT done (deliberately, M51):** remotes/push/pull/fetch, GitHub/GitLab/OAuth/PAT/SSH, merge/rebase/cherry-pick/stash UI, per-match anything, arbitrary author/config from the client, a second lock, `notifyExternalFileMutation` on non-checkout git ops, "shared Git awareness". A terminal `git checkout` that changes files under an open editor does not push into the editor (same limitation as any other terminal file mutation) — the panel's manual Refresh reflects it.
+
+**Superseded by M80:** the local-only / no-remotes product decision. M51's local repository, Source Control panel, and `execFile` isolation envelope remain; M80 adds HTTPS remotes on top of that envelope rather than replacing it.
 
 **Verification:**
 
@@ -3886,6 +3882,63 @@ With a live collaboration room, `notifyExternalFileMutation` still flows the rep
 - Docker: `runner:build` succeeds; `docker run cloudeeeide-runner:latest git --version` → `git version 2.39.5`, `safe.directory=*` present. `Dockerfile.app` git line added (image not rebuilt this session — build config only).
 - Browser QA (real Chrome + Docker, live `:3000` hot-reloaded to M51, fresh runner image): **A** init (repo + `.git` created); **B** all 3 files shown as untracked; **C** stage one → moves to Staged (`A` glyph); **D** per-file staged diff `@@ -0,0 +1,2 @@` with `+` lines; **E** commit → working tree clean, toast + short hash, history entry, author `m51qa <m51qa@veyra.local>` on disk; **F** modify → diff (`- old`/`+ new`) → stage → commit → history newest-first; **G** create branch + checkout → panel + tab branch badge update; **H** checkout to another branch → the clean open Monaco buffer reconciled to that branch's content and the explorer picked up a branch-only file; **I** genuine unsaved editor edit + conflicting checkout → **rejected**, banner names the file, editor content and branch untouched (verified on disk); **J** Veyra terminal `git branch`/`checkout -b` operate on the **same `.git`** (host confirms the terminal-created branch alongside the API-created commit), and the panel Refresh shows the terminal's branch; **N** viewer collaborator: all git reads 200, all writes 403; non-collaborator 404. QA projects deleted afterward.
 - `git diff --check` clean.
+
+## Milestone 80 — First-class HTTPS Git remotes
+
+**Objective:** turn M51's local-only Git workflow into a usable development
+workflow: clone an HTTPS remote into a new project, configure `origin` on an
+existing repository, fetch, fast-forward-only pull, and push the current
+branch — authenticated with project-scoped M47 secrets, without weakening
+M51 process isolation or M56 collaboration mutation safety.
+
+M51's local-only / no-remotes decision is intentionally superseded here.
+The M51 `execFile` envelope, Source Control panel, and local branch
+workflow stay; M80 adds HTTPS remotes on top of them.
+
+**Transport.** A single validator (`git/remoteUrl.ts`) accepts ordinary
+`https://` Git URLs and rejects `git://`, `ssh://`, `file://`, SCP-like
+`git@host:path`, local/UNC/home paths, credential-bearing URLs, queries,
+fragments, and malformed input — without rewriting an unsafe URL into an
+allowed one. Local Git operations still run with `GIT_ALLOW_PROTOCOL=""`.
+Remote operations set `GIT_ALLOW_PROTOCOL=https` for that invocation only.
+
+**Credentials.** Reserved M47 secrets `GIT_HTTPS_USERNAME` /
+`GIT_HTTPS_TOKEN` (owner-only write, never returned). Excluded from
+run/terminal injection, Yjs, audit bodies, exports, and forks. Git is
+authenticated via a transient askpass helper (0600 files under
+`<dataDir>/.git-askpass/`, never the workspace). Tokens never appear in
+argv, remote URLs, or `.git/config`.
+
+**Operations.** `POST /api/projects/clone` (create + clone + rollback on
+failure); `PUT /api/projects/:id/git/remote` (canonical `origin`; 409 if a
+different URL already exists unless `replace: true`); fetch; pull
+(`fetch` + `merge --ff-only`); push of the current branch (`--set-upstream`,
+never `--force`). Pull uses the M56 dirty-buffer / collaborator-dirty gate
+and `git_pull` external-mutation notices.
+
+**Out of scope:** SSH, OAuth, GitHub Apps, PRs, merge/rebase/stash UI,
+force-push, LFS, submodules, hosting UI.
+
+**Finalize-pass hardening (no product-scope change):** reserved M47 Git
+credential names cannot be stored or flipped as readable `is_secret=0`
+config, and `GET .../secrets/:name/value` refuses them even if a row were
+marked readable. Remote Git stdout/stderr is redacted before it is returned
+from `runRemoteGit`, so a token cannot leak through a non-zero push/fetch
+error path.
+
+**Verification (2026-09-13, finalize pass on the outer Veyra repo at
+`D:/cloudide`):**
+
+- Focused backend: `test/git-remote-url.test.ts` + `test/git-remotes.test.ts` — **39 passed** (HTTPS e2e against a local `git-http-backend` + self-signed cert; argv / `.git/config` / audit / Yjs / export / fork assertions inspect the actual boundaries).
+- Related backend: `test/git.test.ts` (44), `test/secrets.test.ts` (42 / 2 skipped), `test/m56-collaboration-safe-mutations.test.ts` (31) — all passed.
+- Focused frontend: `test/SourceControlPanel.test.tsx` + `test/Sidebar.templates.test.tsx` — **40 passed**.
+- Full backend: **1232 passed / 63 skipped / 0 failed** (105 files: 98 passed, 7 skipped). A first full-suite run in this session flaked two M4 import-race close-code assertions (`m4-collab` #30/#32, `expected undefined to be 1001`); isolated re-run **48/48**, second full suite **1232 / 0 failed**. Those two tests are not M80 code.
+- Full frontend: **1009 passed** (129 files).
+- `backend` `tsc --noEmit` clean; `frontend` `tsc --noEmit && vite build` clean (pre-existing Monaco chunk-size warning only).
+- `git diff --check` clean against this repository (Git was available via `C:\Program Files\Git\cmd\git.exe`; earlier notes that the workspace root was not a git repository were stale).
+- Live browser QA was last exercised in the implementation session (`localhost:5173` + backend on `:3000`): Create Project exposes **Clone HTTPS repo** (URL / username / token, HTTPS-only copy). Cloning `git@github.com:org/repo.git` shows `Could not clone repository: only HTTPS Git remotes are supported` and leaves **Projects 0**. Blank project → Initialize Git → Source Control **Remote** section: save `origin`, save PAT (token field clears; page text never contains the token; "credentials saved" + Remove), Fetch against a dummy GitHub URL shows `authentication with the remote failed` and leaves the working tree clean. Not re-run during this finalize pass; clone/fetch/pull/push behaviour was re-proven by the HTTPS e2e suite above.
+
+---
 
 ## Milestone 52 — Eliminate Yjs initial-load content duplication
 
@@ -6270,8 +6323,8 @@ instance only (env var, no code change).
    (a) real AI provider behind the existing
    verified-patch pipeline — **product-decision-required** (cost, API keys,
    project-data egress, prompt-injection trust boundary, demo-account policy);
-   (b) ~~local-only Git repository support~~ — **shipped in M51** (local-only,
-   no remotes; see the M51 section); this line is stale;
+   (b) ~~local-only Git repository support~~ — **shipped in M51**; HTTPS
+   remotes / clone / fetch / ff-only pull / push — **shipped in M80**;
    (c) ~~shared execution output for collaborators~~ — **shipped in M65** (see
    the M65 section): stdout/stderr broadcast to owner/editor room clients only,
    bounded 256 KB ephemeral buffer, no viewer stdin/kill, no shared interactive
@@ -9298,7 +9351,7 @@ non-restarting production backend.
 | 16 | `fix(terminal): release the gate slot when PTY spawn or session create fails` | **post-M79 hardening (resource leak)** — a synchronous `pty.spawn` throw (Windows ConPTY init failure — seen in this env, missing docker CLI, ENOMEM) or a lost `create` race threw past the `releasePermit` / secrets-cleanup wiring, leaking the per-user `terminalGate` slot **and** the staged secrets file for the process lifetime (after `maxTerminalsPerUser` failures the user can never open a terminal). Both are now wrapped: release the slot, clean the secrets file, kill any spawned PTY, report + close. The previously-ignored `attach` result in the fresh path is now honored too. Regression: `m79-terminal-races.test.ts` (spawn-throw releases the slot). |
 | 17 | this STATUS entry | `docs(status)` |
 
-Not pushed, not merged. No M80 work started.
+Not pushed, not merged. M80 (HTTPS remotes) was implemented later — see the Milestone 80 section above. This M79 note is historical and is not rewritten beyond that pointer.
 
 ### Post-M79 hardening pass (2026-09-08)
 

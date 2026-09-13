@@ -149,7 +149,7 @@ backup files. It is **not** equivalent to a KMS/HSM and does not defend
 against an attacker with code execution or root on the live host (the key is
 resident in process memory while the server runs).
 
-## Local Git version control (M51)
+## Local Git version control (M51) and HTTPS remotes (M80)
 
 Every project can hold its own Git repository at
 `<data-dir>/workspaces/<projectId>/.git`. `git` is available both to the
@@ -157,10 +157,23 @@ backend (which drives the in-IDE **Source Control** panel) and inside the
 project sandbox (so `git` in the Veyra terminal operates on the exact same
 repository). No configuration is required.
 
-- **Local-only, v1.** There is **no** remote support — no GitHub/GitLab, no
-  `push`/`pull`/`fetch`, no OAuth, no personal-access-token or SSH-key
-  storage, no credential handling of any kind. A Veyra Git repo never talks
-  to the network.
+- **HTTPS remotes (M80).** M51's local-only decision is superseded for
+  transport: the IDE can clone, fetch, fast-forward-only pull, and push
+  against an `https://` remote named `origin`. SSH, `git://`, `file://`,
+  local paths, and credential-bearing URLs (`https://user:token@…`) are
+  rejected. Git LFS, submodules, force-push, merge, and rebase are not
+  supported.
+- **Credentials.** HTTPS PATs/passwords are stored as reserved M47 project
+  secrets (`GIT_HTTPS_USERNAME`, `GIT_HTTPS_TOKEN`): encrypted at rest,
+  owner-set, never returned by the API, never written into `.git/config` or
+  the remote URL, never placed on a Git argv, never injected into
+  run/terminal environments, and never copied on export/fork. Git is
+  authenticated via a transient askpass helper (0600 files outside the
+  workspace). Unset `SECRETS_MASTER_KEY` makes credentialed operations fail
+  closed.
+- **Pull safety.** Pull is `merge --ff-only` only. Diverged branches and
+  dirty / collaborator-dirty buffers are rejected through the same M56
+  mutation gate as checkout. Fetch does not change the working tree.
 - **Commit authorship.** Commits made from the IDE or the terminal are
   attributed to `<username> <username@veyra.local>` — a synthesized local
   identity derived from the authenticated account. The browser client cannot

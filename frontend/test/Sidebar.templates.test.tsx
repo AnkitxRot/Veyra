@@ -341,6 +341,44 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     expect(props.onCreateProject).not.toHaveBeenCalled();
   });
 
+  it("M80. Clone HTTPS repo POSTs /api/projects/clone and does not use from-template", async () => {
+    mockCatalogResolves();
+    apiMock.mockResolvedValueOnce({
+      project: { id: "proj-clone", name: "cloned-repo" },
+    });
+    const props = baseProps();
+    const { getByTitle, getByText, getByLabelText, getByPlaceholderText } =
+      render(React.createElement(Sidebar, props as any));
+    fireEvent.click(getByTitle("Create New Project"));
+    await waitFor(() => expect(getByText("Clone HTTPS repo")).toBeTruthy());
+    fireEvent.click(getByText("Clone HTTPS repo"));
+    fireEvent.change(getByPlaceholderText("Project Name"), {
+      target: { value: "from-git" },
+    });
+    fireEvent.change(getByLabelText("HTTPS repository URL"), {
+      target: { value: "https://example.com/org/repo.git" },
+    });
+    fireEvent.click(getByText("Clone"));
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith("/api/projects/clone", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "from-git",
+          url: "https://example.com/org/repo.git",
+        }),
+      }),
+    );
+    expect(apiMock.mock.calls.some((c) => String(c[0]).includes("from-template"))).toBe(
+      false,
+    );
+    await waitFor(() =>
+      expect(props.onSelectProject).toHaveBeenCalledWith({
+        id: "proj-clone",
+        name: "cloned-repo",
+      }),
+    );
+  });
+
   it("reopening the modal resets the selection back to the Python default", async () => {
     mockCatalogResolves();
     const { getByTitle, getByText, queryByText } = render(
