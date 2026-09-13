@@ -410,7 +410,11 @@ export class DebugSession {
     await this.dapRequest("configurationDone", {}, bootMs);
     await launchPromise;
     this.clearStartupTimer();
-    await this.refreshThreadId();
+    const threadDeadline = this.now() + Math.min(10_000, bootMs);
+    while (this.now() < threadDeadline && this.state === "starting") {
+      if (await this.refreshThreadId()) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     if (this.state === "starting") {
       this.setState("running");
     }
@@ -479,7 +483,7 @@ export class DebugSession {
         "/usr/local/lib/node_modules/esbuild/**",
       ],
       autoAttachChildProcesses: false,
-      stopOnEntry: false,
+      stopOnEntry: true,
       enableContentValidation: false,
       ...(isTs ? { runtimeArgs: ["--import", "tsx"] } : {}),
     };
@@ -573,17 +577,21 @@ export class DebugSession {
     }
   }
 
-  private async refreshThreadId(): Promise<void> {
+  private async refreshThreadId(): Promise<boolean> {
     try {
       const result = (await this.dapRequest("threads", {})) as {
         threads?: { id?: number }[];
       };
       const threads = Array.isArray(result?.threads) ? result.threads : [];
       const id = threads.find((t) => typeof t?.id === "number")?.id;
-      if (typeof id === "number") this.threadId = id;
+      if (typeof id === "number") {
+        this.threadId = id;
+        return true;
+      }
     } catch {
       /* some adapters only report a thread after the first stop */
     }
+    return false;
   }
 
   private async sendStack(): Promise<void> {

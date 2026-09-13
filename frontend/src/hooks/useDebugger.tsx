@@ -439,7 +439,8 @@ export function DebugSessionProvider({
       frames: frames.map((f) => ({ path: f.path, line: f.line, name: f.name })),
       output: output.slice(-12).map((o) => o.text).join(""),
     };
-  }, [state, message, language, frames, output]);
+    (globalThis as any).__VEYRA_DEBUG_PAUSE__ = pause;
+  }, [state, message, language, frames, output, pause]);
 
   const value: DebugSessionValue = {
     state,

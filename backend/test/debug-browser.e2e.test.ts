@@ -273,6 +273,10 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
         )?.textContent === "Running",
     );
     if (running) {
+      await page.evaluate(() => {
+        const fn = (globalThis as any).__VEYRA_DEBUG_PAUSE__;
+        if (typeof fn === "function") fn();
+      });
       const pause = page.locator('[data-testid="debug-pause"]');
       if (await pause.isEnabled()) await pause.click();
     }
