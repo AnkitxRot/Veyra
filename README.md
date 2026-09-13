@@ -168,8 +168,13 @@ exposed.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Python (`.py`) | `debugpy==1.8.21` in `/opt/debug` | yes | yes | over / into / out | yes | locals / scopes | `/workspace` ↔ editor path |
 | Node (`.js` / `.mjs` / `.cjs`) | `vscode-js-debug` v1.117.0 | yes | yes | yes | yes | yes | workspace path |
-| TypeScript (`.ts`) | same adapter, `node --import tsx` (same process) | yes | yes | yes | yes | yes | source maps via tsx + js-debug |
+| TypeScript (`.ts`) | same adapter, `node --import tsx` | PARTIAL — launch proven; `.ts` breakpoints/source maps not reliably bound | yes | — | — | — | PARTIAL |
 | TSX / JSX / Java / C / C++ | — | — | — | — | — | — | not in M83 |
+
+**Limitations.** TypeScript files launch in the sandbox, but tsx source maps
+do not reliably bind breakpoints to `.ts` in CI. Use `.js` for a full
+stepping session. Expression evaluation, watches, and conditional
+breakpoints are off. Java and C/C++ debugging are not in this milestone.
 
 **How to start.** Open a supported file, set a breakpoint in the editor
 gutter (or Debug after placing one), click **Debug**. Unsaved buffers are
@@ -191,7 +196,7 @@ the same way as file APIs. DAP `runInTerminal` / `startDebugging` /
 `evaluate` are rejected.
 
 **Lifecycle.** Caps: 4 live sessions host-wide, 2 per project, 1 per user.
-Startup timeout 20s, request timeout 10s, session lifetime 30 min.
+Startup timeout 30s, request timeout 10s, session lifetime 30 min.
 Disconnect, logout, project delete, sandbox stop, and process shutdown
 terminate the session (no reattach). Output, stack, and variables are
 bounded.

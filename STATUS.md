@@ -9620,8 +9620,10 @@ session time):**
 | Node / TypeScript | `js-debug-dap-v1.117.0.tar.gz` | MIT | `veyra-js-debug` → stdio↔TCP bridge |
 
 TypeScript runs in the same Node process via `runtimeArgs: ["--import", "tsx"]`
-(tsx is already pinned in the runner image). TSX/JSX React files are not a
-debug target in M83.
+(tsx is already pinned in the runner image). **Source-mapped `.ts` breakpoints
+are PARTIAL** — CI proves launch and exit; js-debug does not reliably bind
+breakpoints to the `.ts` source the way it does for `.js`. TSX/JSX React
+files are not a debug target in M83.
 
 **Session ownership.** User-owned. Isolation is the project sandbox;
 control is `(projectId, userId)`. Collaborators cannot operate another

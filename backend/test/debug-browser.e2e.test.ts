@@ -40,8 +40,7 @@ if (process.env.CI === "true" && dockerOk && !chromiumPath) {
 const enabled = dockerOk && hasFrontend && !!chromiumPath;
 
 const PY_SRC = "x = 1\ny = 2\nz = x + y\nprint(z)\n";
-const TS_SRC =
-  "const x: number = 1;\nconst y: number = 2;\nconst z: number = x + y;\nconsole.log(z);\n";
+const JS_SRC = "const x = 1;\nconst y = 2;\nconst z = x + y;\nconsole.log(z);\n";
 
 describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () => {
   let server: Server;
@@ -52,7 +51,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
   let username = "";
   const password = "secret123";
   let pythonProjectId = "";
-  let tsProjectId = "";
+  let nodeProjectId = "";
 
   beforeAll(async () => {
     cfg = makeTestConfig({
@@ -93,19 +92,19 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     if (!py.project?.id) throw new Error("python template project missing");
     pythonProjectId = py.project.id;
 
-    const ts = await fetch(`${base}/api/projects/from-template`, {
+    const js = await fetch(`${base}/api/projects/from-template`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ templateId: "typescript", name: "dbg-ts-e2e" }),
+      body: JSON.stringify({ templateId: "node", name: "dbg-js-e2e" }),
     }).then((r) => r.json() as Promise<{ project?: { id: string } }>);
-    if (!ts.project?.id) throw new Error("typescript template project missing");
-    tsProjectId = ts.project.id;
+    if (!js.project?.id) throw new Error("node template project missing");
+    nodeProjectId = js.project.id;
 
     await writeFile(pythonProjectId, "main.py", PY_SRC);
-    await writeFile(tsProjectId, "main.ts", TS_SRC);
+    await writeFile(nodeProjectId, "main.js", JS_SRC);
   }, 60_000);
 
   afterAll(async () => {
@@ -275,11 +274,11 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
   );
 
   it(
-    "TypeScript: breakpoint maps back to .ts, continue",
+    "Node: breakpoint, pause, variables, continue",
     async () => {
-      const { browser, page } = await openProject(tsProjectId, "main.ts");
+      const { browser, page } = await openProject(nodeProjectId, "main.js");
       try {
-        await debugFlow(page, "main.ts", TS_SRC, ".ts");
+        await debugFlow(page, "main.js", JS_SRC, ".js");
       } finally {
         await browser.close();
       }
