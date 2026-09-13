@@ -201,27 +201,51 @@ function start(port) {
     process.stdout.write(encode(msg));
   }
 
+  function connectOnce() {
+    return new Promise((resolve, reject) => {
+      const s = net.connect({ host, port });
+      const timer = setTimeout(() => {
+        s.destroy();
+        reject(new Error("child connect timeout"));
+      }, 3000);
+      s.once("connect", () => {
+        clearTimeout(timer);
+        resolve(s);
+      });
+      s.once("error", (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
   async function attachChild(cfg) {
     if (childAttaching || childSock) return;
     childAttaching = true;
-    await new Promise((resolve, reject) => {
-      const s = net.connect({ host, port }, () => {
+    let lastErr = new Error("child connect failed");
+    for (let i = 0; i < 8; i++) {
+      try {
+        const s = await connectOnce();
         childSock = s;
-        resolve();
-      });
-      s.on("error", (err) => {
-        if (!childSock) reject(err);
-      });
-      s.on("data", (chunk) => {
-        for (const msg of childParser.push(chunk)) onChildMsg(msg);
-      });
-      s.on("close", () => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {}
-        process.exit(0);
-      });
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        await new Promise((r) => setTimeout(r, 50 * (i + 1)));
+      }
+    }
+    if (!childSock) throw lastErr;
+
+    childSock.on("data", (chunk) => {
+      for (const msg of childParser.push(chunk)) onChildMsg(msg);
     });
+    childSock.on("close", () => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {}
+      process.exit(0);
+    });
+    childSock.on("error", () => {});
 
     await childRequest("initialize", {
       adapterID: "pwa-node",
@@ -268,7 +292,7 @@ function start(port) {
     if (msg?.type === "request" && msg.command === "startDebugging") {
       parentSock.write(
         encode({
-          seq: 1,
+          seq: Date.now() % 1_000_000,
           type: "response",
           request_seq: msg.seq,
           success: true,

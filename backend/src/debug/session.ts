@@ -478,7 +478,7 @@ export class DebugSession {
         "/usr/local/lib/node_modules/esbuild/**",
       ],
       autoAttachChildProcesses: false,
-      stopOnEntry: false,
+      stopOnEntry: true,
       enableContentValidation: false,
       ...(isTs ? { runtimeArgs: ["--import", "tsx"] } : {}),
     };
