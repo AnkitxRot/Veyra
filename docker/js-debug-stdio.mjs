@@ -301,7 +301,14 @@ function start(port) {
         }),
       );
       const cfg = msg.arguments?.configuration ?? {};
-      attachChild(cfg).catch(() => process.exit(1));
+      attachChild(cfg).catch((err) => {
+        try {
+          process.stderr.write(
+            `veyra-js-debug child attach failed: ${err?.stack || err}\n`,
+          );
+        } catch {}
+        process.exit(1);
+      });
       return;
     }
     process.stdout.write(encode(msg));

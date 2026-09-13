@@ -2664,6 +2664,7 @@ export default function IDE({
       for (const f of dirtyFiles) {
         const content = resolveLiveFileContent(f.path);
         if (content === null) {
+          if (f.path !== reqFile) continue;
           notify({
             kind: "error",
             text: `Cannot start debugger: unsaved file ${f.path} could not be flushed.`,

@@ -171,6 +171,9 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
       null,
       { timeout: 60_000 },
     );
+    await page
+      .locator('[data-testid="debug-start"]')
+      .waitFor({ state: "attached", timeout: 30_000 });
     return { browser, page };
   }
 
@@ -204,6 +207,13 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
   ) {
     await setActiveModelValue(page, fileName, src);
     await page.click('[data-testid="debug-tab"]');
+    await page.evaluate((fileName) => {
+      (globalThis as any).document.dispatchEvent(
+        new (globalThis as any).CustomEvent("ide-save", {
+          detail: { path: fileName },
+        }),
+      );
+    }, fileName);
     await page.evaluate(
       ({ fileName }) => {
         const CE = (globalThis as any).CustomEvent;
@@ -234,6 +244,36 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
         }),
       );
     }, fileName);
+    await page.waitForFunction(
+      () => {
+        const t = (globalThis as any).document.querySelector(
+          '[data-testid="debug-status"]',
+        )?.textContent;
+        return t === "Starting" || t === "Running" || t === "Paused";
+      },
+      null,
+      { timeout: 45_000 },
+    );
+    await page.waitForFunction(
+      () => {
+        const t = (globalThis as any).document.querySelector(
+          '[data-testid="debug-status"]',
+        )?.textContent;
+        return t === "Running" || t === "Paused" || t === "Failed" || t === "Stopped";
+      },
+      null,
+      { timeout: 90_000 },
+    );
+    const running = await page.evaluate(
+      () =>
+        (globalThis as any).document.querySelector(
+          '[data-testid="debug-status"]',
+        )?.textContent === "Running",
+    );
+    if (running) {
+      const pause = page.locator('[data-testid="debug-pause"]');
+      if (await pause.isEnabled()) await pause.click();
+    }
     try {
       await page.waitForFunction(
         (fileName) => {
@@ -265,6 +305,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
         output: (globalThis as any).document.querySelector(
           '[data-testid="debug-output"]',
         )?.textContent,
+        hook: (globalThis as any).__VEYRA_DEBUG__ ?? null,
       }));
       throw new Error(
         `debug did not pause on ${fileName}: ${JSON.stringify(diag)}`,

@@ -45,6 +45,7 @@ export class DebugSessionManager {
   private readonly sessions = new Map<string, DebugSession>();
   private spawnOverride: DebugSpawnFn | null = null;
   private containerOverride: ((projectId: string) => string) | null = null;
+  private attachDelayMs = 0;
   private liveCount = 0;
 
   setSpawnForTests(fn: DebugSpawnFn | null): void {
@@ -53,6 +54,10 @@ export class DebugSessionManager {
 
   setContainerForTests(fn: ((projectId: string) => string) | null): void {
     this.containerOverride = fn;
+  }
+
+  setAttachDelayForTests(ms: number): void {
+    this.attachDelayMs = Math.max(0, ms);
   }
 
   sessionCount(): number {
@@ -68,6 +73,9 @@ export class DebugSessionManager {
   }
 
   async attach(opts: AttachDebugOpts): Promise<DebugSession | null> {
+    if (this.attachDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.attachDelayMs));
+    }
     const key = keyOf(opts.projectId, opts.userId);
     const existing = this.sessions.get(key);
     if (existing) {
@@ -171,4 +179,5 @@ export function resetDebugSessionsForTests(): void {
   debugSessions.disposeAll("test_reset");
   debugSessions.setSpawnForTests(null);
   debugSessions.setContainerForTests(null);
+  debugSessions.setAttachDelayForTests(0);
 }

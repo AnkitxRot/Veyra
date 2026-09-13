@@ -119,6 +119,7 @@ export function DebugSessionProvider({
   bpRef.current = breakpoints;
   const stateRef = useRef(state);
   stateRef.current = state;
+  const socketReadyRef = useRef(false);
 
   useEffect(() => {
     const map = projectId ? loadBreakpoints(projectId) : {};
@@ -132,6 +133,7 @@ export function DebugSessionProvider({
     setOutput([]);
     setPausedPath(null);
     setPausedLine(null);
+    socketReadyRef.current = false;
     emitAllBreakpoints(map, {});
     document.dispatchEvent(
       new CustomEvent(DEBUG_EXECUTION_EVENT, {
@@ -171,7 +173,14 @@ export function DebugSessionProvider({
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "status") {
       const next = msg.state as DebugSessionState;
+      socketReadyRef.current = true;
+      // Socket attach broadcasts idle. That means "ready to launch", not
+      // "the session ended". Ignore it while the user has already started.
+      if (next === "idle" && stateRef.current === "starting") {
+        return;
+      }
       setState(next);
+      stateRef.current = next;
       setMessage(typeof msg.message === "string" ? msg.message : undefined);
       setLanguage(typeof msg.language === "string" ? msg.language : null);
       document.dispatchEvent(
@@ -183,8 +192,7 @@ export function DebugSessionProvider({
       if (
         next === "terminated" ||
         next === "failed" ||
-        next === "unavailable" ||
-        next === "idle"
+        next === "unavailable"
       ) {
         setPausedPath(null);
         setPausedLine(null);
@@ -288,6 +296,7 @@ export function DebugSessionProvider({
     }
     const ws = new WebSocket(getWebSocketUrl("/ws/debug", id));
     wsRef.current = ws;
+    socketReadyRef.current = false;
     ws.onmessage = (ev) => handleMessage(String(ev.data));
     ws.onclose = () => {
       if (wsRef.current === ws) wsRef.current = null;
@@ -318,8 +327,19 @@ export function DebugSessionProvider({
       setScopes([]);
       setVariables({});
       setState("starting");
+      stateRef.current = "starting";
       void ensureSocket()
-        .then((ws) => {
+        .then(async (ws) => {
+          const deadline = Date.now() + 30_000;
+          while (!socketReadyRef.current && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 20));
+          }
+          if (stateRef.current === "unavailable") {
+            throw new Error("debugger unavailable");
+          }
+          if (ws.readyState !== WebSocket.OPEN) {
+            throw new Error("debug socket closed");
+          }
           ws.send(
             JSON.stringify({
               type: "launch",
@@ -410,6 +430,16 @@ export function DebugSessionProvider({
     },
     [send],
   );
+
+  useEffect(() => {
+    (globalThis as any).__VEYRA_DEBUG__ = {
+      state,
+      message,
+      language,
+      frames: frames.map((f) => ({ path: f.path, line: f.line, name: f.name })),
+      output: output.slice(-12).map((o) => o.text).join(""),
+    };
+  }, [state, message, language, frames, output]);
 
   const value: DebugSessionValue = {
     state,

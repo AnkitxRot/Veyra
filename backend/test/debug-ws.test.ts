@@ -193,4 +193,33 @@ describe("debug websocket authz", () => {
     );
     ws.close();
   });
+
+  it("does not drop a launch sent before attach finishes", async () => {
+    debugSessions.setAttachDelayForTests(250);
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`,
+      { headers: { Cookie: `session_token=${token}` } },
+    );
+    const messages: any[] = [];
+    ws.on("message", (data) => {
+      messages.push(JSON.parse(String(data)));
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", () => resolve());
+      ws.on("error", reject);
+    });
+    ws.send(
+      JSON.stringify({
+        type: "launch",
+        language: "python",
+        entryFile: "main.py",
+        breakpoints: { "main.py": [3] },
+      }),
+    );
+    await waitFor(
+      () => messages.some((m) => m.type === "status" && m.state === "paused"),
+      5000,
+    );
+    ws.close();
+  });
 });
