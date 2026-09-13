@@ -68,6 +68,10 @@ export interface Capabilities {
     python: boolean;
     typescript: boolean;
   };
+  debugger?: {
+    python: boolean;
+    node: boolean;
+  };
 }
 
 export async function getCapabilities(): Promise<Capabilities> {

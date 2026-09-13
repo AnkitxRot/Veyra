@@ -16,6 +16,7 @@
 @import "./collab.css";
 @import "./profile.css";
 @import "./notice.css";
+@import "./debug.css";
 @import "@xterm/xterm/css/xterm.css";
 
 /* Global Box Sizing & Defaults */

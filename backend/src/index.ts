@@ -5,6 +5,7 @@ import { setupWebSocketServer, getHeartbeatController } from "./ws/index.js";
 import { sandboxManager } from "./execution/sandbox.js";
 import { terminalSessions } from "./execution/terminalSessions.js";
 import { languageServers } from "./lsp/manager.js";
+import { debugSessions } from "./debug/manager.js";
 import { telemetryHistorian } from "./execution/historian.js";
 import { collaborationHistorian } from "./collab/historian.js";
 import { deleteExpiredSessions } from "./auth/middleware.js";
@@ -155,6 +156,11 @@ export async function performGracefulShutdown(
     languageServers.disposeAll("server_shutdown");
   } catch (err) {
     console.error("[shutdown] language server dispose failed:", err);
+  }
+  try {
+    debugSessions.disposeAll("server_shutdown");
+  } catch (err) {
+    console.error("[shutdown] debug session dispose failed:", err);
   }
 
   // 3. Persist all dirty collaboration rooms. Budget: min(5s, grace-1s),

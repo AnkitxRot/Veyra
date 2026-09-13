@@ -64,6 +64,17 @@ export interface AppConfig {
   lspRestartWindowMs: number;
   lspMaxRestarts: number;
   lspMessageMaxBytes: number;
+  /** M83 — global cap on live debug sessions (starting/running/paused). */
+  maxDebugSessions: number;
+  maxDebugSessionsPerProject: number;
+  maxDebugSessionsPerUser: number;
+  debugStartupTimeoutMs: number;
+  debugRequestTimeoutMs: number;
+  debugSessionTimeoutMs: number;
+  debugMessageMaxBytes: number;
+  debugMaxStackFrames: number;
+  debugMaxVariables: number;
+  debugMaxOutputChars: number;
   shutdownGraceMs: number;
   frontendDist: string;
   containerized: boolean;
@@ -339,6 +350,54 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       boundedIntEnv("LSP_MESSAGE_MAX_BYTES", 1024 * 1024, {
         min: 16_384,
         max: 4 * 1024 * 1024,
+      }),
+    // M83 — debug adapters are heavier than a normal run. 4 live sessions
+    // globally, 2 per project (two users), 1 per user. Timeouts fail closed
+    // rather than restarting (no restart storm).
+    maxDebugSessions:
+      overrides.maxDebugSessions ??
+      boundedIntEnv("MAX_DEBUG_SESSIONS", 4, { min: 1, max: 32 }),
+    maxDebugSessionsPerProject:
+      overrides.maxDebugSessionsPerProject ??
+      boundedIntEnv("MAX_DEBUG_SESSIONS_PER_PROJECT", 2, { min: 1, max: 8 }),
+    maxDebugSessionsPerUser:
+      overrides.maxDebugSessionsPerUser ??
+      boundedIntEnv("MAX_DEBUG_SESSIONS_PER_USER", 1, { min: 1, max: 4 }),
+    debugStartupTimeoutMs:
+      overrides.debugStartupTimeoutMs ??
+      boundedIntEnv("DEBUG_STARTUP_TIMEOUT_MS", 20_000, {
+        min: 1_000,
+        max: 120_000,
+      }),
+    debugRequestTimeoutMs:
+      overrides.debugRequestTimeoutMs ??
+      boundedIntEnv("DEBUG_REQUEST_TIMEOUT_MS", 10_000, {
+        min: 500,
+        max: 60_000,
+      }),
+    debugSessionTimeoutMs:
+      overrides.debugSessionTimeoutMs ??
+      boundedIntEnv("DEBUG_SESSION_TIMEOUT_MS", 30 * 60_000, {
+        min: 10_000,
+        max: 2 * 60 * 60_000,
+      }),
+    debugMessageMaxBytes:
+      overrides.debugMessageMaxBytes ??
+      boundedIntEnv("DEBUG_MESSAGE_MAX_BYTES", 256 * 1024, {
+        min: 16_384,
+        max: 1024 * 1024,
+      }),
+    debugMaxStackFrames:
+      overrides.debugMaxStackFrames ??
+      boundedIntEnv("DEBUG_MAX_STACK_FRAMES", 32, { min: 4, max: 128 }),
+    debugMaxVariables:
+      overrides.debugMaxVariables ??
+      boundedIntEnv("DEBUG_MAX_VARIABLES", 50, { min: 8, max: 200 }),
+    debugMaxOutputChars:
+      overrides.debugMaxOutputChars ??
+      boundedIntEnv("DEBUG_MAX_OUTPUT_CHARS", 64 * 1024, {
+        min: 1024,
+        max: 1024 * 1024,
       }),
     // Defaults mirror collab/manager.ts's DEFAULT_* constants — duplicated
     // here as literals rather than imported, to keep this foundational

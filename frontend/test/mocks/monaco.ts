@@ -186,6 +186,14 @@ export class FakeEditorInstance {
     this.updateOptionsCalls.push(opts);
   }
 
+  private mouseDownListeners: Array<(e: unknown) => void> = [];
+  onMouseDown(cb: (e: unknown) => void) {
+    this.mouseDownListeners.push(cb);
+    return { dispose: () => {} };
+  }
+  _fireMouseDown(e: unknown) {
+    for (const cb of this.mouseDownListeners) cb(e);
+  }
   layout() {}
   dispose() {
     this.disposed = true;
@@ -379,6 +387,10 @@ class Selection extends Range {
   }
 }
 
+(editor as Record<string, unknown>).MouseTargetType = {
+  GUTTER_GLYPH_MARGIN: 2,
+  CONTENT_TEXT: 6,
+};
 (editor as Record<string, unknown>).OverviewRulerLane = {
   Left: 1,
   Center: 2,

@@ -40,6 +40,8 @@ import Output from "../Output/Output";
 import Terminal from "../Terminal/Terminal";
 import Preview from "../Preview/Preview";
 import { ExecutionSessionProvider } from "../../hooks/useExecutionSession";
+import { DebugSessionProvider } from "../../hooks/useDebugger";
+import DebugPanel from "../Debug/DebugPanel";
 import SourceControlPanel from "../Git/SourceControlPanel";
 import ProblemsPanel from "../Output/ProblemsPanel";
 import ResourcesView from "../Resources/ResourcesView";
@@ -144,6 +146,7 @@ import {
   setLastProjectId,
   resolveProjectSelection,
   resolvePendingEntryOpen,
+  type BottomPanelTab,
 } from "../../utils/sessionStore";
 import {
   IconTerminal,
@@ -157,6 +160,7 @@ import {
   IconAlertTriangle,
   IconActivity,
   IconGitBranch,
+  IconPlay,
 } from "../common/Icons";
 
 // M56: human-readable label for an external-mutation notice.
@@ -239,9 +243,7 @@ export default function IDE({
   // Populated by the (lazily loaded) Editor on mount: the live Monaco model
   // registry that serves as the save-time source of truth. See M1.
   const liveApiRef = useRef<LiveContentApi | null>(null);
-  const [bottomTab, setBottomTab] = useState<
-    "output" | "problems" | "resources" | "terminal" | "preview" | "git"
-  >("output");
+  const [bottomTab, setBottomTab] = useState<BottomPanelTab>("output");
   // M51: local Git state, surfaced as a status-bar badge.
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [gitInitialized, setGitInitialized] = useState(false);
@@ -2653,6 +2655,71 @@ export default function IDE({
     return () => document.removeEventListener("ide-run", handleRunRequest);
   }, [project, openFiles, resolveLiveFileContent, setIsBottomCollapsed]);
 
+  useEffect(() => {
+    const handleDebugRequest = async (e: Event) => {
+      const { activeFile: reqFile } = (e as CustomEvent).detail ?? {};
+      if (!project || !reqFile) return;
+      const dirtyFiles = openFiles.filter((f) => f.dirty);
+      const savedContents = new Map<string, string>();
+      for (const f of dirtyFiles) {
+        const content = resolveLiveFileContent(f.path);
+        if (content === null) {
+          notify({
+            kind: "error",
+            text: `Cannot start debugger: unsaved file ${f.path} could not be flushed.`,
+            ttl: 6000,
+            surface: "stack",
+            dedupeKey: "debug-flush",
+          });
+          return;
+        }
+        try {
+          await api(`/api/projects/${project.id}/file`, {
+            method: "POST",
+            body: JSON.stringify({ path: f.path, content }),
+          });
+          savedContents.set(f.path, content);
+        } catch (err: any) {
+          notify({
+            kind: "error",
+            text:
+              err?.message ??
+              `Cannot start debugger: failed to save ${f.path}.`,
+            ttl: 6000,
+            surface: "stack",
+            dedupeKey: "debug-flush",
+          });
+          return;
+        }
+      }
+      setOpenFiles((prev) =>
+        prev.map((f) => {
+          const saved = savedContents.get(f.path);
+          return saved !== undefined
+            ? { ...f, content: saved, dirty: false }
+            : f;
+        }),
+      );
+      flushSync(() => {
+        setBottomTab("debug");
+        setIsBottomCollapsed(false);
+      });
+      document.dispatchEvent(
+        new CustomEvent("ide-debug-confirmed", {
+          detail: { activeFile: reqFile },
+        }),
+      );
+    };
+    document.addEventListener("ide-debug", handleDebugRequest);
+    return () => document.removeEventListener("ide-debug", handleDebugRequest);
+  }, [
+    project,
+    openFiles,
+    resolveLiveFileContent,
+    setIsBottomCollapsed,
+    notify,
+  ]);
+
   // M43/M44: Output (which owns the actual install request/stream) only
   // exists in the DOM while bottomTab === "output" and the panel isn't
   // collapsed. M44's live browser verification proved that plain
@@ -3055,6 +3122,30 @@ export default function IDE({
         category: "Execution",
         handler: () => {
           setBottomTab("resources");
+          setIsBottomCollapsed(false);
+        },
+      },
+      {
+        id: "execution.action.debug",
+        title: "Debug Current File",
+        description:
+          "Launch the current Python or Node/TypeScript file under the sandbox debugger",
+        category: "Execution",
+        available: () => !!project && !!activeFile,
+        handler: () => {
+          const btn = document.querySelector(
+            '[data-testid="debug-start"]',
+          ) as HTMLButtonElement | null;
+          btn?.click();
+        },
+      },
+      {
+        id: "execution.action.openDebug",
+        title: "Switch to Debug Panel",
+        description: "Show debugger toolbar, call stack, and variables",
+        category: "Execution",
+        handler: () => {
+          setBottomTab("debug");
           setIsBottomCollapsed(false);
         },
       },
@@ -3760,6 +3851,19 @@ export default function IDE({
                     </span>
                   )}
                 </button>
+
+                <button
+                  className={`panel-tab ${bottomTab === "debug" && !isBottomCollapsed ? "active" : ""}`}
+                  onClick={() => {
+                    setBottomTab("debug");
+                    setIsBottomCollapsed(false);
+                  }}
+                  role="tab"
+                  data-testid="debug-tab"
+                >
+                  <IconPlay size={12} />
+                  <span>Debug</span>
+                </button>
               </div>
 
               <div className="panel-actions">
@@ -3861,6 +3965,7 @@ export default function IDE({
                     }}
                   />
                 )}
+                {bottomTab === "debug" && <DebugPanel />}
               </div>
             )}
 
@@ -4141,7 +4246,12 @@ export default function IDE({
   // collapsing it) can never unmount the session and kill a running program.
   return (
     <ExecutionSessionProvider projectId={project?.id ?? null}>
-      {ideLayout}
+      <DebugSessionProvider
+        projectId={project?.id ?? null}
+        dirtyPaths={openFiles.filter((f) => f.dirty).map((f) => f.path)}
+      >
+        {ideLayout}
+      </DebugSessionProvider>
     </ExecutionSessionProvider>
   );
 }

@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     default-jdk \
     git \
+    ca-certificates \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -28,7 +30,29 @@ RUN python3 -m venv /opt/lsp \
  && /opt/lsp/bin/pip install --upgrade pip \
  && /opt/lsp/bin/pip install --no-cache-dir \
       'python-lsp-server[pyflakes,pycodestyle]==1.12.2'
-ENV PATH="/opt/lsp/bin:${PATH}"
+
+# M83 — debug adapters. Isolated from user runs and from /opt/lsp.
+# debugpy 1.8.21 (MIT) is the Python DAP adapter.
+# vscode-js-debug 1.117.0 (MIT) is the Node/TypeScript DAP server (TCP);
+# docker/js-debug-stdio.mjs bridges that to stdio for `docker exec -i`.
+# Never downloaded at debug-session time. Never a floating "latest".
+COPY docker/js-debug-stdio.mjs /opt/debug/js-debug-stdio.mjs
+RUN python3 -m venv /opt/debug/python \
+ && /opt/debug/python/bin/pip install --upgrade pip \
+ && /opt/debug/python/bin/pip install --no-cache-dir 'debugpy==1.8.21' \
+ && curl -fsSL -o /tmp/js-debug-dap.tar.gz \
+      https://github.com/microsoft/vscode-js-debug/releases/download/v1.117.0/js-debug-dap-v1.117.0.tar.gz \
+ && tar -xzf /tmp/js-debug-dap.tar.gz -C /opt/debug \
+ && rm /tmp/js-debug-dap.tar.gz \
+ && mkdir -p /opt/debug/bin \
+ && printf '%s\n' '#!/bin/sh' 'exec /opt/debug/python/bin/python -m debugpy.adapter "$@"' \
+      > /opt/debug/bin/veyra-debugpy \
+ && printf '%s\n' '#!/bin/sh' 'exec node /opt/debug/js-debug-stdio.mjs "$@"' \
+      > /opt/debug/bin/veyra-js-debug \
+ && chmod 755 /opt/debug/bin/veyra-debugpy /opt/debug/bin/veyra-js-debug \
+      /opt/debug/js-debug-stdio.mjs
+
+ENV PATH="/opt/debug/bin:/opt/lsp/bin:${PATH}"
 
 # The workspace .git is created by the backend process; inside this already
 # isolated sandbox the terminal git must operate on it regardless of which

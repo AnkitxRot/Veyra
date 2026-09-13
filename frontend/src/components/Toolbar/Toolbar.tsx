@@ -20,6 +20,8 @@ import type {
 import type { AttentionEvent } from "../../collab/attention";
 import type { LspStatus } from "../../lsp/types";
 import { PYTHON_LSP, TYPESCRIPT_LSP } from "../../lsp/languages";
+import { canDebugPath } from "../../debug/languages";
+import { useOptionalDebugSession } from "../../hooks/useDebugger";
 
 interface ToolbarProps {
   project: Project | null;
@@ -81,10 +83,22 @@ export default function Toolbar({
   // source of truth for when it starts/stops; Toolbar only mirrors that
   // state via document events to drive its own disabled/label logic.
   const [isInstalling, setIsInstalling] = React.useState(false);
+  const [isDebugging, setIsDebugging] = React.useState(false);
+  const dbg = useOptionalDebugSession();
   // Synchronous (non-React-state) guard against a rapid double-click firing
   // two `ide-install` dispatches before the install-started event round-trip
   // has had a chance to re-render this component with isInstalling=true.
   const installInFlightRef = React.useRef(false);
+  React.useEffect(() => {
+    const onStart = () => setIsDebugging(true);
+    const onStop = () => setIsDebugging(false);
+    document.addEventListener("debug-started", onStart);
+    document.addEventListener("debug-stopped", onStop);
+    return () => {
+      document.removeEventListener("debug-started", onStart);
+      document.removeEventListener("debug-stopped", onStop);
+    };
+  }, []);
 
   React.useEffect(() => {
     const onStart = () => setIsRunning(true);
@@ -118,7 +132,22 @@ export default function Toolbar({
   const langDisplay = langInfo.name;
   const runnable = langInfo.runnable;
   const langId = langInfo.id;
-  const isBusy = isRunning || isInstalling;
+  const debugging =
+    dbg != null
+      ? dbg.state === "starting" ||
+        dbg.state === "running" ||
+        dbg.state === "paused"
+      : isDebugging;
+  const isBusy = isRunning || isInstalling || debugging;
+  const canDebug = !!project && canDebugPath(activeFile, capabilities);
+
+  const handleDebug = () => {
+    if (project && canDebug && !isRunning && !isInstalling && !debugging) {
+      document.dispatchEvent(
+        new CustomEvent("ide-debug", { detail: { activeFile } }),
+      );
+    }
+  };
 
   const handleRun = () => {
     if (project && !isBusy && activeFile) {
@@ -504,6 +533,23 @@ export default function Toolbar({
           <span>{isInstalling ? "Installing…" : "Install"}</span>
         </button>
 
+        <button
+          type="button"
+          className="glass-btn"
+          data-testid="debug-start"
+          onClick={handleDebug}
+          disabled={!canDebug || isRunning || isInstalling || debugging}
+          title={
+            debugging
+              ? "Debugger is active — use the Debug panel to control it"
+              : canDebug
+                ? "Debug current file"
+                : "Open a Python or Node/TypeScript file to debug"
+          }
+        >
+          <span>Debug</span>
+        </button>
+
         {isRunning ? (
           <button
             className="glass-btn btn-stop"
@@ -518,9 +564,11 @@ export default function Toolbar({
           <button
             className="glass-btn btn-run"
             onClick={handleRun}
-            disabled={!canRun || isInstalling}
+            disabled={!canRun || isInstalling || debugging}
             title={
-              isInstalling
+              debugging
+                ? "Debugger is active — stop it before running"
+                : isInstalling
                 ? "Install in progress — run is unavailable until it finishes"
                 : canRun
                   ? `${runLabel} (Ctrl+Enter)`

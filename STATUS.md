@@ -104,11 +104,12 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M82 Production Language Intelligence.
-  Hardens M81 Python LSP, adds TypeScript/JavaScript/TSX/JSX via the same
-  sandbox LSP infrastructure, canonical Yjs document sync, real pylsp and
-  typescript-language-server Docker tests, and Playwright browser E2E.
-  See **Milestone 82** at the end of this file.
+- **Current work (this commit):** M83 Debugging Foundation.
+  Sandboxed DAP for Python (`debugpy==1.8.21`) and Node/TypeScript
+  (`vscode-js-debug` v1.117.0) inside the existing project sandbox.
+  Mediated `/ws/debug` protocol, user-owned sessions, Monaco gutter +
+  Debug panel. See **Milestone 83** at the end of this file. M82 language
+  intelligence remains in place.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9587,3 +9588,92 @@ debugger, profiler, notebooks, AI coding assistant, AI agents.
 This workstation cannot run Docker or Playwright-against-runner-image. Those tests **throw in CI** if Docker/the runner image/`frontend/dist`/Chromium are missing (`CI=true`). Live `pylsp` / `typescript-language-server` Docker tests **passed** on GitHub Actions for `7ae30ee` (1355 tests green); the first CI run failed only the Playwright file-open step because API-created projects do not auto-open the template entry file (Sidebar `onProjectBootstrapped` is the create-from-UI path). The e2e now clicks `main.py` / `main.ts` in the file tree.
 
 Pinned runner image packages: `python-lsp-server[pyflakes,pycodestyle]==1.12.2`, `typescript@5.8.3`, `typescript-language-server@5.3.0` (Apache-2.0), `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E file.
+
+## Milestone 83 — Debugging Foundation
+
+**Objective:** first-class sandboxed debugging for Python and
+Node/TypeScript using the Debug Adapter Protocol, reusing the existing
+project sandbox. No Java/C++ debugger, no profiler, no AI, no
+collaborative debugger control, no expression evaluation.
+
+**Architecture.**
+
+```text
+Monaco gutter + Debug panel
+  → /ws/debug?projectId=  (mediated JSON, not raw DAP)
+  → DebugSessionManager (one session per projectId+userId)
+  → docker exec -i -u ide -w /workspace <sandbox> veyra-debugpy | veyra-js-debug
+  → debugpy.adapter  |  vscode-js-debug TCP + docker/js-debug-stdio.mjs
+  → user program
+```
+
+Adapters are allowlisted in `backend/src/debug/languages.ts`. The client
+may name `python` or `node` plus a workspace-relative entry file. It
+cannot name an executable, adapter binary, container ID, cwd, or env.
+
+**Adapters (pinned in `docker/Dockerfile.runner`, never downloaded at
+session time):**
+
+| Runtime | Package | License | Wrapper |
+| --- | --- | --- | --- |
+| Python | `debugpy==1.8.21` in `/opt/debug/python` | MIT | `veyra-debugpy` |
+| Node / TypeScript | `js-debug-dap-v1.117.0.tar.gz` | MIT | `veyra-js-debug` → stdio↔TCP bridge |
+
+TypeScript uses `runtimeExecutable: tsx` (already in the runner image).
+TSX/JSX React files are not a debug target in M83.
+
+**Session ownership.** User-owned. Isolation is the project sandbox;
+control is `(projectId, userId)`. Collaborators cannot operate another
+user's session. Not stored in Yjs.
+
+**Unsaved files.** Debug launch flushes dirty editor buffers through the
+existing save path. Flush failure **refuses** launch. After launch, if
+the paused file becomes dirty, the panel reports a source mismatch; the
+debuggee keeps the launch snapshot.
+
+**Run vs Debug.** Additional mode. Run is unchanged. Run is disabled
+while debugging; Debug is disabled while running/installing.
+
+**Evaluate.** Not exposed. DAP `evaluate`, `runInTerminal`, and
+`startDebugging` are rejected.
+
+**Caps.** `maxDebugSessions=4`, `maxDebugSessionsPerProject=2`,
+`maxDebugSessionsPerUser=1`. Startup 20s, request 10s, session 30 min.
+Stack ≤ 32 frames, variables ≤ 50, values ≤ 512 chars, output ≤ 64 KiB,
+protocol frames ≤ 256 KiB.
+
+**Lifecycle.** Disconnect / logout / project delete / sandbox stop /
+shutdown terminate the session (no reattach). Hung adapters fail into
+`unavailable` without a restart storm.
+
+**Security.** Host `docker` CLI env is PATH/DOCKER_* allowlist. Container
+env is HOME/XDG/TMPDIR/LANG plus PYTHONUNBUFFERED for Python — no
+secrets file, no Git PAT, no backend env. Workspace paths use
+`normalizeRelPath` + `assertInsideWorkspace`. `/ws/debug` requires
+editor role.
+
+**Tests.** Fake stdio DAP adapter (no Docker): protocol, lifecycle,
+security, WS authz. Docker-backed (CI-required): real debugpy and
+js-debug in the sandbox, env leakage, path escape, TypeScript source
+maps. Playwright (CI-required when the runner image exists): browser →
+Monaco → `/ws/debug` → sandbox → real adapters.
+
+**Deferred:** Java debugger, C/C++ debugger, profiler, remote debugging,
+collaborative debugger control, time-travel, conditional breakpoint UI,
+expression/watch evaluation, user-provided adapters, TSX/JSX debug.
+
+**Verification (2026-09-13, outer repo `D:/cloudide`):**
+
+- Backend lint: 0 errors / 0 warnings
+- Frontend lint: 0 errors / 20 warnings (18 pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components` in Admin/Editor/IDE/Settings/Toolbar/execution/perf harness, plus 2 matching `react-refresh` warnings on `useDebugger.tsx` hooks — same pattern as `useExecutionSession`). Adding exhaustive-deps would refetch or rebind on every render.
+- Backend `tsc --noEmit`: clean
+- Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests: **1036 passed / 0 failed** (137 files)
+- Backend tests: **1323 passed / 76 skipped / 0 failed** (120 files)
+- Focused M83 backend `debug-*.test.ts`: **34 passed / 8 skipped** (6 Docker + 2 Playwright skipped — no Docker CLI on this workstation)
+- Focused M83 frontend `debug.*.test.ts(x)` + toolbar.debug: **13 passed**
+- `git diff --check`: clean after dropping the extra STATUS.md EOF blank line
+
+This workstation cannot run Docker or Playwright-against-runner-image. Those tests **throw in CI** if Docker/the runner image/`frontend/dist`/Chromium are missing (`CI=true`). Live debugpy / vscode-js-debug Docker tests and debugger Playwright E2E are the CI proofs.
+
+Pinned runner image debug packages: `debugpy==1.8.21` (MIT), `js-debug-dap-v1.117.0` (MIT), plus existing `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E files.

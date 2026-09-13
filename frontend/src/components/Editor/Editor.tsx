@@ -6,6 +6,7 @@ import { Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import { useLanguageIntelligence } from "../../hooks/useLanguageIntelligence";
+import { useDebugEditorBindings } from "../../debug/editorBindings";
 import type { CollaborationClient, CollaboratorPresence } from "../../collab/client";
 import { collaboratorsInFile, displayLabel } from "../../collab/presence";
 import {
@@ -194,6 +195,7 @@ export default function Editor({
     openFiles,
     getLiveContent,
   });
+  useDebugEditorBindings(commentEditor, activeFile);
   // M69: Monaco built-in theme id for the resolved appearance. Kept in a ref
   // so the mount-time create() closure reads the current value; a later
   // change is applied in place by the effect below (never a remount).
@@ -392,6 +394,7 @@ export default function Editor({
       monacoRef.current = monaco.editor.create(editorRef.current, {
         theme: monacoThemeRef.current,
         automaticLayout: true,
+        glyphMargin: true,
         minimap: { enabled: preferences?.minimap ?? false },
         fontSize: preferences?.fontSize ?? 13.5,
         lineNumbers: preferences?.lineNumbers ?? "on",

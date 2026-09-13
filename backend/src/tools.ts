@@ -141,6 +141,10 @@ export interface Capabilities {
     python: boolean;
     typescript: boolean;
   };
+  debugger: {
+    python: boolean;
+    node: boolean;
+  };
 }
 
 export async function getSystemCapabilitiesAsync(): Promise<Capabilities> {
@@ -170,6 +174,10 @@ export async function getSystemCapabilitiesAsync(): Promise<Capabilities> {
     languageServers: {
       python: hasToolchains,
       typescript: hasToolchains,
+    },
+    debugger: {
+      python: hasToolchains,
+      node: hasToolchains,
     },
   };
 }
@@ -201,6 +209,10 @@ export function getSystemCapabilities(): Capabilities {
     languageServers: {
       python: hasToolchains,
       typescript: hasToolchains,
+    },
+    debugger: {
+      python: hasToolchains,
+      node: hasToolchains,
     },
   };
 }

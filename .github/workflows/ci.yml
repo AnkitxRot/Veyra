@@ -63,7 +63,7 @@ jobs:
       - name: Build sandbox runner image
         run: docker build -t cloudeeeide-runner:latest -f docker/Dockerfile.runner .
 
-      # Chromium is required for M82 real-browser language-intelligence E2E.
+      # Chromium is required for M82/M83 real-browser E2E (LSP + debugger).
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
