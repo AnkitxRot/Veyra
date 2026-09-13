@@ -9638,7 +9638,9 @@ while debugging; Debug is disabled while running/installing.
 `startDebugging` are rejected.
 
 **Caps.** `maxDebugSessions=4`, `maxDebugSessionsPerProject=2`,
-`maxDebugSessionsPerUser=1`. Startup 20s, request 10s, session 30 min.
+`maxDebugSessionsPerUser=1`. Startup 30s (handshake `launch` uses this
+budget — vscode-js-debug does not respond until the debuggee boots),
+request 10s, session 30 min.
 Stack ≤ 32 frames, variables ≤ 50, values ≤ 512 chars, output ≤ 64 KiB,
 protocol frames ≤ 256 KiB.
 
@@ -9669,11 +9671,11 @@ expression/watch evaluation, user-provided adapters, TSX/JSX debug.
 - Backend `tsc --noEmit`: clean
 - Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
 - Frontend tests: **1036 passed / 0 failed** (137 files)
-- Backend tests: **1323 passed / 76 skipped / 0 failed** (120 files)
-- Focused M83 backend `debug-*.test.ts`: **34 passed / 8 skipped** (6 Docker + 2 Playwright skipped — no Docker CLI on this workstation)
+- Backend tests: **1324 passed / 76 skipped / 0 failed** (120 files)
+- Focused M83 backend `debug-*.test.ts`: **35 passed / 8 skipped** (6 Docker + 2 Playwright skipped — no Docker CLI on this workstation)
 - Focused M83 frontend `debug.*.test.ts(x)` + toolbar.debug: **13 passed**
-- `git diff --check`: clean after dropping the extra STATUS.md EOF blank line
+- `git diff --check`: clean
 
-This workstation cannot run Docker or Playwright-against-runner-image. Those tests **throw in CI** if Docker/the runner image/`frontend/dist`/Chromium are missing (`CI=true`). Live debugpy / vscode-js-debug Docker tests and debugger Playwright E2E are the CI proofs.
+The first `71e2eaa` GitHub Actions run failed six live debugger assertions: `status=paused` was broadcast before the `stopped` payload (tests and Playwright read empty frames/variables), and vscode-js-debug's `launch` response waits for debuggee boot longer than the 10s DAP request timeout, so Node/TS never reached paused. Handshake `launch` now uses the 30s startup budget; the stdio bridge retries TCP on a reserved port instead of scraping a possibly-buffered listen banner; tests wait for `stopped`. Live debugpy / vscode-js-debug Docker tests and debugger Playwright E2E remain the CI proofs.
 
 Pinned runner image debug packages: `debugpy==1.8.21` (MIT), `js-debug-dap-v1.117.0` (MIT), plus existing `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E files.

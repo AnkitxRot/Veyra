@@ -87,6 +87,10 @@ function handle(req) {
   }
 
   if (cmd === "launch") {
+    if (process.env.FAKE_DAP_SLOW_LAUNCH === "1") {
+      setTimeout(() => respond(req, {}), 1500);
+      return;
+    }
     respond(req, {});
     return;
   }

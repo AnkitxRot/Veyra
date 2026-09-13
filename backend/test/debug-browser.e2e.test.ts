@@ -57,7 +57,8 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
   beforeAll(async () => {
     cfg = makeTestConfig({
       frontendDist: join(repoRoot, "frontend", "dist"),
-      debugStartupTimeoutMs: 40_000,
+      debugStartupTimeoutMs: 45_000,
+      debugRequestTimeoutMs: 45_000,
     });
     db = openDb(":memory:");
     const app = createApp(cfg, db);
@@ -218,10 +219,16 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     });
     await page.click('[data-testid="debug-start"]');
     await page.waitForFunction(
-      () =>
-        (globalThis as any).document.querySelector('[data-testid="debug-status"]')
-          ?.textContent === "Paused",
-      null,
+      (fileName) => {
+        const status = (globalThis as any).document.querySelector(
+          '[data-testid="debug-status"]',
+        )?.textContent;
+        const stack = (globalThis as any).document.querySelector(
+          '[data-testid="debug-stack"]',
+        )?.textContent ?? "";
+        return status === "Paused" && stack.includes(fileName);
+      },
+      fileName,
       { timeout: 90_000 },
     );
     const varsText = await page.locator('[data-testid="debug-variables"]').innerText();

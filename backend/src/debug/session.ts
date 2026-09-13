@@ -58,7 +58,7 @@ export interface DebugSessionLimits {
 }
 
 export const DEFAULT_DEBUG_SESSION_LIMITS: DebugSessionLimits = {
-  startupTimeoutMs: 20_000,
+  startupTimeoutMs: 30_000,
   requestTimeoutMs: 10_000,
   sessionTimeoutMs: 30 * 60_000,
   messageMaxBytes: 256 * 1024,
@@ -379,27 +379,35 @@ export class DebugSession {
   }
 
   private async handshake(cfg: LaunchConfig): Promise<void> {
-    await this.dapRequest("initialize", {
-      adapterID: cfg.language.adapterId,
-      clientID: "veyra",
-      clientName: "Veyra",
-      linesStartAt1: true,
-      columnsStartAt1: true,
-      pathFormat: "path",
-      supportsVariableType: true,
-      supportsVariablePaging: false,
-      supportsRunInTerminalRequest: false,
-      supportsStartDebuggingRequest: false,
-      locale: "en-us",
-    });
+    // vscode-js-debug does not respond to `launch` until configurationDone
+    // *and* the debuggee has booted. That routinely exceeds the ordinary
+    // DAP request timeout, so handshake uses the startup budget instead.
+    const bootMs = this.limits.startupTimeoutMs;
+    await this.dapRequest(
+      "initialize",
+      {
+        adapterID: cfg.language.adapterId,
+        clientID: "veyra",
+        clientName: "Veyra",
+        linesStartAt1: true,
+        columnsStartAt1: true,
+        pathFormat: "path",
+        supportsVariableType: true,
+        supportsVariablePaging: false,
+        supportsRunInTerminalRequest: false,
+        supportsStartDebuggingRequest: false,
+        locale: "en-us",
+      },
+      bootMs,
+    );
 
     const waitInit = this.waitForInitialized();
     const launchArgs = this.buildLaunchArgs(cfg);
-    const launchPromise = this.dapRequest("launch", launchArgs);
+    const launchPromise = this.dapRequest("launch", launchArgs, bootMs);
 
     await waitInit;
     await this.pushBreakpoints();
-    await this.dapRequest("configurationDone", {});
+    await this.dapRequest("configurationDone", {}, bootMs);
     await launchPromise;
     this.clearStartupTimer();
     if (this.state === "starting") {
@@ -461,15 +469,12 @@ export class DebugSession {
       cwd: "/workspace",
       args: cfg.args,
       console: "internalConsole",
-      internalConsoleOptions: "neverOpen",
       sourceMaps: true,
       resolveSourceMapLocations: ["/workspace/**", "!**/node_modules/**"],
       skipFiles: ["<node_internals>/**", "/opt/debug/**"],
       autoAttachChildProcesses: false,
-      outputCapture: "std",
-      ...(isTs
-        ? { runtimeExecutable: "tsx" }
-        : { runtimeExecutable: "node" }),
+      stopOnEntry: false,
+      ...(isTs ? { runtimeExecutable: "tsx" } : {}),
     };
   }
 
@@ -601,7 +606,7 @@ export class DebugSession {
       const raw = Array.isArray(result?.stackFrames) ? result.stackFrames : [];
       return clipArray(raw, this.limits.maxStackFrames)
         .map((f) => this.mapFrame(f))
-        .filter((f): f is ClientFrame => f !== null);
+        .filter((f): f is ClientFrame => f !== null && !!f.path);
     } catch {
       return [];
     }
@@ -679,17 +684,9 @@ export class DebugSession {
   private async onStopped(body: Record<string, unknown>): Promise<void> {
     if (typeof body.threadId === "number") this.threadId = body.threadId;
     this.clearStartupTimer();
-    this.setState(
-      "paused",
-      typeof body.description === "string"
-        ? body.description
-        : typeof body.reason === "string"
-          ? body.reason
-          : "paused",
-    );
     const reason = typeof body.reason === "string" ? body.reason : "pause";
     const frames = await this.fetchStack();
-    const top = frames[0];
+    const top = frames.find((f) => f.path) ?? frames[0];
     let scopes: ClientScope[] = [];
     const variables: Record<number, ClientVariable[]> = {};
     if (top) {
@@ -702,6 +699,12 @@ export class DebugSession {
         }
       }
     }
+    this.setState(
+      "paused",
+      typeof body.description === "string"
+        ? body.description
+        : reason,
+    );
     this.sendToSocket({
       type: "stopped",
       reason,
@@ -819,7 +822,11 @@ export class DebugSession {
     });
   }
 
-  private dapRequest(command: string, args: unknown): Promise<unknown> {
+  private dapRequest(
+    command: string,
+    args: unknown,
+    timeoutMs = this.limits.requestTimeoutMs,
+  ): Promise<unknown> {
     if (!ADAPTER_REQUESTS.has(command)) {
       return Promise.reject(new Error("command not allowed"));
     }
@@ -834,7 +841,7 @@ export class DebugSession {
       const timer = setTimeout(() => {
         this.pending.delete(seq);
         reject(new Error(`${command} timed out`));
-      }, this.limits.requestTimeoutMs);
+      }, timeoutMs);
       timer.unref?.();
       this.pending.set(seq, { command, resolve, reject, timer });
       this.writeDap({

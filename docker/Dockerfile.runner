@@ -50,7 +50,8 @@ RUN python3 -m venv /opt/debug/python \
  && printf '%s\n' '#!/bin/sh' 'exec node /opt/debug/js-debug-stdio.mjs "$@"' \
       > /opt/debug/bin/veyra-js-debug \
  && chmod 755 /opt/debug/bin/veyra-debugpy /opt/debug/bin/veyra-js-debug \
-      /opt/debug/js-debug-stdio.mjs
+      /opt/debug/js-debug-stdio.mjs \
+ && test -f /opt/debug/js-debug/src/dapDebugServer.js
 
 ENV PATH="/opt/debug/bin:/opt/lsp/bin:${PATH}"
 

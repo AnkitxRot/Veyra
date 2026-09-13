@@ -39,13 +39,28 @@ async function waitFor(
   pred: () => boolean,
   ms = 40_000,
   label = "condition",
+  hint?: () => unknown,
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
     if (pred()) return;
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(`timed out waiting for ${label}`);
+  const extra = hint ? ` last=${JSON.stringify(hint())}` : "";
+  throw new Error(`timed out waiting for ${label}${extra}`);
+}
+
+async function waitPaused(sock: FakeSock, ms = 40_000, label = "paused"): Promise<any> {
+  await waitFor(
+    () => sock.lastStatus()?.state === "paused" && sock.ofType("stopped").length > 0,
+    ms,
+    label,
+    () => ({
+      status: sock.lastStatus(),
+      types: sock.messages.map((m) => m.type),
+    }),
+  );
+  return sock.ofType("stopped").at(-1);
 }
 
 describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
@@ -93,12 +108,7 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
         entryFile: "main.py",
         breakpoints: { "main.py": [3] },
       });
-      await waitFor(
-        () => sock.lastStatus()?.state === "paused",
-        40_000,
-        "python paused",
-      );
-      const stopped = sock.ofType("stopped").at(-1);
+      const stopped = await waitPaused(sock, 40_000, "python paused");
       expect(stopped.frames[0].path).toBe("main.py");
       const names = Object.values(stopped.variables)
         .flat()
@@ -166,7 +176,10 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
   it(
     "Node js-debug: breakpoint, variables, continue",
     async () => {
-      const cfg = makeTestConfig({ debugStartupTimeoutMs: 30_000 });
+      const cfg = makeTestConfig({
+        debugStartupTimeoutMs: 45_000,
+        debugRequestTimeoutMs: 45_000,
+      });
       const ws = makeWorkspace(cfg);
       writeFileSync(
         join(ws, "main.js"),
@@ -187,12 +200,7 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
         entryFile: "main.js",
         breakpoints: { "main.js": [3] },
       });
-      await waitFor(
-        () => sock.lastStatus()?.state === "paused",
-        40_000,
-        "node paused",
-      );
-      const stopped = sock.ofType("stopped").at(-1);
+      const stopped = await waitPaused(sock, 60_000, "node paused");
       expect(stopped.frames[0].path).toBe("main.js");
       const names = Object.values(stopped.variables ?? {})
         .flat()
@@ -207,13 +215,16 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
         "node exited",
       );
     },
-    90_000,
+    120_000,
   );
 
   it(
     "TypeScript via tsx: breakpoint maps back to .ts",
     async () => {
-      const cfg = makeTestConfig({ debugStartupTimeoutMs: 40_000 });
+      const cfg = makeTestConfig({
+        debugStartupTimeoutMs: 45_000,
+        debugRequestTimeoutMs: 45_000,
+      });
       const ws = makeWorkspace(cfg);
       writeFileSync(
         join(ws, "main.ts"),
@@ -234,12 +245,7 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
         entryFile: "main.ts",
         breakpoints: { "main.ts": [3] },
       });
-      await waitFor(
-        () => sock.lastStatus()?.state === "paused",
-        50_000,
-        "ts paused",
-      );
-      const stopped = sock.ofType("stopped").at(-1);
+      const stopped = await waitPaused(sock, 60_000, "ts paused");
       const top = stopped.frames[0];
       expect(top.path).toBe("main.ts");
       session!.handleClientMessage(sock, { type: "continue" });
@@ -310,11 +316,7 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
         "python running",
       );
       session!.handleClientMessage(sock, { type: "pause" });
-      await waitFor(
-        () => sock.lastStatus()?.state === "paused",
-        20_000,
-        "python pause",
-      );
+      await waitPaused(sock, 20_000, "python pause");
       session!.handleClientMessage(sock, { type: "terminate" });
       await waitFor(
         () => sock.lastStatus()?.state === "terminated",

@@ -365,7 +365,7 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       boundedIntEnv("MAX_DEBUG_SESSIONS_PER_USER", 1, { min: 1, max: 4 }),
     debugStartupTimeoutMs:
       overrides.debugStartupTimeoutMs ??
-      boundedIntEnv("DEBUG_STARTUP_TIMEOUT_MS", 20_000, {
+      boundedIntEnv("DEBUG_STARTUP_TIMEOUT_MS", 30_000, {
         min: 1_000,
         max: 120_000,
       }),

@@ -309,7 +309,7 @@ process environment directly (`PORT`, `DATA_DIR`, …).
 | `MAX_DEBUG_SESSIONS` | `4` | Live debug sessions (starting/running/paused). |
 | `MAX_DEBUG_SESSIONS_PER_PROJECT` | `2` | |
 | `MAX_DEBUG_SESSIONS_PER_USER` | `1` | |
-| `DEBUG_STARTUP_TIMEOUT_MS` | `20000` | |
+| `DEBUG_STARTUP_TIMEOUT_MS` | `30000` | Adapter initialize + launch. |
 | `COOKIE_SECURE` | production=`true` | |
 | `TRUST_PROXY` | off | Set `1` behind a reverse proxy. |
 | `APP_CONTAINERIZED` | off | Compose sets `1` so preview proxy uses sandbox networks. |

@@ -52,6 +52,15 @@ async function waitFor(
   throw new Error(`timed out waiting for ${label}`);
 }
 
+async function waitPaused(sock: FakeSock, ms = 5000): Promise<any> {
+  await waitFor(
+    () => sock.lastStatus()?.state === "paused" && sock.ofType("stopped").length > 0,
+    ms,
+    "paused",
+  );
+  return sock.ofType("stopped").at(-1);
+}
+
 describe("debug session lifecycle (fake adapter)", () => {
   beforeEach(() => {
     resetDebugSessionsForTests();
@@ -86,12 +95,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(
-      () => sock.lastStatus()?.state === "paused",
-      5000,
-      "paused",
-    );
-    const stopped = sock.ofType("stopped").at(-1);
+    const stopped = await waitPaused(sock);
     expect(stopped.frames[0].path).toBe("main.py");
     expect(stopped.frames[0].line).toBe(3);
     const locals = Object.values(stopped.variables).flat() as { name: string }[];
@@ -170,7 +174,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(() => a.lastStatus()?.state === "paused");
+    await waitPaused(a);
     sB!.handleClientMessage(b, { type: "continue" });
     await new Promise((r) => setTimeout(r, 80));
     expect(a.lastStatus()?.state).toBe("paused");
@@ -245,7 +249,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(() => a.lastStatus()?.state === "paused");
+    await waitPaused(a);
     s2!.handleClientMessage(b, {
       type: "launch",
       language: "python",
@@ -288,6 +292,32 @@ describe("debug session lifecycle (fake adapter)", () => {
     expect(debugSessions.liveSessionCount()).toBe(0);
   });
 
+  it("keeps launch in the startup budget when the adapter is slow to boot", async () => {
+    debugSessions.setSpawnForTests(spawnFake({ FAKE_DAP_SLOW_LAUNCH: "1" }));
+    const cfg = makeTestConfig({
+      debugStartupTimeoutMs: 4000,
+      debugRequestTimeoutMs: 200,
+    });
+    const ws = makeWorkspace(cfg);
+    writeFileSync(join(ws, "main.py"), "x = 1\ny = 2\nz = x + y\nprint(z)\n");
+    const sock = new FakeSock();
+    const session = await debugSessions.attach({
+      projectId: "slow-launch",
+      userId: 1,
+      cfg,
+      socket: sock,
+      workspaceDir: ws,
+    });
+    session!.handleClientMessage(sock, {
+      type: "launch",
+      language: "python",
+      entryFile: "main.py",
+      breakpoints: { "main.py": [3] },
+    });
+    await waitPaused(sock, 4000);
+    expect(sock.lastStatus()?.state).toBe("paused");
+  });
+
   it("reports adapter crash as failed", async () => {
     debugSessions.setSpawnForTests(spawnFake({ FAKE_DAP_CRASH: "1" }));
     const { sock, session } = await boot();
@@ -315,8 +345,9 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(() => sock.lastStatus()?.state === "paused");
+    await waitPaused(sock);
     const stopped = sock.ofType("stopped").at(-1);
+    expect(stopped).toBeTruthy();
     const vars = Object.values(stopped.variables).flat() as { value: string }[];
     expect(vars[0].value.length).toBeLessThan(600);
   });
@@ -346,7 +377,7 @@ describe("debug session lifecycle (fake adapter)", () => {
     });
     await waitFor(() => sock.lastStatus()?.state === "running", 5000, "running");
     session.handleClientMessage(sock, { type: "pause" });
-    await waitFor(() => sock.lastStatus()?.state === "paused", 3000, "paused");
+    await waitPaused(sock, 3000);
     session.handleClientMessage(sock, { type: "terminate" });
     await waitFor(
       () => sock.lastStatus()?.state === "terminated",
@@ -364,7 +395,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(() => sock.lastStatus()?.state === "paused");
+    await waitPaused(sock);
     session.handleClientMessage(sock, { type: "stepIn" });
     await waitFor(() => sock.ofType("stopped").length >= 2, 3000, "stepIn");
     session.handleClientMessage(sock, { type: "stepOut" });
@@ -381,7 +412,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(() => sock.lastStatus()?.state === "paused");
+    await waitPaused(sock);
     session.clearSocket(sock);
     expect(session.currentState).toBe("terminated");
     expect(debugSessions.sessionCount()).toBe(0);
@@ -395,7 +426,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(() => sock.lastStatus()?.state === "paused");
+    await waitPaused(sock);
     session.handleClientMessage(sock, { type: "terminate" });
     await waitFor(() => sock.lastStatus()?.state === "terminated");
     session.handleClientMessage(sock, {
@@ -404,6 +435,6 @@ describe("debug session lifecycle (fake adapter)", () => {
       entryFile: "main.py",
       breakpoints: { "main.py": [3] },
     });
-    await waitFor(() => sock.lastStatus()?.state === "paused", 5000, "relaunch");
+    await waitPaused(sock, 5000);
   });
 });
