@@ -181,6 +181,8 @@ function start(port) {
     });
   }
 
+  const childHold = [];
+
   function onChildMsg(msg) {
     if (msg?.type === "response" && typeof msg.request_seq === "number") {
       const pending = childPending.get(msg.request_seq);
@@ -195,9 +197,11 @@ function start(port) {
     }
     if (msg?.type === "event" && msg.event === "initialized") {
       childInitialized = true;
-      if (!childReady) return;
     }
-    if (!childReady && msg?.type === "response") return;
+    if (!childReady) {
+      if (childHold.length < 64) childHold.push(msg);
+      return;
+    }
     process.stdout.write(encode(msg));
   }
 
@@ -285,6 +289,8 @@ function start(port) {
     }
     await childRequest("configurationDone", {});
     childReady = true;
+    for (const msg of childHold) process.stdout.write(encode(msg));
+    childHold.length = 0;
     await launchPromise;
   }
 

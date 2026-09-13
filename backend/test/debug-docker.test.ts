@@ -211,26 +211,7 @@ describe.skipIf(!dockerOk)("debug real adapters in the sandbox", () => {
         .flat()
         .map((v: any) => v.name);
       expect(names.length).toBeGreaterThan(0);
-      for (let i = 0; i < 8; i++) {
-        if (
-          sock.lastStatus()?.state === "terminated" ||
-          sock.ofType("exited").length > 0
-        ) {
-          break;
-        }
-        if (sock.lastStatus()?.state === "paused") {
-          session!.handleClientMessage(sock, { type: "continue" });
-        }
-        await waitFor(
-          () =>
-            sock.lastStatus()?.state === "terminated" ||
-            sock.ofType("exited").length > 0 ||
-            sock.ofType("stopped").length > i + 1 ||
-            sock.lastStatus()?.state === "running",
-          5_000,
-          "node continue progress",
-        );
-      }
+      session!.handleClientMessage(sock, { type: "continue" });
       await waitFor(
         () =>
           sock.lastStatus()?.state === "terminated" ||
