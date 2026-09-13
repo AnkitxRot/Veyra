@@ -2,13 +2,14 @@
 /**
  * Stdio ↔ TCP bridge for vscode-js-debug's dapDebugServer.
  *
- * js-debug speaks DAP over a localhost TCP port, not stdio. This wrapper
- * (baked into the runner image) is the only Node debug adapter the backend
- * ever execs. It never leaves the sandbox.
+ * js-debug speaks DAP over a localhost TCP port, not stdio. A single file
+ * launch also issues a DAP reverse-request `startDebugging` so the real
+ * debuggee session can attach on a *second* TCP connection to the same
+ * server. This wrapper (baked into the runner image) is the only Node debug
+ * adapter the backend ever execs. It never leaves the sandbox.
  *
- * The listen banner may appear on stdout or stderr, and piped stdout can
- * buffer. We therefore pick a port, spawn the server with that port, and
- * retry TCP until it accepts (also matching the banner as a fallback).
+ * Stdio to the backend stays one DAP session. The child attach handshake is
+ * internal to this process.
  */
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -24,6 +25,7 @@ if (!SERVER) process.exit(1);
 const STARTUP_MS = 20_000;
 const LISTEN = /Debug server listening at ([^\s]+)/;
 const MAX_STDIN_BUFFER = 256 * 1024;
+const MAX_PARSER = 256 * 1024;
 
 function pickPort() {
   return new Promise((resolve, reject) => {
@@ -53,89 +55,293 @@ function parseListen(addr) {
   return { host, port };
 }
 
+function encode(obj) {
+  const body = Buffer.from(JSON.stringify(obj), "utf8");
+  return Buffer.concat([
+    Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"),
+    body,
+  ]);
+}
+
+function indexOfHeaderEnd(buf) {
+  for (let i = 0; i + 3 < buf.length; i++) {
+    if (
+      buf[i] === 13 &&
+      buf[i + 1] === 10 &&
+      buf[i + 2] === 13 &&
+      buf[i + 3] === 10
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+class Parser {
+  constructor() {
+    this.buf = Buffer.alloc(0);
+  }
+  push(chunk) {
+    this.buf = Buffer.concat([this.buf, Buffer.from(chunk)]);
+    if (this.buf.length > MAX_PARSER) process.exit(1);
+    const out = [];
+    while (true) {
+      const headerEnd = indexOfHeaderEnd(this.buf);
+      if (headerEnd < 0) break;
+      const header = this.buf.subarray(0, headerEnd).toString("ascii");
+      const match = /Content-Length:\s*(\d+)/i.exec(header);
+      if (!match) {
+        this.buf = this.buf.subarray(headerEnd + 4);
+        continue;
+      }
+      const len = Number(match[1]);
+      if (!Number.isFinite(len) || len < 0 || len > MAX_PARSER) process.exit(1);
+      const bodyStart = headerEnd + 4;
+      if (this.buf.length < bodyStart + len) break;
+      const json = this.buf.subarray(bodyStart, bodyStart + len).toString("utf8");
+      this.buf = this.buf.subarray(bodyStart + len);
+      try {
+        out.push(JSON.parse(json));
+      } catch {
+        process.exit(1);
+      }
+    }
+    return out;
+  }
+}
+
 function start(port) {
-  const child = spawn(process.execPath, [SERVER, String(port), "127.0.0.1"], {
+  const proc = spawn(process.execPath, [SERVER, String(port), "127.0.0.1"], {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
 
   const stdinChunks = [];
   let stdinBuffered = 0;
-  let sock = null;
+  let parentSock = null;
+  let childSock = null;
   let connected = false;
   let connecting = false;
+  let childReady = false;
+  let childAttaching = false;
   let buf = "";
   const deadline = Date.now() + STARTUP_MS;
+  const parentParser = new Parser();
+  const childParser = new Parser();
+  const stdinParser = new Parser();
+  const breakpoints = [];
+  const childPending = new Map();
+  let childSeq = 1;
+  let childInitialized = false;
+  const host = "127.0.0.1";
 
-  process.stdin.on("data", (chunk) => {
-    if (connected && sock) sock.write(chunk);
+  function writeStdinTarget(chunk) {
+    if (childReady && childSock) childSock.write(chunk);
+    else if (parentSock) parentSock.write(chunk);
     else {
       if (stdinBuffered + chunk.length > MAX_STDIN_BUFFER) process.exit(1);
       stdinBuffered += chunk.length;
       stdinChunks.push(chunk);
     }
+  }
+
+  process.stdin.on("data", (chunk) => {
+    for (const msg of stdinParser.push(chunk)) {
+      if (msg?.type === "request" && msg.command === "setBreakpoints") {
+        breakpoints.push(msg.arguments ?? {});
+      }
+    }
+    writeStdinTarget(chunk);
   });
   process.stdin.on("end", () => {
-    if (sock) sock.end();
+    try {
+      if (childSock) childSock.end();
+    } catch {}
+    try {
+      if (parentSock) parentSock.end();
+    } catch {}
   });
 
-  function attach(s) {
-    sock = s;
+  function childRequest(command, args) {
+    const seq = childSeq++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        childPending.delete(seq);
+        reject(new Error(`${command} timed out`));
+      }, STARTUP_MS);
+      childPending.set(seq, { resolve, reject, timer });
+      childSock.write(
+        encode({
+          seq,
+          type: "request",
+          command,
+          arguments: args ?? {},
+        }),
+      );
+    });
+  }
+
+  function onChildMsg(msg) {
+    if (msg?.type === "response" && typeof msg.request_seq === "number") {
+      const pending = childPending.get(msg.request_seq);
+      if (pending) {
+        childPending.delete(msg.request_seq);
+        clearTimeout(pending.timer);
+        if (msg.success === false) {
+          pending.reject(new Error(msg.message || "dap failed"));
+        } else pending.resolve(msg.body);
+        return;
+      }
+    }
+    if (msg?.type === "event" && msg.event === "initialized") {
+      childInitialized = true;
+      if (!childReady) return;
+    }
+    if (!childReady && msg?.type === "response") return;
+    process.stdout.write(encode(msg));
+  }
+
+  async function attachChild(cfg) {
+    if (childAttaching || childSock) return;
+    childAttaching = true;
+    await new Promise((resolve, reject) => {
+      const s = net.connect({ host, port }, () => {
+        childSock = s;
+        resolve();
+      });
+      s.on("error", (err) => {
+        if (!childSock) reject(err);
+      });
+      s.on("data", (chunk) => {
+        for (const msg of childParser.push(chunk)) onChildMsg(msg);
+      });
+      s.on("close", () => {
+        try {
+          proc.kill("SIGKILL");
+        } catch {}
+        process.exit(0);
+      });
+    });
+
+    await childRequest("initialize", {
+      adapterID: "pwa-node",
+      clientID: "veyra",
+      clientName: "Veyra",
+      linesStartAt1: true,
+      columnsStartAt1: true,
+      pathFormat: "path",
+      supportsVariableType: true,
+      supportsVariablePaging: false,
+      supportsRunInTerminalRequest: false,
+      supportsStartDebuggingRequest: false,
+      locale: "en-us",
+    });
+
+    const launchArgs =
+      cfg && typeof cfg === "object"
+        ? { ...cfg }
+        : { type: "pwa-node", request: "launch" };
+    const launchPromise = childRequest("launch", launchArgs);
+
+    const waitInit = new Promise((resolve, reject) => {
+      const startAt = Date.now();
+      const poll = setInterval(() => {
+        if (childInitialized) {
+          clearInterval(poll);
+          resolve();
+        } else if (Date.now() - startAt > STARTUP_MS) {
+          clearInterval(poll);
+          reject(new Error("child initialize timed out"));
+        }
+      }, 10);
+    });
+    await waitInit;
+    for (const bp of breakpoints) {
+      await childRequest("setBreakpoints", bp);
+    }
+    await childRequest("configurationDone", {});
+    childReady = true;
+    await launchPromise;
+  }
+
+  function onParentMsg(msg) {
+    if (msg?.type === "request" && msg.command === "startDebugging") {
+      parentSock.write(
+        encode({
+          seq: 1,
+          type: "response",
+          request_seq: msg.seq,
+          success: true,
+          command: "startDebugging",
+          body: {},
+        }),
+      );
+      const cfg = msg.arguments?.configuration ?? {};
+      attachChild(cfg).catch(() => process.exit(1));
+      return;
+    }
+    process.stdout.write(encode(msg));
+  }
+
+  function attachParent(s) {
+    parentSock = s;
     connected = true;
     connecting = false;
     for (const c of stdinChunks) s.write(c);
     stdinChunks.length = 0;
     s.on("data", (chunk) => {
-      process.stdout.write(chunk);
+      for (const msg of parentParser.push(chunk)) onParentMsg(msg);
     });
     s.on("close", () => {
+      if (childReady) return;
       try {
-        child.kill("SIGKILL");
+        proc.kill("SIGKILL");
       } catch {}
       process.exit(0);
     });
     s.on("error", () => {
+      if (childReady) return;
       try {
-        child.kill("SIGKILL");
+        proc.kill("SIGKILL");
       } catch {}
       process.exit(1);
     });
   }
 
-  function tryConnect(host, p) {
+  function tryConnect() {
     if (connected || connecting) return;
     connecting = true;
-    const s = net.connect({ host, port: p }, () => attach(s));
+    const s = net.connect({ host, port }, () => attachParent(s));
     s.on("error", () => {
       connecting = false;
       if (connected) return;
-      if (Date.now() < deadline) setTimeout(() => tryConnect(host, p), 40);
+      if (Date.now() < deadline) setTimeout(tryConnect, 40);
     });
   }
 
-  function onChildOut(s) {
+  function onProcOut(s) {
     buf += s;
     if (buf.length > 32 * 1024) buf = buf.slice(-16 * 1024);
     if (connected) return;
     const m = LISTEN.exec(buf);
     if (!m) return;
     const parsed = parseListen(m[1]);
-    if (parsed) tryConnect(parsed.host, parsed.port);
+    if (parsed && parsed.port === port) tryConnect();
   }
 
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", onChildOut);
-  child.stderr.on("data", (s) => {
-    onChildOut(s);
+  proc.stdout.setEncoding("utf8");
+  proc.stderr.setEncoding("utf8");
+  proc.stdout.on("data", onProcOut);
+  proc.stderr.on("data", (s) => {
+    onProcOut(s);
     process.stderr.write(s);
   });
-  child.on("error", () => process.exit(1));
-  child.on("exit", (code) => {
+  proc.on("error", () => process.exit(1));
+  proc.on("exit", (code) => {
     if (!connected) process.exit(code ?? 1);
   });
 
-  tryConnect("127.0.0.1", port);
+  tryConnect();
 
   setTimeout(() => {
     if (!connected) process.exit(1);

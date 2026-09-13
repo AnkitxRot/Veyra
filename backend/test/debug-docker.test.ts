@@ -58,6 +58,11 @@ async function waitPaused(sock: FakeSock, ms = 40_000, label = "paused"): Promis
     () => ({
       status: sock.lastStatus(),
       types: sock.messages.map((m) => m.type),
+      output: sock
+        .ofType("output")
+        .map((m) => m.text)
+        .join("")
+        .slice(-400),
     }),
   );
   return sock.ofType("stopped").at(-1);

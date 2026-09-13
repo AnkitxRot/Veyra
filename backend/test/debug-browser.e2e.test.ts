@@ -203,6 +203,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     ext: string,
   ) {
     await setActiveModelValue(page, ext, src);
+    await page.click('[data-testid="debug-tab"]');
     await page.evaluate(
       ({ fileName }) => {
         const CE = (globalThis as any).CustomEvent;
@@ -213,6 +214,18 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
         );
       },
       { fileName },
+    );
+    await page.waitForFunction(
+      (fileName) => {
+        const keys = Object.keys((globalThis as any).localStorage).filter(
+          (k: string) => k.startsWith("veyra_debug_bp_"),
+        );
+        return keys.some((k: string) =>
+          ((globalThis as any).localStorage.getItem(k) ?? "").includes(fileName),
+        );
+      },
+      fileName,
+      { timeout: 15_000 },
     );
     await page.waitForSelector('[data-testid="debug-start"]:not([disabled])', {
       timeout: 60_000,

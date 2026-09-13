@@ -9676,6 +9676,8 @@ expression/watch evaluation, user-provided adapters, TSX/JSX debug.
 - Focused M83 frontend `debug.*.test.ts(x)` + toolbar.debug: **13 passed**
 - `git diff --check`: clean
 
-The first `71e2eaa` GitHub Actions run failed six live debugger assertions: `status=paused` was broadcast before the `stopped` payload (tests and Playwright read empty frames/variables), and vscode-js-debug's `launch` response waits for debuggee boot longer than the 10s DAP request timeout, so Node/TS never reached paused. Handshake `launch` now uses the 30s startup budget; the stdio bridge retries TCP on a reserved port instead of scraping a possibly-buffered listen banner; tests wait for `stopped`. Live debugpy / vscode-js-debug Docker tests and debugger Playwright E2E remain the CI proofs.
+`veyra-js-debug` accepts vscode-js-debug's reverse `startDebugging`
+request inside the sandbox by opening a second localhost DAP connection
+to the same `dapDebugServer` — the backend still sees one stdio session.
 
 Pinned runner image debug packages: `debugpy==1.8.21` (MIT), `js-debug-dap-v1.117.0` (MIT), plus existing `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E files.

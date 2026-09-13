@@ -362,6 +362,7 @@ export function DebugSessionProvider({
   const toggleBreakpoint = useCallback((path: string, line: number) => {
     setBreakpoints((prev) => {
       const next = toggleLine(prev, path, line);
+      bpRef.current = next;
       const lines = next[path] ?? [];
       emitBreakpoints(path, lines, undefined);
       const ws = wsRef.current;
