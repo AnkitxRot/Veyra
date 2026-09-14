@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import type { Db } from "../db.js";
 import { type AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
@@ -22,7 +22,7 @@ import {
   listFiles,
   moveProjectPath,
   readProjectFile,
-  tree,
+  treeListing,
   writeProjectFile,
 } from "../files/service.js";
 import { runProject } from "../execution/pipeline.js";
@@ -65,6 +65,20 @@ import {
   type UploadFileItem,
 } from "../files/upload.js";
 import { raw, json } from "express";
+
+/**
+ * Abort an in-flight search worker when the client disconnects. `res.close`
+ * also fires after a normal response; `writableEnded` distinguishes the two
+ * so a completed search is not terminated after the fact.
+ */
+function abortOnDisconnect(res: Response): AbortSignal {
+  const ac = new AbortController();
+  const onClose = () => {
+    if (!res.writableEnded) ac.abort();
+  };
+  res.on("close", onClose);
+  return ac.signal;
+}
 
 export function projectRoutes(cfg: AppConfig, db: Db): Router {
   const router = Router();
@@ -730,7 +744,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         "viewer",
       );
       const cwd = await workspacePath(cfg, project.id);
-      res.json({ tree: await tree(cwd) });
+      const listing = await treeListing(cwd);
+      res.json({
+        tree: listing.tree,
+        truncated: listing.truncated,
+        scanned: listing.scanned,
+      });
     } catch (err) {
       next(err);
     }
@@ -995,8 +1014,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       }
       try {
         const cwd = await workspacePath(cfg, project.id);
-        const result = await searchProjectContent(cwd, req.body ?? {});
-        res.json(result);
+        const result = await searchProjectContent(
+          cwd,
+          req.body ?? {},
+          abortOnDisconnect(res),
+        );
+        if (!res.writableEnded) res.json(result);
       } finally {
         searchGate.release(userId);
       }
@@ -1029,15 +1052,19 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         const isRegex = req.query.regex === "true";
         const includePattern = req.query.include as string | undefined;
         const excludePattern = req.query.exclude as string | undefined;
-        const result = await searchProjectContent(cwd, {
-          query,
-          isCaseSensitive,
-          isWholeWord,
-          isRegex,
-          includePattern,
-          excludePattern,
-        });
-        res.json(result);
+        const result = await searchProjectContent(
+          cwd,
+          {
+            query,
+            isCaseSensitive,
+            isWholeWord,
+            isRegex,
+            includePattern,
+            excludePattern,
+          },
+          abortOnDisconnect(res),
+        );
+        if (!res.writableEnded) res.json(result);
       } finally {
         searchGate.release(userId);
       }

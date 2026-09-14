@@ -313,8 +313,8 @@ export async function deleteProject(
   }
   await fs.rm(projectDir(cfg, project.id), { recursive: true, force: true });
   try {
-    const { invalidateTreeCache } = await import("../files/service.js");
-    invalidateTreeCache(projectDir(cfg, project.id));
+    const { forgetTreeCache } = await import("../files/service.js");
+    forgetTreeCache(projectDir(cfg, project.id));
   } catch {
     // Best-effort: cache entry may not exist
   }

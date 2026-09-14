@@ -80,6 +80,9 @@ describe.skipIf(!dockerOk)("workflow docker (real npm test/build)", () => {
     expect(names.some((n) => /fails/i.test(n))).toBe(true);
     expect(r.value.tests.some((t) => t.status === "failed")).toBe(true);
     expect(r.value.tests.some((t) => t.status === "passed")).toBe(true);
+    const failed = r.value.tests.find((t) => t.status === "failed");
+    expect(failed?.file).toBe("tests/add.test.js");
+    expect(failed?.line).toBeGreaterThan(0);
   }, 60_000);
 
   it("runs npm build and reports success", async () => {

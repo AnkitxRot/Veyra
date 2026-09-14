@@ -529,6 +529,77 @@ describe.skipIf(!dockerOk)("lsp real servers in the sandbox", () => {
     120_000,
   );
 
+  it(
+    "pylsp resolves imports across a workspace package",
+    async () => {
+      const cfg = makeTestConfig({ lspStartupTimeoutMs: 30_000 });
+      const ws = makeWorkspace(cfg);
+      mkdirSync(join(ws, "pkg"), { recursive: true });
+      writeFileSync(join(ws, "pkg", "__init__.py"), "");
+      writeFileSync(
+        join(ws, "pkg", "util.py"),
+        "def helper() -> int:\n    return 1\n",
+      );
+      writeFileSync(join(ws, "main.py"), "from pkg.util import helper\nhelper()\n");
+      projectId = `lsp-pkg-${randomUUID()}`;
+      const sock = new FakeSock();
+      const session = await languageServers.attach({
+        projectId,
+        language: "python",
+        userId: 1,
+        cfg,
+        socket: sock,
+        workspaceDir: ws,
+      });
+      expect(session).not.toBeNull();
+      await waitFor(
+        () => sock.lastStatus()?.state === "ready",
+        30_000,
+        "pylsp ready",
+      );
+      session!.handleClientMessage(sock, {
+        jsonrpc: "2.0",
+        method: "textDocument/didOpen",
+        params: {
+          textDocument: {
+            uri: "file:///workspace/main.py",
+            languageId: "python",
+            text: "from pkg.util import helper\nhelper()\n",
+          },
+        },
+      });
+      session!.handleClientMessage(sock, {
+        jsonrpc: "2.0",
+        method: "textDocument/didOpen",
+        params: {
+          textDocument: {
+            uri: "file:///workspace/pkg/util.py",
+            languageId: "python",
+            text: "def helper() -> int:\n    return 1\n",
+          },
+        },
+      });
+      session!.handleClientMessage(sock, {
+        jsonrpc: "2.0",
+        id: 80,
+        method: "textDocument/definition",
+        params: {
+          textDocument: { uri: "file:///workspace/main.py" },
+          position: { line: 0, character: 21 },
+        },
+      });
+      await waitFor(
+        () => sock.messages.some((m) => m.id === 80),
+        20_000,
+        "python package definition",
+      );
+      const def = sock.messages.find((m) => m.id === 80);
+      expect(def.error).toBeFalsy();
+      expect(JSON.stringify(def.result ?? {})).toMatch(/pkg\/util\.py/);
+    },
+    90_000,
+  );
+
   it("missing language-server binary degrades to unavailable without a storm", async () => {
     const cfg = makeTestConfig({
       lspStartupTimeoutMs: 4_000,

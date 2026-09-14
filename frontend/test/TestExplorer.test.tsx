@@ -90,4 +90,10 @@ describe("TestExplorer", () => {
       true,
     );
   });
+
+  it("refresh rediscovers tasks", () => {
+    const { getByTestId } = render(<TestExplorer projectRole="owner" />);
+    fireEvent.click(getByTestId("workflow-refresh"));
+    expect(exec.refreshWorkflow).toHaveBeenCalled();
+  });
 });

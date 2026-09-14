@@ -36,6 +36,22 @@ describe("workflow test output parsers", () => {
     const tap = parseTestOutput("ok 1 - adds\nnot ok 2 - fails\n");
     expect(tap.map((t) => t.status)).toEqual(["passed", "failed"]);
 
+    const nodeTap = parseTestOutput(
+      [
+        "TAP version 13",
+        "ok 1 - adds",
+        "not ok 2 - fails",
+        "  ---",
+        "  location: '/workspace/tests/add.test.js:4:1'",
+        "  stack: |-",
+        "    TestContext.<anonymous> (/workspace/tests/add.test.js:4:30)",
+        "  ...",
+      ].join("\n"),
+    );
+    const tapFail = nodeTap.find((t) => t.status === "failed");
+    expect(tapFail?.file).toBe("tests/add.test.js");
+    expect(tapFail?.line).toBe(4);
+
     const node = parseTestOutput(
       [
         "✔ adds (0.4ms)",

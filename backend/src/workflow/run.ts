@@ -59,7 +59,14 @@ export async function runWorkflowTask(opts: {
   });
 
   const combined = `${sandbox.stdout}\n${sandbox.stderr}`.slice(0, MAX_CAPTURE);
-  let tests = spec.kind === "test" ? parseTestOutput(combined) : [];
+  let tests: TestCaseResult[] = [];
+  if (spec.kind === "test") {
+    try {
+      tests = parseTestOutput(combined);
+    } catch {
+      tests = [];
+    }
+  }
   if (spec.kind === "test" && tests.length === 0) {
     tests = [
       {

@@ -6,6 +6,7 @@
 
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
+import { isSkippedTreeName } from "../files/service.js";
 
 export type WorkflowKind = "test" | "build";
 export type WorkflowOrigin = "package.json" | "pytest";
@@ -125,17 +126,43 @@ async function discoverPytest(workspaceDir: string): Promise<boolean> {
   } catch {
     /* no requirements */
   }
-  try {
-    const ents = await fs.readdir(join(workspaceDir, "tests"), { withFileTypes: true });
-    if (ents.some((e) => e.isFile() && /^test_.*\.py$/.test(e.name))) return true;
-  } catch {
-    /* no tests dir */
+  if (await hasPytestFiles(join(workspaceDir, "tests"), 0, { dirs: 0 })) {
+    return true;
   }
   try {
     const ents = await fs.readdir(workspaceDir, { withFileTypes: true });
-    if (ents.some((e) => e.isFile() && /^test_.*\.py$/.test(e.name))) return true;
+    if (ents.some((e) => e.isFile() && PYTEST_FILE.test(e.name))) return true;
   } catch {
     /* unreadable */
+  }
+  return false;
+}
+
+const PYTEST_FILE = /^(test_.*|.*_test)\.py$/;
+const MAX_PYTEST_DISCOVER_DIRS = 64;
+const MAX_PYTEST_DISCOVER_DEPTH = 4;
+
+async function hasPytestFiles(
+  dir: string,
+  depth: number,
+  budget: { dirs: number },
+): Promise<boolean> {
+  if (depth > MAX_PYTEST_DISCOVER_DEPTH) return false;
+  if (budget.dirs >= MAX_PYTEST_DISCOVER_DIRS) return false;
+  budget.dirs += 1;
+  let ents;
+  try {
+    ents = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const e of ents) {
+    if (e.isFile() && PYTEST_FILE.test(e.name)) return true;
+  }
+  for (const e of ents) {
+    if (!e.isDirectory()) continue;
+    if (isSkippedTreeName(e.name)) continue;
+    if (await hasPytestFiles(join(dir, e.name), depth + 1, budget)) return true;
   }
   return false;
 }

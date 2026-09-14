@@ -80,6 +80,26 @@ describe("workflow discovery", () => {
     expect(manifest.tasks.some((t) => t.id === "pytest:all")).toBe(true);
   });
 
+  it("discovers pytest from nested tests/unit/test_*.py", async () => {
+    const cfg = makeTestConfig();
+    const ws = makeWorkspace(cfg);
+    mkdirSync(join(ws, "tests", "unit"), { recursive: true });
+    writeFileSync(
+      join(ws, "tests", "unit", "test_nested.py"),
+      "def test_ok():\n  assert 1\n",
+    );
+    const manifest = await discoverWorkflow(ws);
+    expect(manifest.tasks.some((t) => t.id === "pytest:all")).toBe(true);
+  });
+
+  it("discovers pytest from *_test.py files", async () => {
+    const cfg = makeTestConfig();
+    const ws = makeWorkspace(cfg);
+    writeFileSync(join(ws, "math_test.py"), "def test_ok():\n  assert 1\n");
+    const manifest = await discoverWorkflow(ws);
+    expect(manifest.tasks.some((t) => t.id === "pytest:all")).toBe(true);
+  });
+
   it("does not invent tasks in an empty workspace", async () => {
     const cfg = makeTestConfig();
     const ws = makeWorkspace(cfg);

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ApiError } from "../errors.js";
 import type { AppConfig } from "../config.js";
 import { workspacePath } from "../projects/service.js";
+import { invalidateTreeCache } from "../files/service.js";
 import {
   runGit,
   mapGitError,
@@ -253,6 +254,7 @@ export async function cloneIntoProject(
   );
 
   const { branch } = await getCurrentBranch(cfg, projectId);
+  invalidateTreeCache(cwd);
   return { branch, remote: url };
 }
 

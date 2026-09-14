@@ -5,11 +5,11 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M83 Debugging Foundation is implemented (sandboxed DAP for
-Python `debugpy` and Node/TypeScript `vscode-js-debug`). M82 language
-intelligence, M81 Python LSP, and M80 HTTPS Git remotes remain in
-place. This is a working single-node product, not a hosted SaaS. See
-[`STATUS.md`](STATUS.md) for the milestone history.
+**Status:** M85 Workspace Intelligence & IDE Reliability is implemented on
+top of M84 Test Explorer, M83 sandboxed debugging, M82/M81 language
+intelligence, and M80 HTTPS Git remotes. This is a working single-node
+product, not a hosted SaaS. See [`STATUS.md`](STATUS.md) for the
+milestone history.
 
 ## What it is
 
@@ -27,8 +27,10 @@ the Veyra source repository. Do not confuse the two.
 | Area | What exists |
 | --- | --- |
 | Editing | Monaco, tabs, search/replace, comments |
-| Language intelligence | Python and TypeScript/JavaScript/TSX/JSX: live diagnostics, completion, hover, definition, references, document symbols (M82). Other languages: syntax + post-run diagnostics only. |
+| Language intelligence | Python and TypeScript/JavaScript/TSX/JSX: live diagnostics, completion, hover, definition, references, document symbols, workspace symbols (M81–M85). Other languages: syntax + post-run diagnostics only. |
 | Debugging | Python and Node/TypeScript: breakpoints, stepping, stack, variables inside the project sandbox (M83). No evaluate/watches. |
+| Tests / builds | Allowlisted `package.json` `test`/`build` scripts and pytest discovery (including nested `tests/`); sandboxed execution via the existing Run slot (M84). |
+| Workspace | Bounded file tree and search, Quick Open, workspace symbol search (`#` in the command palette). No global filesystem watcher. |
 | Collaboration | Yjs CRDT, awareness, follow, mutation gates (M56) |
 | Execution | Docker runner (`python`, Node, C/C++, Java, TypeScript, …) |
 | Terminals | PTY in the sandbox; detach/reattach (M79) |
@@ -66,6 +68,7 @@ SQLite + workspace filesystem + Docker (ide-sandbox-<projectId>)
   invocation. The same container hosts language servers (`pylsp`,
   `typescript-language-server`) and debug adapters (`debugpy`,
   `vscode-js-debug` via a stdio bridge).
+- **Execution boundaries:** see [`docs/architecture.md`](docs/architecture.md).
 - **Git control plane**: `execFile` only (no shell). Isolated env, empty
   `core.hooksPath`, no credential helper. HTTPS credentials never appear on
   argv or in `.git/config`.
@@ -231,7 +234,7 @@ A live debugger on the project blocks test/build start.
 | --- | --- | --- | --- |
 | Node / TypeScript tests | `package.json` scripts named exactly `test` or `test:*` | `npm run <name>` (argv only) | Script **bodies** are never interpolated. Prefer `node --test`. |
 | Node / TypeScript builds | scripts named `build` or `build:*` | `npm run <name>` | Same argv rule. |
-| Python tests | `pytest.ini`, `conftest.py`, `[tool.pytest` in `pyproject.toml`, `pytest` in `requirements.txt`, or `test_*.py` | `python3 -m pytest -v --tb=short` | Requires pytest **in the sandbox**. The runner image does not preinstall pytest. |
+| Python tests | `pytest.ini`, `conftest.py`, `[tool.pytest` in `pyproject.toml`, `pytest` in `requirements.txt`, or `test_*.py` / `*_test.py` (including nested under `tests/`, bounded) | `python3 -m pytest -v --tb=short` | Requires pytest **in the sandbox**. The runner image does not preinstall pytest. |
 | Other `package.json` scripts (`start`, `pretest`, …) | ignored | not offered | Not an arbitrary-command UI. |
 
 Results (pass / fail / skip / error) are bounded (200 cases, 64 KiB
@@ -244,6 +247,33 @@ runner image. Python test **execution** is only available after the
 project installs pytest. `start` / `dev` / arbitrary scripts are not
 tasks. Test/build and Debug are mutually exclusive. Output is ephemeral
 (not a second history store).
+
+## Workspace reliability (M85)
+
+Project-scale use is bounded rather than fully indexed:
+
+- **File tree.** Recursive listing skips `.git`, `node_modules`, `.venv`,
+  `__pycache__`, other interpreter caches, and `.cloudide-build-*`. Walks
+  stop at 8 000 entries / depth 24 and report `truncated` so the explorer
+  cannot hang on a huge generated tree. There is no global filesystem
+  watcher; mutations (save, Git checkout/pull, upload) invalidate a
+  500 ms cache. Refresh remains available.
+- **Search.** Same ignore set plus `dist`/`build`/`coverage`. Worker-thread
+  scan, 8 s budget, result cap, binary skip, 5 MiB file cap. Client
+  disconnect aborts the worker. Quick Open (`Ctrl+P`) is an in-memory
+  filename index of the current tree, capped at 80 rows.
+- **Symbols.** `#` in the command palette (or **Go to Symbol in Workspace**)
+  asks ready language servers for `workspace/symbol`. File-level outline
+  still uses Monaco document symbols. Semantic **rename is not
+  implemented** — LSP rename plus Yjs cannot be applied atomically today.
+- **Project switch.** File tree, editor tabs, Git state, Problems (run +
+  LSP), Output logs, Test Explorer results, and LSP chips are reset. Stale
+  diagnostics from project A must not appear on project B.
+- **Problems lifecycle.** LSP markers live until the server replaces them
+  or the project is left. Run/test/build diagnostics replace on the next
+  execution (or explicit clear). They do not mix owners. A failing **test**
+  run stays on the Tests tab so results remain visible; Problems still
+  lists the same failures.
 
 ## Git support (M80)
 

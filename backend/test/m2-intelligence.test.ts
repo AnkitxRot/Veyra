@@ -155,6 +155,31 @@ describe("M2 Code Intelligence: Workspace Content Search", () => {
     });
     expect(res2.totalMatches).toBeGreaterThan(0);
   });
+
+  it("does not search generated .cloudide-build-* debug output", async () => {
+    mkdirSync(join(tempDir, ".cloudide-build-debug", "1"), { recursive: true });
+    writeFileSync(
+      join(tempDir, ".cloudide-build-debug", "1", "out.js"),
+      "SECRET_BUILD_TOKEN unique-build-marker\n",
+    );
+    const res = await searchProjectContent(tempDir, {
+      query: "unique-build-marker",
+    });
+    expect(res.totalMatches).toBe(0);
+    expect(res.groups).toEqual([]);
+  });
+
+  it("terminates the worker when the caller aborts", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const res = await searchProjectContent(
+      tempDir,
+      { query: "Hello" },
+      ac.signal,
+    );
+    expect(res.truncated).toBe(true);
+    expect(res.totalMatches).toBe(0);
+  });
 });
 
 describe("M2 Code Intelligence: Auto-Formatting Engine", () => {

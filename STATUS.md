@@ -104,11 +104,11 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M84 Test / Task / Build workflow.
-  M83 Debugging Foundation remains **GREEN** (see Milestone 83).
-  Deterministic Test Explorer + allowlisted `package.json` test/build
-  scripts + optional pytest discovery, all via the existing sandbox
-  `/ws/execute` slot. See **Milestone 84** at the end of this file.
+- **Current work (this commit):** M85 Workspace Intelligence & IDE Reliability.
+  M84 Test / Task / Build and M83 Debugging Foundation remain in place.
+  Bounded trees/search, Git pull tree refresh, project-switch Problems
+  isolation, nested pytest discovery, workspace symbols via the language
+  server, and a browser developer-journey test. No AI. See **Milestone 85**.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9752,3 +9752,77 @@ preinstall pytest — execution is PARTIAL until the project installs it.
 **Deferred:** Jest/Vitest-specific adapters, per-test-name reruns,
 watch mode, coverage UI, Java/C++ builds, arbitrary task JSON,
 persisted task history. pytest is not preinstalled on the runner image.
+
+## Milestone 85 — Workspace Intelligence & IDE Reliability
+
+**Objective:** keep Git + LSP + Debug + Test + Build correct when used
+together on a real-sized project. No AI, no new sandbox, no rename
+engine, no global recursive watcher.
+
+**Proven problems and fixes:**
+
+1. **File tree could walk without a cap.** `treeListing()` now stops at
+   8 000 entries / depth 24 and returns `truncated`. Generated dirs
+   (`__pycache__`, `.mypy_cache`, `.pytest_cache`, `.tox`, `.eggs`) join
+   the existing skip set. Project delete calls `forgetTreeCache` so
+   generation keys do not accumulate.
+2. **Search scanned `.cloudide-build-*` debug emit.** Worker skip list
+   now matches the tree's build prefix. Client disconnect aborts the
+   worker (`AbortSignal`) and releases the search gate.
+3. **Git pull left a stale explorer.** Authoritative Git mutations
+   (checkout **and** pull) refresh the tree. Clone invalidates the cache
+   after files land.
+4. **Problems leaked across project switch.** Run/test diagnostics and
+   LSP chips are cleared with the tree/tabs. LSP still emits `stopped`
+   on teardown.
+5. **Pytest discovery missed nested `tests/unit/test_*.py` and
+   `*_test.py`.** Bounded walk (depth 4, 64 dirs). Saving
+   `package.json` / pytest markers rediscovers tasks; Test Explorer has
+   Refresh.
+6. **Workspace symbols had protocol support but no UI.** Command palette
+   `#` / **Go to Symbol in Workspace** uses `workspace/symbol` from
+   ready language servers. Paths outside `/workspace` are dropped.
+   **Rename is deferred** — applying LSP edits through Yjs is not
+   atomic.
+7. **Project switch left Output / Test Explorer state.** Closing the
+   execute socket with `onclose` nulled did not clear `isRunning` or
+   logs, so project B could look like it was still running project A's
+   process. A late `getWorkflow` for A could also overwrite B's tasks.
+   Session state now resets when `projectId` changes, and workflow
+   fetches are generation-gated.
+8. **Quick Open tied exact filenames without preferring the workspace
+   root.** Query `main.ts` now ranks `main.ts` above `pkg/main.ts`.
+9. **node:test TAP results had no file:line.** YAML `location:` is now
+   parsed so Test Explorer can open the failing test.
+10. **A failing test run stole the Tests tab.** ide-execution-result switched
+    to Problems whenever exitCode was non-zero and diagnostics existed.
+    Once TAP locations existed, that unmounted Test Explorer before results
+    painted. Test runs now keep the Tests tab; Problems still receives the
+    diagnostics.
+
+**Not added (evidence):** no SQLite search index (tree + worker search
+are sufficient at the tested scale); no recursive fs.watch (mutation
+paths already invalidate); no PTY restore across browser reload (M79
+still deferred — session ownership/security).
+
+**Tests.** `workspace-scale.test.ts` (large fixture), tree truncation,
+search skip/abort, nested pytest, pylsp multi-file definition,
+Command palette symbols, project-switch wiring, Playwright developer
+journey (open file → run tests → open failure → git commit).
+
+**Verification (2026-09-14, outer repo D:/cloudide, Node v24.19.0, Docker 29.7.2, runner image cloudeeeide-runner:latest 67c969e1c2da):**
+
+- Backend lint: 0 errors / 0 warnings
+- Backend `tsc --noEmit`: clean
+- Frontend lint: 0 errors / 19 warnings (pre-existing react-hooks/exhaustive-deps and react-refresh/only-export-components)
+- Frontend `tsc --noEmit` + `vite build` with NODE_OPTIONS=--max-old-space-size=4096: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests (`CI=true npm test -w @cloud-ide/frontend`): **1059 passed / 0 failed** (144 files)
+- Backend tests (`CI=true npm test -w @cloud-ide/backend`): **1451 passed / 9 skipped / 0 failed** (129 files)
+- Docker: tree/search scale fixture, nested pytest discovery, pylsp multi-file `pkg.util.helper` definition, workflow npm test/build/cancel, debugger Python/Node/TypeScript **PROVEN**
+- Playwright (full suite + a second pass of journey/workflow/debug/LSP browser files): Test Explorer stay-on-tab, TAP location navigation, git init/stage/commit via API **PROVEN**
+- `git diff --check`: run before commit
+
+**Deferred:** semantic rename, Java/C++ LSP/debug, terminal reload
+persistence, search of `node_modules` on demand, monorepo project
+references beyond whatever tsserver already does for a single
+`tsconfig.json`.

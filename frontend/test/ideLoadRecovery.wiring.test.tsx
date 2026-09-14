@@ -65,7 +65,7 @@ describe("M68 — file tree load state & retry", () => {
     );
     const block = src.slice(
       src.indexOf("const loadTree = useCallback"),
-      src.indexOf("const loadTree = useCallback") + 900,
+      src.indexOf("const loadTree = useCallback") + 1800,
     );
     expect(block).toContain('setTreeStatus("loading")');
     expect(block).toContain('setTreeStatus("ready")');
@@ -119,14 +119,11 @@ describe("M68 — file tree load state & retry", () => {
   it("dedupes a same-project Retry but lets a project switch supersede the load", () => {
     const block = src.slice(
       src.indexOf("const loadTree = useCallback"),
-      src.indexOf("const loadTree = useCallback") + 1400,
+      src.indexOf("const loadTree = useCallback") + 1800,
     );
-    // same project already loading → drop the duplicate
     expect(block).toContain("if (treeLoadingPidRef.current === pid) return;");
-    // a stale fetch's result is discarded by the generation check
     expect(block).toContain("const gen = ++treeLoadGenRef.current;");
     expect(block.match(/if \(gen !== treeLoadGenRef\.current\) return;/g) ?? []).toHaveLength(2);
-    // only the current generation frees the in-flight marker
     expect(block).toContain("gen === treeLoadGenRef.current &&");
   });
 

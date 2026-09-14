@@ -1,6 +1,8 @@
 import { TreeNode } from '../types';
 import { scoreFuzzyMatch } from './fuzzySearch';
 
+export const MAX_QUICK_OPEN_RESULTS = 80;
+
 export interface IndexedFile {
   path: string;
   filename: string;
@@ -54,7 +56,7 @@ export function searchFileIndex(
 ): IndexedFile[] {
   if (!query || !query.trim()) {
     // When query is empty, return recent files first, then the rest
-    if (recentPaths.length === 0) return index;
+    if (recentPaths.length === 0) return index.slice(0, MAX_QUICK_OPEN_RESULTS);
     const recentSet = new Set(recentPaths);
     const recents: IndexedFile[] = [];
     const others: IndexedFile[] = [];
@@ -67,7 +69,7 @@ export function searchFileIndex(
     for (const f of index) {
       if (!recentSet.has(f.path)) others.push(f);
     }
-    return [...recents, ...others];
+    return [...recents, ...others].slice(0, MAX_QUICK_OPEN_RESULTS);
   }
 
   const cleanQuery = query.trim().toLowerCase();
@@ -79,9 +81,12 @@ export function searchFileIndex(
 
     let score = 0;
 
-    // 1. Exact filename match (highest)
+    // 1. Exact filename match (highest). Prefer the workspace-root file
+    // when several files share that name (`main.ts` over `pkg/main.ts`).
     if (filenameLower === cleanQuery) {
       score = 3000;
+      if (pathLower === cleanQuery) score += 200;
+      else score -= Math.min(150, file.path.length);
     }
     // 2. Filename prefix match
     else if (filenameLower.startsWith(cleanQuery)) {
@@ -114,5 +119,5 @@ export function searchFileIndex(
   }
 
   scoredItems.sort((a, b) => b.score - a.score);
-  return scoredItems.map((item) => item.file);
+  return scoredItems.slice(0, MAX_QUICK_OPEN_RESULTS).map((item) => item.file);
 }

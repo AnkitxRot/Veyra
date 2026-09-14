@@ -101,6 +101,25 @@ export function ExecutionSessionProvider({
     "test" | "build" | null
   >(null);
 
+  // Reset derived session state during render when the project identity
+  // changes so the first paint of project B cannot show project A's logs,
+  // Test Explorer results, or a stuck isRunning flag. Socket teardown still
+  // happens in the projectId effect below.
+  const [sessionPid, setSessionPid] = useState(projectId);
+  if (sessionPid !== projectId) {
+    setSessionPid(projectId);
+    setLogs([]);
+    setStatus({ text: "Idle", type: "idle" });
+    setIsRunning(false);
+    setIsInstalling(false);
+    setExecutionId(null);
+    setMissingDependencyHint(null);
+    setWorkflowTasks([]);
+    setTestResults([]);
+    setLastWorkflowTaskId(null);
+    setLastWorkflowKind(null);
+  }
+
   const wsRef = useRef<WebSocket | null>(null);
   const runRafIdRef = useRef<number | null>(null);
   const runInFlightRef = useRef(false);
@@ -110,6 +129,7 @@ export function ExecutionSessionProvider({
     useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const installRafIdRef = useRef<number | null>(null);
   const installInFlightRef = useRef(false);
+  const workflowGenRef = useRef(0);
 
   // M43: the install flow needs the *current* isRunning value as a
   // defense-in-depth check backing Toolbar's own disabled-button enforcement.
@@ -121,6 +141,7 @@ export function ExecutionSessionProvider({
   const clearLogs = useCallback(() => setLogs([]), []);
 
   const refreshWorkflow = useCallback(() => {
+    const gen = ++workflowGenRef.current;
     if (!projectId) {
       setWorkflowTasks([]);
       return;
@@ -128,18 +149,42 @@ export function ExecutionSessionProvider({
     try {
       void getWorkflow(projectId)
         .then((manifest) => {
+          if (gen !== workflowGenRef.current) return;
           setWorkflowTasks(Array.isArray(manifest?.tasks) ? manifest.tasks : []);
         })
         .catch(() => {
+          if (gen !== workflowGenRef.current) return;
           setWorkflowTasks([]);
         });
     } catch {
+      if (gen !== workflowGenRef.current) return;
       setWorkflowTasks([]);
     }
   }, [projectId]);
 
   useEffect(() => {
     refreshWorkflow();
+  }, [refreshWorkflow]);
+
+  useEffect(() => {
+    const onSave = (e: Event) => {
+      const path = (e as CustomEvent).detail?.path as string | undefined;
+      if (!path || typeof path !== "string") return;
+      const base = path.replace(/\\/g, "/").split("/").pop() || path;
+      if (
+        base === "package.json" ||
+        base === "pytest.ini" ||
+        base === "conftest.py" ||
+        base === "pyproject.toml" ||
+        base === "requirements.txt" ||
+        /^test_.*\.py$/.test(base) ||
+        /_test\.py$/.test(base)
+      ) {
+        refreshWorkflow();
+      }
+    };
+    document.addEventListener("ide-save", onSave);
+    return () => document.removeEventListener("ide-save", onSave);
   }, [refreshWorkflow]);
 
   const startExecution = useCallback(
@@ -557,8 +602,7 @@ export function ExecutionSessionProvider({
       document.removeEventListener("ide-workflow-run-all", onWorkflowAll);
   }, [workflowTasks, runWorkflow]);
 
-  // Lifecycle reset — on projectId change AND on provider unmount, run the
-  // teardown that was previously Output's run-effect + install-effect cleanup.
+  // Lifecycle teardown — on projectId change AND on provider unmount.
   useEffect(() => {
     return () => {
       const ws = wsRef.current;
@@ -598,12 +642,6 @@ export function ExecutionSessionProvider({
         document.dispatchEvent(new Event("install-stopped"));
       }
     };
-  }, [projectId]);
-
-  useEffect(() => {
-    setTestResults([]);
-    setLastWorkflowTaskId(null);
-    setLastWorkflowKind(null);
   }, [projectId]);
 
   const value = useMemo<ExecutionSessionValue>(

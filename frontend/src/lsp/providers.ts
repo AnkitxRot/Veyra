@@ -27,8 +27,12 @@ export function setActiveLspBridge(bridge: LspBridge | null): void {
   }
 }
 
+export function getReadyLspBridges(): LspBridge[] {
+  return [...bridges.values()].filter((b) => b.status.state === "ready");
+}
+
 export function getActiveLspBridge(): LspBridge | null {
-  return bridges.values().next().value ?? null;
+  return getReadyLspBridges()[0] ?? bridges.values().next().value ?? null;
 }
 
 export function getLspBridgeForPath(relPath: string): LspBridge | null {

@@ -127,6 +127,7 @@ export default function WorkspaceSearchModal({
   const inputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   // Focus management
   useEffect(() => {
@@ -134,6 +135,7 @@ export default function WorkspaceSearchModal({
       previousFocusRef.current = document.activeElement as HTMLElement | null;
       setTimeout(() => inputRef.current?.focus(), 20);
     } else {
+      searchAbortRef.current?.abort();
       if (
         previousFocusRef.current &&
         typeof previousFocusRef.current.focus === "function"
@@ -154,6 +156,10 @@ export default function WorkspaceSearchModal({
       setLoading(true);
       setError(null);
 
+      searchAbortRef.current?.abort();
+      const ac = new AbortController();
+      searchAbortRef.current = ac;
+
       try {
         // Replace mode reuses the same matching engine (dryRun defaults to
         // true, so this call never writes to disk) — it's a strict superset
@@ -164,6 +170,7 @@ export default function WorkspaceSearchModal({
           `/api/projects/${project.id}/${endpoint}`,
           {
             method: "POST",
+            signal: ac.signal,
             body: JSON.stringify({
               query: searchQuery,
               ...(showReplace ? { replacement: replaceText } : {}),
@@ -175,15 +182,17 @@ export default function WorkspaceSearchModal({
             }),
           },
         );
+        if (ac.signal.aborted) return;
         setResults(res);
         // A fresh preview supersedes any previous per-file selection — start
         // again with every matched file selected.
         setDeselectedFiles(new Set());
       } catch (err: any) {
+        if (err?.name === "AbortError" || ac.signal.aborted) return;
         setError(err.message || "Search failed");
         setResults(null);
       } finally {
-        setLoading(false);
+        if (!ac.signal.aborted) setLoading(false);
       }
     },
     [
@@ -218,6 +227,7 @@ export default function WorkspaceSearchModal({
 
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchAbortRef.current?.abort();
     };
   }, [
     query,

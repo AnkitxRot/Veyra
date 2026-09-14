@@ -105,14 +105,27 @@ function parseVitestJest(text: string): TestCaseResult[] {
 
 function parseTap(text: string): TestCaseResult[] {
   const out: TestCaseResult[] = [];
-  const re = /^(ok|not ok)\s+\d+\s+-?\s*(.*)$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const name = m[2].trim() || m[1];
-    out.push({
-      name,
-      status: m[1] === "ok" ? "passed" : "failed",
-    });
+  for (const line of text.split(/\r?\n/)) {
+    const row = /^(ok|not ok)\s+\d+\s+-?\s*(.*)$/.exec(line);
+    if (row) {
+      out.push({
+        name: row[2].trim() || row[1],
+        status: row[1] === "ok" ? "passed" : "failed",
+      });
+      continue;
+    }
+    const last = out[out.length - 1];
+    if (!last || last.status !== "failed" || last.file) continue;
+    const locLine = line.trim();
+    const loc =
+      /^location:\s+'(\/workspace\/[\w./-]+\.[jt]sx?):(\d+)/.exec(locLine) ??
+      /^location:\s+"(\/workspace\/[\w./-]+\.[jt]sx?):(\d+)/.exec(locLine) ??
+      /(?:file:\/\/)?\/workspace\/([\w./-]+\.[jt]sx?):(\d+)/.exec(line);
+    if (!loc) continue;
+    const file = (loc[1] ?? "").replace(/^\/workspace\//, "");
+    if (!file) continue;
+    last.file = file;
+    last.line = Number(loc[2]);
   }
   return out;
 }

@@ -108,6 +108,7 @@ import ProjectSharingModal from "../Collab/ProjectSharingModal";
 import ProjectSecretsModal from "../ProjectSecrets/ProjectSecretsModal";
 import { CommandRegistry, Command } from "../../utils/commands";
 import { buildFileIndex, IndexedFile } from "../../utils/fileIndex";
+import { searchWorkspaceSymbols } from "../../lsp/workspaceSymbols";
 import {
   getRecentFiles,
   addRecentFile,
@@ -256,7 +257,7 @@ export default function IDE({
 
   // M1: Command Palette & Quick Open States
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-  const [paletteMode, setPaletteMode] = useState<"commands" | "files">("files");
+  const [paletteMode, setPaletteMode] = useState<"commands" | "files" | "symbols">("files");
   const [recentFilesList, setRecentFilesList] = useState<string[]>([]);
   const [registeredCommands, setRegisteredCommands] = useState<Command[]>([]);
 
@@ -626,6 +627,9 @@ export default function IDE({
     clearNotices();
     setGitBranch(null);
     setGitInitialized(false);
+    setDiagnostics([]);
+    setLspDiagnostics([]);
+    setLspStatuses({});
 
     if (!project) {
       if (collabClientRef.current) {
@@ -1102,7 +1106,7 @@ export default function IDE({
     treeLoadingPidRef.current = pid;
     if (treeLoadedForRef.current !== pid) setTreeStatus("loading");
     try {
-      const res = await api<{ tree: TreeNode[] }>(
+      const res = await api<{ tree: TreeNode[]; truncated?: boolean }>(
         `/api/projects/${pid}/tree`,
       );
       if (gen !== treeLoadGenRef.current) return;
@@ -1110,6 +1114,16 @@ export default function IDE({
       treeLoadedForRef.current = pid;
       setTreeStatus("ready");
       dismissNoticeKey("tree-load");
+      if (res.truncated) {
+        notify({
+          kind: "warning",
+          text: "File tree truncated for this large project. Some files are hidden from the explorer.",
+          ttl: 8000,
+          dedupeKey: "tree-truncated",
+        });
+      } else {
+        dismissNoticeKey("tree-truncated");
+      }
     } catch {
       if (gen !== treeLoadGenRef.current) return;
       setTreeStatus("error");
@@ -1474,9 +1488,9 @@ export default function IDE({
         });
       }
 
-      // A branch checkout can add or remove files, not just change contents —
-      // refresh the explorer so it reflects the checked-out tree.
-      if (opts.noticeLabel === "Branch checkout") {
+      // Checkout and pull rewrite the workspace (add/remove files). Refresh
+      // the explorer. Replace All only edits existing files.
+      if (opts.authoritative) {
         void loadTree();
       }
     },
@@ -2769,8 +2783,13 @@ export default function IDE({
 
       if (newDiags.length > 0) {
         setDiagnostics(newDiags);
-        // Automatically reveal Problems tab if compiler error occurred
-        if (result.type === "compile_error" || result.exitCode !== 0) {
+        // Test runs already have Test Explorer in front; stealing the tab
+        // unmounts it and hides the results the user just produced.
+        const testRun = Array.isArray(tests) && tests.length > 0;
+        if (
+          !testRun &&
+          (result.type === "compile_error" || result.exitCode !== 0)
+        ) {
           setBottomTab("problems");
           setIsBottomCollapsed(false);
         }
@@ -2981,6 +3000,16 @@ export default function IDE({
         macShortcut: kbLabel("workbench.action.quickOpen", true),
         handler: () => {
           setPaletteMode("files");
+          setIsPaletteOpen(true);
+        },
+      },
+      {
+        id: "workbench.action.gotoSymbol",
+        title: "Go to Symbol in Workspace",
+        description: "Search language-server symbols across the project",
+        category: "Navigation",
+        handler: () => {
+          setPaletteMode("symbols");
           setIsPaletteOpen(true);
         },
       },
@@ -4164,6 +4193,14 @@ export default function IDE({
         commands={registeredCommands}
         onExecuteCommand={(id) => {
           CommandRegistry.getInstance().execute(id);
+        }}
+        searchSymbols={searchWorkspaceSymbols}
+        onOpenSymbol={(hit) => {
+          void openAndRevealLocation(handleOpenFile, {
+            filePath: hit.filePath,
+            line: hit.line,
+            column: hit.column,
+          });
         }}
       />
 

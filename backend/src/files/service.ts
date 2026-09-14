@@ -10,8 +10,33 @@ import {
 import { ApiError } from "../errors.js";
 
 const MAX_FILE_SIZE = 1024 * 1024;
-const SKIP_DIRS = new Set(["node_modules", ".venv", ".git"]);
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".venv",
+  ".git",
+  "__pycache__",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".tox",
+  ".eggs",
+]);
 const BUILD_PREFIX = ".cloudide-build-";
+
+export const DEFAULT_TREE_LIMITS = { maxEntries: 8000, maxDepth: 24 };
+let treeLimits = { ...DEFAULT_TREE_LIMITS };
+
+/** Test-only: bound the tree walk so truncation is deterministic. */
+export function setTreeLimitsForTests(
+  limits?: Partial<typeof DEFAULT_TREE_LIMITS> | null,
+): void {
+  treeLimits = limits
+    ? { ...DEFAULT_TREE_LIMITS, ...limits }
+    : { ...DEFAULT_TREE_LIMITS };
+}
+
+export function isSkippedTreeName(name: string): boolean {
+  return SKIP_DIRS.has(name) || name.startsWith(BUILD_PREFIX);
+}
 
 export interface TreeNode {
   name: string;
@@ -137,12 +162,17 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
-interface TreeCacheEntry {
+export interface TreeListing {
   tree: TreeNode[];
+  truncated: boolean;
+  scanned: number;
+}
+
+interface TreeCacheEntry extends TreeListing {
   timestamp: number;
 }
 const treeCache = new Map<string, TreeCacheEntry>();
-const inFlightTrees = new Map<string, Promise<TreeNode[]>>();
+const inFlightTrees = new Map<string, Promise<TreeListing>>();
 const TREE_CACHE_TTL_MS = 500;
 
 // M42: per-root generation counter, bumped on every invalidation. A tree()
@@ -167,10 +197,38 @@ export function invalidateTreeCache(root?: string): void {
   }
 }
 
-async function doTree(root: string, prefix = ""): Promise<TreeNode[]> {
+/**
+ * Drop every cache entry for a workspace that no longer exists (project
+ * delete). Unlike {@link invalidateTreeCache}, this does not retain a
+ * generation counter for the path — deleted projects must not accumulate
+ * unbounded keys.
+ */
+export function forgetTreeCache(root: string): void {
+  treeCache.delete(root);
+  inFlightTrees.delete(root);
+  treeGeneration.delete(root);
+}
+
+interface TreeWalkState {
+  scanned: number;
+  truncated: boolean;
+}
+
+async function doTree(
+  absRoot: string,
+  prefix: string,
+  depth: number,
+  state: TreeWalkState,
+): Promise<TreeNode[]> {
+  if (state.truncated) return [];
+  if (depth > treeLimits.maxDepth) {
+    state.truncated = true;
+    return [];
+  }
+
   let entries;
   try {
-    entries = await fs.readdir(root, { withFileTypes: true });
+    entries = await fs.readdir(absRoot, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -189,11 +247,18 @@ async function doTree(root: string, prefix = ""): Promise<TreeNode[]> {
     filtered,
     8,
     async (e): Promise<TreeNode | null> => {
+      if (e.isDirectory() && SKIP_DIRS.has(e.name)) return null;
+      // Reserve the slot before any await so concurrent workers cannot all
+      // pass the cap check, then each increment past maxEntries.
+      if (state.truncated || state.scanned >= treeLimits.maxEntries) {
+        state.truncated = true;
+        return null;
+      }
+      state.scanned += 1;
       const relPath = prefix ? `${prefix}/${e.name}` : e.name;
-      const abs = join(root, e.name);
+      const abs = join(absRoot, e.name);
       if (e.isDirectory()) {
-        if (SKIP_DIRS.has(e.name)) return null;
-        const children = await doTree(abs, relPath);
+        const children = await doTree(abs, relPath, depth + 1, state);
         return { name: e.name, path: relPath, type: "dir", children };
       } else if (e.isFile()) {
         try {
@@ -211,11 +276,15 @@ async function doTree(root: string, prefix = ""): Promise<TreeNode[]> {
   return mapped.filter((n): n is TreeNode => n !== null);
 }
 
-export async function tree(root: string): Promise<TreeNode[]> {
+export async function treeListing(root: string): Promise<TreeListing> {
   const cached = treeCache.get(root);
   const now = Date.now();
   if (cached && now - cached.timestamp < TREE_CACHE_TTL_MS) {
-    return cached.tree;
+    return {
+      tree: cached.tree,
+      truncated: cached.truncated,
+      scanned: cached.scanned,
+    };
   }
 
   const inFlight = inFlightTrees.get(root);
@@ -232,13 +301,19 @@ export async function tree(root: string): Promise<TreeNode[]> {
   // serving stale listings to every caller for a full new TTL window
   // instead of the (correctly invalidated) empty cache prompting a re-read.
   const startGeneration = treeGeneration.get(root) ?? 0;
-  const fetchPromise = (async () => {
+  const fetchPromise = (async (): Promise<TreeListing> => {
     try {
-      const result = await doTree(root);
+      const state: TreeWalkState = { scanned: 0, truncated: false };
+      const result = await doTree(root, "", 0, state);
+      const listing: TreeListing = {
+        tree: result,
+        truncated: state.truncated,
+        scanned: state.scanned,
+      };
       if ((treeGeneration.get(root) ?? 0) === startGeneration) {
-        treeCache.set(root, { tree: result, timestamp: Date.now() });
+        treeCache.set(root, { ...listing, timestamp: Date.now() });
       }
-      return result;
+      return listing;
     } finally {
       inFlightTrees.delete(root);
     }
@@ -246,6 +321,10 @@ export async function tree(root: string): Promise<TreeNode[]> {
 
   inFlightTrees.set(root, fetchPromise);
   return fetchPromise;
+}
+
+export async function tree(root: string): Promise<TreeNode[]> {
+  return (await treeListing(root)).tree;
 }
 
 export async function readProjectFile(

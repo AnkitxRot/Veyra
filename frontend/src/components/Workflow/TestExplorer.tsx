@@ -146,6 +146,15 @@ export default function TestExplorer({
           <IconStop size={12} />
           <span>Stop</span>
         </button>
+        <button
+          type="button"
+          className="glass-btn"
+          data-testid="workflow-refresh"
+          onClick={() => exec.refreshWorkflow()}
+          title="Rediscover tests and builds"
+        >
+          Refresh
+        </button>
         <input
           className="workflow-search"
           data-testid="workflow-search"
