@@ -9,6 +9,7 @@ import { api } from './api';
 import { User } from './types';
 import { IconAlertTriangle } from './components/common/Icons';
 import { parseProjectRoute, projectPath } from './utils/sessionStore';
+import { clearAllTerminalResumes } from './utils/terminalResume';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -51,6 +52,7 @@ export default function App() {
     try {
       await api('/api/auth/logout', { method: 'POST' });
     } catch {}
+    clearAllTerminalResumes();
     setUser(null);
   };
 

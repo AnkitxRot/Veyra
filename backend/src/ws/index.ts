@@ -5,7 +5,7 @@ import { parse } from "node:url";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { requireProjectAccess } from "../projects/service.js";
-import { handleTerminalConnection } from "./terminal.js";
+import { handleTerminalConnection, parseTerminalResumeFlag } from "./terminal.js";
 import { handleExecutionConnection } from "./execution.js";
 import { handleLspConnection } from "../lsp/ws.js";
 import { handleDebugConnection } from "../debug/ws.js";
@@ -390,6 +390,7 @@ export function setupWebSocketServer(
               ? query.terminalId
               : undefined;
           const lastSeqRaw = Number(query.lastSeq);
+          const resume = parseTerminalResumeFlag(query.resume);
           handleTerminalConnection(
             ws,
             projectId,
@@ -398,6 +399,7 @@ export function setupWebSocketServer(
             db,
             terminalId,
             Number.isFinite(lastSeqRaw) ? lastSeqRaw : 0,
+            resume,
           ).catch((err) => {
             console.error("[ws] terminal connection error:", err);
             ws.close();

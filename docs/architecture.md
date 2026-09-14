@@ -63,7 +63,9 @@ and PTY slots are all capped. Hitting a cap returns a structured error
 
 Project delete stops the sandbox (terminals, LSP, debug, runs), disposes
 the collab room, forgets the tree cache, then removes the workspace.
-Logout closes that user's sockets; shared LSP for remaining
-collaborators continues. Process shutdown: stop maintenance → drain HTTP
-→ close WS → dispose terminals/LSP/debug → flush collab rooms → close
-SQLite.
+Logout closes that user's sockets and clears that tab's terminal-resume
+hints; shared LSP for remaining collaborators continues. A same-tab
+reload within the terminal detach grace reattaches the existing PTY
+(`resume=1`); it does not spawn a second shell. Process shutdown: stop
+maintenance → drain HTTP → close WS → dispose terminals/LSP/debug →
+flush collab rooms → close SQLite.

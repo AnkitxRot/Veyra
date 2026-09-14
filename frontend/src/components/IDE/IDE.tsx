@@ -3872,6 +3872,7 @@ export default function IDE({
                     setIsBottomCollapsed(false);
                   }}
                   role="tab"
+                  data-testid="terminal-tab"
                 >
                   <IconTerminal size={12} />
                   <span>Terminal</span>
@@ -4066,6 +4067,7 @@ export default function IDE({
               >
                 <Terminal
                   projectId={project.id}
+                  userId={user.id}
                   resolvedTheme={resolvedTheme}
                   visible={bottomTab === "terminal" && !isBottomCollapsed}
                 />

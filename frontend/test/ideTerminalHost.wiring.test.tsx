@@ -22,6 +22,7 @@ describe("M79 — IDE.tsx terminal host wiring", () => {
     const jsx = src.slice(at, at + 320);
     expect(jsx).toMatch(/visible=\{/);
     expect(jsx).toMatch(/projectId=\{/);
+    expect(jsx).toMatch(/userId=\{/);
     // The old kill-on-tab-switch guard must be gone.
     expect(src).not.toMatch(/\{bottomTab === "terminal" && \(\s*<Terminal/);
   });
@@ -46,5 +47,11 @@ describe("M79 — IDE.tsx terminal host wiring", () => {
 
   it("does not carry the stale 'Terminal ... never remount' comment", () => {
     expect(src).not.toMatch(/Terminal, which update Monaco \/ xterm in place \(never remount\)/);
+  });
+
+  it("M86: the terminal host receives the authenticated user id", () => {
+    const at = src.indexOf("<Terminal");
+    const jsx = src.slice(at, at + 400);
+    expect(jsx).toContain("userId={user.id}");
   });
 });

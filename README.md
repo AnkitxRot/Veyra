@@ -5,11 +5,11 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M85 Workspace Intelligence & IDE Reliability is implemented on
-top of M84 Test Explorer, M83 sandboxed debugging, M82/M81 language
-intelligence, and M80 HTTPS Git remotes. This is a working single-node
-product, not a hosted SaaS. See [`STATUS.md`](STATUS.md) for the
-milestone history.
+**Status:** M86 Terminal Reload Persistence is implemented on top of M85
+Workspace Intelligence, M84 Test Explorer, M83 sandboxed debugging,
+M82/M81 language intelligence, and M80 HTTPS Git remotes. This is a
+working single-node product, not a hosted SaaS. See [`STATUS.md`](STATUS.md)
+for the milestone history.
 
 ## What it is
 
@@ -33,7 +33,7 @@ the Veyra source repository. Do not confuse the two.
 | Workspace | Bounded file tree and search, Quick Open, workspace symbol search (`#` in the command palette). No global filesystem watcher. |
 | Collaboration | Yjs CRDT, awareness, follow, mutation gates (M56) |
 | Execution | Docker runner (`python`, Node, C/C++, Java, TypeScript, …) |
-| Terminals | PTY in the sandbox; detach/reattach (M79) |
+| Terminals | PTY in the sandbox; detach/reattach (M79); same-tab reload resume within grace (M86) |
 | Preview | Authenticated reverse-proxy to allowlisted sandbox ports |
 | Projects | CRUD, upload, ZIP export/import, fork, snapshots, quotas |
 | Secrets | Encrypted per-project secrets (M47); write-only values |

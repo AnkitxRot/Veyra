@@ -32,15 +32,19 @@ const BADGE: Record<
 
 export default function Terminal({
   projectId,
+  userId,
   resolvedTheme = "dark",
   visible = true,
 }: {
   projectId: string;
+  /** Authenticated user id. Required for M86 same-tab PTY resume; omitted in
+   *  tests that only cover the M79 in-page session. */
+  userId?: number;
   resolvedTheme?: "dark" | "light";
   visible?: boolean;
 }) {
   const { state, endedReason, bindContainer, ensureStarted, clear, retry, fit } =
-    useTerminalSession(projectId, resolvedTheme);
+    useTerminalSession(projectId, resolvedTheme, userId);
 
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -94,7 +98,7 @@ export default function Terminal({
             <span
               className={`capability-dot ${connected ? "ready" : "error"}`}
             />
-            <span>{badge.text}</span>
+            <span data-testid="terminal-status">{badge.text}</span>
           </span>
           <span style={{ color: "var(--fg-muted)", fontSize: "11px" }}>
             {state === TERMINAL_STATES.ended && endedReason

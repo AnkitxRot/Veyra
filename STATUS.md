@@ -104,11 +104,11 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M85 Workspace Intelligence & IDE Reliability.
-  M84 Test / Task / Build and M83 Debugging Foundation remain in place.
-  Bounded trees/search, Git pull tree refresh, project-switch Problems
-  isolation, nested pytest discovery, workspace symbols via the language
-  server, and a browser developer-journey test. No AI. See **Milestone 85**.
+- **Current work (this commit):** M86 Terminal Reload Persistence.
+  M85 workspace reliability, M84 Test Explorer, and M83 debugging remain
+  in place. A same-tab reload (or project switch-back) within the M79
+  grace window reattaches the existing sandbox PTY instead of minting a
+  second shell. No AI. See **Milestone 86**.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9823,6 +9823,76 @@ journey (open file → run tests → open failure → git commit).
 - `git diff --check`: run before commit
 
 **Deferred:** semantic rename, Java/C++ LSP/debug, terminal reload
-persistence, search of `node_modules` on demand, monorepo project
-references beyond whatever tsserver already does for a single
+persistence (closed in M86), search of `node_modules` on demand, monorepo
+project references beyond whatever tsserver already does for a single
 `tsconfig.json`.
+
+## Milestone 86 — Terminal Reload Persistence
+
+**Objective:** keep the sandbox PTY across a same-tab browser reload (and
+a project switch-back) inside the existing M79 detach grace, without a
+new process supervisor, without persisting scrollback to disk, and
+without weakening the `(userId, projectId, terminalId)` attach key.
+
+**Why now.** M79 already detaches on socket close and reattaches on
+`terminalId` + `lastSeq`. The client minted a fresh `terminalId` on every
+hook mount, so F5 / project switch-back spawned a second `docker exec
+bash` while the first one sat in the 90s grace. M85 named this gap
+explicitly and deferred it on session-ownership grounds. The ownership
+model did not need to change: `userId` still comes from the session
+cookie; a stolen `terminalId` still cannot attach to another user's PTY.
+
+**Architecture.**
+
+```text
+sessionStorage cloudeee_terminal_<userId>_<projectId>  →  terminalId only
+  → /ws/terminal?terminalId=&lastSeq=0&resume=1
+  → TerminalSessionRegistry.attach  (full ring replay)
+  → same docker exec bash
+```
+
+- **Resume hint is not authorization.** The upgrade handler still
+  requires editor access. The registry key still includes the
+  authenticated `userId`. `resume=1` only means "if this key is missing,
+  send `ended` — do not spawn".
+- **lastSeq=0 on remount** so xterm (which was disposed) receives the
+  bounded 256 KiB ring. In-page reconnects still send the live `lastSeq`
+  so already-rendered output is not duplicated.
+- **The id is stored only after the PTY streams a data frame**, not on
+  WebSocket open. React Strict Mode remounts the hook before spawn
+  completes; resuming an id that never reached `create()` would
+  `ended` the first open. A prompt (or any output) is the proof the
+  session exists.
+- **Logout** (`clearAllTerminalResumes`) drops every hint in the tab.
+- **Ended sessions** forget the id so the next load is a genuine new
+  shell, not an immediate `ended`.
+- **sessionStorage, not localStorage.** Tab-scoped: a second tab does
+  not steal the single-writer socket. Browser restart and other devices
+  stay out of scope (M79 non-goal).
+
+**Security.** User B presenting user A's `terminalId` with `resume=1`
+receives `ended` and does not attach to A's session. Cross-project keys
+do not collide. The stored value is an opaque id matching
+`^[A-Za-z0-9_-]{1,128}$`; PTY output, secrets, and container ids are not
+stored.
+
+**Tests.** Frontend: sessionStorage helpers, remount/switch-back/ended
+lifecycle, IDE/App wiring. Backend: `resume=1` after grace, reattach of a
+detached session, cross-user isolation, query-flag parse. Playwright
+(CI, when the runner image and `frontend/dist` exist): open Terminal →
+reload → same `terminalId` + `resume=1` + `bash (sandbox)`.
+
+**Not done:** persist across browser restart or devices; multiple
+terminals / splits; collaborative shared PTY; extending the 90s grace;
+semantic rename; Java/C++ LSP/debug.
+
+**Verification (2026-09-15, outer repo D:/cloudide, Node, Docker daemon not running):**
+
+- Backend lint: 0 errors / 0 warnings
+- Backend `tsc --noEmit`: clean
+- Frontend lint: 0 errors / 19 warnings (pre-existing react-hooks/exhaustive-deps and react-refresh/only-export-components)
+- Frontend `tsc --noEmit` + `vite build` with NODE_OPTIONS=--max-old-space-size=4096: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests (`npm test -w @cloud-ide/frontend`): **1075 passed / 0 failed** (147 files)
+- Backend tests (`npm test -w @cloud-ide/backend`, Docker off): **1378 passed / 88 skipped / 0 failed** (130 files). Docker-gated and Playwright files skipped. `m79-terminal-security` 10/10 including the four M86 resume cases.
+- Playwright terminal reload journey: **skipped here** (Docker Desktop not running). CI builds the runner image and `frontend/dist` before backend tests.
+- `git diff --check`: clean

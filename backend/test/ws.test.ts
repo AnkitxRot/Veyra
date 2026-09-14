@@ -38,6 +38,17 @@ describe("ws URL parsing", () => {
     expect(query.projectId).toBe("");
     expect(!!query.projectId).toBe(false); // empty string is falsy
   });
+
+  it("M86: /ws/terminal resume query is parsed as a boolean flag", async () => {
+    const { parseTerminalResumeFlag } = await import("../src/ws/terminal.js");
+    expect(parseTerminalResumeFlag("1")).toBe(true);
+    expect(parseTerminalResumeFlag("true")).toBe(true);
+    expect(parseTerminalResumeFlag("0")).toBe(false);
+    expect(parseTerminalResumeFlag("yes")).toBe(false);
+    expect(parseTerminalResumeFlag(undefined)).toBe(false);
+    expect(parseTerminalResumeFlag(["1"])).toBe(true);
+    expect(parseTerminalResumeFlag(["0", "1"])).toBe(false);
+  });
 });
 
 describe("ws server survives a malformed client frame", () => {

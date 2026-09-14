@@ -158,6 +158,101 @@ describe("M79 — terminal reattach isolation", () => {
     expect(ws.sent.some((m: any) => m.type === "ended")).toBe(false);
   });
 
+  it("M86: shouldRefuseSilentSpawn is lastSeq>0 or resume", async () => {
+    const { shouldRefuseSilentSpawn } = await load();
+    expect(shouldRefuseSilentSpawn(0, false)).toBe(false);
+    expect(shouldRefuseSilentSpawn(1, false)).toBe(true);
+    expect(shouldRefuseSilentSpawn(0, true)).toBe(true);
+    expect(shouldRefuseSilentSpawn(NaN, false)).toBe(false);
+  });
+
+  it("M86: lastSeq 0 + resume=1 after grace expiry ends instead of spawning", async () => {
+    const { handleTerminalConnection, terminalSessions, spawn } = await load();
+    const cfg = makeTestConfig({ terminalDetachGraceMs: 1000 });
+    vi.useFakeTimers();
+
+    const ws1 = makeFakeWs();
+    await handleTerminalConnection(ws1 as any, "p", cfg, 1, undefined, "tid");
+    ws1.emit("close");
+    vi.advanceTimersByTime(1001);
+    expect(terminalSessions.has(1, "p", "tid")).toBe(false);
+
+    const ws2 = makeFakeWs();
+    await handleTerminalConnection(
+      ws2 as any,
+      "p",
+      cfg,
+      1,
+      undefined,
+      "tid",
+      0,
+      true,
+    );
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(ws2.closed).toBe(true);
+    const ended = ws2.sent.find((m: any) => m.type === "ended");
+    expect(ended?.reason).toBe("grace_expired");
+
+    vi.useRealTimers();
+  });
+
+  it("M86: lastSeq 0 + resume=1 reattaches a live detached session (no second spawn)", async () => {
+    const { handleTerminalConnection, terminalSessions, spawn } = await load();
+    const cfg = makeTestConfig();
+    const ws1 = makeFakeWs();
+    await handleTerminalConnection(ws1 as any, "p", cfg, 1, undefined, "tid");
+    ws1.emit("close");
+    expect(terminalSessions.describe(1, "p", "tid")?.state).toBe("detached");
+
+    const ws2 = makeFakeWs();
+    await handleTerminalConnection(
+      ws2 as any,
+      "p",
+      cfg,
+      1,
+      undefined,
+      "tid",
+      0,
+      true,
+    );
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(terminalSessions.describe(1, "p", "tid")?.state).toBe("attached");
+    expect(ws2.sent.some((m: any) => m.type === "ended")).toBe(false);
+  });
+
+  it("M86: user B + resume=1 with A's terminalId cannot attach to A's PTY", async () => {
+    const { handleTerminalConnection, terminalSessions, spawn } = await load();
+    const cfg = makeTestConfig();
+    const wsA = makeFakeWs();
+    await handleTerminalConnection(
+      wsA as any,
+      "proj-1",
+      cfg,
+      1,
+      undefined,
+      "secret-terminal-id",
+    );
+
+    const wsB = makeFakeWs();
+    await handleTerminalConnection(
+      wsB as any,
+      "proj-1",
+      cfg,
+      2,
+      undefined,
+      "secret-terminal-id",
+      0,
+      true,
+    );
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(terminalSessions.has(2, "proj-1", "secret-terminal-id")).toBe(false);
+    expect(terminalSessions.describe(1, "proj-1", "secret-terminal-id")?.state)
+      .toBe("attached");
+    expect(wsB.sent.some((m: any) => m.type === "ended")).toBe(true);
+    expect(wsB.closed).toBe(true);
+  });
+
   it("B26: the secrets cleanup runs exactly once, on the final reap", async () => {
     const cleanup = vi.fn(async () => {});
     vi.doMock("node-pty", () => ({

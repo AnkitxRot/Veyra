@@ -48,10 +48,13 @@ describe("M69 — appearance controller wiring", () => {
       /xtermRef\.current\.options\.theme = TERMINAL_THEMES\[resolvedTheme\];\s*\}\s*\},\s*\[resolvedTheme\]\)/,
     );
     // The session boundary (which owns the WebSocket lifecycle) is keyed on
-    // the project id only — not the theme, not panel visibility.
-    expect(terminalSession).toMatch(/\}, \[projectId\]\);/);
+    // the project id and the authenticated user (M86 resume) — not the theme,
+    // not panel visibility.
+    expect(terminalSession).toMatch(/\}, \[projectId, userId\]\);/);
     // The view no longer owns any theme or socket logic.
-    expect(terminal).toContain("useTerminalSession(projectId, resolvedTheme)");
+    expect(terminal).toContain(
+      "useTerminalSession(projectId, resolvedTheme, userId)",
+    );
   });
 
   it("theme is a typed preference and part of the editable modal keys", () => {

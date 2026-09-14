@@ -28,6 +28,24 @@ export const terminalGate = new RunGate();
 
 const TERMINAL_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
+/**
+ * The client already had a session for this terminalId (non-zero lastSeq
+ * from a live stream, or `resume=1` after a remount that restored the id).
+ * A registry miss must `ended` — never spawn a silent replacement PTY.
+ */
+export function shouldRefuseSilentSpawn(
+  lastSeq: number,
+  resume: boolean,
+): boolean {
+  return (Number.isFinite(lastSeq) && lastSeq > 0) || resume === true;
+}
+
+/** Query `resume=1` / `resume=true` from `/ws/terminal`. Anything else is off. */
+export function parseTerminalResumeFlag(value: unknown): boolean {
+  const v = Array.isArray(value) ? value[0] : value;
+  return v === "1" || v === "true";
+}
+
 function wireSocketToSession(
   ws: WebSocket,
   userId: number,
@@ -82,6 +100,7 @@ export async function handleTerminalConnection(
   db?: Db,
   terminalIdParam?: string,
   lastSeqParam = 0,
+  resume = false,
 ): Promise<void> {
   const lastSeq =
     Number.isFinite(lastSeqParam) && lastSeqParam >= 0
@@ -130,12 +149,13 @@ export async function handleTerminalConnection(
 
   // -------------------------------------------------------------------------
   // GONE — the client expected a reattach (it was streaming a session on this
-  // terminalId, so it sent a non-zero lastSeq) but the server has no such
-  // session: it was reaped (grace expiry / container teardown / role loss).
-  // Report it honestly and close — a fresh shell needs an explicit new
-  // terminalId from the client, never a silent respawn under the same UI.
+  // terminalId, so it sent a non-zero lastSeq — or it restored the id after a
+  // remount and sent resume=1) but the server has no such session: it was
+  // reaped (grace expiry / container teardown / role loss). Report it honestly
+  // and close — a fresh shell needs an explicit new terminalId from the
+  // client, never a silent respawn under the same UI.
   // -------------------------------------------------------------------------
-  if (lastSeq > 0) {
+  if (shouldRefuseSilentSpawn(lastSeq, resume)) {
     if (ws.readyState === ws.OPEN) {
       const reason =
         terminalSessions.reapedReason(userId, projectId, terminalId) ??
