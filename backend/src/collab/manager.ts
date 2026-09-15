@@ -1840,10 +1840,14 @@ export class CollaborationRoom {
         case MESSAGE_SYNC: {
           const syncType = decoding.peekVarUint(decoder);
 
-          // Viewer Role Protection: Reject edit updates from read-only viewers
+          // Viewer Role Protection: Reject edit updates from read-only viewers.
+          // M86: SyncStep2 carries a Yjs update too — applying it let a viewer
+          // create, rewrite, or delete workspace files. Viewers may still send
+          // SyncStep1 (a read request answered with the document).
           if (
             clientState.role === "viewer" &&
-            syncType === syncProtocol.messageYjsUpdate
+            (syncType === syncProtocol.messageYjsUpdate ||
+              syncType === syncProtocol.messageYjsSyncStep2)
           ) {
             console.warn(
               `[CollabRoom:${this.projectId}] Blocked edit attempt from viewer ${clientState.username}`,
