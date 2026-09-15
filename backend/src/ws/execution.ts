@@ -96,6 +96,14 @@ export async function handleExecutionConnection(
   // kill. sandboxRun polls this before spawning anything.
   let disconnected = false;
 
+  // M86: a Stop can arrive while a start is still preparing (sandbox
+  // startup, workflow resolution, the read-your-writes barrier). It must
+  // cancel before spawn (`isCancelled`) and kill a process that appears after.
+  const adoptController = (ctrl: SandboxController) => {
+    controller = ctrl;
+    if (stopRequested) ctrl.kill();
+  };
+
   ws.on("message", async (msg) => {
     try {
       const parsed = JSON.parse(msg.toString());
@@ -136,6 +144,7 @@ export async function handleExecutionConnection(
           return;
         }
         running = true;
+        stopRequested = false;
         const executionId = randomUUID();
         telemetryHistorian.trackExecutionStart(projectId, executionId);
 
@@ -247,10 +256,8 @@ export async function handleExecutionConnection(
               onStdout: (data) => streamOut("stdout", data),
               onStderr: (data) => streamOut("stderr", data),
               onStatus: streamStatus,
-              onController: (ctrl) => {
-                controller = ctrl;
-              },
-              isCancelled: () => disconnected,
+              onController: adoptController,
+              isCancelled: () => disconnected || stopRequested,
             });
             if (!wf.ok) throw new Error(wf.error);
             result = wf.value.result;
@@ -286,10 +293,8 @@ export async function handleExecutionConnection(
               onStdout: (data) => streamOut("stdout", data),
               onStderr: (data) => streamOut("stderr", data),
               onStatus: streamStatus,
-              onController: (ctrl) => {
-                controller = ctrl;
-              },
-              isCancelled: () => disconnected,
+              onController: adoptController,
+              isCancelled: () => disconnected || stopRequested,
             });
           }
 

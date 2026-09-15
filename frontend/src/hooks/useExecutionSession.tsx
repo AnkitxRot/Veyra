@@ -139,6 +139,8 @@ export function ExecutionSessionProvider({
   const workflowGenRef = useRef(0);
   const prepareRunRef = useRef(prepareRun);
   prepareRunRef.current = prepareRun;
+  /** M86: Stop pressed while the execution socket was still connecting. */
+  const pendingStopRef = useRef(false);
   /** M86: a Test/Build request is flushing buffers; ignore repeat clicks. */
   const preparingRef = useRef(false);
   /** M86: bumped on project switch / unmount so a request that finishes
@@ -267,8 +269,13 @@ export function ExecutionSessionProvider({
         }
       };
 
+      pendingStopRef.current = false;
       ws.onopen = () => {
         ws.send(JSON.stringify(opts.startMessage));
+        if (pendingStopRef.current && wsRef.current === ws) {
+          pendingStopRef.current = false;
+          ws.send(JSON.stringify({ type: "stop" }));
+        }
       };
 
       let endedByError = false;
@@ -475,8 +482,13 @@ export function ExecutionSessionProvider({
   );
 
   const stop = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "stop" }));
+    const ws = wsRef.current;
+    // M86: Stop pressed before the socket opened would be dropped and the
+    // program would run to its timeout. Queue it; onopen sends it after start.
+    const queue = ws?.readyState === WebSocket.CONNECTING;
+    if (queue) pendingStopRef.current = true;
+    if (ws && (queue || ws.readyState === WebSocket.OPEN)) {
+      if (!queue) ws.send(JSON.stringify({ type: "stop" }));
       setLogs((prev) => [
         ...prev,
         {

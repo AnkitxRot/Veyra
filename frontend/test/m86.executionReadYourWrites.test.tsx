@@ -155,6 +155,39 @@ describe("M86 — a server refusal ends the execution attempt", () => {
   });
 });
 
+describe("M86 — Stop pressed while the execution socket is still connecting", () => {
+  it("is sent right after the start frame instead of being dropped", async () => {
+    function StopProbe() {
+      const s = useExecutionSession();
+      return (
+        <div>
+          <button type="button" onClick={() => s.run({ language: "python", activeFile: "main.py" })}>
+            run
+          </button>
+          <button type="button" onClick={() => s.stop()}>
+            stop
+          </button>
+        </div>
+      );
+    }
+    const view = render(
+      <ExecutionSessionProvider projectId="p1">
+        <StopProbe />
+      </ExecutionSessionProvider>,
+    );
+    fireEvent.click(view.getByText("run"));
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));
+    const ws = FakeWebSocket.latest();
+    expect(ws.readyState).toBe(FakeWebSocket.CONNECTING);
+
+    fireEvent.click(view.getByText("stop"));
+    expect(ws.sent).toEqual([]);
+    act(() => ws.simulateOpen());
+
+    expect(ws.sent.map((m) => JSON.parse(m).type)).toEqual(["start", "stop"]);
+  });
+});
+
 describe("M86 — workflow tasks prepare the workspace before starting", () => {
   it("does not open the socket until prepareRun resolves", async () => {
     let resolvePrepare!: () => void;
