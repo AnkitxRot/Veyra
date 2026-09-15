@@ -4,6 +4,7 @@ import {
   dirname,
   isAbsolute,
   join,
+  posix,
   relative,
   resolve,
 } from "node:path";
@@ -72,15 +73,35 @@ export function safeResolve(root: string, relPath: string): string {
  * guards the by-path file APIs (read/write/move/delete) so a crafted path
  * can't reach repository internals.
  */
-function assertNotGitInternal(relPath: string): void {
-  const first = relPath.replace(/\\/g, "/").replace(/^\/+/, "").split("/")[0];
-  if (first === ".git") {
-    throw new ApiError(
-      400,
-      "cannot access .git repository internals",
-      "invalid_path",
-    );
-  }
+export function assertNotGitInternal(relPath: string): void {
+  // M86: normalize first — `./.git/config`, `a/../.git/config`, `.GIT/config`
+  // and `.git./config` all resolve into the repository directory.
+  const normalized = posix.normalize(
+    relPath.replace(/\\/g, "/").replace(/^\/+/, ""),
+  );
+  if (isGitInternalRel(normalized)) throw gitInternalError();
+}
+
+/**
+ * M86: does a normalized workspace-relative path start in `.git`? Host
+ * filesystems may be case-insensitive, and Win32 ignores trailing dots and
+ * spaces and `:stream` suffixes on a path segment (`GIT~1` is its 8.3 name).
+ */
+function isGitInternalRel(rel: string): boolean {
+  const first = rel.replace(/\\/g, "/").split("/")[0] ?? "";
+  const segment = first
+    .replace(/:.*$/, "")
+    .replace(/[. ]+$/, "")
+    .toLowerCase();
+  return segment === ".git" || /^git~\d+$/.test(segment);
+}
+
+function gitInternalError(): ApiError {
+  return new ApiError(
+    400,
+    "cannot access .git repository internals",
+    "invalid_path",
+  );
 }
 
 export async function assertInsideWorkspace(
@@ -114,6 +135,10 @@ export async function assertInsideWorkspace(
   const rel = relative(realRoot, realAbs);
   if (rel.startsWith("..") || rel === ".." || isAbsolute(rel))
     throw escapeError();
+  // M86: `.git` holds configuration host-side Git honors (filter drivers run
+  // commands). Checked on the real path so a symlink/junction such as
+  // `link -> .git` cannot reach it either. No caller needs `.git` access.
+  if (isGitInternalRel(rel)) throw gitInternalError();
 }
 
 export async function listFiles(
