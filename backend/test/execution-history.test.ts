@@ -86,7 +86,10 @@ async function startRun(db: Db, result: Record<string, unknown>) {
     return result;
   });
   vi.doMock("../src/execution/pipeline.js", () => ({ runProject }));
-  vi.doMock("../src/projects/service.js", () => ({
+  vi.doMock("../src/projects/service.js", async (orig) => ({
+    // Real access checks (M86 re-checks editor access on each start) against
+    // the seeded DB; only the workspace path is faked.
+    ...((await orig()) as object),
     workspacePath: async () => "/tmp/does-not-matter",
   }));
 

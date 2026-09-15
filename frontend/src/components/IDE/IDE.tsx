@@ -2608,6 +2608,38 @@ export default function IDE({
     return () => document.removeEventListener(IDE_NOTICE_EVENT, onNotice);
   }, [notify]);
 
+  // Auto-save dirty files before executing. M1: content comes from the
+  // live editor model (openFiles[].content is stale during typing), and
+  // only files whose save actually succeeded are marked clean — the old
+  // code cleared `dirty` even when the POST threw.
+  // M86: shared by Run and Test/Build tasks. Best-effort — the server
+  // persists the collaboration room before executing either way. Debug keeps
+  // its own strict variant below (it refuses to launch on a failed flush).
+  const saveDirtyFilesBeforeExecution = useCallback(async () => {
+    if (!project) return;
+    const dirtyFiles = openFilesRef.current.filter((f) => f.dirty);
+    const savedContents = new Map<string, string>();
+    for (const f of dirtyFiles) {
+      const content = resolveLiveFileContent(f.path);
+      if (content === null) continue;
+      try {
+        await api(`/api/projects/${project.id}/file`, {
+          method: "POST",
+          body: JSON.stringify({ path: f.path, content }),
+        });
+        savedContents.set(f.path, content);
+      } catch {}
+    }
+    setOpenFiles((prev) =>
+      prev.map((f) => {
+        const saved = savedContents.get(f.path);
+        return saved !== undefined
+          ? { ...f, content: saved, dirty: false }
+          : f;
+      }),
+    );
+  }, [project, resolveLiveFileContent]);
+
   // Listen to ide-run event from Toolbar
   useEffect(() => {
     const handleRunRequest = async (e: Event) => {
@@ -2618,31 +2650,7 @@ export default function IDE({
       } = (e as CustomEvent).detail;
       if (!project) return;
 
-      // Auto-save dirty files before executing. M1: content comes from the
-      // live editor model (openFiles[].content is stale during typing), and
-      // only files whose save actually succeeded are marked clean — the old
-      // code cleared `dirty` even when the POST threw.
-      const dirtyFiles = openFiles.filter((f) => f.dirty);
-      const savedContents = new Map<string, string>();
-      for (const f of dirtyFiles) {
-        const content = resolveLiveFileContent(f.path);
-        if (content === null) continue;
-        try {
-          await api(`/api/projects/${project.id}/file`, {
-            method: "POST",
-            body: JSON.stringify({ path: f.path, content }),
-          });
-          savedContents.set(f.path, content);
-        } catch {}
-      }
-      setOpenFiles((prev) =>
-        prev.map((f) => {
-          const saved = savedContents.get(f.path);
-          return saved !== undefined
-            ? { ...f, content: saved, dirty: false }
-            : f;
-        }),
-      );
+      await saveDirtyFilesBeforeExecution();
 
       // M45: switch to output tab and expand drawer if collapsed. Must be
       // flushSync — see the identical M44 comment on the ide-install effect
@@ -2669,7 +2677,7 @@ export default function IDE({
 
     document.addEventListener("ide-run", handleRunRequest);
     return () => document.removeEventListener("ide-run", handleRunRequest);
-  }, [project, openFiles, resolveLiveFileContent, setIsBottomCollapsed]);
+  }, [project, saveDirtyFilesBeforeExecution, setIsBottomCollapsed]);
 
   useEffect(() => {
     const handleDebugRequest = async (e: Event) => {
@@ -4330,7 +4338,10 @@ export default function IDE({
   // the whole layout here means switching the bottom panel away from Output (or
   // collapsing it) can never unmount the session and kill a running program.
   return (
-    <ExecutionSessionProvider projectId={project?.id ?? null}>
+    <ExecutionSessionProvider
+      projectId={project?.id ?? null}
+      prepareRun={saveDirtyFilesBeforeExecution}
+    >
       <DebugSessionProvider
         projectId={project?.id ?? null}
         dirtyPaths={openFiles.filter((f) => f.dirty).map((f) => f.path)}

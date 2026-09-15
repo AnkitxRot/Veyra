@@ -80,8 +80,15 @@ const capLogs = (next: LogLine[]) =>
  */
 export function ExecutionSessionProvider({
   projectId,
+  prepareRun,
   children,
-}: React.PropsWithChildren<{ projectId: string | null }>) {
+}: React.PropsWithChildren<{
+  projectId: string | null;
+  /** M86: flush dirty editor buffers before a Test/Build task starts (Run
+   *  and Debug already do this in IDE before dispatching). Best-effort: the
+   *  server persists the collaboration room before executing either way. */
+  prepareRun?: () => Promise<void>;
+}>) {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [status, setStatus] = useState<ExecutionStatus>({
     text: "Idle",
@@ -130,6 +137,13 @@ export function ExecutionSessionProvider({
   const installRafIdRef = useRef<number | null>(null);
   const installInFlightRef = useRef(false);
   const workflowGenRef = useRef(0);
+  const prepareRunRef = useRef(prepareRun);
+  prepareRunRef.current = prepareRun;
+  /** M86: a Test/Build request is flushing buffers; ignore repeat clicks. */
+  const preparingRef = useRef(false);
+  /** M86: bumped on project switch / unmount so a request that finishes
+   *  preparing afterwards never opens a socket for the old session. */
+  const sessionGenRef = useRef(0);
 
   // M43: the install flow needs the *current* isRunning value as a
   // defense-in-depth check backing Toolbar's own disabled-button enforcement.
@@ -257,7 +271,10 @@ export function ExecutionSessionProvider({
         ws.send(JSON.stringify(opts.startMessage));
       };
 
+      let endedByError = false;
+
       ws.onmessage = (msg) => {
+        if (endedByError) return;
         try {
           const parsed = JSON.parse(msg.data);
 
@@ -273,6 +290,24 @@ export function ExecutionSessionProvider({
             accStderr += parsed.data;
             appendLog({ type: "error", text: parsed.data });
             setStatus({ text: "Error", type: "error" });
+            // M86: the server sends `error` only once this attempt is over
+            // (refused before start — e.g. live edits that could not be
+            // persisted — or failed) and leaves the socket open. End the
+            // attempt so Run / Test / Stop do not stay stuck in "Running".
+            endedByError = true;
+            if (runRafIdRef.current !== null) {
+              cancelAnimationFrame(runRafIdRef.current);
+              runRafIdRef.current = null;
+            }
+            flushLogs();
+            ws.onclose = null;
+            ws.onerror = null;
+            ws.close();
+            if (wsRef.current === ws) wsRef.current = null;
+            runInFlightRef.current = false;
+            setIsRunning(false);
+            setExecutionId(null);
+            document.dispatchEvent(new Event("run-stopped"));
           } else if (parsed.type === "workflow") {
             if (Array.isArray(parsed.tests)) {
               const next = parsed.tests.slice(0, 200) as WorkflowTestResult[];
@@ -406,8 +441,21 @@ export function ExecutionSessionProvider({
   );
 
   const runWorkflow = useCallback(
-    (detail: WorkflowRunDetail) => {
-      if (!detail?.taskId) return;
+    async (detail: WorkflowRunDetail) => {
+      if (!detail?.taskId || preparingRef.current) return;
+      const prepare = prepareRunRef.current;
+      if (prepare) {
+        const gen = sessionGenRef.current;
+        preparingRef.current = true;
+        try {
+          await prepare();
+        } catch {
+          // Best-effort: the server still persists the room before running.
+        } finally {
+          preparingRef.current = false;
+        }
+        if (gen !== sessionGenRef.current) return;
+      }
       const task = workflowTasks.find((t) => t.id === detail.taskId);
       startExecution({
         startMessage: {
@@ -605,6 +653,7 @@ export function ExecutionSessionProvider({
   // Lifecycle teardown — on projectId change AND on provider unmount.
   useEffect(() => {
     return () => {
+      sessionGenRef.current += 1;
       const ws = wsRef.current;
       if (ws && ws.readyState !== WebSocket.CLOSED) {
         ws.onclose = null;

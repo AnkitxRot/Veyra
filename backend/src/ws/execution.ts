@@ -3,11 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
 import { runProject, type RunResult } from "../execution/pipeline.js";
-import { workspacePath } from "../projects/service.js";
+import { requireProjectAccess, workspacePath } from "../projects/service.js";
 import type { SandboxController } from "../execution/sandbox.js";
 import { runGate } from "../execution/runGate.js";
 import { telemetryHistorian } from "../execution/historian.js";
-import { collaborationManager } from "../collab/manager.js";
+import {
+  collaborationManager,
+  describeUnpersistedLiveEdits,
+} from "../collab/manager.js";
 import {
   resolveSecretsForInjection,
   toGenericSecretError,
@@ -98,6 +101,22 @@ export async function handleExecutionConnection(
       const parsed = JSON.parse(msg.toString());
 
       if (parsed.type === "start") {
+        // M86: editor access is checked at upgrade, but a start can arrive
+        // long after (and now also persists the room). Re-check per start so
+        // a collaborator demoted or removed on an open socket cannot run.
+        if (db) {
+          try {
+            requireProjectAccess(db, userId, projectId, "editor");
+          } catch {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                data: "You no longer have permission to run code in this project.",
+              }),
+            );
+            return;
+          }
+        }
         if (running) {
           ws.send(
             JSON.stringify({
@@ -203,6 +222,17 @@ export async function handleExecutionConnection(
           if (workflowReq?.ok && debugSessions.hasLiveForProject(projectId)) {
             throw new Error(
               "Debugger is active; stop it before running tests or builds.",
+            );
+          }
+
+          // M86: the sandbox reads the workspace from disk, which lags the
+          // collaboration room by the persistence debounce. Land every edit
+          // the room already holds first; refuse rather than run stale code.
+          const persisted =
+            await collaborationManager.persistLiveEdits(projectId);
+          if (!persisted.ok) {
+            throw new Error(
+              `${describeUnpersistedLiveEdits(persisted.unpersisted)}; not started so stale code is not run.`,
             );
           }
 
