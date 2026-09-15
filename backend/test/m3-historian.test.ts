@@ -176,14 +176,32 @@ describe("M3 Cloud Resource Intelligence: Anomaly Engine & Health Center", () =>
       blockIO: "0B / 0B",
     });
 
-    // Trigger PID pressure (>= 50 PIDs)
+    // M86: normal IDE load (language server + a test run ≈ 58 threads) is
+    // not pressure under the configured limit.
     historian.recordSample(projId, "sb-high-cpu", {
       running: true,
       cpuPercent: 10.0,
       memoryUsageBytes: 64 * 1024 * 1024,
       memoryLimitBytes: 512 * 1024 * 1024,
       memoryPercent: 12.5,
-      pids: 55,
+      pids: 58,
+      netIO: "0B / 0B",
+      blockIO: "0B / 0B",
+    });
+    expect(
+      historian
+        .getProjectHealth(projId)
+        .anomalies.some((a) => a.anomalyType === "pid_pressure"),
+    ).toBe(false);
+
+    // Trigger PID pressure (>= ~78% of the configured sandbox limit)
+    historian.recordSample(projId, "sb-high-cpu", {
+      running: true,
+      cpuPercent: 10.0,
+      memoryUsageBytes: 64 * 1024 * 1024,
+      memoryLimitBytes: 512 * 1024 * 1024,
+      memoryPercent: 12.5,
+      pids: Math.ceil(cfg.limits.pidsLimit * 0.85),
       netIO: "0B / 0B",
       blockIO: "0B / 0B",
     });
@@ -197,9 +215,9 @@ describe("M3 Cloud Resource Intelligence: Anomaly Engine & Health Center", () =>
     expect(
       health.anomalies.some((a) => a.anomalyType === "memory_pressure"),
     ).toBe(true);
-    expect(health.anomalies.some((a) => a.anomalyType === "pid_pressure")).toBe(
-      true,
-    );
+    const pid = health.anomalies.find((a) => a.anomalyType === "pid_pressure");
+    expect(pid).toBeTruthy();
+    expect(pid!.reason).toContain(`limit is ${cfg.limits.pidsLimit}`);
 
     historian.stop();
   });
