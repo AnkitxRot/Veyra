@@ -104,11 +104,13 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M85 Workspace Intelligence & IDE Reliability.
-  M84 Test / Task / Build and M83 Debugging Foundation remain in place.
-  Bounded trees/search, Git pull tree refresh, project-switch Problems
-  isolation, nested pytest discovery, workspace symbols via the language
-  server, and a browser developer-journey test. No AI. See **Milestone 85**.
+- **Current work (this commit):** M86 Workspace Read-Your-Writes. Run,
+  Test/Build, Debug launch, install, and Git stage now see the editor's
+  latest collaborative edits instead of the debounced disk copy; viewers can
+  no longer write through Yjs SyncStep2; `.git` is unreachable through
+  normalized/real-path workspace writes; the sandbox pids limit fits the IDE's
+  own language server. M85 workspace reliability remains in place. No AI.
+  See **Milestone 86**.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9826,3 +9828,112 @@ journey (open file → run tests → open failure → git commit).
 persistence, search of `node_modules` on demand, monorepo project
 references beyond whatever tsserver already does for a single
 `tsconfig.json`.
+
+## Milestone 86 — Workspace Read-Your-Writes
+
+**Objective:** Run, Test/Build, Debug launch, dependency install, and Git
+stage operate on what the editor shows — not on whatever the collaboration
+persistence debounce last wrote. No new subsystem, no AI.
+
+**Proven problem.** Collaboration is always on: every keystroke lands in the
+server `Y.Doc` and reaches disk only after the 2s debounce (10s max). All of
+the consumers above read the workspace from disk. Run and Debug POSTed the
+invoking user's *dirty tabs* first; Test/Build and Git stage did nothing, and
+nobody covered a collaborator's last-second edits. Docker-backed tests were
+RED on `main`: Run of a room-only file failed with
+`python3: can't open file '/workspace/fresh.py'`, and a test task ran the old
+test file.
+
+**Architecture.**
+
+```text
+consumer (after authorization)
+  → collaborationManager.persistLiveEdits(projectId)
+  → CollaborationRoom.persistLiveEdits()   dirty files only, 5s bound
+      join in-flight pass → still dirty? → one serialized pass
+  → ok: continue   |   not ok: refuse, naming the files
+```
+
+- **Serialized flush passes.** One running + at most one coalesced queued
+  pass (`runFlushPass` / `startFlushPass`). Overlapping passes could let an
+  older snapshot of a file land after a newer one.
+- **Dirty stays dirty if the text changed during its write.** Otherwise the
+  barrier could report "persisted" while disk holds older bytes.
+- **Clean rooms are not rewritten.** The barrier never uses the legacy
+  "write every non-empty key" fallback, so consumers never bump mtimes of
+  unchanged files (watch-mode tools in the sandbox would restart).
+- **Refuse, never guess.** `/ws/execute` sends an `error` ("not started so
+  stale code is not run"); Git stage and install return
+  `409 live_edits_not_persisted` with `unpersisted`; debug sends an error.
+  Keys that can never be written (`EISDIR`, `ENOTDIR`, `ENOENT` parent,
+  `ENAMETOOLONG`, `EINVAL`, `ELOOP`) are dropped like escaping paths so a
+  planted key cannot block every consumer forever.
+- **Frontend.** Test/Build requests await the same best-effort dirty-buffer
+  save Run uses (`saveDirtyFilesBeforeExecution`, passed as `prepareRun`),
+  guarded against repeat clicks and project switch/unmount. A server `error`
+  frame now ends the attempt — before M86 it left Run/Test stuck in
+  "Running" (a pre-existing bug on every refusal path).
+- **Terminal is not gated** (arbitrary shell); it still sees the debounce.
+
+**Found and fixed during M86 (evidence-driven):**
+
+1. **Sandbox pids limit 64 → 256.** Docker's `--pids-limit` counts threads.
+   With the TypeScript language server up (~36 threads), `npm test` hung in a
+   futex until the task timeout (`pids.events: max 1`). Measured peak for
+   language server + a two-file test run: 58/64. Historian `pid_pressure`
+   thresholds are now relative to the configured limit (still 50/58 at 64).
+2. **Viewers could write files through Yjs `SyncStep2`.** The room dropped
+   `Update` frames from viewers but applied `SyncStep2`, which carries an
+   arbitrary update — a viewer could create, rewrite, or delete workspace
+   files. Both are now dropped; `SyncStep1` (read) still works. Reproduced
+   before the fix.
+3. **`.git` guard bypass (since M51).** `assertNotGitInternal` compared only
+   the raw first segment, so `./.git/config`, `sub/../.git/config`, and
+   `.GIT/config` wrote into the repository through `POST /file` (reproduced;
+   upload and collaborative keys had no `.git` check at all). Combined with
+   the Git filter-driver issue below this was host command execution for any
+   editor. The lexical check now normalizes (case, Win32 trailing dots /
+   spaces / `:stream`, `GIT~N`), and `assertInsideWorkspace` rejects any
+   real path under `.git` — covering REST, upload, collaboration load/flush,
+   debug entry, and symlinks/junctions such as `link -> .git`.
+4. **`/ws/execute` re-checks editor access on every `start`** so a
+   collaborator demoted on an open socket cannot run code.
+
+**Security review (dedicated pass).** Barrier reachable only after
+authorization; project id always server-derived; echoed paths are
+JSON/React text and bounded (20 listed, 5 shown, 120 chars).
+
+**Confirmed pre-existing issues NOT fixed here (next milestone):**
+
+- **Host command execution via repo-local Git config.** Host-side Git reads
+  the workspace's `.git/config`; `core.hooksPath` and `core.fsmonitor` are
+  overridden, but filter drivers are not. Writing `[filter "x"] clean = …`
+  into `.git/config` plus `* filter=x` in `.gitattributes` (possible from the
+  sandbox through the `/workspace` bind mount) made `POST /git/stage` run a
+  command on the host — reproduced. M86 closes the application write paths
+  into `.git` (item 3); the sandbox can still write `.git` through the bind
+  mount. The recommended fix is to run Git inside the project sandbox rather
+  than allowlisting exec-capable config (filters, textconv, `diff.external`,
+  merge drivers, includes, `info/attributes`) on the host. The same
+  follow-up must cover nested repositories / submodules (`sub/.git/config`,
+  e.g. `core.fsmonitor` in a child repo reached through a gitlink —
+  not reproduced).
+- **Symlink swap between the realpath check and the write** exists in both
+  the REST `writeProjectFile` and the collaboration flush; `POST /file`
+  already triggers it on demand, so M86 adds no new capability.
+
+**Not done:** terminal read-your-writes, explicit save-state UI for Git,
+per-file (instead of project-wide) refusal.
+
+**Verification (2026-09-16, outer repo D:/cloudide, Node v24.19.0, Docker 29.7.2, runner image rebuilt from `main` as `964d13fdcd2c`):**
+
+- Baseline on `main@434afa4` (re-run here first): backend **1451 passed / 9 skipped** (129 files), Playwright 8/8 — matches M85.
+- Backend lint: 0 errors / 0 warnings. Backend `tsc --noEmit`: clean.
+- Frontend lint: 0 errors / 19 warnings (pre-existing, unchanged count). Frontend `tsc --noEmit` + `vite build` (NODE_OPTIONS=--max-old-space-size=4096): clean.
+- Frontend tests (`CI=true npm test -w @cloud-ide/frontend`): **1066 passed / 0 failed** (145 files).
+- Backend tests (`CI=true npm test -w @cloud-ide/backend`, Docker up) on the final feature commit: **1491 passed / 9 skipped / 0 failed** (134 files).
+- Playwright: **10/10** — the M85 set plus "fix a failing test in Monaco and run immediately without saving" and "a collaborator's unsaved fix is what another tab's run executes" (the latter freezes the room debounce, so only the server barrier can pass it; verified RED without it).
+- RED before the fix (Docker): Run of a room-only file, test task on a room-only test, Git stage of room-only content, the collaborator journey; frontend stuck-"Running" on `error`. Mutation checks: reverting serialization, keep-dirty-on-change, the clean-key opt-out, permanent-error drop, `.git` guard, and the per-start role check each fail their tests.
+- `python-deps.test.ts` failed three isolated runs mid-session at the 60s pip watchdog **with `main`'s backend source as well** (environmental 9p/pip latency on this workstation, as noted in M84); it passed in the final full run.
+- Each commit on the branch type-checks and passes its own tests in isolation.
+- `git diff --check`: clean.
