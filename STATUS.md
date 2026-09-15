@@ -9937,3 +9937,4 @@ per-file (instead of project-wide) refusal.
 - `python-deps.test.ts` failed three isolated runs mid-session at the 60s pip watchdog **with `main`'s backend source as well** (environmental 9p/pip latency on this workstation, as noted in M84); it passed in the final full run.
 - Each commit on the branch type-checks and passes its own tests in isolation.
 - `git diff --check`: clean.
+- **First CI run (PR #12, `c13db87`) failed** `workflow-browser › stops a hanging task` (Stop clicked right as Test Explorer showed Running; the task ran to its timeout). Root cause (pre-existing, timing-dependent on CI runners): the client dropped a stop sent while the execution socket was still connecting, and the server cancelled a not-yet-spawned process only on disconnect. Fixed in `fix(execution): honor Stop pressed before the process starts` with deterministic tests on both sides (RED before the fix); browser journeys re-run 3× locally, frontend **1067 passed**.
