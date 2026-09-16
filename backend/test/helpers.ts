@@ -8,6 +8,7 @@ import {
   type ConfigOverrides,
 } from "../src/config";
 import type { Db } from "../src/db";
+import { isDockerRunning, isRunnerImageAvailable } from "../src/tools";
 
 export function makeTestConfig(overrides: ConfigOverrides = {}): AppConfig {
   const dataDir = mkdtempSync(join(tmpdir(), "cloudide-test-"));
@@ -107,4 +108,23 @@ export async function startTestApi(
         server.close((err) => (err ? reject(err) : resolve())),
       ),
   };
+}
+
+/**
+ * M87: project Git runs inside the project sandbox, so Git tests need Docker
+ * and the runner image (they skip otherwise, like every sandbox test).
+ */
+export function sandboxGitAvailable(): boolean {
+  return isDockerRunning() && isRunnerImageAvailable();
+}
+
+/** Stop the sandbox of every project in `db` (Git tests start them). */
+export async function stopProjectSandboxesForTest(db: Db): Promise<void> {
+  const { sandboxManager } = await import("../src/execution/sandbox.js");
+  const rows = db.prepare("SELECT id FROM projects").all() as Array<{
+    id: string;
+  }>;
+  for (const { id } of rows) {
+    await sandboxManager.stopProjectSandbox(id).catch(() => {});
+  }
 }

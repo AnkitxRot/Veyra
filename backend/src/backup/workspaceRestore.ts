@@ -371,6 +371,15 @@ export async function restoreWorkspaceBackup(
           await fs.mkdir(cwd, { recursive: true });
         }
         workspaceSwapped = true;
+        // M87: nothing that can start a sandbox (terminal, LSP, a Git read)
+        // takes this lock, so a container may have been created during the swap
+        // with the OLD directory bind-mounted. Stop it; the next consumer gets
+        // one on the replaced workspace.
+        try {
+          await sandboxManager.stopProjectSandbox(projectId);
+        } catch {
+          // best-effort
+        }
 
         // Test-only: lets workspace-restore.test.ts deterministically force
         // a SWAP-phase failure (to prove ROLLBACK genuinely restores prior

@@ -4,7 +4,6 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import type { WebSocket } from "ws";
-import { promises as fs } from "node:fs";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
@@ -14,6 +13,7 @@ import {
   assertNotGitInternal,
   safeResolve,
 } from "../files/service.js";
+import { readConfinedFile, writeConfinedFile } from "../files/confined.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
 import { getDisplayName, getAvatarVersion, getPronouns } from "../profile/store.js";
 import {
@@ -130,6 +130,9 @@ const PERMANENT_WRITE_ERROR_CODES = new Set([
   "ENAMETOOLONG",
   "EINVAL",
   "ELOOP",
+  // M87: the confined write found the opened file outside the workspace
+  // (a symlink/directory swapped in after the path check).
+  "invalid_path",
 ]);
 export const LIVE_EDITS_NOT_PERSISTED = "live_edits_not_persisted";
 
@@ -1705,7 +1708,8 @@ export class CollaborationRoom {
 
     if (yText.length === 0) {
       try {
-        const content = await fs.readFile(fullPath, "utf-8");
+        // M87: verify the opened file, not just the path checked above.
+        const { content } = await readConfinedFile(baseDir, fullPath);
         // Only insert if Y.Text is still empty
         if (yText.length === 0) {
           this.doc.transact(() => {
@@ -2628,7 +2632,9 @@ export class CollaborationRoom {
       try {
         const yText = this.doc.getText(filePath);
         const content = yText.toString();
-        await fs.writeFile(fullPath, content, "utf-8");
+        // M87: truncates/writes only after proving the opened file is
+        // inside the workspace (closes the check-then-write race).
+        await writeConfinedFile(baseDir, fullPath, content);
         // Only mark clean once the write actually landed. Clearing
         // unconditionally would falsely mark a failed write as persisted,
         // and nothing would ever retry it.

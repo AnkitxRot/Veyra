@@ -4,6 +4,7 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 import {
+  getProject,
   requireOwnedProject,
   requireProjectAccess,
   workspacePath,
@@ -15,9 +16,12 @@ import {
   requireLiveEditsPersisted,
 } from "../collab/manager.js";
 import type { MutationType } from "../collab/manager.js";
-import { invalidateTreeCache } from "../files/service.js";
-import { promises as fsp } from "node:fs";
-import { join } from "node:path";
+import {
+  assertNotGitInternal,
+  invalidateTreeCache,
+  safeResolve,
+} from "../files/service.js";
+import { readConfinedFile } from "../files/confined.js";
 import { toGenericSecretError } from "../projectsecrets/store.js";
 import * as git from "./service.js";
 import * as remotes from "./remotes.js";
@@ -29,6 +33,7 @@ import {
   upsertGitHttpsCredentials,
 } from "./credentials.js";
 import { httpsRemoteHost, validateHttpsGitRemoteUrl } from "./remoteUrl.js";
+import { registerGitSandboxOwnerResolver } from "./sandboxGit.js";
 
 /**
  * M51 — local Git version control API.
@@ -42,6 +47,12 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
   const router = Router({ mergeParams: true });
   const userOf = (req: Request) => req.user!;
 
+  // M87: Git runs in the project sandbox, charged to the project owner.
+  registerGitSandboxOwnerResolver(cfg, (projectId) => {
+    const owner = getProject(db, projectId)?.owner_id;
+    return typeof owner === "number" ? owner : undefined;
+  });
+
   const requireRead = (req: Request) =>
     requireProjectAccess(db, userOf(req).id, req.params.id, "viewer");
   const requireWrite = (req: Request) =>
@@ -50,20 +61,12 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
   const locked = <T>(projectId: string, fn: () => Promise<T>) =>
     withProjectSnapshotLock(projectId, fn);
 
-  const credsForRemote = async (projectId: string) => {
-    const originUrl = await remotes.getOriginUrl(cfg, projectId);
-    if (!originUrl) return null;
-    // getOriginUrl is client-safe (placeholders for ssh/file remotes).
-    // Re-validate before touching the PAT so a terminal-set non-HTTPS
-    // origin never reaches askpass or throws an untyped URL error.
-    let validated: string;
-    try {
-      validated = validateHttpsGitRemoteUrl(originUrl);
-    } catch {
-      return null;
-    }
-    return resolveGitHttpsCredentials(db, cfg, projectId, validated);
-  };
+  // M87: origin and its pinned credentials are resolved together, inside the
+  // project lock, from the validated HTTPS URL the transport will use.
+  const remoteTarget = (projectId: string) =>
+    remotes.resolveRemoteTarget(cfg, projectId, (url) =>
+      resolveGitHttpsCredentials(db, cfg, projectId, url),
+    );
 
   // ---- reads -------------------------------------------------------------
 
@@ -463,17 +466,19 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireWrite(req);
       const user = userOf(req);
-      const creds = await credsForRemote(req.params.id);
-      const result = await locked(req.params.id, () =>
-        remotes.fetchOrigin(cfg, req.params.id, creds),
-      );
+      let credentialsUsed = false;
+      const result = await locked(req.params.id, async () => {
+        const target = await remoteTarget(req.params.id);
+        credentialsUsed = Boolean(target.creds);
+        return remotes.fetchOrigin(cfg, req.params.id, target);
+      });
       recordAuditLog(db, {
         userId: user.id,
         projectId: req.params.id,
         eventType: "GIT_FETCH",
         details: {
           host: httpsRemoteHost(result.remote),
-          credentialsUsed: Boolean(creds),
+          credentialsUsed,
         },
         ipAddress: req.ip,
       });
@@ -491,13 +496,15 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
       requireWrite(req);
       const user = userOf(req);
       const force = req.body?.force === true;
-      const creds = await credsForRemote(req.params.id);
+      let credentialsUsed = false;
       const result = await locked(req.params.id, async () => {
+        const target = await remoteTarget(req.params.id);
+        credentialsUsed = Boolean(target.creds);
         const preview = await remotes.previewPull(
           cfg,
           req.params.id,
           req.body?.dirtyOpenPaths,
-          creds,
+          target,
         );
         if (preview.ok === false) return preview;
 
@@ -550,7 +557,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
           host: httpsRemoteHost(result.remote),
           branch: result.branch,
           alreadyUpToDate: result.alreadyUpToDate,
-          credentialsUsed: Boolean(creds),
+          credentialsUsed,
         },
         ipAddress: req.ip,
       });
@@ -570,10 +577,12 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireWrite(req);
       const user = userOf(req);
-      const creds = await credsForRemote(req.params.id);
-      const result = await locked(req.params.id, () =>
-        remotes.pushCurrentBranch(cfg, req.params.id, creds),
-      );
+      let credentialsUsed = false;
+      const result = await locked(req.params.id, async () => {
+        const target = await remoteTarget(req.params.id);
+        credentialsUsed = Boolean(target.creds);
+        return remotes.pushCurrentBranch(cfg, req.params.id, target);
+      });
       recordAuditLog(db, {
         userId: user.id,
         projectId: req.params.id,
@@ -581,7 +590,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
         details: {
           host: httpsRemoteHost(result.remote),
           branch: result.branch,
-          credentialsUsed: Boolean(creds),
+          credentialsUsed,
         },
         ipAddress: req.ip,
       });
@@ -627,11 +636,23 @@ async function reconcileGitWorkspaceMutation(
   try {
     const cwd = await workspacePath(cfg, projectId);
     for (const rel of changedPaths) {
+      // M87: `changedPaths` is sandbox Git output. Only workspace-relative,
+      // non-.git paths are reconciled, and the host read is confined: a
+      // checked-out symlink (or a swapped directory) that resolves outside
+      // the workspace is read as "removed", never followed.
+      let abs: string;
+      try {
+        assertNotGitInternal(rel);
+        abs = safeResolve(cwd, rel);
+      } catch {
+        continue;
+      }
       let content = "";
       try {
-        content = await fsp.readFile(join(cwd, rel), "utf8");
+        content = (await readConfinedFile(cwd, abs)).content;
       } catch {
-        // file does not exist on the incoming revision — treat as removed
+        // missing on the incoming revision, not a regular file, or outside
+        // the workspace — treat as removed
       }
       const mutation = await collaborationManager.notifyExternalFileMutation(
         projectId,

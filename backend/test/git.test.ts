@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
-import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
+import {
+  makeTestConfig,
+  sandboxGitAvailable,
+  startTestApi,
+  stopProjectSandboxesForTest,
+  type TestApi,
+} from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
 import {
@@ -13,15 +18,8 @@ import {
 import * as git from "../src/git/service.js";
 import { collaborationManager } from "../src/collab/manager.js";
 
-function gitAvailable(): boolean {
-  try {
-    execFileSync("git", ["--version"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-const HAS_GIT = gitAvailable();
+// M87: project Git runs in the project sandbox.
+const HAS_GIT = sandboxGitAvailable();
 
 describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
   let cfg: AppConfig;
@@ -52,6 +50,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
   });
 
   afterEach(async () => {
+    await stopProjectSandboxesForTest(db);
     await api.close();
     try {
       await fs.rm(cfg.dataDir, { recursive: true, force: true });
@@ -187,11 +186,9 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.initRepository(cfg, projectId, { username: "alice" });
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "by alice", { username: "alice" });
-    const out = execFileSync(
-      "git",
-      ["log", "-1", "--pretty=format:%an <%ae>"],
-      { cwd, encoding: "utf8" },
-    );
+    const out = (
+      await git.runGit(cfg, projectId, ["log", "-1", "--pretty=format:%an <%ae>"])
+    ).stdout;
     expect(out).toBe("alice <alice@veyra.local>");
   });
 
@@ -335,10 +332,9 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.initRepository(cfg, projectId, { username: "mallory" });
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "x", { username: "mallory" });
-    const email = execFileSync("git", ["log", "-1", "--pretty=%ae"], {
-      cwd,
-      encoding: "utf8",
-    }).trim();
+    const email = (
+      await git.runGit(cfg, projectId, ["log", "-1", "--pretty=%ae"])
+    ).stdout.trim();
     expect(email).toBe("mallory@veyra.local");
   });
 
@@ -346,22 +342,25 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.initRepository(cfg, projectId, user);
     // A malicious pre-commit hook committed by a terminal user must NOT run
     // when the backend commits.
+    // M87: Git runs in the sandbox, so the hook would see /workspace; a
+    // workspace-relative sentinel proves Veyra's commit still skips hooks
+    // (product semantics), the host one that nothing ran on the host.
     await fs.mkdir(join(cwd, ".git", "hooks"), { recursive: true });
     const sentinel = join(cfg.dataDir, "HOOK_RAN");
     await fs.writeFile(
       join(cwd, ".git", "hooks", "pre-commit"),
-      `#!/bin/sh\necho ran > "${sentinel}"\nexit 0\n`,
+      `#!/bin/sh\necho ran > /workspace/HOOK_RAN_IN_SANDBOX\necho ran > "${sentinel.replace(/\\/g, "/")}"\nexit 0\n`,
       { mode: 0o755 },
     );
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "no hook", user);
-    let hookRan = true;
-    try {
-      await fs.access(sentinel);
-    } catch {
-      hookRan = false;
-    }
-    expect(hookRan).toBe(false);
+    const exists = (p: string) =>
+      fs.access(p).then(
+        () => true,
+        () => false,
+      );
+    expect(await exists(sentinel)).toBe(false);
+    expect(await exists(join(cwd, "HOOK_RAN_IN_SANDBOX"))).toBe(false);
   });
 
   it("33. checkout is refused when it would overwrite dirty tracked files", async () => {
@@ -493,6 +492,7 @@ describe.skipIf(!HAS_GIT)(
     });
 
     afterEach(async () => {
+      await stopProjectSandboxesForTest(db);
       await api.close();
       try {
         await fs.rm(cfg.dataDir, { recursive: true, force: true });
@@ -562,10 +562,9 @@ describe.skipIf(!HAS_GIT)(
         token: editorToken,
         body: { message: "by the editor" },
       });
-      const email = execFileSync("git", ["log", "-1", "--pretty=%ae"], {
-        cwd,
-        encoding: "utf8",
-      }).trim();
+      const email = (
+        await git.runGit(cfg, projectId, ["log", "-1", "--pretty=%ae"])
+      ).stdout.trim();
       expect(email).toBe("giteditor@veyra.local");
     });
 
@@ -681,6 +680,11 @@ describe.skipIf(!HAS_GIT)(
 
       // A live collaborator has an unsaved edit in main.py (Y.Doc only).
       const room = collaborationManager.getOrCreateRoom(projectId);
+      // Keep the edit in the room only: sandbox Git can take longer than
+      // the 2s persistence debounce, which would otherwise write it to disk.
+      (
+        room as unknown as { scheduleDebouncedPersistence: () => void }
+      ).scheduleDebouncedPersistence = () => {};
       const yText = await room.ensureFileLoaded("main.py");
       room.doc.transact(() => {
         yText.insert(yText.length, "# collab unsaved\n");
@@ -741,6 +745,7 @@ describe.skipIf(!HAS_GIT)(
     });
 
     afterEach(async () => {
+      await stopProjectSandboxesForTest(db);
       await api.close();
       try {
         await fs.rm(cfg.dataDir, { recursive: true, force: true });

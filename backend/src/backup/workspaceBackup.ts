@@ -7,6 +7,7 @@ import { ApiError } from "../errors.js";
 import { recordAuditLog } from "../audit.js";
 import { getProject, workspacePath } from "../projects/service.js";
 import { listFiles } from "../files/service.js";
+import { readConfinedBytes } from "../files/confined.js";
 import { withProjectSnapshotLock, snapshotDir } from "../projects/snapshots.js";
 import {
   createZipArchive,
@@ -329,7 +330,8 @@ export async function createWorkspaceBackup(
     let skippedWorkspaceFiles = 0;
     for (const fp of filePaths) {
       try {
-        const content = await fs.readFile(join(cwd, fp));
+        // M87: confined — a swapped-in symlink is skipped, never followed.
+        const content = await readConfinedBytes(cwd, join(cwd, fp));
         entries.push({ path: `workspace/${fp}`, content });
         includedWorkspaceFiles++;
       } catch {

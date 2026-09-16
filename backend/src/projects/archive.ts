@@ -12,6 +12,7 @@ import {
   createProject,
 } from "./service.js";
 import { listFiles, invalidateTreeCache } from "../files/service.js";
+import { readConfinedBytes } from "../files/confined.js";
 import {
   createZipArchive,
   extractZipArchive,
@@ -45,7 +46,9 @@ export async function exportProjectZip(
     const entries: ZipFileEntry[] = [];
     for (const fp of filePaths) {
       const absPath = join(cwd, fp);
-      const content = await fs.readFile(absPath);
+      // M87: the sandbox can swap a directory for a symlink after listing;
+      // only a file that is really inside the workspace is exported.
+      const content = await readConfinedBytes(cwd, absPath);
       entries.push({ path: fp, content });
     }
 
@@ -159,6 +162,15 @@ export async function importProjectZip(
 
       invalidateTreeCache(cwd);
       touchProject(db, project.id);
+      // M87: nothing that can start a sandbox (terminal, LSP, a Git read)
+      // takes this lock, so a container may have been created during the swap
+      // with the OLD directory bind-mounted. Stop it; the next consumer gets
+      // one on the replaced workspace.
+      try {
+        await sandboxManager.stopProjectSandbox(project.id);
+      } catch {
+        // best-effort
+      }
 
       try {
         recordAuditLog(db, {

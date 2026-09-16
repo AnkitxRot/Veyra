@@ -342,6 +342,22 @@ export async function deleteProject(
   }
   db.prepare("DELETE FROM projects WHERE id = ?").run(id);
 
+  // M87: a Git/terminal/LSP request authorized before the row was deleted
+  // may have started a container after the first stop above. Stop it again
+  // now that the row is gone, and drop the server-owned Git transport mirror.
+  try {
+    const { sandboxManager } = await import("../execution/sandbox.js");
+    await sandboxManager.stopProjectSandbox(project.id);
+  } catch {
+    // Best-effort
+  }
+  try {
+    const { removeMirror } = await import("../git/transport.js");
+    await removeMirror(cfg, project.id);
+  } catch {
+    // Best-effort: the mirror may never have existed
+  }
+
   // RECONNECT-style safety net, mirroring workspaceRestore.ts's own
   // documented mitigation for the same race: a client can reconnect
   // between the first dispose above and this point, recreating a room via

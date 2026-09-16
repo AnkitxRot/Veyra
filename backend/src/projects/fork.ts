@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { readConfinedBytes } from "../files/confined.js";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.js";
@@ -115,7 +116,12 @@ export async function forkProject(
         for (const fp of filePaths) {
           const destPath = join(stagingDir, fp);
           await fs.mkdir(dirname(destPath), { recursive: true });
-          await fs.copyFile(join(sourceCwd, fp), destPath);
+          // M87: read through the confined helper (the source workspace is
+          // sandbox-writable); the staging copy is server-owned.
+          await fs.writeFile(
+            destPath,
+            await readConfinedBytes(sourceCwd, join(sourceCwd, fp)),
+          );
         }
       } catch (err) {
         try {
