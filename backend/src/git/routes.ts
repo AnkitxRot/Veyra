@@ -10,7 +10,10 @@ import {
 } from "../projects/service.js";
 import { withProjectSnapshotLock } from "../projects/snapshots.js";
 import { recordAuditLog } from "../audit.js";
-import { collaborationManager } from "../collab/manager.js";
+import {
+  collaborationManager,
+  requireLiveEditsPersisted,
+} from "../collab/manager.js";
 import type { MutationType } from "../collab/manager.js";
 import { invalidateTreeCache } from "../files/service.js";
 import { promises as fsp } from "node:fs";
@@ -169,9 +172,12 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireWrite(req);
       const { paths, all } = req.body ?? {};
-      await locked(req.params.id, () =>
-        git.stage(cfg, req.params.id, { paths, all: all === true }),
-      );
+      await locked(req.params.id, async () => {
+        // M86: `git add` reads the working tree, which lags the collaboration
+        // room by the persistence debounce. Stage what the editor shows.
+        await requireLiveEditsPersisted(req.params.id, "Nothing was staged.");
+        return git.stage(cfg, req.params.id, { paths, all: all === true });
+      });
       res.json({ ok: true });
     } catch (err) {
       next(err);

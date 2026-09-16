@@ -7,8 +7,13 @@ import type { WebSocket } from "ws";
 import { promises as fs } from "node:fs";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { ApiError } from "../errors.js";
 import { projectDir } from "../projects/service.js";
-import { assertInsideWorkspace, safeResolve } from "../files/service.js";
+import {
+  assertInsideWorkspace,
+  assertNotGitInternal,
+  safeResolve,
+} from "../files/service.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
 import { getDisplayName, getAvatarVersion, getPronouns } from "../profile/store.js";
 import {
@@ -107,6 +112,61 @@ const AWARENESS_MAX_CLIENT_IDS_PER_CONNECTION = 8;
 //  - `emitExternalMutationNotice()` sends bounded, metadata-only notices to
 //    non-initiating collaborators whose active file was mutated externally.
 const FLUSH_BEFORE_DISPOSE_TIMEOUT_MS = 5000;
+
+// M86: workspace read-your-writes. Run, Test/Build tasks, Debug launch,
+// dependency install, and Git stage read the workspace from disk, which lags
+// the room by the persistence debounce (2s, 10s max). `persistLiveEdits()` is
+// the barrier those consumers await first: it writes only files that are
+// actually dirty, never overlaps another flush pass, is timeout-bounded, and
+// reports what did not land so the caller refuses instead of using stale bytes.
+const PERSIST_LIVE_EDITS_TIMEOUT_MS = 5000;
+const UNPERSISTED_REPORT_MAX = 20;
+/** Write failures that retrying can never fix for the same path. Transient
+ *  ones (EACCES, EPERM, ENOSPC, EIO, …) keep the file dirty and refuse. */
+const PERMANENT_WRITE_ERROR_CODES = new Set([
+  "EISDIR",
+  "ENOTDIR",
+  "ENOENT",
+  "ENAMETOOLONG",
+  "EINVAL",
+  "ELOOP",
+]);
+export const LIVE_EDITS_NOT_PERSISTED = "live_edits_not_persisted";
+
+export interface LiveEditsPersistResult {
+  ok: boolean;
+  /** Workspace-relative paths whose latest edits are not on disk (bounded). */
+  unpersisted: string[];
+}
+
+/** Bounded, user-facing sentence naming the files that did not persist. */
+export function describeUnpersistedLiveEdits(paths: string[]): string {
+  const shown = paths
+    .slice(0, 5)
+    .map((p) => (p.length > 120 ? `${p.slice(0, 117)}...` : p));
+  const more =
+    paths.length > shown.length ? ` and ${paths.length - shown.length} more` : "";
+  return `Latest edits to ${shown.join(", ") || "the workspace"}${more} could not be saved to disk`;
+}
+
+/**
+ * Route helper for HTTP consumers. Call only after authorization. Throws a
+ * 409 naming the unpersisted files; `consequence` says what did not happen.
+ */
+export async function requireLiveEditsPersisted(
+  projectId: string,
+  consequence: string,
+): Promise<void> {
+  const r = await collaborationManager.persistLiveEdits(projectId);
+  if (r.ok) return;
+  throw new ApiError(
+    409,
+    `${describeUnpersistedLiveEdits(r.unpersisted)}. ${consequence}`,
+    LIVE_EDITS_NOT_PERSISTED,
+    { unpersisted: r.unpersisted },
+  );
+}
+
 const EXTERNAL_MUTATION_NOTICE_DEDUP_MS = 1000;
 const EXTERNAL_MUTATION_NOTICE_DEDUP_MAX_ENTRIES = 500;
 const DESTRUCTIVE_MUTATION_TTL_MS = 60_000;
@@ -277,6 +337,16 @@ export class CollaborationRoom {
   private readonly cfg: AppConfig;
   private readonly db: Db;
   private readonly dirtyFiles: Set<string> = new Set();
+  /** M86: the flush pass currently writing. Passes never overlap, so an
+   *  older snapshot of a file can never land after a newer one. */
+  private flushRunning: Promise<string[]> | null = null;
+  /** M86: at most one pass coalesced behind `flushRunning`. */
+  private flushQueued: {
+    promise: Promise<string[]>;
+    resolve: (failed: string[]) => void;
+    reject: (err: unknown) => void;
+    writeCleanKeys: boolean;
+  } | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
   private maxFlushTimer: NodeJS.Timeout | null = null;
   private lastFlushTime: number = Date.now();
@@ -1606,6 +1676,9 @@ export class CollaborationRoom {
     const baseDir = projectDir(this.cfg, this.projectId);
     let fullPath: string;
     try {
+      // M86: `.git` internals are never collaborative files (same rule as
+      // the REST file routes).
+      assertNotGitInternal(filePath);
       fullPath = safeResolve(baseDir, filePath);
       await assertInsideWorkspace(baseDir, fullPath);
     } catch (err) {
@@ -1840,10 +1913,14 @@ export class CollaborationRoom {
         case MESSAGE_SYNC: {
           const syncType = decoding.peekVarUint(decoder);
 
-          // Viewer Role Protection: Reject edit updates from read-only viewers
+          // Viewer Role Protection: Reject edit updates from read-only viewers.
+          // M86: SyncStep2 carries a Yjs update too — applying it let a viewer
+          // create, rewrite, or delete workspace files. Viewers may still send
+          // SyncStep1 (a read request answered with the document).
           if (
             clientState.role === "viewer" &&
-            syncType === syncProtocol.messageYjsUpdate
+            (syncType === syncProtocol.messageYjsUpdate ||
+              syncType === syncProtocol.messageYjsSyncStep2)
           ) {
             console.warn(
               `[CollabRoom:${this.projectId}] Blocked edit attempt from viewer ${clientState.username}`,
@@ -2332,6 +2409,9 @@ export class CollaborationRoom {
    */
   private isPersistablePath(filePath: string): boolean {
     try {
+      // M86: never queue writes into `.git` (repository config there is
+      // honored by host-side Git).
+      assertNotGitInternal(filePath);
       safeResolve(projectDir(this.cfg, this.projectId), filePath);
       return true;
     } catch {
@@ -2364,6 +2444,106 @@ export class CollaborationRoom {
    * Materializes dirty Y.Text contents to the workspace filesystem.
    */
   public async flushToDisk(): Promise<void> {
+    await this.runFlushPass(true);
+  }
+
+  /**
+   * M86: read-your-writes barrier for workspace consumers (Run, Test/Build,
+   * Debug launch, install, Git stage). Resolves once every edit the room had
+   * received when this was called is on disk, or reports the files that could
+   * not be written within `timeoutMs`.
+   *
+   * - Writes only dirty files. A clean room returns without touching disk, so
+   *   consumers never bump mtimes of unchanged files (watch-mode tools in the
+   *   sandbox would restart).
+   * - An in-flight pass is joined first: it snapshotted every file dirtied
+   *   before it started and reads each file's text at write time, and any
+   *   edit that lands after its snapshot or during its write keeps that file
+   *   dirty (see flushOnce). So only a still-dirty room needs another pass.
+   * - Edits arriving after the call are not required, so they never turn a
+   *   successful persist into a refusal.
+   * - A disposed room has nothing authoritative left to write (M41).
+   */
+  public async persistLiveEdits(opts?: {
+    timeoutMs?: number;
+  }): Promise<LiveEditsPersistResult> {
+    if (this.disposed) return { ok: true, unpersisted: [] };
+    const timeoutMs = opts?.timeoutMs ?? PERSIST_LIVE_EDITS_TIMEOUT_MS;
+
+    const persist = async (): Promise<string[]> => {
+      if (this.flushRunning) {
+        await this.flushRunning.catch(() => undefined);
+      }
+      if (this.disposed || this.dirtyFiles.size === 0) return [];
+      return this.runFlushPass(false);
+    };
+
+    try {
+      const failed = await withTimeout(
+        persist(),
+        timeoutMs,
+        `room ${this.projectId} persistLiveEdits`,
+      );
+      const unpersisted = failed.slice(0, UNPERSISTED_REPORT_MAX);
+      return { ok: unpersisted.length === 0, unpersisted };
+    } catch (err) {
+      console.error(
+        `[CollabRoom:${this.projectId}] persistLiveEdits did not complete:`,
+        err,
+      );
+      const unpersisted = Array.from(this.dirtyFiles).slice(
+        0,
+        UNPERSISTED_REPORT_MAX,
+      );
+      return { ok: false, unpersisted };
+    }
+  }
+
+  /**
+   * M86: serialize flush passes. Starts a pass now if none is running;
+   * otherwise coalesces into ONE queued pass that starts the moment the
+   * running one settles (bounded: never more than one running + one queued).
+   * `writeCleanKeys` preserves the legacy timer/shutdown fallback of writing
+   * every non-empty Y.Text when nothing is dirty; the M86 barrier passes
+   * false. A queued pass writes clean keys if any of its callers asked to.
+   */
+  private runFlushPass(writeCleanKeys: boolean): Promise<string[]> {
+    if (!this.flushRunning) return this.startFlushPass(writeCleanKeys);
+    if (this.flushQueued) {
+      this.flushQueued.writeCleanKeys ||= writeCleanKeys;
+      return this.flushQueued.promise;
+    }
+    let resolve!: (failed: string[]) => void;
+    let reject!: (err: unknown) => void;
+    const promise = new Promise<string[]>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.flushQueued = { promise, resolve, reject, writeCleanKeys };
+    return promise;
+  }
+
+  private startFlushPass(writeCleanKeys: boolean): Promise<string[]> {
+    const pass = this.flushOnce(writeCleanKeys);
+    this.flushRunning = pass;
+    const settle = () => {
+      if (this.flushRunning === pass) this.flushRunning = null;
+      const queued = this.flushQueued;
+      if (!queued) return;
+      this.flushQueued = null;
+      // Started synchronously in the same reaction that cleared
+      // `flushRunning`, so no other caller can slip a concurrent pass in.
+      this.startFlushPass(queued.writeCleanKeys).then(
+        queued.resolve,
+        queued.reject,
+      );
+    };
+    pass.then(settle, settle);
+    return pass;
+  }
+
+  /** One flush pass. Returns the paths whose write failed (still dirty). */
+  private async flushOnce(writeCleanKeys: boolean): Promise<string[]> {
     // M41: a disposed room's doc/awareness are already destroyed, and any
     // content this.doc.getText(...) still returns is a frozen snapshot from
     // the moment of destruction — necessarily pre-disposal, since dispose()
@@ -2373,7 +2553,7 @@ export class CollaborationRoom {
     // legitimately fresh content was written since. This is the final,
     // authoritative guard: even if some other path reaches flushToDisk() on
     // a disposed room in the future, it must still refuse to write.
-    if (this.disposed) return;
+    if (this.disposed) return [];
 
     // M60: a flush-to-disk is a burst-close boundary — history and disk should
     // agree on which files changed. Synchronous, in-memory only.
@@ -2397,7 +2577,9 @@ export class CollaborationRoom {
     // tracked path touched by handleExternalFileMutation's own doc.getText()
     // call) rather than real content — writing those back to disk would
     // resurrect a deleted or renamed-away file as an empty ghost file.
-    if (filesToFlush.length === 0) {
+    // M86: the read-your-writes barrier opts out, so a consumer never
+    // rewrites (and re-timestamps) files that are already persisted.
+    if (filesToFlush.length === 0 && writeCleanKeys) {
       for (const [key, type] of (
         this.doc.share as Map<string, any>
       ).entries()) {
@@ -2407,7 +2589,12 @@ export class CollaborationRoom {
       }
     }
 
+    const failed: string[] = [];
     for (const filePath of filesToFlush) {
+      // M86: passes can now be queued behind one another; a room disposed
+      // mid-pass (import/restore/delete) must not have its frozen snapshot
+      // written over the replacement content (same rule as the M41 guard).
+      if (this.disposed) return failed;
       // Realpath boundary enforcement, mirroring the REST file routes
       // (safeResolve + assertInsideWorkspace). markFileDirty()'s lexical
       // check cannot see symlinks, and a user with terminal/docker-exec
@@ -2420,6 +2607,9 @@ export class CollaborationRoom {
       // symlinks before writing with the server's privileges.
       let fullPath: string;
       try {
+        // M86: the clean-key fallback writes keys that never passed
+        // markFileDirty(), so `.git` must be refused here too.
+        assertNotGitInternal(filePath);
         fullPath = safeResolve(baseDir, filePath);
         await assertInsideWorkspace(baseDir, fullPath);
       } catch (err) {
@@ -2442,8 +2632,28 @@ export class CollaborationRoom {
         // Only mark clean once the write actually landed. Clearing
         // unconditionally would falsely mark a failed write as persisted,
         // and nothing would ever retry it.
-        this.dirtyFiles.delete(filePath);
+        // M86: and only if the text is still what was written. An edit that
+        // arrived during the write re-marked the file dirty; clearing it here
+        // would let the read-your-writes barrier treat the room as persisted
+        // while the disk holds the older bytes.
+        if (!this.disposed && this.doc.getText(filePath).toString() === content) {
+          this.dirtyFiles.delete(filePath);
+        }
       } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code && PERMANENT_WRITE_ERROR_CODES.has(code)) {
+          // M86: a key that can never exist at this path (an existing
+          // directory, a missing parent, an invalid name) is dropped like an
+          // escaping path. Left dirty, it would make the read-your-writes
+          // barrier refuse Run / Test / Debug / install / stage for every
+          // collaborator forever — and honest clients re-seed it on reconnect.
+          this.dirtyFiles.delete(filePath);
+          console.warn(
+            `[CollabRoom:${this.projectId}] Dropping unwritable collaborative key ${filePath} (${code})`,
+          );
+          continue;
+        }
+        failed.push(filePath);
         console.error(
           `[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`,
           err,
@@ -2452,6 +2662,7 @@ export class CollaborationRoom {
     }
 
     this.lastFlushTime = Date.now();
+    return failed;
   }
 
   /**
@@ -2487,6 +2698,9 @@ export class CollaborationRoom {
     if (this.flushBeforeDisposePromise) return this.flushBeforeDisposePromise;
 
     const timeoutMs = opts?.timeoutMs ?? FLUSH_BEFORE_DISPOSE_TIMEOUT_MS;
+    // M86: flushToDisk() is serialized with every other pass, so this budget
+    // can include waiting for one in-flight pass. On a wedged disk that times
+    // out and fails closed (`flushed: false`) instead of racing older bytes.
     this.flushBeforeDisposePromise = (async () => {
       try {
         await withTimeout(
@@ -2945,6 +3159,20 @@ export class CollaborationManager {
     const room = this.rooms.get(projectId);
     if (!room) return Promise.resolve({ flushed: true, remainingDirty: [] });
     return room.flushBeforeDestructiveDispose(opts);
+  }
+
+  /**
+   * M86: read-your-writes barrier for a workspace consumer. No live room =>
+   * disk is already authoritative => `ok`. See
+   * {@link CollaborationRoom.persistLiveEdits}. Callers must authorize first.
+   */
+  public persistLiveEdits(
+    projectId: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<LiveEditsPersistResult> {
+    const room = this.rooms.get(projectId);
+    if (!room) return Promise.resolve({ ok: true, unpersisted: [] });
+    return room.persistLiveEdits(opts);
   }
 
   /**

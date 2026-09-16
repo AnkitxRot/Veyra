@@ -58,7 +58,10 @@ import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { discoverWorkflow } from "../workflow/discover.js";
 import { telemetryHistorian } from "../execution/historian.js";
-import { collaborationManager } from "../collab/manager.js";
+import {
+  collaborationManager,
+  requireLiveEditsPersisted,
+} from "../collab/manager.js";
 import {
   uploadProjectFiles,
   parseMultipartFormData,
@@ -1448,6 +1451,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       }
       try {
         const workspaceDir = await workspacePath(cfg, project.id);
+        // M86: install reads the dependency manifests from disk; land the
+        // room's latest edits (e.g. a just-typed requirements.txt) first.
+        await requireLiveEditsPersisted(
+          project.id,
+          "Dependencies were not installed.",
+        );
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.setHeader("Transfer-Encoding", "chunked");
 

@@ -153,7 +153,11 @@ export const DEFAULT_LIMITS: Limits = {
   coreBytes: 0,
   cpuQuota: 100_000,
   memoryBytes: 512 * 1024 * 1024,
-  pidsLimit: 64,
+  // Docker's --pids-limit counts threads, and the sandbox also hosts the IDE's
+  // own Node tools. Measured (M86): the TypeScript language server stack plus
+  // a two-file `npm test` peaked at 58 threads, so 64 hung test runs in a
+  // futex. 256 still contains fork bombs; memory and CPU stay the main bound.
+  pidsLimit: 256,
 };
 
 /**

@@ -324,6 +324,13 @@ export class DebugSession {
       return;
     }
 
+    const notPersisted = await this.persistLiveEdits();
+    if (this.disposed) return;
+    if (notPersisted) {
+      this.sendError(notPersisted);
+      return;
+    }
+
     await this.suspendLanguageServers();
     this.killAdapter("relaunch");
     this.releaseSlot();
@@ -518,6 +525,21 @@ export class DebugSession {
       stopOnEntry: false,
       enableContentValidation: false,
     };
+  }
+
+  /**
+   * M86: the adapter reads sources from disk, which lags the collaboration
+   * room by the persistence debounce. Returns an error message when the
+   * room's latest edits could not be written, or null when disk is current.
+   */
+  private async persistLiveEdits(): Promise<string | null> {
+    const { collaborationManager, describeUnpersistedLiveEdits } = await import(
+      "../collab/manager.js"
+    );
+    const r = await collaborationManager.persistLiveEdits(this.projectId);
+    return r.ok
+      ? null
+      : `${describeUnpersistedLiveEdits(r.unpersisted)}; debugger not started.`;
   }
 
   private async suspendLanguageServers(): Promise<void> {

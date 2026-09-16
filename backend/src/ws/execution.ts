@@ -3,11 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
 import { runProject, type RunResult } from "../execution/pipeline.js";
-import { workspacePath } from "../projects/service.js";
+import { requireProjectAccess, workspacePath } from "../projects/service.js";
 import type { SandboxController } from "../execution/sandbox.js";
 import { runGate } from "../execution/runGate.js";
 import { telemetryHistorian } from "../execution/historian.js";
-import { collaborationManager } from "../collab/manager.js";
+import {
+  collaborationManager,
+  describeUnpersistedLiveEdits,
+} from "../collab/manager.js";
 import {
   resolveSecretsForInjection,
   toGenericSecretError,
@@ -93,11 +96,35 @@ export async function handleExecutionConnection(
   // kill. sandboxRun polls this before spawning anything.
   let disconnected = false;
 
+  // M86: a Stop can arrive while a start is still preparing (sandbox
+  // startup, workflow resolution, the read-your-writes barrier). It must
+  // cancel before spawn (`isCancelled`) and kill a process that appears after.
+  const adoptController = (ctrl: SandboxController) => {
+    controller = ctrl;
+    if (stopRequested) ctrl.kill();
+  };
+
   ws.on("message", async (msg) => {
     try {
       const parsed = JSON.parse(msg.toString());
 
       if (parsed.type === "start") {
+        // M86: editor access is checked at upgrade, but a start can arrive
+        // long after (and now also persists the room). Re-check per start so
+        // a collaborator demoted or removed on an open socket cannot run.
+        if (db) {
+          try {
+            requireProjectAccess(db, userId, projectId, "editor");
+          } catch {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                data: "You no longer have permission to run code in this project.",
+              }),
+            );
+            return;
+          }
+        }
         if (running) {
           ws.send(
             JSON.stringify({
@@ -117,6 +144,7 @@ export async function handleExecutionConnection(
           return;
         }
         running = true;
+        stopRequested = false;
         const executionId = randomUUID();
         telemetryHistorian.trackExecutionStart(projectId, executionId);
 
@@ -206,6 +234,17 @@ export async function handleExecutionConnection(
             );
           }
 
+          // M86: the sandbox reads the workspace from disk, which lags the
+          // collaboration room by the persistence debounce. Land every edit
+          // the room already holds first; refuse rather than run stale code.
+          const persisted =
+            await collaborationManager.persistLiveEdits(projectId);
+          if (!persisted.ok) {
+            throw new Error(
+              `${describeUnpersistedLiveEdits(persisted.unpersisted)}; not started so stale code is not run.`,
+            );
+          }
+
           if (workflowReq?.ok) {
             const wf = await runWorkflowTask({
               cfg,
@@ -217,10 +256,8 @@ export async function handleExecutionConnection(
               onStdout: (data) => streamOut("stdout", data),
               onStderr: (data) => streamOut("stderr", data),
               onStatus: streamStatus,
-              onController: (ctrl) => {
-                controller = ctrl;
-              },
-              isCancelled: () => disconnected,
+              onController: adoptController,
+              isCancelled: () => disconnected || stopRequested,
             });
             if (!wf.ok) throw new Error(wf.error);
             result = wf.value.result;
@@ -256,10 +293,8 @@ export async function handleExecutionConnection(
               onStdout: (data) => streamOut("stdout", data),
               onStderr: (data) => streamOut("stderr", data),
               onStatus: streamStatus,
-              onController: (ctrl) => {
-                controller = ctrl;
-              },
-              isCancelled: () => disconnected,
+              onController: adoptController,
+              isCancelled: () => disconnected || stopRequested,
             });
           }
 
