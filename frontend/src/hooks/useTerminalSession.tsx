@@ -15,9 +15,19 @@ import {
   type TerminalEndedReason,
   type TerminalSession,
 } from "./terminalSessionState";
+import {
+  clearTerminalResume,
+  isPersistableTerminalUser,
+  readTerminalResume,
+  writeTerminalResume,
+} from "../utils/terminalResume";
 
 /**
  * M79 — project-lifetime terminal session.
+ * M88 — same-tab remount (reload / switch-back) reuses the stored terminalId
+ * so `/ws/terminal` reattaches inside the M79 grace window instead of minting
+ * a second PTY.  `resume=1` tells the server not to silently spawn if the
+ * session was already reaped.
  *
  * Owns exactly one XTerm, one terminalId, one WebSocket, one reconnect timer,
  * and the last-received output sequence number for the lifetime of a project's
@@ -34,6 +44,7 @@ import {
 export function useTerminalSession(
   projectId: string,
   resolvedTheme: "dark" | "light",
+  userId?: number,
 ): TerminalSession {
   const [state, setStateRaw] = useState<TerminalConnectionState>(
     TERMINAL_STATES.connecting,
@@ -48,8 +59,19 @@ export function useTerminalSession(
   const resizeObsRef = useRef<ResizeObserver | null>(null);
   const mountFramesLeftRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
+  // Start with a fresh id; the project-change useEffect overrides this with a
+  // stored resume id (if any) on remount.  This way the very first connect
+  // (before the effect runs) still has a valid terminalId.
   const terminalIdRef = useRef<string>(newTerminalId());
   const lastSeqRef = useRef<number>(0);
+  /** Restored from sessionStorage: first connect of this mount must not spawn
+   *  a silent replacement PTY if the session was already reaped. */
+  const resumeRef = useRef(false);
+  const persistedRef = useRef(false);
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
   const attemptRef = useRef<number>(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedRef = useRef(false);
@@ -195,6 +217,9 @@ export function useTerminalSession(
   const endSession = (reason: string) => {
     clearReconnectTimer();
     detachWs();
+    resumeRef.current = false;
+    persistedRef.current = false;
+    forgetStoredId();
     const r = (TERMINAL_ENDED_REASONS as string[]).includes(reason)
       ? (reason as TerminalEndedReason)
       : "unknown";
@@ -224,6 +249,7 @@ export function useTerminalSession(
     const url = getWebSocketUrl("/ws/terminal", projectId, {
       terminalId: terminalIdRef.current,
       lastSeq: lastSeqRef.current,
+      ...(resumeRef.current ? { resume: 1 } : {}),
     });
     const ws = new WebSocket(url);
     try {
@@ -273,6 +299,16 @@ export function useTerminalSession(
           return;
         }
         if (typeof msg.seq === "number") lastSeqRef.current = msg.seq;
+        // Persist the terminalId after the first data frame — proof the backend
+        // session exists, so a later reload can reattach instead of re-spawning.
+        if (!persistedRef.current) {
+          const uid = userIdRef.current;
+          const pid = projectIdRef.current;
+          if (isPersistableTerminalUser(uid) && pid) {
+            writeTerminalResume(uid, pid, terminalIdRef.current);
+          }
+          persistedRef.current = true;
+        }
         term.write(msg.data);
       } else if (msg.type === "ended") {
         endSession(typeof msg.reason === "string" ? msg.reason : "unknown");
@@ -345,27 +381,64 @@ export function useTerminalSession(
     mountRef.current();
   }, []);
 
+  const persistChosenId = (terminalId: string) => {
+    const uid = userIdRef.current;
+    const pid = projectIdRef.current;
+    if (!isPersistableTerminalUser(uid) || !pid) return;
+    writeTerminalResume(uid, pid, terminalId);
+  };
+
+  const forgetStoredId = () => {
+    const uid = userIdRef.current;
+    const pid = projectIdRef.current;
+    if (!isPersistableTerminalUser(uid) || !pid) return;
+    clearTerminalResume(uid, pid);
+  };
+
   const retry = useCallback(() => {
     if (disposedRef.current) return;
     // From `ended` this is an explicit new-shell request: the old backend
     // session is gone, so a brand-new terminalId + zeroed sequence is correct.
+    // Clear the stored id so a future reload doesn't try to reattach to a
+    // session that no longer exists.
     if (stateRef.current === TERMINAL_STATES.ended) {
       terminalIdRef.current = newTerminalId();
       lastSeqRef.current = 0;
+      resumeRef.current = false;
+      persistedRef.current = false;
+      forgetStoredId();
       setEndedReason(null);
     }
     attemptRef.current = 0;
     connectRef.current();
   }, []);
 
-  // ---- lifecycle: project change is a hard session boundary --------------
+  // ---- lifecycle: project (and user) change is a hard socket boundary ----
+  // The backend PTY may still be in the M79 grace window.  Restoring the
+  // stored terminalId + resume=1 reattaches; minting a new id would spawn a
+  // second shell and let the first one expire.
 
   useEffect(() => {
     disposedRef.current = false;
     startedRef.current = false;
-    terminalIdRef.current = newTerminalId();
     lastSeqRef.current = 0;
     attemptRef.current = 0;
+    // Restore a stored terminalId from sessionStorage if one exists for this
+    // (userId, projectId) — enables reattach after same-tab reload.  Otherwise
+    // mint a fresh id for a new session.
+    const restored =
+      isPersistableTerminalUser(userId) && projectId
+        ? readTerminalResume(userId, projectId)
+        : null;
+    if (restored) {
+      terminalIdRef.current = restored;
+      resumeRef.current = true;
+      persistedRef.current = true;
+    } else {
+      terminalIdRef.current = newTerminalId();
+      resumeRef.current = false;
+      persistedRef.current = false;
+    }
     setEndedReason(null);
     setConnState(TERMINAL_STATES.connecting);
 
@@ -385,7 +458,7 @@ export function useTerminalSession(
       fitRef.current = null;
       containerRef.current = null;
     };
-  }, [projectId]);
+  }, [projectId, userId]);
 
   // ---- M69: in-place theme, never a reconnect / new XTerm ---------------
 
