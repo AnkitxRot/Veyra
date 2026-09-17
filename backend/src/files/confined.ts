@@ -68,6 +68,21 @@ export function setConfinedPortableCheckForTests(on: boolean): void {
 }
 
 /**
+ * Test-only hook for controlling confined writes. When set, the provided
+ * function is called instead of the real truncate-and-write sequence. Return
+ * a resolved promise for normal writes, a rejected promise to simulate a
+ * write failure, or a hanging promise to stall the write.
+ */
+let testWriteHook:
+  | ((abs: string, data: string) => Promise<void>)
+  | null = null;
+export function setConfinedWriteForTests(
+  hook: ((abs: string, data: string) => Promise<void>) | null,
+): void {
+  testWriteHook = hook;
+}
+
+/**
  * Throw unless `fh` (opened from `abs`) is a file inside `root` and not in
  * `.git`.
  */
@@ -193,10 +208,14 @@ export async function writeConfinedFile(
       await assertHandleConfined(root, abs, fh, st);
       await fh.truncate(0);
       const data = Buffer.from(content, "utf8");
-      let off = 0;
-      while (off < data.length) {
-        const { bytesWritten } = await fh.write(data, off, data.length - off, off);
-        off += bytesWritten;
+      if (testWriteHook) {
+        await testWriteHook(abs, data.toString("utf8"));
+      } else {
+        let off = 0;
+        while (off < data.length) {
+          const { bytesWritten } = await fh.write(data, off, data.length - off, off);
+          off += bytesWritten;
+        }
       }
       return;
     } finally {

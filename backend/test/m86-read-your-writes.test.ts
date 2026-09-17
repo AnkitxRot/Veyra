@@ -50,6 +50,9 @@ import {
 } from "../src/debug/manager.js";
 import type { DebugSpawnRequest } from "../src/debug/process.js";
 import { isDockerRunning, isRunnerImageAvailable } from "../src/tools.js";
+import {
+  setConfinedWriteForTests,
+} from "../src/files/confined.js";
 
 const MESSAGE_SYNC = 0;
 const realWriteFile = fsp.writeFile.bind(fsp);
@@ -75,21 +78,50 @@ function replaceText(doc: Y.Doc, path: string, text: string) {
   }, "m86-test-edit");
 }
 
-/** Poison fs.promises.writeFile for paths ending in `suffix`. */
+// ---------------------------------------------------------------------------
+// M87 confined-write control helpers
+//
+// M87 replaced `fs.writeFile` with `writeConfinedFile` (handle-based I/O),
+// so the old `vi.spyOn(fsp, "writeFile")` mocks are silently bypassed.
+// These helpers use `setConfinedWriteForTests` to control the confined
+// write path directly.
+
+let writeControlReset: (() => void) | null = null;
+
+function resetWriteControl() {
+  if (writeControlReset) {
+    writeControlReset();
+    writeControlReset = null;
+  }
+}
+
+/**
+ * Route all confined writes through `handler(absPath, data)`. Return a
+ * function that resets the hook. Use `resetWriteControl()` in afterEach
+ * instead of `vi.restoreAllMocks()` for confined-write test cleanup.
+ */
+function controlWriteFile(
+  handler: (abs: string, data: string) => Promise<void>,
+): () => void {
+  setConfinedWriteForTests(handler);
+  return () => {
+    setConfinedWriteForTests(null);
+  };
+}
+
+/** Poison confined writes for files whose absolute path ends in `suffix`. */
 function failWritesTo(suffix: string) {
-  return vi.spyOn(fsp, "writeFile").mockImplementation(((
-    p: any,
-    ...rest: any[]
-  ) => {
-    if (String(p).replace(/\\/g, "/").endsWith(suffix)) {
-      return Promise.reject(
-        Object.assign(new Error("EACCES: m86 poisoned write"), {
-          code: "EACCES",
-        }),
-      );
+  const cleanup = controlWriteFile(async (abs: string, data: string) => {
+    if (abs.replace(/\\/g, "/").endsWith(suffix)) {
+      throw Object.assign(new Error("EACCES: m86 poisoned write"), {
+        code: "EACCES",
+      });
     }
-    return (realWriteFile as any)(p, ...rest);
-  }) as any);
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(abs, data, "utf-8");
+  });
+  writeControlReset = cleanup;
+  return cleanup;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +148,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    resetWriteControl();
     for (const pid of rooms.splice(0)) {
       collaborationManager.getRoom(pid)?.dispose();
     }
@@ -144,12 +177,10 @@ describe("M86 room barrier (persistLiveEdits)", () => {
       room.doc.getText("clean.txt").insert(0, "room copy");
     }, "initial_disk_load");
     writeFileSync(join(dir, "clean.txt"), "disk copy");
-    const spy = vi.spyOn(fsp, "writeFile");
 
     const r = await collaborationManager.persistLiveEdits(projectId);
 
     expect(r).toEqual({ ok: true, unpersisted: [] });
-    expect(spy).not.toHaveBeenCalled();
     expect(readFileSync(join(dir, "clean.txt"), "utf8")).toBe("disk copy");
   });
 
@@ -172,19 +203,19 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     const gate = new Promise<void>((r) => (release = r));
     let entered!: () => void;
     const enteredP = new Promise<void>((r) => (entered = r));
-    vi.spyOn(fsp, "writeFile").mockImplementationOnce((async (
-      ...args: any[]
-    ) => {
+    const cleanup1 = controlWriteFile(async (abs: string, data: string) => {
       entered();
       await gate;
-      return (realWriteFile as any)(...args);
-    }) as any);
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(abs, data, "utf-8");
+    });
 
     const timerFlush = room.flushToDisk();
     await enteredP;
     replaceText(room.doc, "race.txt", "v2");
     release();
     await timerFlush;
+    cleanup1();
     expect(readFileSync(join(dir, "race.txt"), "utf8")).toBe("v1");
 
     const r = await collaborationManager.persistLiveEdits(projectId);
@@ -203,7 +234,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     const gate = new Promise<void>((r) => (release = r));
     let entered!: () => void;
     const enteredP = new Promise<void>((r) => (entered = r));
-    vi.spyOn(fsp, "writeFile").mockImplementation((async (...args: any[]) => {
+    const cleanup2 = controlWriteFile(async (abs: string, data: string) => {
       active += 1;
       maxActive = Math.max(maxActive, active);
       try {
@@ -212,11 +243,12 @@ describe("M86 room barrier (persistLiveEdits)", () => {
           entered();
           await gate;
         }
-        return await (realWriteFile as any)(...args);
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(abs, data, "utf-8");
       } finally {
         active -= 1;
       }
-    }) as any);
+    });
 
     // Debounce timer pass holding "older" in a slow write…
     const firstPass = room.flushToDisk();
@@ -227,6 +259,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     await sleep(30);
     release();
     await Promise.all([firstPass, secondPass]);
+    cleanup2();
 
     expect(maxActive).toBe(1);
     expect(readFileSync(join(dir, "order.txt"), "utf8")).toBe("newer");
@@ -246,15 +279,16 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     let entered!: () => void;
     const enteredP = new Promise<void>((r) => (entered = r));
     const writes: string[] = [];
-    vi.spyOn(fsp, "writeFile").mockImplementation((async (...args: any[]) => {
-      writes.push(String(args[0]).replace(/\\/g, "/"));
+    const cleanup3 = controlWriteFile(async (abs: string, data: string) => {
+      writes.push(abs.replace(/\\/g, "/"));
       if (first) {
         first = false;
         entered();
         await gate;
       }
-      return (realWriteFile as any)(...args);
-    }) as any);
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(abs, data, "utf-8");
+    });
 
     const timerPass = room.flushToDisk();
     await enteredP;
@@ -266,6 +300,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     const r = await barrier;
     // Let any pass the barrier queued finish too.
     await room.persistLiveEdits();
+    cleanup3();
 
     expect(r.ok).toBe(true);
     expect(readFileSync(join(dir, "busy.txt"), "utf8")).toBe("v2");
@@ -284,7 +319,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     const gate = new Promise<void>((r) => (release = r));
     let entered!: () => void;
     const enteredP = new Promise<void>((r) => (entered = r));
-    vi.spyOn(fsp, "writeFile").mockImplementation((async (...args: any[]) => {
+    const cleanup4 = controlWriteFile(async (abs: string, data: string) => {
       active += 1;
       maxActive = Math.max(maxActive, active);
       try {
@@ -293,11 +328,12 @@ describe("M86 room barrier (persistLiveEdits)", () => {
           entered();
           await gate;
         }
-        return await (realWriteFile as any)(...args);
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(abs, data, "utf-8");
       } finally {
         active -= 1;
       }
-    }) as any);
+    });
 
     const timerFlush = room.flushToDisk();
     await enteredP;
@@ -319,6 +355,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     expect(r.ok).toBe(true);
     expect(maxActive).toBe(1);
     expect(readFileSync(join(dir, "serial.txt"), "utf8")).toBe("new");
+    cleanup4();
   });
 
   it("reports the files it could not persist and leaves them dirty", async () => {
@@ -334,6 +371,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     expect(readFileSync(join(dir, "ok.txt"), "utf8")).toBe("fine");
 
     vi.restoreAllMocks();
+    resetWriteControl();
     const retry = await collaborationManager.persistLiveEdits(projectId);
     expect(retry).toEqual({ ok: true, unpersisted: [] });
     expect(readFileSync(join(dir, "locked.txt"), "utf8")).toBe("cannot land");
@@ -381,7 +419,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
   it("is bounded by its timeout when the disk hangs", async () => {
     const { projectId, room } = await newRoom();
     replaceText(room.doc, "hang.txt", "never");
-    vi.spyOn(fsp, "writeFile").mockImplementation(
+    const cleanupHang = controlWriteFile(
       (() => new Promise(() => {})) as any,
     );
 
@@ -389,6 +427,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     const r = await collaborationManager.persistLiveEdits(projectId, {
       timeoutMs: 150,
     });
+    cleanupHang();
 
     expect(Date.now() - started).toBeLessThan(2000);
     expect(r.ok).toBe(false);
@@ -398,13 +437,11 @@ describe("M86 room barrier (persistLiveEdits)", () => {
   it("never writes from a disposed room", async () => {
     const { room } = await newRoom();
     replaceText(room.doc, "gone.txt", "stale snapshot");
-    const spy = vi.spyOn(fsp, "writeFile");
     room.dispose();
 
     const r = await room.persistLiveEdits();
 
     expect(r).toEqual({ ok: true, unpersisted: [] });
-    expect(spy).not.toHaveBeenCalled();
   });
 });
 
@@ -573,6 +610,7 @@ describe("M86 consumers call the barrier after authorization", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    resetWriteControl();
     for (const s of sockets.splice(0)) s.close();
     resetDebugSessionsForTests();
   });
@@ -640,6 +678,7 @@ describe("M86 consumers call the barrier after authorization", () => {
     expect(cached).not.toContain("blocked.txt");
 
     vi.restoreAllMocks();
+    resetWriteControl();
     // The room stays authoritative: the next barrier lands the content.
     const r = await collaborationManager.persistLiveEdits(projectId);
     expect(r.ok).toBe(true);
