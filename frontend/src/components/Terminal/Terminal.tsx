@@ -32,15 +32,18 @@ const BADGE: Record<
 
 export default function Terminal({
   projectId,
+  userId,
   resolvedTheme = "dark",
   visible = true,
 }: {
   projectId: string;
+  /** Authenticated user id. Required for M88 same-tab PTY resume. */
+  userId?: number;
   resolvedTheme?: "dark" | "light";
   visible?: boolean;
 }) {
   const { state, endedReason, bindContainer, ensureStarted, clear, retry, fit } =
-    useTerminalSession(projectId, resolvedTheme);
+    useTerminalSession(projectId, resolvedTheme, userId);
 
   const hostRef = useRef<HTMLDivElement>(null);
 

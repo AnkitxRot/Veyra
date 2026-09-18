@@ -1,5 +1,5 @@
 import type { Db } from "../db.js";
-import type { AppConfig } from "../config.js";
+import { DEFAULT_LIMITS, type AppConfig } from "../config.js";
 import { ContainerStats, SandboxManager } from "./sandbox.js";
 import { randomUUID } from "node:crypto";
 
@@ -331,16 +331,18 @@ export class TelemetryHistorian {
       });
     }
 
-    // Rule 3: Process / PID Pressure (>50 PIDs near limit 64)
-    if (sample.pids >= 50) {
+    // Rule 3: Process / PID Pressure, relative to the configured sandbox
+    // limit (warning ≈ 78%, critical ≈ 90% — the former 50/58 of 64).
+    const pidsLimit = this.cfg?.limits.pidsLimit ?? DEFAULT_LIMITS.pidsLimit;
+    if (sample.pids >= Math.ceil(pidsLimit * 0.78)) {
       this.createOrUpdateAnomaly({
         projectId,
         sandboxId,
         executionId: sample.executionId,
         anomalyType: "pid_pressure",
-        severity: sample.pids >= 58 ? "critical" : "warning",
+        severity: sample.pids >= Math.ceil(pidsLimit * 0.9) ? "critical" : "warning",
         title: "Elevated Process Count",
-        reason: `Active process count reached ${sample.pids} PIDs (limit is 64).`,
+        reason: `Active process count reached ${sample.pids} PIDs (limit is ${pidsLimit}).`,
         details:
           "Possible causes: fork bombing, unbounded subprocess spawning, or orphan worker threads.",
       });

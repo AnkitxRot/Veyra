@@ -20,7 +20,7 @@ Sandbox  ide-sandbox-<projectId>
 | Project | Workspace files, sandbox, Git repo, secrets | `projectId` on every route/WS; `requireProjectAccess` |
 | User | Debugger control, terminal PTY attach, sessions | Authenticated session; debug is `(projectId, userId)` |
 | Process | User code, language servers, debug adapters, npm/pytest | `docker exec` in the project container, non-root, cap-drop |
-| Filesystem | Paths under the project workspace | `safeResolve` + `assertInsideWorkspace`; `.git` blocked |
+| Filesystem | Paths under the project workspace | `safeResolve` + `assertInsideWorkspace`; `.git` blocked on the normalized and real path (M86) |
 | Environment | Secrets, Git PATs, backend env | Allowlisted container env; secrets not injected into LSP/debug/install |
 
 The browser never names an executable, container ID, cwd, or env for
@@ -50,7 +50,18 @@ gated (M56). Checkout/pull invalidate the file-tree cache and refresh
 the explorer.
 
 **Collaboration** — Yjs CRDT is the shared buffer. LSP and debugger
-state are process-local and not stored in Yjs.
+state are process-local and not stored in Yjs. Viewers are read-only on
+the transport: the room drops both `Update` and `SyncStep2` frames from
+them (M86).
+
+**Read-your-writes (M86)** — the room reaches disk on a 2s debounce (10s
+max), but Run, Test/Build, Debug launch, dependency install, and Git
+stage read the workspace from disk. Each awaits
+`collaborationManager.persistLiveEdits(projectId)` after authorization:
+dirty files only, serialized with other flush passes, 5s bound. If a
+file cannot be written the operation is refused and names the file —
+stale code is never run or staged. The terminal is not gated (arbitrary
+shell); it still sees the debounce.
 
 ## Resource caps (current)
 
@@ -58,6 +69,11 @@ Concurrent runs, search workers, LSP servers, debug sessions, tree
 entries, search duration/results, test-case parse count, output buffers,
 and PTY slots are all capped. Hitting a cap returns a structured error
 (`busy`, `too_many_searches`, …) rather than unbounded work.
+
+Per sandbox: 512 MiB memory, 1 CPU, `--pids-limit 256`. Docker's pids
+limit counts **threads**, and the sandbox hosts the IDE's own Node tools
+(the TypeScript language server stack alone holds ~36 threads). At 64, a
+test run beside the language server hung in a futex (M86).
 
 ## Lifecycle
 

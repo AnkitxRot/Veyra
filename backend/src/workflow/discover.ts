@@ -7,6 +7,7 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { isSkippedTreeName } from "../files/service.js";
+import { readConfinedFile } from "../files/confined.js";
 
 export type WorkflowKind = "test" | "build";
 export type WorkflowOrigin = "package.json" | "pytest";
@@ -71,7 +72,12 @@ export async function discoverWorkflow(workspaceDir: string): Promise<WorkflowMa
 async function discoverNpmTasks(workspaceDir: string): Promise<WorkflowTask[]> {
   let raw: string;
   try {
-    raw = await fs.readFile(join(workspaceDir, "package.json"), "utf8");
+    // M87: never follow a planted symlink out of the workspace.
+    raw = (
+      await readConfinedFile(workspaceDir, join(workspaceDir, "package.json"), {
+        maxBytes: MAX_PACKAGE_JSON,
+      })
+    ).content;
   } catch {
     return [];
   }
@@ -113,7 +119,11 @@ async function discoverPytest(workspaceDir: string): Promise<boolean> {
     }
   }
   try {
-    const pyproject = await fs.readFile(join(workspaceDir, "pyproject.toml"), "utf8");
+    const pyproject = (
+      await readConfinedFile(workspaceDir, join(workspaceDir, "pyproject.toml"), {
+        maxBytes: 1024 * 1024,
+      })
+    ).content;
     if (pyproject.includes("[tool.pytest") || pyproject.includes("[tool.pytest.ini_options]")) {
       return true;
     }
@@ -121,7 +131,11 @@ async function discoverPytest(workspaceDir: string): Promise<boolean> {
     /* no pyproject */
   }
   try {
-    const req = await fs.readFile(join(workspaceDir, "requirements.txt"), "utf8");
+    const req = (
+      await readConfinedFile(workspaceDir, join(workspaceDir, "requirements.txt"), {
+        maxBytes: 1024 * 1024,
+      })
+    ).content;
     if (/(^|\n)\s*pytest(\s|[><=!;[]|$)/i.test(req.slice(0, 16_384))) return true;
   } catch {
     /* no requirements */

@@ -4,10 +4,12 @@ import {
   dirname,
   isAbsolute,
   join,
+  posix,
   relative,
   resolve,
 } from "node:path";
 import { ApiError } from "../errors.js";
+import { readConfinedFile, writeConfinedFile } from "./confined.js";
 
 const MAX_FILE_SIZE = 1024 * 1024;
 const SKIP_DIRS = new Set([
@@ -72,15 +74,35 @@ export function safeResolve(root: string, relPath: string): string {
  * guards the by-path file APIs (read/write/move/delete) so a crafted path
  * can't reach repository internals.
  */
-function assertNotGitInternal(relPath: string): void {
-  const first = relPath.replace(/\\/g, "/").replace(/^\/+/, "").split("/")[0];
-  if (first === ".git") {
-    throw new ApiError(
-      400,
-      "cannot access .git repository internals",
-      "invalid_path",
-    );
-  }
+export function assertNotGitInternal(relPath: string): void {
+  // M86: normalize first — `./.git/config`, `a/../.git/config`, `.GIT/config`
+  // and `.git./config` all resolve into the repository directory.
+  const normalized = posix.normalize(
+    relPath.replace(/\\/g, "/").replace(/^\/+/, ""),
+  );
+  if (isGitInternalRel(normalized)) throw gitInternalError();
+}
+
+/**
+ * M86: does a normalized workspace-relative path start in `.git`? Host
+ * filesystems may be case-insensitive, and Win32 ignores trailing dots and
+ * spaces and `:stream` suffixes on a path segment (`GIT~1` is its 8.3 name).
+ */
+function isGitInternalRel(rel: string): boolean {
+  const first = rel.replace(/\\/g, "/").split("/")[0] ?? "";
+  const segment = first
+    .replace(/:.*$/, "")
+    .replace(/[. ]+$/, "")
+    .toLowerCase();
+  return segment === ".git" || /^git~\d+$/.test(segment);
+}
+
+function gitInternalError(): ApiError {
+  return new ApiError(
+    400,
+    "cannot access .git repository internals",
+    "invalid_path",
+  );
 }
 
 export async function assertInsideWorkspace(
@@ -114,6 +136,10 @@ export async function assertInsideWorkspace(
   const rel = relative(realRoot, realAbs);
   if (rel.startsWith("..") || rel === ".." || isAbsolute(rel))
     throw escapeError();
+  // M86: `.git` holds configuration host-side Git honors (filter drivers run
+  // commands). Checked on the real path so a symlink/junction such as
+  // `link -> .git` cannot reach it either. No caller needs `.git` access.
+  if (isGitInternalRel(rel)) throw gitInternalError();
 }
 
 export async function listFiles(
@@ -334,18 +360,20 @@ export async function readProjectFile(
   assertNotGitInternal(relPath);
   const abs = safeResolve(root, relPath);
   await assertInsideWorkspace(root, abs);
-  let st;
+  // M87: the check above is advisory; the read itself verifies the opened
+  // file, so a symlink swapped in after the check cannot redirect it.
   try {
-    st = await fs.stat(abs);
-  } catch {
-    throw new ApiError(404, "file not found", "not_found");
+    return await readConfinedFile(root, abs, { maxBytes: MAX_FILE_SIZE });
+  } catch (err: any) {
+    if (err instanceof ApiError) throw err;
+    if (err?.code === "ENOENT" || err?.code === "ENOTDIR") {
+      throw new ApiError(404, "file not found", "not_found");
+    }
+    if (err?.code === "EISDIR") {
+      throw new ApiError(400, "not a file", "not_a_file");
+    }
+    throw err;
   }
-  if (!st.isFile()) throw new ApiError(400, "not a file", "not_a_file");
-  if (st.size > MAX_FILE_SIZE) {
-    throw new ApiError(413, "file is too large to open", "file_too_large");
-  }
-  const content = await fs.readFile(abs, "utf8");
-  return { content, size: st.size };
 }
 
 export async function writeProjectFile(
@@ -362,7 +390,8 @@ export async function writeProjectFile(
     throw new ApiError(413, "file is too large to save", "file_too_large");
   }
   await fs.mkdir(dirname(abs), { recursive: true });
-  await fs.writeFile(abs, content, "utf8");
+  // M87: truncates/writes only after proving the opened file is inside root.
+  await writeConfinedFile(root, abs, content);
   invalidateTreeCache(root);
 }
 

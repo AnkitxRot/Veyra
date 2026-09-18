@@ -55,6 +55,7 @@ const TEST_JS = [
 ].join("\n");
 
 describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
+  const diagnostics: string[] = [];
   let server: Server;
   let db: Db;
   let cfg: AppConfig;
@@ -143,6 +144,20 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
       },
     ]);
     const page = await context.newPage();
+    // Diagnostics: a failing build/stop step needs to show whether the click
+    // ever produced a `start` frame (client-side stall) or the run never
+    // finished (server-side), plus any page error behind it.
+    diagnostics.length = 0;
+    page.on("pageerror", (err) => diagnostics.push(`pageerror: ${err.message}`));
+    page.on("console", (m) => {
+      if (m.type() === "error") diagnostics.push(`console.error: ${m.text().slice(0, 200)}`);
+    });
+    page.on("websocket", (ws) => {
+      if (!ws.url().includes("/ws/execute")) return;
+      ws.on("framesent", (f) => diagnostics.push(`> ${String(f.payload).slice(0, 160)}`));
+      ws.on("framereceived", (f) => diagnostics.push(`< ${String(f.payload).slice(0, 160)}`));
+      ws.on("close", () => diagnostics.push("execute socket closed"));
+    });
     await page.goto(`${base}/p/${projectId}`, { waitUntil: "load" });
     const login = page.locator("#auth-username");
     const tree = page.locator(".file-tree-container ul.file-tree").first();
@@ -209,16 +224,35 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
       }
 
       await page.click('[data-testid="workflow-task-npm:build"]');
-      await page.waitForFunction(
-        () => {
-          const s = (globalThis as any).document.querySelector(
-            '[data-testid="workflow-status"]',
-          )?.textContent;
-          return s === "Exited (0)";
-        },
-        null,
-        { timeout: 90_000 },
-      );
+      try {
+        await page.waitForFunction(
+          () => {
+            const s = (globalThis as any).document.querySelector(
+              '[data-testid="workflow-status"]',
+            )?.textContent;
+            return s === "Exited (0)";
+          },
+          null,
+          { timeout: 90_000 },
+        );
+      } catch (err) {
+        const ui = await page.evaluate(() => {
+          const d = (globalThis as any).document;
+          return {
+            status: d.querySelector('[data-testid="workflow-status"]')?.textContent,
+            buildDisabled: (d.querySelector('[data-testid="workflow-task-npm:build"]') as any)?.disabled,
+            panel: String(d.querySelector('[data-testid="test-explorer"]')?.innerText ?? "").slice(0, 300),
+          };
+        });
+        throw new Error(
+          "build never reached Exited (0): " +
+            String(err) +
+            " ui=" +
+            JSON.stringify(ui) +
+            " frames=" +
+            JSON.stringify(diagnostics),
+        );
+      }
     } finally {
       await browser.close();
     }
