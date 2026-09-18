@@ -136,6 +136,9 @@ const PERMANENT_WRITE_ERROR_CODES = new Set([
 ]);
 export const LIVE_EDITS_NOT_PERSISTED = "live_edits_not_persisted";
 
+/** Maximum idle-disposal retries for a permanently failing write. */
+const MAX_IDLE_DISPOSE_RETRIES = 3;
+
 export interface LiveEditsPersistResult {
   ok: boolean;
   /** Workspace-relative paths whose latest edits are not on disk (bounded). */
@@ -271,7 +274,7 @@ interface RunOutputEntry {
   seq: number;
   /** Chunks arrived since the last flush, awaiting the coalesced broadcast. */
   pending: RunOutputChunk[];
-  flushTimer: NodeJS.Timeout | null;
+  flushTimer: ITimer | null;
 }
 
 export interface RunStatusEntry {
@@ -294,7 +297,108 @@ export interface CollaborationRoomOptions {
   lowWatermarkBytes?: number;
 }
 
-/** Rejects if the wrapped promise has not settled within `ms`. */
+// ===========================================================================
+// M91 — Clock abstraction for deterministic idle-disposal testing
+// ===========================================================================
+//
+// Production: SystemClock uses real setTimeout/Date.now.
+// Tests: VirtualClock queues timers and fires them from advanceBy(), so
+// tests can advance 10s/20s/40s/… of backoff in a single microtask — no
+// vi.useFakeTimers() needed (which breaks real I/O like fs.realpath/fs.access
+// and causes worker crashes).
+
+export interface IClock {
+  setTimeout(fn: () => void, ms: number): ITimer;
+  setInterval(fn: () => void, ms: number): ITimer;
+  now(): number;
+}
+
+export interface ITimer {
+  clear(): void;
+}
+
+/** Production clock — delegates to real Node.js timers. */
+export class SystemClock implements IClock {
+  setTimeout(fn: () => void, ms: number): ITimer {
+    return new RealTimer(setTimeout(fn, ms));
+  }
+  setInterval(fn: () => void, ms: number): ITimer {
+    return new RealTimer(setInterval(fn, ms));
+  }
+  now(): number {
+    return Date.now();
+  }
+}
+
+class RealTimer implements ITimer {
+  private readonly t: ReturnType<typeof setTimeout | typeof setInterval>;
+  constructor(t: ReturnType<typeof setTimeout | typeof setInterval>) {
+    this.t = t;
+  }
+  clear(): void {
+    clearTimeout(this.t);
+    clearInterval(this.t);
+  }
+}
+
+/** Deterministic clock for tests. */
+export class VirtualClock implements IClock {
+  private readonly timers: VTimer[] = [];
+  public virtualTime = 0;
+
+  setTimeout(fn: () => void, ms: number): ITimer {
+    const t = new VTimer(this, this.virtualTime + ms, fn, false);
+    this.timers.push(t);
+    return t;
+  }
+
+  setInterval(fn: () => void, ms: number): ITimer {
+    const t = new VTimer(this, this.virtualTime + ms, fn, true, ms);
+    this.timers.push(t);
+    return t;
+  }
+
+  cancel(t: VTimer): void {
+    const i = this.timers.indexOf(t);
+    if (i >= 0) this.timers.splice(i, 1);
+  }
+
+  async advanceBy(ms: number): Promise<void> {
+    this.virtualTime += ms;
+    let guard = 0;
+    while (this.timers.length > 0 && guard++ < 10000) {
+      this.timers.sort((a, b) => a.fireAt - b.fireAt);
+      const due = this.timers.filter((t) => t.fireAt <= this.virtualTime);
+      if (due.length === 0) break;
+      for (const t of due) {
+        this.cancel(t);
+        if (t.isInterval) {
+          // Reschedule interval
+          t.fireAt = this.virtualTime + t.intervalMs!;
+          this.timers.push(t);
+        }
+        await t.fn();
+      }
+    }
+  }
+
+  now(): number {
+    return this.virtualTime;
+  }
+}
+
+class VTimer implements ITimer {
+  constructor(
+    private readonly clock: VirtualClock,
+    public fireAt: number,
+    public readonly fn: () => void,
+    public readonly isInterval: boolean = false,
+    public readonly intervalMs?: number,
+  ) {}
+  clear(): void {
+    this.clock.cancel(this);
+  }
+}
 function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
@@ -350,10 +454,11 @@ export class CollaborationRoom {
     reject: (err: unknown) => void;
     writeCleanKeys: boolean;
   } | null = null;
-  private debounceTimer: NodeJS.Timeout | null = null;
-  private maxFlushTimer: NodeJS.Timeout | null = null;
+  private debounceTimer: ITimer | null = null;
+  private maxFlushTimer: ITimer | null = null;
   private lastFlushTime: number = Date.now();
-  private idleDisposeTimer: NodeJS.Timeout | null = null;
+  private idleDisposeTimer: ITimer | null = null;
+  private idleDisposeRetries = 0;
   private readonly onDisposeCallback: (projectId: string) => void;
 
   // M6: coalescing + backpressure. See DEFAULT_* constants above for the
@@ -371,7 +476,7 @@ export class CollaborationRoom {
    *  pending *outbound* work, not per-client backlog (see slowClients). */
   private pendingYjsUpdates: Uint8Array[] = [];
   private pendingYjsOrigins: Set<unknown> = new Set();
-  private yjsCoalesceTimer: NodeJS.Timeout | null = null;
+  private yjsCoalesceTimer: ITimer | null = null;
 
   /** Awareness clientIDs that changed since the last flush. Re-encoded from
    *  LIVE awareness state at flush time (not a snapshot taken when queued),
@@ -379,7 +484,7 @@ export class CollaborationRoom {
    *  shape as the frontend's utils/throttleLatest.ts. */
   private pendingAwarenessClientIds: Set<number> = new Set();
   private pendingAwarenessOrigins: Set<unknown> = new Set();
-  private awarenessCoalesceTimer: NodeJS.Timeout | null = null;
+  private awarenessCoalesceTimer: ITimer | null = null;
 
   /** Clients currently backpressured on Yjs updates: broadcasts are skipped
    *  entirely (never queued per-client — see the field doc above) until
@@ -388,17 +493,17 @@ export class CollaborationRoom {
    *  protocol's `messageYjsUpdate` framing. This is what makes skipping
    *  safe: nothing is ever permanently lost, only deferred. */
   private readonly slowClients: Set<WebSocket> = new Set();
-  private slowClientRecheckTimer: NodeJS.Timeout | null = null;
+  private slowClientRecheckTimer: ITimer | null = null;
   // M74: safety-net awareness reconciliation for sockets that die without a
   // 'close' event. Runs only while the room is non-empty.
-  private awarenessReconcileTimer: NodeJS.Timeout | null = null;
+  private awarenessReconcileTimer: ITimer | null = null;
 
   // M54: ephemeral run-status registry, keyed by executionId. Populated
   // exclusively by the real server-side execution lifecycle via
   // CollaborationManager.notifyRunStatus — never from a client message.
   private readonly runStatus = new Map<string, RunStatusEntry>();
-  private readonly runStatusLingerTimers = new Map<string, NodeJS.Timeout>();
-  private runStatusSweepTimer: NodeJS.Timeout | null = null;
+  private readonly runStatusLingerTimers = new Map<string, ITimer>();
+  private runStatusSweepTimer: ITimer | null = null;
 
   // M65: ephemeral shared run-output buffers, keyed by executionId. Populated
   // only via CollaborationManager.notifyRunOutput (the authenticated execution
@@ -415,7 +520,7 @@ export class CollaborationRoom {
   // Y.Doc or awareness.
   private readonly attentionRateLimiters = new WeakMap<WebSocket, RateLimiter>();
   private readonly attentionRegistry = new AttentionRequestRegistry();
-  private readonly attentionExpiryTimers = new Map<string, NodeJS.Timeout>();
+  private readonly attentionExpiryTimers = new Map<string, ITimer>();
 
   /** Set at the start of dispose(). awareness.destroy() below internally
    *  calls setLocalState(null), which fires this room's own
@@ -491,6 +596,7 @@ export class CollaborationRoom {
     onDispose: (projectId: string) => void,
     options: CollaborationRoomOptions = {},
     private readonly historian: CollaborationHistorian = collaborationHistorian,
+    readonly clock: IClock = new SystemClock(),
   ) {
     this.projectId = projectId;
     this.cfg = cfg;
@@ -665,7 +771,7 @@ export class CollaborationRoom {
     this.pendingYjsUpdates.push(update);
     this.pendingYjsOrigins.add(origin);
     if (!this.yjsCoalesceTimer) {
-      this.yjsCoalesceTimer = setTimeout(() => {
+      this.yjsCoalesceTimer = this.clock.setTimeout(() => {
         this.yjsCoalesceTimer = null;
         this.flushYjsUpdates();
       }, this.yjsCoalesceMs);
@@ -717,7 +823,7 @@ export class CollaborationRoom {
     for (const id of clientIds) this.pendingAwarenessClientIds.add(id);
     this.pendingAwarenessOrigins.add(origin);
     if (!this.awarenessCoalesceTimer) {
-      this.awarenessCoalesceTimer = setTimeout(() => {
+      this.awarenessCoalesceTimer = this.clock.setTimeout(() => {
         this.awarenessCoalesceTimer = null;
         this.flushAwareness();
       }, this.awarenessCoalesceMs);
@@ -797,10 +903,9 @@ export class CollaborationRoom {
     if (this.slowClients.has(client)) return;
     this.slowClients.add(client);
     if (!this.slowClientRecheckTimer) {
-      this.slowClientRecheckTimer = setInterval(() => {
+      this.slowClientRecheckTimer = this.clock.setInterval(() => {
         this.recheckSlowClients();
       }, SLOW_CLIENT_RECHECK_MS);
-      this.slowClientRecheckTimer.unref?.();
     }
   }
 
@@ -813,7 +918,7 @@ export class CollaborationRoom {
   private recheckSlowClients(): void {
     if (this.slowClients.size === 0) {
       if (this.slowClientRecheckTimer) {
-        clearInterval(this.slowClientRecheckTimer);
+        this.slowClientRecheckTimer.clear();
         this.slowClientRecheckTimer = null;
       }
       return;
@@ -831,7 +936,7 @@ export class CollaborationRoom {
       }
     }
     if (this.slowClients.size === 0 && this.slowClientRecheckTimer) {
-      clearInterval(this.slowClientRecheckTimer);
+      this.slowClientRecheckTimer.clear();
       this.slowClientRecheckTimer = null;
     }
   }
@@ -896,7 +1001,7 @@ export class CollaborationRoom {
 
     const existingLinger = this.runStatusLingerTimers.get(input.executionId);
     if (existingLinger) {
-      clearTimeout(existingLinger);
+      existingLinger.clear();
       this.runStatusLingerTimers.delete(input.executionId);
     }
 
@@ -906,7 +1011,7 @@ export class CollaborationRoom {
     }
 
     // Terminal state: keep it visible briefly, then clear.
-    const timer = setTimeout(() => {
+    const timer = this.clock.setTimeout(() => {
       this.runStatusLingerTimers.delete(input.executionId);
       this.runStatus.delete(input.executionId);
       // M65: the shared output buffer is bound to this status entry.
@@ -918,7 +1023,6 @@ export class CollaborationRoom {
         state: "cleared",
       });
     }, RUN_STATUS_LINGER_MS);
-    timer.unref?.();
     this.runStatusLingerTimers.set(input.executionId, timer);
   }
 
@@ -937,7 +1041,7 @@ export class CollaborationRoom {
 
   private ensureRunStatusSweep(): void {
     if (this.runStatusSweepTimer) return;
-    this.runStatusSweepTimer = setInterval(() => {
+    this.runStatusSweepTimer = this.clock.setInterval(() => {
       const now = Date.now();
       for (const [id, entry] of Array.from(this.runStatus.entries())) {
         if (
@@ -948,7 +1052,7 @@ export class CollaborationRoom {
           this.deleteRunOutput(id); // M65
           const linger = this.runStatusLingerTimers.get(id);
           if (linger) {
-            clearTimeout(linger);
+            linger.clear();
             this.runStatusLingerTimers.delete(id);
           }
           this.broadcastRunStatus({
@@ -963,11 +1067,10 @@ export class CollaborationRoom {
         (e) => e.state === "running",
       );
       if (!stillRunning && this.runStatusSweepTimer) {
-        clearInterval(this.runStatusSweepTimer);
+        this.runStatusSweepTimer.clear();
         this.runStatusSweepTimer = null;
       }
     }, RUN_STATUS_SWEEP_MS);
-    this.runStatusSweepTimer.unref?.();
   }
 
   /**
@@ -980,10 +1083,10 @@ export class CollaborationRoom {
    */
   private ensureAwarenessReconcileSweep(): void {
     if (this.awarenessReconcileTimer) return;
-    this.awarenessReconcileTimer = setInterval(() => {
+    this.awarenessReconcileTimer = this.clock.setInterval(() => {
       if (this.disposed || this.clients.size === 0) {
         if (this.awarenessReconcileTimer) {
-          clearInterval(this.awarenessReconcileTimer);
+          this.awarenessReconcileTimer.clear();
           this.awarenessReconcileTimer = null;
         }
         return;
@@ -991,7 +1094,6 @@ export class CollaborationRoom {
       this.reconcileAwarenessAgainstLiveSockets();
       this.refreshLiveAwareness();
     }, this.awarenessReconcileMs);
-    this.awarenessReconcileTimer.unref?.();
   }
 
   /**
@@ -1098,12 +1200,13 @@ export class CollaborationRoom {
     this.trimRunOutput(entry);
 
     if (!entry.flushTimer) {
-      entry.flushTimer = setTimeout(() => {
+      entry.flushTimer = this.clock.setTimeout(() => {
         const e = this.runOutput.get(executionId);
-        if (e) e.flushTimer = null;
+        if (e) {
+          e.flushTimer = null;
+        }
         this.flushRunOutput(executionId);
       }, RUN_OUTPUT_FLUSH_MS);
-      entry.flushTimer.unref?.();
     }
   }
 
@@ -1162,7 +1265,7 @@ export class CollaborationRoom {
   private deleteRunOutput(executionId: string): void {
     const entry = this.runOutput.get(executionId);
     if (!entry) return;
-    if (entry.flushTimer) clearTimeout(entry.flushTimer);
+    if (entry.flushTimer) entry.flushTimer.clear();
     this.runOutput.delete(executionId);
   }
 
@@ -1428,12 +1531,11 @@ export class CollaborationRoom {
   }
 
   private scheduleAttentionExpiry(event: AttentionEvent): void {
-    const delay = Math.max(0, event.expiresAt - Date.now());
-    const timer = setTimeout(() => {
+    const delay = Math.max(0, event.expiresAt - this.clock.now());
+    const timer = this.clock.setTimeout(() => {
       this.attentionExpiryTimers.delete(event.id);
       this.clearAttentionRequest(event.id, "expired");
     }, delay);
-    timer.unref?.();
     this.attentionExpiryTimers.set(event.id, timer);
   }
 
@@ -1448,7 +1550,7 @@ export class CollaborationRoom {
   ): void {
     const timer = this.attentionExpiryTimers.get(id);
     if (timer) {
-      clearTimeout(timer);
+      timer.clear();
       this.attentionExpiryTimers.delete(id);
     }
     const event = this.attentionRegistry.delete(id);
@@ -1535,7 +1637,7 @@ export class CollaborationRoom {
     if (res.evicted) {
       const t = this.attentionExpiryTimers.get(res.evicted.id);
       if (t) {
-        clearTimeout(t);
+        t.clear();
         this.attentionExpiryTimers.delete(res.evicted.id);
       }
       if (res.evicted.targetUserId !== undefined) {
@@ -1801,9 +1903,13 @@ export class CollaborationRoom {
       return;
     }
     if (this.idleDisposeTimer) {
-      clearTimeout(this.idleDisposeTimer);
+      this.idleDisposeTimer.clear();
       this.idleDisposeTimer = null;
     }
+    // M91: reset the retry counter when a client aborts idle disposal by
+    // joining — the pending retry schedule is cancelled, so the count no
+    // longer reflects real consecutive failures.
+    this.idleDisposeRetries = 0;
 
     this.clients.set(ws, clientState);
 
@@ -2098,7 +2204,7 @@ export class CollaborationRoom {
       )) {
         const t = this.attentionExpiryTimers.get(e.id);
         if (t) {
-          clearTimeout(t);
+          t.clear();
           this.attentionExpiryTimers.delete(e.id);
         }
         if (e.targetUserId !== undefined) {
@@ -2112,9 +2218,9 @@ export class CollaborationRoom {
       for (const e of this.attentionRegistry.deleteByTarget(
         clientState.userId,
       )) {
-        const t = this.attentionExpiryTimers.get(e.id);
-        if (t) {
-          clearTimeout(t);
+        const t2 = this.attentionExpiryTimers.get(e.id);
+        if (t2) {
+          t2.clear();
           this.attentionExpiryTimers.delete(e.id);
         }
       }
@@ -2146,7 +2252,7 @@ export class CollaborationRoom {
     // If room is now empty, schedule a grace period before disposing
     if (this.clients.size === 0) {
       if (this.awarenessReconcileTimer) {
-        clearInterval(this.awarenessReconcileTimer);
+        this.awarenessReconcileTimer.clear();
         this.awarenessReconcileTimer = null;
       }
       this.scheduleIdleDisposal();
@@ -2428,17 +2534,17 @@ export class CollaborationRoom {
 
   private scheduleDebouncedPersistence(): void {
     if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
+      this.debounceTimer.clear();
     }
 
     // Schedule 2s debounce
-    this.debounceTimer = setTimeout(() => {
+    this.debounceTimer = this.clock.setTimeout(() => {
       this.flushToDisk();
     }, 2000);
 
     // Schedule max 10s delay if not already active
     if (!this.maxFlushTimer) {
-      this.maxFlushTimer = setTimeout(() => {
+      this.maxFlushTimer = this.clock.setTimeout(() => {
         this.flushToDisk();
       }, 10000);
     }
@@ -2564,11 +2670,11 @@ export class CollaborationRoom {
     this.historian.closeProjectBursts(this.projectId, "flush");
 
     if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
+      this.debounceTimer.clear();
       this.debounceTimer = null;
     }
     if (this.maxFlushTimer) {
-      clearTimeout(this.maxFlushTimer);
+      this.maxFlushTimer.clear();
       this.maxFlushTimer = null;
     }
 
@@ -2667,7 +2773,7 @@ export class CollaborationRoom {
       }
     }
 
-    this.lastFlushTime = Date.now();
+    this.lastFlushTime = this.clock.now();
     return failed;
   }
 
@@ -2891,7 +2997,23 @@ export class CollaborationRoom {
     // disposed guard, in case some future caller invokes this directly.
     if (this.disposed) return;
 
-    if (this.idleDisposeTimer) clearTimeout(this.idleDisposeTimer);
+    if (this.idleDisposeTimer) {
+      this.idleDisposeTimer.clear();
+      this.idleDisposeTimer = null;
+    }
+
+    // M91: cap the retry count. A permanently failing write (disk full,
+    // workspace removed) retries with exponential backoff up to
+    // IDLE_DISPOSE_RETRY_CAP_MS; after MAX_IDLE_DISPOSE_RETRIES the room is
+    // disposed with a warning so production cannot enter an unbounded retry
+    // loop and fake-timer test harnesses stay bounded.
+    if (this.idleDisposeRetries >= MAX_IDLE_DISPOSE_RETRIES) {
+      console.error(
+        `[CollabRoom:${this.projectId}] giving up after ${this.idleDisposeRetries} failed idle-disposal flushes; disposing with ${this.dirtyFiles.size} unpersisted file(s)`,
+      );
+      this.dispose();
+      return;
+    }
 
     // Idle grace timer before freeing room from memory. On retry (a prior
     // flush left files dirty) the delay doubles, capped at
@@ -2900,7 +3022,7 @@ export class CollaborationRoom {
     // degrades to an infrequent retry instead of hammering the filesystem
     // and logs forever at a fixed 10s cadence. Content is never dropped —
     // only the retry cadence backs off.
-    this.idleDisposeTimer = setTimeout(async () => {
+    this.idleDisposeTimer = this.clock.setTimeout(async () => {
       // M41: the room may have been disposed by an explicit operation
       // (import/restore/delete) during the delay window between this timer
       // being armed and firing. flushToDisk() already refuses to write once
@@ -2931,6 +3053,7 @@ export class CollaborationRoom {
           console.error(
             `[CollabRoom:${this.projectId}] idle disposal deferred: ${this.dirtyFiles.size} file(s) failed to flush, retrying in ${nextDelay}ms`,
           );
+          this.idleDisposeRetries++;
           this.scheduleIdleDisposal(nextDelay);
         }
       }
@@ -2948,34 +3071,52 @@ export class CollaborationRoom {
     // historian's broadcaster) still finds live clients.
     this.historian.closeProjectBursts(this.projectId, "dispose");
     this.disposed = true;
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    if (this.maxFlushTimer) clearTimeout(this.maxFlushTimer);
-    if (this.idleDisposeTimer) clearTimeout(this.idleDisposeTimer);
-    if (this.yjsCoalesceTimer) clearTimeout(this.yjsCoalesceTimer);
-    if (this.awarenessCoalesceTimer) clearTimeout(this.awarenessCoalesceTimer);
-    if (this.slowClientRecheckTimer) clearInterval(this.slowClientRecheckTimer);
+    if (this.debounceTimer) {
+      this.debounceTimer.clear();
+      this.debounceTimer = null;
+    }
+    if (this.maxFlushTimer) {
+      this.maxFlushTimer.clear();
+      this.maxFlushTimer = null;
+    }
+    if (this.idleDisposeTimer) {
+      this.idleDisposeTimer.clear();
+      this.idleDisposeTimer = null;
+    }
+    if (this.yjsCoalesceTimer) {
+      this.yjsCoalesceTimer.clear();
+      this.yjsCoalesceTimer = null;
+    }
+    if (this.awarenessCoalesceTimer) {
+      this.awarenessCoalesceTimer.clear();
+      this.awarenessCoalesceTimer = null;
+    }
+    if (this.slowClientRecheckTimer) {
+      this.slowClientRecheckTimer.clear();
+      this.slowClientRecheckTimer = null;
+    }
     if (this.awarenessReconcileTimer) {
-      clearInterval(this.awarenessReconcileTimer);
+      this.awarenessReconcileTimer.clear();
       this.awarenessReconcileTimer = null;
     }
     // M54: run-status registry teardown.
-    for (const t of this.runStatusLingerTimers.values()) clearTimeout(t);
+    for (const t of this.runStatusLingerTimers.values()) t.clear();
     this.runStatusLingerTimers.clear();
     if (this.runStatusSweepTimer) {
-      clearInterval(this.runStatusSweepTimer);
+      this.runStatusSweepTimer.clear();
       this.runStatusSweepTimer = null;
     }
     this.runStatus.clear();
     // M65: shared run-output teardown.
     for (const e of this.runOutput.values()) {
-      if (e.flushTimer) clearTimeout(e.flushTimer);
+      if (e.flushTimer) e.flushTimer.clear();
     }
     this.runOutput.clear();
     this.displayNameByUser.clear();
     this.avatarVersionByUser.clear();
     this.pronounsByUser.clear();
     // M58: attention teardown.
-    for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
+    for (const t of this.attentionExpiryTimers.values()) t.clear();
     this.attentionExpiryTimers.clear();
     this.attentionRegistry.clear();
     this.yjsCoalesceTimer = null;

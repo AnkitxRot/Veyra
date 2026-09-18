@@ -17,6 +17,10 @@ import { importProjectZip } from "../src/projects/archive.js";
 import { createZipArchive } from "../src/projects/zip.js";
 import { createWorkspaceBackup } from "../src/backup/workspaceBackup.js";
 import { restoreWorkspaceBackup } from "../src/backup/workspaceRestore.js";
+import {
+  controlWriteFile,
+  resetWriteControl,
+} from "./confinedWriteMock.js";
 
 const MESSAGE_CUSTOM = 3;
 const MESSAGE_AWARENESS = 1;
@@ -92,6 +96,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    resetWriteControl();
     for (const r of rooms.splice(0)) {
       try {
         r.dispose();
@@ -196,10 +201,12 @@ describe("M56 — collaboration-safe destructive operations", () => {
       room.markFileDirty("a.txt");
 
       let writes = 0;
-      const real = fs.writeFile;
-      vi.spyOn(fs, "writeFile").mockImplementation(async (...args: any[]) => {
+      // M90: flushToDisk() uses writeConfinedFile (handle-based I/O), so
+      // fs.writeFile mocks are silently bypassed. Use controlWriteFile.
+      const cleanup4 = controlWriteFile(async (abs: string, data: string) => {
         writes++;
-        return (real as any)(...args);
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(abs, data, "utf-8");
       });
 
       const [r1, r2] = await Promise.all([
@@ -208,6 +215,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
       ]);
       expect(r1).toEqual(r2);
       expect(writes).toBe(1);
+      cleanup4();
     });
 
     it("5. a hung disk write is bounded by the timeout and reported as not flushed", async () => {
@@ -224,8 +232,11 @@ describe("M56 — collaboration-safe destructive operations", () => {
       room.doc.transact(() => room.doc.getText("slow.txt").insert(0, "y"));
       room.markFileDirty("slow.txt");
 
-      vi.spyOn(fs, "writeFile").mockImplementation(
-        () => new Promise(() => {}) as any,
+      // M90: flushToDisk() uses writeConfinedFile (handle-based I/O), so
+      // fs.writeFile mocks are silently bypassed. Use controlWriteFile to
+      // hang the confined write indefinitely.
+      const cleanup5 = controlWriteFile(
+        () => new Promise(() => {}) as Promise<void>,
       );
 
       const start = Date.now();
@@ -233,6 +244,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
       expect(Date.now() - start).toBeLessThan(2000);
       expect(res.flushed).toBe(false);
       expect(res.remainingDirty).toContain("slow.txt");
+      cleanup5();
     });
 
     it("6. multiple dirty files are all flushed", async () => {

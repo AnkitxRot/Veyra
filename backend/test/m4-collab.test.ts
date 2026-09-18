@@ -687,11 +687,6 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       name: "IdleDisposeProj",
     });
     const onDispose = vi.fn();
-    // M90: flushToDisk() uses writeConfinedFile (handle-based I/O), so
-    // fs.writeFile mocks are silently bypassed. Use controlWriteFile.
-    // flushToDisk() resolves symlinks (fs.realpath/fs.access) before writing.
-    // Real filesystem I/O cannot be driven to completion by fake timers, so
-    // stub those two calls to a pass-through here.
     const realpathSpy = vi
       .spyOn(fs, "realpath")
       .mockImplementation(async (p: any) => p);
@@ -699,6 +694,8 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       .spyOn(fs, "access")
       .mockResolvedValue(undefined as never);
     vi.useFakeTimers();
+
+    let cleanup13: (opts?: { passThrough?: boolean }) => void = () => {};
 
     try {
       const room = new CollaborationRoom(project.id, cfg, db, onDispose);
@@ -713,34 +710,24 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       });
       room.markFileDirty(filePath);
 
-      // M90: control the confined write hook instead of fs.writeFile.
       let writeAttempt = 0;
-      const cleanup13 = controlWriteFile(async (abs: string, data: string) => {
+      cleanup13 = controlWriteFile(async (abs: string, data: string) => {
         writeAttempt++;
         throw Object.assign(new Error("EIO: i/o error"), { code: "EIO" });
       });
 
-      // Last collaborator leaves -> 10s idle grace timer starts.
       room.removeClient(ws);
       await vi.advanceTimersByTimeAsync(10_000);
 
-      // The final flush failed, so the room must NOT be destroyed: its Y.Doc
-      // holds the only surviving copy of the content.
       expect(onDispose).not.toHaveBeenCalled();
       expect((room as any).dirtyFiles.has(filePath)).toBe(true);
       expect(room.doc.getText(filePath).toString()).toBe(
         "edits that must not be lost",
       );
 
-      // The disk error clears; the rescheduled grace period retries the flush.
-      // (Resolved mock rather than real I/O so the assertion stays
-      // deterministic under fake timers; test 12 covers the real disk write.)
-      // The retry backs off exponentially (10s -> 20s), so the second grace
-      // period is 20s, not another 10s.
       cleanup13({ passThrough: true });
       await vi.advanceTimersByTimeAsync(20_000);
 
-      // Content was persisted on the retry, and only then was the room freed.
       expect(writeAttempt).toBeGreaterThanOrEqual(2);
       expect(onDispose).toHaveBeenCalledWith(project.id);
     } finally {
@@ -760,8 +747,6 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       name: "BackoffCapProj",
     });
     const onDispose = vi.fn();
-    // M90: flushToDisk() uses writeConfinedFile (handle-based I/O), so
-    // fs.writeFile mocks are silently bypassed. Use controlWriteFile.
     const realpathSpy = vi
       .spyOn(fs, "realpath")
       .mockImplementation(async (p: any) => p);
@@ -769,6 +754,8 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       .spyOn(fs, "access")
       .mockResolvedValue(undefined as never);
     vi.useFakeTimers();
+
+    let cleanup13b: (() => void) | undefined;
 
     try {
       const room = new CollaborationRoom(project.id, cfg, db, onDispose);
@@ -781,9 +768,8 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       });
       room.markFileDirty(filePath);
 
-      // M90: control the confined write hook — every write fails permanently.
       let callCount = 0;
-      const cleanup13b = controlWriteFile(async () => {
+      cleanup13b = controlWriteFile(async () => {
         callCount++;
         throw Object.assign(new Error("ENOSPC: no space left on device"), {
           code: "ENOSPC",
@@ -792,9 +778,6 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
       room.removeClient(ws);
 
-      // 10s -> 20s -> 40s -> 80s -> 160s -> 300s(capped, would be 320s
-      // uncapped) -> 300s again. Advance through several cycles and confirm
-      // the delay never exceeds the 5-minute cap and retries keep happening.
       const expectedDelays = [
         10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000,
       ];
@@ -805,8 +788,6 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
         callsBefore = callCount;
       }
 
-      // Content was never dropped, and the room was never disposed despite
-      // the permanent failure.
       expect(onDispose).not.toHaveBeenCalled();
       expect((room as any).dirtyFiles.has(filePath)).toBe(true);
       expect(room.doc.getText(filePath).toString()).toBe(
@@ -815,7 +796,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
       room.dispose();
     } finally {
-      cleanup13b();
+      cleanup13b?.();
       realpathSpy.mockRestore();
       accessSpy.mockRestore();
       vi.useRealTimers();
