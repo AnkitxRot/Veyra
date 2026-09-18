@@ -4,14 +4,41 @@ import {
   dirname,
   isAbsolute,
   join,
+  posix,
   relative,
   resolve,
 } from "node:path";
 import { ApiError } from "../errors.js";
+import { readConfinedFile, writeConfinedFile } from "./confined.js";
 
 const MAX_FILE_SIZE = 1024 * 1024;
-const SKIP_DIRS = new Set(["node_modules", ".venv", ".git"]);
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".venv",
+  ".git",
+  "__pycache__",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".tox",
+  ".eggs",
+]);
 const BUILD_PREFIX = ".cloudide-build-";
+
+export const DEFAULT_TREE_LIMITS = { maxEntries: 8000, maxDepth: 24 };
+let treeLimits = { ...DEFAULT_TREE_LIMITS };
+
+/** Test-only: bound the tree walk so truncation is deterministic. */
+export function setTreeLimitsForTests(
+  limits?: Partial<typeof DEFAULT_TREE_LIMITS> | null,
+): void {
+  treeLimits = limits
+    ? { ...DEFAULT_TREE_LIMITS, ...limits }
+    : { ...DEFAULT_TREE_LIMITS };
+}
+
+export function isSkippedTreeName(name: string): boolean {
+  return SKIP_DIRS.has(name) || name.startsWith(BUILD_PREFIX);
+}
 
 export interface TreeNode {
   name: string;
@@ -47,15 +74,35 @@ export function safeResolve(root: string, relPath: string): string {
  * guards the by-path file APIs (read/write/move/delete) so a crafted path
  * can't reach repository internals.
  */
-function assertNotGitInternal(relPath: string): void {
-  const first = relPath.replace(/\\/g, "/").replace(/^\/+/, "").split("/")[0];
-  if (first === ".git") {
-    throw new ApiError(
-      400,
-      "cannot access .git repository internals",
-      "invalid_path",
-    );
-  }
+export function assertNotGitInternal(relPath: string): void {
+  // M86: normalize first — `./.git/config`, `a/../.git/config`, `.GIT/config`
+  // and `.git./config` all resolve into the repository directory.
+  const normalized = posix.normalize(
+    relPath.replace(/\\/g, "/").replace(/^\/+/, ""),
+  );
+  if (isGitInternalRel(normalized)) throw gitInternalError();
+}
+
+/**
+ * M86: does a normalized workspace-relative path start in `.git`? Host
+ * filesystems may be case-insensitive, and Win32 ignores trailing dots and
+ * spaces and `:stream` suffixes on a path segment (`GIT~1` is its 8.3 name).
+ */
+function isGitInternalRel(rel: string): boolean {
+  const first = rel.replace(/\\/g, "/").split("/")[0] ?? "";
+  const segment = first
+    .replace(/:.*$/, "")
+    .replace(/[. ]+$/, "")
+    .toLowerCase();
+  return segment === ".git" || /^git~\d+$/.test(segment);
+}
+
+function gitInternalError(): ApiError {
+  return new ApiError(
+    400,
+    "cannot access .git repository internals",
+    "invalid_path",
+  );
 }
 
 export async function assertInsideWorkspace(
@@ -89,6 +136,10 @@ export async function assertInsideWorkspace(
   const rel = relative(realRoot, realAbs);
   if (rel.startsWith("..") || rel === ".." || isAbsolute(rel))
     throw escapeError();
+  // M86: `.git` holds configuration host-side Git honors (filter drivers run
+  // commands). Checked on the real path so a symlink/junction such as
+  // `link -> .git` cannot reach it either. No caller needs `.git` access.
+  if (isGitInternalRel(rel)) throw gitInternalError();
 }
 
 export async function listFiles(
@@ -137,12 +188,17 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
-interface TreeCacheEntry {
+export interface TreeListing {
   tree: TreeNode[];
+  truncated: boolean;
+  scanned: number;
+}
+
+interface TreeCacheEntry extends TreeListing {
   timestamp: number;
 }
 const treeCache = new Map<string, TreeCacheEntry>();
-const inFlightTrees = new Map<string, Promise<TreeNode[]>>();
+const inFlightTrees = new Map<string, Promise<TreeListing>>();
 const TREE_CACHE_TTL_MS = 500;
 
 // M42: per-root generation counter, bumped on every invalidation. A tree()
@@ -167,10 +223,38 @@ export function invalidateTreeCache(root?: string): void {
   }
 }
 
-async function doTree(root: string, prefix = ""): Promise<TreeNode[]> {
+/**
+ * Drop every cache entry for a workspace that no longer exists (project
+ * delete). Unlike {@link invalidateTreeCache}, this does not retain a
+ * generation counter for the path — deleted projects must not accumulate
+ * unbounded keys.
+ */
+export function forgetTreeCache(root: string): void {
+  treeCache.delete(root);
+  inFlightTrees.delete(root);
+  treeGeneration.delete(root);
+}
+
+interface TreeWalkState {
+  scanned: number;
+  truncated: boolean;
+}
+
+async function doTree(
+  absRoot: string,
+  prefix: string,
+  depth: number,
+  state: TreeWalkState,
+): Promise<TreeNode[]> {
+  if (state.truncated) return [];
+  if (depth > treeLimits.maxDepth) {
+    state.truncated = true;
+    return [];
+  }
+
   let entries;
   try {
-    entries = await fs.readdir(root, { withFileTypes: true });
+    entries = await fs.readdir(absRoot, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -189,11 +273,18 @@ async function doTree(root: string, prefix = ""): Promise<TreeNode[]> {
     filtered,
     8,
     async (e): Promise<TreeNode | null> => {
+      if (e.isDirectory() && SKIP_DIRS.has(e.name)) return null;
+      // Reserve the slot before any await so concurrent workers cannot all
+      // pass the cap check, then each increment past maxEntries.
+      if (state.truncated || state.scanned >= treeLimits.maxEntries) {
+        state.truncated = true;
+        return null;
+      }
+      state.scanned += 1;
       const relPath = prefix ? `${prefix}/${e.name}` : e.name;
-      const abs = join(root, e.name);
+      const abs = join(absRoot, e.name);
       if (e.isDirectory()) {
-        if (SKIP_DIRS.has(e.name)) return null;
-        const children = await doTree(abs, relPath);
+        const children = await doTree(abs, relPath, depth + 1, state);
         return { name: e.name, path: relPath, type: "dir", children };
       } else if (e.isFile()) {
         try {
@@ -211,11 +302,15 @@ async function doTree(root: string, prefix = ""): Promise<TreeNode[]> {
   return mapped.filter((n): n is TreeNode => n !== null);
 }
 
-export async function tree(root: string): Promise<TreeNode[]> {
+export async function treeListing(root: string): Promise<TreeListing> {
   const cached = treeCache.get(root);
   const now = Date.now();
   if (cached && now - cached.timestamp < TREE_CACHE_TTL_MS) {
-    return cached.tree;
+    return {
+      tree: cached.tree,
+      truncated: cached.truncated,
+      scanned: cached.scanned,
+    };
   }
 
   const inFlight = inFlightTrees.get(root);
@@ -232,13 +327,19 @@ export async function tree(root: string): Promise<TreeNode[]> {
   // serving stale listings to every caller for a full new TTL window
   // instead of the (correctly invalidated) empty cache prompting a re-read.
   const startGeneration = treeGeneration.get(root) ?? 0;
-  const fetchPromise = (async () => {
+  const fetchPromise = (async (): Promise<TreeListing> => {
     try {
-      const result = await doTree(root);
+      const state: TreeWalkState = { scanned: 0, truncated: false };
+      const result = await doTree(root, "", 0, state);
+      const listing: TreeListing = {
+        tree: result,
+        truncated: state.truncated,
+        scanned: state.scanned,
+      };
       if ((treeGeneration.get(root) ?? 0) === startGeneration) {
-        treeCache.set(root, { tree: result, timestamp: Date.now() });
+        treeCache.set(root, { ...listing, timestamp: Date.now() });
       }
-      return result;
+      return listing;
     } finally {
       inFlightTrees.delete(root);
     }
@@ -248,6 +349,10 @@ export async function tree(root: string): Promise<TreeNode[]> {
   return fetchPromise;
 }
 
+export async function tree(root: string): Promise<TreeNode[]> {
+  return (await treeListing(root)).tree;
+}
+
 export async function readProjectFile(
   root: string,
   relPath: string,
@@ -255,18 +360,20 @@ export async function readProjectFile(
   assertNotGitInternal(relPath);
   const abs = safeResolve(root, relPath);
   await assertInsideWorkspace(root, abs);
-  let st;
+  // M87: the check above is advisory; the read itself verifies the opened
+  // file, so a symlink swapped in after the check cannot redirect it.
   try {
-    st = await fs.stat(abs);
-  } catch {
-    throw new ApiError(404, "file not found", "not_found");
+    return await readConfinedFile(root, abs, { maxBytes: MAX_FILE_SIZE });
+  } catch (err: any) {
+    if (err instanceof ApiError) throw err;
+    if (err?.code === "ENOENT" || err?.code === "ENOTDIR") {
+      throw new ApiError(404, "file not found", "not_found");
+    }
+    if (err?.code === "EISDIR") {
+      throw new ApiError(400, "not a file", "not_a_file");
+    }
+    throw err;
   }
-  if (!st.isFile()) throw new ApiError(400, "not a file", "not_a_file");
-  if (st.size > MAX_FILE_SIZE) {
-    throw new ApiError(413, "file is too large to open", "file_too_large");
-  }
-  const content = await fs.readFile(abs, "utf8");
-  return { content, size: st.size };
 }
 
 export async function writeProjectFile(
@@ -283,7 +390,8 @@ export async function writeProjectFile(
     throw new ApiError(413, "file is too large to save", "file_too_large");
   }
   await fs.mkdir(dirname(abs), { recursive: true });
-  await fs.writeFile(abs, content, "utf8");
+  // M87: truncates/writes only after proving the opened file is inside root.
+  await writeConfinedFile(root, abs, content);
   invalidateTreeCache(root);
 }
 

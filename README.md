@@ -5,11 +5,11 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M80 HTTPS Git remotes are implemented. This tree is the
-stabilization pass on top of that milestone (CI-green intent, host-pinned
-credentials, lifecycle and documentation fixes). It is a working single-node
-product, not a hosted SaaS. See [`STATUS.md`](STATUS.md) for the milestone
-history.
+**Status:** M85 Workspace Intelligence & IDE Reliability is implemented on
+top of M84 Test Explorer, M83 sandboxed debugging, M82/M81 language
+intelligence, and M80 HTTPS Git remotes. This is a working single-node
+product, not a hosted SaaS. See [`STATUS.md`](STATUS.md) for the
+milestone history.
 
 ## What it is
 
@@ -27,6 +27,10 @@ the Veyra source repository. Do not confuse the two.
 | Area | What exists |
 | --- | --- |
 | Editing | Monaco, tabs, search/replace, comments |
+| Language intelligence | Python and TypeScript/JavaScript/TSX/JSX: live diagnostics, completion, hover, definition, references, document symbols, workspace symbols (M81–M85). Other languages: syntax + post-run diagnostics only. |
+| Debugging | Python and Node/TypeScript: breakpoints, stepping, stack, variables inside the project sandbox (M83). No evaluate/watches. |
+| Tests / builds | Allowlisted `package.json` `test`/`build` scripts and pytest discovery (including nested `tests/`); sandboxed execution via the existing Run slot (M84). |
+| Workspace | Bounded file tree and search, Quick Open, workspace symbol search (`#` in the command palette). No global filesystem watcher. |
 | Collaboration | Yjs CRDT, awareness, follow, mutation gates (M56) |
 | Execution | Docker runner (`python`, Node, C/C++, Java, TypeScript, …) |
 | Terminals | PTY in the sandbox; detach/reattach (M79) |
@@ -39,7 +43,9 @@ the Veyra source repository. Do not confuse the two.
 | Auth | Cookie sessions (httpOnly, signed) + optional Bearer token |
 
 Not in this tree: SSH Git, GitHub OAuth, pull-request UI, merge/rebase UI,
-force-push, LFS, submodules, billing, analytics.
+force-push, LFS, submodules, billing, analytics, Java/C++ language
+servers or debuggers, rename/refactor, expression evaluation / watches,
+collaborative debugger control, profiler, AI coding assistants.
 
 ## Architecture
 
@@ -48,7 +54,7 @@ Browser (React + Monaco + xterm)
   ↓  HTTPS / WebSocket
 Express API + WS upgrade
   ↓
-Project · Collab (Yjs) · Git · Secrets · Terminal · Sandbox
+Project · Collab (Yjs) · Git · Secrets · Terminal · LSP · Debugger · Sandbox
   ↓
 SQLite + workspace filesystem + Docker (ide-sandbox-<projectId>)
 ```
@@ -59,7 +65,10 @@ SQLite + workspace filesystem + Docker (ide-sandbox-<projectId>)
   `node-pty`. One process.
 - **Sandboxes**: image `cloudeeeide-runner:latest`, non-root, capabilities
   dropped. Code runs with `docker exec`, not a fresh `docker run` per
-  invocation.
+  invocation. The same container hosts language servers (`pylsp`,
+  `typescript-language-server`) and debug adapters (`debugpy`,
+  `vscode-js-debug` via a stdio bridge).
+- **Execution boundaries:** see [`docs/architecture.md`](docs/architecture.md).
 - **Git control plane**: `execFile` only (no shell). Isolated env, empty
   `core.hooksPath`, no credential helper. HTTPS credentials never appear on
   argv or in `.git/config`.
@@ -88,9 +97,183 @@ SQLite + workspace filesystem + Docker (ide-sandbox-<projectId>)
 - **Collaboration.** External filesystem mutations (upload, Git checkout,
   pull, restore) go through `notifyExternalFileMutation`; dirty live buffers
   are preserved rather than overwritten.
+- **Debugger.** `/ws/debug` requires editor (not viewer). The client cannot
+  choose an adapter, executable, container, cwd, or env. Debuggee env does
+  not inherit backend secrets, Git PATs, or project secrets. Control is
+  per authenticated user, not shared with collaborators.
 
 Do not treat this README as a threat model. The implementation and tests
 are the source of truth.
+
+## Language intelligence (M82)
+
+Python and TypeScript/JavaScript files get a project-scoped language server
+inside the existing Docker sandbox (`docker exec pylsp` or
+`typescript-language-server --stdio`). The browser talks JSON-RPC over
+`/ws/lsp`; the backend owns process lifecycle, initialize/shutdown, URI
+rewriting, and a single authoritative document stream per file (Yjs is
+canonical when a collab room holds the file). Clients cannot name an
+executable or escape `/workspace`.
+
+| Language | Syntax | Live diagnostics | Completion / hover | Navigation | Runtime |
+| --- | --- | --- | --- | --- | --- |
+| Python (`.py`, `.pyi`) | Monaco | `pylsp` (pyflakes / pycodestyle) when the runner image and sandbox are available | `pylsp` | Go to definition, references, document symbols | `python3` |
+| TypeScript (`.ts`) | Monaco | `typescript-language-server` / tsserver against the workspace `tsconfig.json` | same | Go to definition, references, document symbols | Node / tsx |
+| TSX (`.tsx`) | Monaco | same server (`typescriptreact`) | same | same | — |
+| JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) | Monaco | same TypeScript server | same | same | Node |
+| C / C++ | Monaco | Post-run gcc/g++ parser only | — | — | gcc / g++ |
+| Java | Monaco | Post-run javac parser only | — | — | JDK |
+
+Live LSP diagnostics are independent of post-run parser diagnostics
+(Problems panel owner `lsp` vs `cloudeee-problems`).
+
+**Workspace / packages.** The TypeScript server reads the project
+`tsconfig.json`, path aliases, and `node_modules` as they exist on disk.
+**LSP startup never runs `npm install` / `yarn` / `pnpm`.** Missing
+dependencies degrade to module-resolution diagnostics; the editor stays
+usable. `package.json` and lockfiles are not modified.
+
+**Degraded behaviour.** Opening and editing files never depends on the
+language server. If Docker, the runner image, `pylsp`, or
+`typescript-language-server` is missing, the editor still works; the
+toolbar **Py LSP** / **TS LSP** chips show unavailable/failed/busy and
+Monaco providers return empty results. No toast loop.
+
+**Lifecycle.** One process per `(project, language)`. Collaborators share
+it. Caps: 8 servers host-wide, 2 per project (Python + TypeScript/JS),
+120s idle reap, 30s startup timeout, 3 restarts per minute. Project
+delete, sandbox stop, and process shutdown dispose the session. Logout
+closes that user's socket only — other collaborators keep the shared
+server. LSP state is not stored in Yjs or SQLite.
+
+**Document sync.** Full-document `didChange` (not incremental). Edits are
+coalesced for 200ms per dirty path; the last keystroke is flushed on
+tab close and project switch. A second client opening the same file does
+not overwrite the canonical buffer.
+
+**Deployment.** Rebuild `cloudeeeide-runner:latest` so `/opt/lsp` contains
+pinned `python-lsp-server[pyflakes,pycodestyle]==1.12.2` and the image
+has pinned `typescript@5.8.3` + `typescript-language-server@5.3.0`.
+Local `npm run dev` without that image degrades as above. CI builds the
+image before backend tests (including Docker-backed pylsp/tsserver tests
+and Playwright browser E2E).
+
+## Debugging
+
+Veyra debugs **inside the existing project sandbox**. The browser never
+names an executable, adapter, container, or host path. `/ws/debug` is a
+mediated protocol (launch / breakpoints / continue / pause / step /
+stack / variables / terminate). Raw DAP from the client is ignored.
+Expression evaluation, watches, and conditional breakpoints are **not**
+exposed.
+
+| Runtime | Launch | Breakpoints | Continue / Pause | Step | Stack | Variables | Source mapping |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Python (`.py`) | `debugpy==1.8.21` in `/opt/debug` | yes | yes | over / into / out | yes | locals / scopes | `/workspace` ↔ editor path |
+| Node (`.js` / `.mjs` / `.cjs`) | `vscode-js-debug` v1.117.0 | yes | yes | yes | yes | yes | workspace path |
+| TypeScript (`.ts`) | same adapter; isolated `tsc` emit in `.cloudide-build-debug` | yes | yes | yes | `.ts` frames | yes | source maps rewrite to `/workspace/...` |
+| TSX / JSX / Java / C / C++ | — | — | — | — | — | — | not in M83 |
+
+**Limitations.** TypeScript is compiled into `/workspace/.cloudide-build-debug/<pid>`
+(hidden from the file tree, zip, and backups — never into Git). Source maps
+are rewritten so stack frames and breakpoints stay on `/workspace/*.ts`.
+Generated JS is not shown as an editor location. While a debug session is
+live, the TypeScript language server for that project is stopped so tsserver
+and js-debug do not contend for the same files; IntelliSense resumes when
+debugging ends. TSX / JSX React files, Java, and C/C++ are not debug
+targets. Expression evaluation, watches, and conditional breakpoints stay
+off. Rebuild `cloudeeeide-runner:latest` after pulling so the updated
+`veyra-js-debug` bridge is in the image.
+
+**How to start.** Open a supported file, set a breakpoint in the editor
+gutter (or Debug after placing one), click **Debug**. Unsaved buffers are
+flushed first; if a flush fails, launch is refused rather than running
+stale disk contents. **Run** is unchanged and stays available when the
+debugger is not active.
+
+**Requirements.** Rebuild `cloudeeeide-runner:latest` so `/opt/debug`
+contains pinned `debugpy==1.8.21` and `js-debug-dap-v1.117.0`. Adapters
+are never downloaded at session time.
+
+**Security.** Debuggee and adapter run as `ide` in `ide-sandbox-<projectId>`.
+The host only `docker exec`s allowlisted wrappers (`veyra-debugpy`,
+`veyra-js-debug`). Container env is a minimal HOME/XDG/TMPDIR/LANG set —
+no `SECRETS_MASTER_KEY`, Git PATs, database URLs, or project secrets.
+Sessions are **user-owned** (`projectId` + `userId`); a collaborator
+cannot control another user's debugger. Workspace paths are validated
+the same way as file APIs. DAP `runInTerminal` / `startDebugging` /
+`evaluate` are rejected.
+
+**Lifecycle.** Caps: 4 live sessions host-wide, 2 per project, 1 per user.
+Startup timeout 30s, request timeout 10s, session lifetime 30 min.
+Disconnect, logout, project delete, sandbox stop, and process shutdown
+terminate the session (no reattach). Output, stack, and variables are
+bounded.
+
+**Collaboration.** Breakpoints live in per-project `localStorage`, not
+Yjs. Stack, variables, and DAP traffic are not synchronized. If the
+paused file is edited after launch, the Debug panel reports a source
+mismatch; the debuggee still runs the snapshot from launch.
+
+**Degraded behaviour.** Opening a project never depends on the debugger.
+If Docker, the runner image, or an adapter is missing, the editor still
+works; Debug stays disabled / the panel shows **Unavailable**.
+
+Rename, workspace-wide refactor, Java/C++ language servers, debugger, and
+AI coding assistants are out of scope.
+
+## Testing, tasks, and builds (M84)
+
+The **Tests** bottom panel discovers and runs project tests and builds
+inside the existing sandbox. The browser never names an executable,
+shell string, environment, container, or host path. Execution reuses
+`/ws/execute` and the same run slot, quotas, and Stop path as **Run**.
+A live debugger on the project blocks test/build start.
+
+| Kind | Discovery | Execution | Notes |
+| --- | --- | --- | --- |
+| Node / TypeScript tests | `package.json` scripts named exactly `test` or `test:*` | `npm run <name>` (argv only) | Script **bodies** are never interpolated. Prefer `node --test`. |
+| Node / TypeScript builds | scripts named `build` or `build:*` | `npm run <name>` | Same argv rule. |
+| Python tests | `pytest.ini`, `conftest.py`, `[tool.pytest` in `pyproject.toml`, `pytest` in `requirements.txt`, or `test_*.py` / `*_test.py` (including nested under `tests/`, bounded) | `python3 -m pytest -v --tb=short` | Requires pytest **in the sandbox**. The runner image does not preinstall pytest. |
+| Other `package.json` scripts (`start`, `pretest`, …) | ignored | not offered | Not an arbitrary-command UI. |
+
+Results (pass / fail / skip / error) are bounded (200 cases, 64 KiB
+output). Failures with a workspace-relative file/line open that location
+in the editor and appear in **Problems** (source `test`) without
+replacing LSP diagnostics.
+
+**Limitations.** No Jest/Vitest/pytest installation is added to the
+runner image. Python test **execution** is only available after the
+project installs pytest. `start` / `dev` / arbitrary scripts are not
+tasks. Test/build and Debug are mutually exclusive. Output is ephemeral
+(not a second history store).
+
+## Workspace reliability (M85)
+
+Project-scale use is bounded rather than fully indexed:
+
+- **File tree.** Recursive listing skips `.git`, `node_modules`, `.venv`,
+  `__pycache__`, other interpreter caches, and `.cloudide-build-*`. Walks
+  stop at 8 000 entries / depth 24 and report `truncated` so the explorer
+  cannot hang on a huge generated tree. There is no global filesystem
+  watcher; mutations (save, Git checkout/pull, upload) invalidate a
+  500 ms cache. Refresh remains available.
+- **Search.** Same ignore set plus `dist`/`build`/`coverage`. Worker-thread
+  scan, 8 s budget, result cap, binary skip, 5 MiB file cap. Client
+  disconnect aborts the worker. Quick Open (`Ctrl+P`) is an in-memory
+  filename index of the current tree, capped at 80 rows.
+- **Symbols.** `#` in the command palette (or **Go to Symbol in Workspace**)
+  asks ready language servers for `workspace/symbol`. File-level outline
+  still uses Monaco document symbols. Semantic **rename is not
+  implemented** — LSP rename plus Yjs cannot be applied atomically today.
+- **Project switch.** File tree, editor tabs, Git state, Problems (run +
+  LSP), Output logs, Test Explorer results, and LSP chips are reset. Stale
+  diagnostics from project A must not appear on project B.
+- **Problems lifecycle.** LSP markers live until the server replaces them
+  or the project is left. Run/test/build diagnostics replace on the next
+  execution (or explicit clear). They do not mix owners. A failing **test**
+  run stays on the Tests tab so results remain visible; Problems still
+  lists the same failures.
 
 ## Git support (M80)
 
@@ -186,6 +369,14 @@ process environment directly (`PORT`, `DATA_DIR`, …).
 | `PROJECT_QUOTA` | `20` | |
 | `MAX_CONCURRENT_RUNS` | `3` | |
 | `SANDBOX_IDLE_TIMEOUT_MS` | `1800000` | |
+| `MAX_LSP_SERVERS` | `8` | Concurrent language-server processes (M82). |
+| `MAX_LSP_SERVERS_PER_PROJECT` | `2` | Python + TypeScript/JavaScript. |
+| `LSP_IDLE_TIMEOUT_MS` | `120000` | Reap after last client disconnects. |
+| `LSP_STARTUP_TIMEOUT_MS` | `30000` | |
+| `MAX_DEBUG_SESSIONS` | `4` | Live debug sessions (starting/running/paused). |
+| `MAX_DEBUG_SESSIONS_PER_PROJECT` | `2` | |
+| `MAX_DEBUG_SESSIONS_PER_USER` | `1` | |
+| `DEBUG_STARTUP_TIMEOUT_MS` | `30000` | Adapter initialize + launch. |
 | `COOKIE_SECURE` | production=`true` | |
 | `TRUST_PROXY` | off | Set `1` behind a reverse proxy. |
 | `APP_CONTAINERIZED` | off | Compose sets `1` so preview proxy uses sandbox networks. |

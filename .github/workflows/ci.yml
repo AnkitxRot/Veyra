@@ -9,7 +9,7 @@ jobs:
   verify:
     name: Lint, typecheck, tests, build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,6 +62,10 @@ jobs:
       # The runner image is required for the Docker-dependent backend tests.
       - name: Build sandbox runner image
         run: docker build -t cloudeeeide-runner:latest -f docker/Dockerfile.runner .
+
+      # Chromium is required for M82/M83 real-browser E2E (LSP + debugger).
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Backend tests (includes Docker execution/lifecycle tests)
         run: npm test -w @cloud-ide/backend

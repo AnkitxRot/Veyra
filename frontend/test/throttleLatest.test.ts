@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { throttleLatest } from "../src/utils/throttleLatest";
+import { throttleLatest, throttleDirtyPaths } from "../src/utils/throttleLatest";
 
 describe("throttleLatest — presence-update throttle primitive (200ms boundary)", () => {
   beforeEach(() => {
@@ -60,5 +60,48 @@ describe("throttleLatest — presence-update throttle primitive (200ms boundary)
     throttled.cancel();
     vi.advanceTimersByTime(500);
     expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("flush() delivers the latest pending value immediately", () => {
+    const fn = vi.fn();
+    const throttled = throttleLatest(fn, 200);
+    throttled("a");
+    throttled("b");
+    throttled.flush();
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith("b");
+    vi.advanceTimersByTime(500);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("throttleDirtyPaths — per-path coalescing", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not drop the first path when a second path is edited in the same window", () => {
+    const fn = vi.fn();
+    const throttled = throttleDirtyPaths(fn, 200);
+    throttled("a.py");
+    throttled("b.py");
+    vi.advanceTimersByTime(200);
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(fn).toHaveBeenCalledWith("a.py");
+    expect(fn).toHaveBeenCalledWith("b.py");
+  });
+
+  it("flush() sends every dirty path before close", () => {
+    const fn = vi.fn();
+    const throttled = throttleDirtyPaths(fn, 200);
+    throttled("a.py");
+    throttled("b.py");
+    throttled.flush();
+    expect(fn.mock.calls.map((c) => c[0]).sort()).toEqual(["a.py", "b.py"]);
+    vi.advanceTimersByTime(500);
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

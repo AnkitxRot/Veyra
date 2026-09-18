@@ -55,6 +55,26 @@ export interface AppConfig {
    *  client of the same user before it is reaped. Must sit above the client
    *  reconnect ceiling and below the sandbox room-empty grace. */
   terminalDetachGraceMs: number;
+  /** M81 — global cap on live language-server processes. */
+  maxLspServers: number;
+  /** M81/M82 — per-project cap: one Python + one TypeScript/JavaScript server. */
+  maxLspServersPerProject: number;
+  lspIdleTimeoutMs: number;
+  lspStartupTimeoutMs: number;
+  lspRestartWindowMs: number;
+  lspMaxRestarts: number;
+  lspMessageMaxBytes: number;
+  /** M83 — global cap on live debug sessions (starting/running/paused). */
+  maxDebugSessions: number;
+  maxDebugSessionsPerProject: number;
+  maxDebugSessionsPerUser: number;
+  debugStartupTimeoutMs: number;
+  debugRequestTimeoutMs: number;
+  debugSessionTimeoutMs: number;
+  debugMessageMaxBytes: number;
+  debugMaxStackFrames: number;
+  debugMaxVariables: number;
+  debugMaxOutputChars: number;
   shutdownGraceMs: number;
   frontendDist: string;
   containerized: boolean;
@@ -133,7 +153,11 @@ export const DEFAULT_LIMITS: Limits = {
   coreBytes: 0,
   cpuQuota: 100_000,
   memoryBytes: 512 * 1024 * 1024,
-  pidsLimit: 64,
+  // Docker's --pids-limit counts threads, and the sandbox also hosts the IDE's
+  // own Node tools. Measured (M86): the TypeScript language server stack plus
+  // a two-file `npm test` peaked at 58 threads, so 64 hung test runs in a
+  // futex. 256 still contains fork bombs; memory and CPU stay the main bound.
+  pidsLimit: 256,
 };
 
 /**
@@ -292,6 +316,92 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       boundedIntEnv("TERMINAL_DETACH_GRACE_MS", 90_000, {
         min: 5_000,
         max: 600_000,
+      }),
+    // M82 — language servers are long-lived sandbox processes. 8 concurrent
+    // servers is a hard ceiling under the default 20-sandbox host cap (a
+    // TypeScript server is heavier than pylsp, so we do not raise this). Idle
+    // sessions are evicted first when the ceiling is hit. Per project: one
+    // Python + one TypeScript/JavaScript server.
+    maxLspServers:
+      overrides.maxLspServers ??
+      boundedIntEnv("MAX_LSP_SERVERS", 8, { min: 1, max: 64 }),
+    maxLspServersPerProject:
+      overrides.maxLspServersPerProject ??
+      boundedIntEnv("MAX_LSP_SERVERS_PER_PROJECT", 2, { min: 1, max: 8 }),
+    lspIdleTimeoutMs:
+      overrides.lspIdleTimeoutMs ??
+      boundedIntEnv("LSP_IDLE_TIMEOUT_MS", 120_000, {
+        min: 5_000,
+        max: 3_600_000,
+      }),
+    lspStartupTimeoutMs:
+      overrides.lspStartupTimeoutMs ??
+      boundedIntEnv("LSP_STARTUP_TIMEOUT_MS", 30_000, {
+        min: 1_000,
+        max: 120_000,
+      }),
+    lspRestartWindowMs:
+      overrides.lspRestartWindowMs ??
+      boundedIntEnv("LSP_RESTART_WINDOW_MS", 60_000, {
+        min: 1_000,
+        max: 600_000,
+      }),
+    lspMaxRestarts:
+      overrides.lspMaxRestarts ??
+      boundedIntEnv("LSP_MAX_RESTARTS", 3, { min: 0, max: 20 }),
+    lspMessageMaxBytes:
+      overrides.lspMessageMaxBytes ??
+      boundedIntEnv("LSP_MESSAGE_MAX_BYTES", 1024 * 1024, {
+        min: 16_384,
+        max: 4 * 1024 * 1024,
+      }),
+    // M83 — debug adapters are heavier than a normal run. 4 live sessions
+    // globally, 2 per project (two users), 1 per user. Timeouts fail closed
+    // rather than restarting (no restart storm).
+    maxDebugSessions:
+      overrides.maxDebugSessions ??
+      boundedIntEnv("MAX_DEBUG_SESSIONS", 4, { min: 1, max: 32 }),
+    maxDebugSessionsPerProject:
+      overrides.maxDebugSessionsPerProject ??
+      boundedIntEnv("MAX_DEBUG_SESSIONS_PER_PROJECT", 2, { min: 1, max: 8 }),
+    maxDebugSessionsPerUser:
+      overrides.maxDebugSessionsPerUser ??
+      boundedIntEnv("MAX_DEBUG_SESSIONS_PER_USER", 1, { min: 1, max: 4 }),
+    debugStartupTimeoutMs:
+      overrides.debugStartupTimeoutMs ??
+      boundedIntEnv("DEBUG_STARTUP_TIMEOUT_MS", 30_000, {
+        min: 1_000,
+        max: 120_000,
+      }),
+    debugRequestTimeoutMs:
+      overrides.debugRequestTimeoutMs ??
+      boundedIntEnv("DEBUG_REQUEST_TIMEOUT_MS", 10_000, {
+        min: 500,
+        max: 60_000,
+      }),
+    debugSessionTimeoutMs:
+      overrides.debugSessionTimeoutMs ??
+      boundedIntEnv("DEBUG_SESSION_TIMEOUT_MS", 30 * 60_000, {
+        min: 10_000,
+        max: 2 * 60 * 60_000,
+      }),
+    debugMessageMaxBytes:
+      overrides.debugMessageMaxBytes ??
+      boundedIntEnv("DEBUG_MESSAGE_MAX_BYTES", 256 * 1024, {
+        min: 16_384,
+        max: 1024 * 1024,
+      }),
+    debugMaxStackFrames:
+      overrides.debugMaxStackFrames ??
+      boundedIntEnv("DEBUG_MAX_STACK_FRAMES", 32, { min: 4, max: 128 }),
+    debugMaxVariables:
+      overrides.debugMaxVariables ??
+      boundedIntEnv("DEBUG_MAX_VARIABLES", 50, { min: 8, max: 200 }),
+    debugMaxOutputChars:
+      overrides.debugMaxOutputChars ??
+      boundedIntEnv("DEBUG_MAX_OUTPUT_CHARS", 64 * 1024, {
+        min: 1024,
+        max: 1024 * 1024,
       }),
     // Defaults mirror collab/manager.ts's DEFAULT_* constants — duplicated
     // here as literals rather than imported, to keep this foundational

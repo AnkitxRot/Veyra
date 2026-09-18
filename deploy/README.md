@@ -71,6 +71,15 @@ DOCKER_GID=$(getent group docker | cut -d: -f3) docker compose build
 docker compose up -d
 ```
 
+The runner image includes pinned language servers: Python
+`python-lsp-server[pyflakes,pycodestyle]==1.12.2` in `/opt/lsp`, and
+`typescript@5.8.3` + `typescript-language-server@5.3.0`. Rebuild it after
+pull or language intelligence stays degraded (the editor still works).
+Language servers run as `docker exec` inside each project sandbox, not on
+the app host. Caps: `MAX_LSP_SERVERS` (default 8),
+`MAX_LSP_SERVERS_PER_PROJECT` (default 2), `LSP_IDLE_TIMEOUT_MS`
+(default 120000), `LSP_STARTUP_TIMEOUT_MS` (default 30000).
+
 ## Required environment variables
 
 `ADMIN_PASSWORD` is required in `.env` before the first deploy — `docker compose up`
@@ -87,6 +96,8 @@ will refuse to start without it. Everything else is optional and has a safe defa
 | `PROJECT_QUOTA`           | `20`         | Max projects per user.                                                                                                                                                                             |
 | `MAX_CONCURRENT_RUNS`     | `3`          | Max concurrent executions per user.                                                                                                                                                                |
 | `SANDBOX_IDLE_TIMEOUT_MS` | `1800000`    | Idle time before a sandbox is reaped.                                                                                                                                                              |
+| `MAX_LSP_SERVERS`         | `8`          | Concurrent language-server processes (Python + TypeScript/JavaScript, M82).                                                                                                                       |
+| `MAX_DEBUG_SESSIONS`      | `4`          | Concurrent live debug sessions (Python debugpy + Node/TypeScript js-debug, M83). Adapters run inside the project sandbox; they do not receive project secrets.                                   |
 | `SANDBOX_ROOM_EMPTY_GRACE_MS` | `120000` | Grace period after a project's collaboration room empties before its sandbox becomes eligible for early reaping (before the full idle timeout).                                                     |
 | `SECRETS_MASTER_KEY`      | _(unset)_    | Master key for **project secrets & environment variables** (M47). 32 bytes, encoded as base64 or 64 hex characters. Required only if any project uses the Secrets feature — see the section below. |
 
@@ -97,7 +108,7 @@ and any secrets your reverse proxy needs.
 
 Owners can attach encrypted per-project environment variables (marked as
 secrets or as plain config). They are injected into **runs and terminal
-sessions** — never into `install` — via a `0600` file staged inside the
+sessions** — never into `install` or **debug sessions** — via a `0600` file staged inside the
 sandbox container's tmpfs (values are never placed on a `docker` command
 line). Secret values are write-only: no API or UI path returns a stored
 secret value once written; the list view shows metadata plus an optional

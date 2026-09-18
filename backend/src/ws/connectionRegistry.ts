@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import type { Socket } from "node:net";
 import { terminalSessions } from "../execution/terminalSessions.js";
+import { debugSessions } from "../debug/manager.js";
 
 /**
  * Tracks every live, authenticated WebSocket connection (terminal, execute,
@@ -79,6 +80,11 @@ export function closeAllConnectionsForUser(
     terminalSessions.reapUser(userId);
   } catch {
     // Registry may not be in use (unit tests that never opened a PTY).
+  }
+  try {
+    debugSessions.disposeUser(userId);
+  } catch {
+    // Debug manager may not be in use in unit tests.
   }
 
   const set = connectionsByUser.get(userId);

@@ -5,7 +5,13 @@ import { promises as fs } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
+import {
+  makeTestConfig,
+  sandboxGitAvailable,
+  startTestApi,
+  stopProjectSandboxesForTest,
+  type TestApi,
+} from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
 import {
@@ -44,7 +50,9 @@ function gitAvailable(): boolean {
     return false;
   }
 }
-const HAS_GIT = gitAvailable();
+// M87: host Git drives the transport mirror and the test remote; project
+// Git runs in the sandbox.
+const HAS_GIT = gitAvailable() && sandboxGitAvailable();
 
 const tlsDir = mkdtempSync(join(tmpdir(), "cloudide-m80-tls-"));
 let tls: { certPath: string; keyPath: string } | null = null;
@@ -98,6 +106,7 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
   });
 
   afterEach(async () => {
+    await stopProjectSandboxesForTest(db);
     await api.close();
     try {
       await fs.rm(cfg.dataDir, { recursive: true, force: true });
@@ -324,11 +333,13 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
     const status = await api.request("GET", g("/status"), { token: ownerToken });
     expect(status.data.credentialsConfigured).toBe(true);
 
-    execFileSync(
-      "git",
-      ["-C", cwd, "remote", "set-url", "origin", "https://evil.test/org/repo.git"],
-      { stdio: "ignore" },
-    );
+    // A collaborator rewrites origin from the terminal (sandbox Git).
+    await git.runGit(cfg, projectId, [
+      "remote",
+      "set-url",
+      "origin",
+      "https://evil.test/org/repo.git",
+    ]);
     git._takeCapturedGitArgvForTests();
     const fetchRes = await api.request("POST", g("/fetch"), {
       token: ownerToken,
@@ -350,18 +361,12 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
       token: ownerToken,
       body: { username: "git", token: TOKEN },
     });
-    execFileSync(
-      "git",
-      [
-        "-C",
-        cwd,
-        "remote",
-        "set-url",
-        "origin",
-        "ssh://git@evil.test/org/repo.git",
-      ],
-      { stdio: "ignore" },
-    );
+    await git.runGit(cfg, projectId, [
+      "remote",
+      "set-url",
+      "origin",
+      "ssh://git@evil.test/org/repo.git",
+    ]);
     git._takeCapturedGitArgvForTests();
     const fetchRes = await api.request("POST", g("/fetch"), {
       token: ownerToken,
@@ -511,6 +516,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     try {
       await remote.close();
     } catch {}
+    await stopProjectSandboxesForTest(db);
     await api.close();
     try {
       await fs.rm(cfg.dataDir, { recursive: true, force: true });
@@ -541,7 +547,8 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
 
     const argv = git._takeCapturedGitArgvForTests().flat().join("\0");
     expect(argv).not.toContain(TOKEN);
-    expect(argv).toContain("clone");
+    // M87: the host mirror fetches; the project repo is built in the sandbox.
+    expect(argv).toContain("fetch");
 
     const audit = db
       .prepare(
@@ -739,6 +746,11 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
       "remote ahead",
     );
     const room = collaborationManager.getOrCreateRoom(id);
+    // Keep the edit in the room only: sandbox Git can outlast the 2s
+    // persistence debounce, which would make app.py dirty on disk.
+    (
+      room as unknown as { scheduleDebouncedPersistence: () => void }
+    ).scheduleDebouncedPersistence = () => {};
     const yText = await room.ensureFileLoaded("app.py");
     room.doc.transact(() => {
       yText.insert(yText.length, "# unsaved\n");
@@ -816,7 +828,9 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     expect(r.data.branch).toBe("main");
     const argvFlat = git._takeCapturedGitArgvForTests().flat();
     expect(argvFlat).toContain("push");
-    expect(argvFlat).toContain("main");
+    expect(
+      argvFlat.some((a) => /^[0-9a-f]{40}:refs\/heads\/main$/.test(a)),
+    ).toBe(true);
     expect(argvFlat).not.toContain("--force");
     expect(argvFlat).not.toContain("-f");
     expect(argvFlat.join("\0")).not.toContain(TOKEN);

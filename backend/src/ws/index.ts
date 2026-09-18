@@ -5,8 +5,13 @@ import { parse } from "node:url";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { requireProjectAccess } from "../projects/service.js";
-import { handleTerminalConnection } from "./terminal.js";
+import {
+  handleTerminalConnection,
+  parseTerminalResumeFlag,
+} from "./terminal.js";
 import { handleExecutionConnection } from "./execution.js";
+import { handleLspConnection } from "../lsp/ws.js";
+import { handleDebugConnection } from "../debug/ws.js";
 import { hashToken } from "../auth/middleware.js";
 import { AdminTelemetryStreamManager } from "../admin/telemetry-stream.js";
 import { collaborationManager } from "../collab/manager.js";
@@ -320,7 +325,9 @@ export function setupWebSocketServer(
       let accessRole: "owner" | "editor" | "viewer";
       try {
         const minRole =
-          pathname === "/ws/terminal" || pathname === "/ws/execute"
+          pathname === "/ws/terminal" ||
+          pathname === "/ws/execute" ||
+          pathname === "/ws/debug"
             ? "editor"
             : "viewer";
         const access = requireProjectAccess(db, row.id, projectId, minRole);
@@ -386,6 +393,7 @@ export function setupWebSocketServer(
               ? query.terminalId
               : undefined;
           const lastSeqRaw = Number(query.lastSeq);
+          const resume = parseTerminalResumeFlag(query.resume);
           handleTerminalConnection(
             ws,
             projectId,
@@ -394,6 +402,7 @@ export function setupWebSocketServer(
             db,
             terminalId,
             Number.isFinite(lastSeqRaw) ? lastSeqRaw : 0,
+            resume,
           ).catch((err) => {
             console.error("[ws] terminal connection error:", err);
             ws.close();
@@ -422,6 +431,44 @@ export function setupWebSocketServer(
             console.error("[ws] execution connection error:", err);
             ws.close();
           });
+        });
+      } else if (pathname === "/ws/debug") {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          adoptClient(ws, {
+            pathname: pathname ?? undefined,
+            userId: String(row.id),
+          });
+          registerConnection(row.id, ws);
+          ws.on("close", () => unregisterConnection(row.id, ws));
+          ws.on("error", (err) => {
+            console.error("[ws] debug socket error:", err);
+            unregisterConnection(row.id, ws);
+          });
+          handleDebugConnection(ws, projectId, row.id, cfg).catch((err) => {
+            console.error("[ws] debug connection error:", err);
+            ws.close();
+          });
+        });
+      } else if (pathname === "/ws/lsp") {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          adoptClient(ws, {
+            pathname: pathname ?? undefined,
+            userId: String(row.id),
+          });
+          registerConnection(row.id, ws);
+          ws.on("close", () => unregisterConnection(row.id, ws));
+          ws.on("error", (err) => {
+            console.error("[ws] lsp socket error:", err);
+            unregisterConnection(row.id, ws);
+          });
+          const language =
+            typeof query.language === "string" ? query.language : "";
+          handleLspConnection(ws, projectId, language, row.id, cfg).catch(
+            (err) => {
+              console.error("[ws] lsp connection error:", err);
+              ws.close();
+            },
+          );
         });
       } else {
         socket.write("HTTP/1.1 404 Not Found\r\n\r\n");

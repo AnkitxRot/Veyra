@@ -7,7 +7,12 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { getWebSocketUrl } from "../api";
+import {
+  getWebSocketUrl,
+  getWorkflow,
+  type WorkflowTask,
+  type WorkflowTestResult,
+} from "../api";
 import {
   detectMissingDependency,
   MissingDependencyMatch,
@@ -30,6 +35,12 @@ export type RunDetail = {
   langDisplay?: string;
 };
 
+export type WorkflowRunDetail = {
+  taskId: string;
+  targetPath?: string;
+  label?: string;
+};
+
 export type ExecutionSessionValue = {
   logs: LogLine[];
   status: ExecutionStatus;
@@ -37,7 +48,13 @@ export type ExecutionSessionValue = {
   isInstalling: boolean;
   executionId: string | null;
   missingDependencyHint: MissingDependencyMatch | null;
+  workflowTasks: WorkflowTask[];
+  testResults: WorkflowTestResult[];
+  lastWorkflowTaskId: string | null;
+  lastWorkflowKind: "test" | "build" | null;
   run: (detail: RunDetail) => void;
+  runWorkflow: (detail: WorkflowRunDetail) => void;
+  refreshWorkflow: () => void;
   stop: () => void;
   sendStdin: (text: string) => void;
   clearLogs: () => void;
@@ -63,8 +80,15 @@ const capLogs = (next: LogLine[]) =>
  */
 export function ExecutionSessionProvider({
   projectId,
+  prepareRun,
   children,
-}: React.PropsWithChildren<{ projectId: string | null }>) {
+}: React.PropsWithChildren<{
+  projectId: string | null;
+  /** M86: flush dirty editor buffers before a Test/Build task starts (Run
+   *  and Debug already do this in IDE before dispatching). Best-effort: the
+   *  server persists the collaboration room before executing either way. */
+  prepareRun?: () => Promise<void>;
+}>) {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [status, setStatus] = useState<ExecutionStatus>({
     text: "Idle",
@@ -75,6 +99,33 @@ export function ExecutionSessionProvider({
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [missingDependencyHint, setMissingDependencyHint] =
     useState<MissingDependencyMatch | null>(null);
+  const [workflowTasks, setWorkflowTasks] = useState<WorkflowTask[]>([]);
+  const [testResults, setTestResults] = useState<WorkflowTestResult[]>([]);
+  const [lastWorkflowTaskId, setLastWorkflowTaskId] = useState<string | null>(
+    null,
+  );
+  const [lastWorkflowKind, setLastWorkflowKind] = useState<
+    "test" | "build" | null
+  >(null);
+
+  // Reset derived session state during render when the project identity
+  // changes so the first paint of project B cannot show project A's logs,
+  // Test Explorer results, or a stuck isRunning flag. Socket teardown still
+  // happens in the projectId effect below.
+  const [sessionPid, setSessionPid] = useState(projectId);
+  if (sessionPid !== projectId) {
+    setSessionPid(projectId);
+    setLogs([]);
+    setStatus({ text: "Idle", type: "idle" });
+    setIsRunning(false);
+    setIsInstalling(false);
+    setExecutionId(null);
+    setMissingDependencyHint(null);
+    setWorkflowTasks([]);
+    setTestResults([]);
+    setLastWorkflowTaskId(null);
+    setLastWorkflowKind(null);
+  }
 
   const wsRef = useRef<WebSocket | null>(null);
   const runRafIdRef = useRef<number | null>(null);
@@ -85,6 +136,16 @@ export function ExecutionSessionProvider({
     useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const installRafIdRef = useRef<number | null>(null);
   const installInFlightRef = useRef(false);
+  const workflowGenRef = useRef(0);
+  const prepareRunRef = useRef(prepareRun);
+  prepareRunRef.current = prepareRun;
+  /** M86: Stop pressed while the execution socket was still connecting. */
+  const pendingStopRef = useRef(false);
+  /** M86: a Test/Build request is flushing buffers; ignore repeat clicks. */
+  const preparingRef = useRef(false);
+  /** M86: bumped on project switch / unmount so a request that finishes
+   *  preparing afterwards never opens a socket for the old session. */
+  const sessionGenRef = useRef(0);
 
   // M43: the install flow needs the *current* isRunning value as a
   // defense-in-depth check backing Toolbar's own disabled-button enforcement.
@@ -95,22 +156,76 @@ export function ExecutionSessionProvider({
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
-  const run = useCallback(
-    (detail: RunDetail) => {
+  const refreshWorkflow = useCallback(() => {
+    const gen = ++workflowGenRef.current;
+    if (!projectId) {
+      setWorkflowTasks([]);
+      return;
+    }
+    try {
+      void getWorkflow(projectId)
+        .then((manifest) => {
+          if (gen !== workflowGenRef.current) return;
+          setWorkflowTasks(Array.isArray(manifest?.tasks) ? manifest.tasks : []);
+        })
+        .catch(() => {
+          if (gen !== workflowGenRef.current) return;
+          setWorkflowTasks([]);
+        });
+    } catch {
+      if (gen !== workflowGenRef.current) return;
+      setWorkflowTasks([]);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    refreshWorkflow();
+  }, [refreshWorkflow]);
+
+  useEffect(() => {
+    const onSave = (e: Event) => {
+      const path = (e as CustomEvent).detail?.path as string | undefined;
+      if (!path || typeof path !== "string") return;
+      const base = path.replace(/\\/g, "/").split("/").pop() || path;
+      if (
+        base === "package.json" ||
+        base === "pytest.ini" ||
+        base === "conftest.py" ||
+        base === "pyproject.toml" ||
+        base === "requirements.txt" ||
+        /^test_.*\.py$/.test(base) ||
+        /_test\.py$/.test(base)
+      ) {
+        refreshWorkflow();
+      }
+    };
+    document.addEventListener("ide-save", onSave);
+    return () => document.removeEventListener("ide-save", onSave);
+  }, [refreshWorkflow]);
+
+  const startExecution = useCallback(
+    (opts: {
+      startMessage: Record<string, unknown>;
+      label: string;
+      activeFile?: string;
+      language?: string;
+      workflowTaskId?: string;
+      workflowKind?: "test" | "build";
+    }) => {
       if (!projectId) return;
-      const { language, activeFile, langDisplay } = detail || ({} as RunDetail);
 
       const time = new Date().toLocaleTimeString();
       setLogs([
         {
           type: "system",
-          text: `Starting execution (${activeFile ? `${activeFile} → ` : ""}${langDisplay || language})...`,
+          text: opts.label,
           time,
         },
       ]);
-      // M44: a new run starts with a clean slate — any missing-dependency
-      // hint belongs to the run that produced it, never to this new one.
       setMissingDependencyHint(null);
+      if (opts.workflowKind === "test") setTestResults([]);
+      if (opts.workflowTaskId) setLastWorkflowTaskId(opts.workflowTaskId);
+      if (opts.workflowKind) setLastWorkflowKind(opts.workflowKind);
       runInFlightRef.current = true;
       setIsRunning(true);
       setExecutionId(
@@ -134,6 +249,7 @@ export function ExecutionSessionProvider({
       let accStdout = "";
       let accStderr = "";
       let logBuffer: LogLine[] = [];
+      let workflowTests: WorkflowTestResult[] | undefined;
 
       const flushLogs = () => {
         if (logBuffer.length === 0) return;
@@ -153,11 +269,19 @@ export function ExecutionSessionProvider({
         }
       };
 
+      pendingStopRef.current = false;
       ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "start", language, activeFile }));
+        ws.send(JSON.stringify(opts.startMessage));
+        if (pendingStopRef.current && wsRef.current === ws) {
+          pendingStopRef.current = false;
+          ws.send(JSON.stringify({ type: "stop" }));
+        }
       };
 
+      let endedByError = false;
+
       ws.onmessage = (msg) => {
+        if (endedByError) return;
         try {
           const parsed = JSON.parse(msg.data);
 
@@ -173,9 +297,39 @@ export function ExecutionSessionProvider({
             accStderr += parsed.data;
             appendLog({ type: "error", text: parsed.data });
             setStatus({ text: "Error", type: "error" });
+            // M86: the server sends `error` only once this attempt is over
+            // (refused before start — e.g. live edits that could not be
+            // persisted — or failed) and leaves the socket open. End the
+            // attempt so Run / Test / Stop do not stay stuck in "Running".
+            endedByError = true;
+            if (runRafIdRef.current !== null) {
+              cancelAnimationFrame(runRafIdRef.current);
+              runRafIdRef.current = null;
+            }
+            flushLogs();
+            ws.onclose = null;
+            ws.onerror = null;
+            ws.close();
+            if (wsRef.current === ws) wsRef.current = null;
+            runInFlightRef.current = false;
+            setIsRunning(false);
+            setExecutionId(null);
+            document.dispatchEvent(new Event("run-stopped"));
+          } else if (parsed.type === "workflow") {
+            if (Array.isArray(parsed.tests)) {
+              const next = parsed.tests.slice(0, 200) as WorkflowTestResult[];
+              workflowTests = next;
+              setTestResults(next);
+            }
+            if (parsed.kind === "test" || parsed.kind === "build") {
+              setLastWorkflowKind(parsed.kind);
+            }
+            if (typeof parsed.taskId === "string") {
+              setLastWorkflowTaskId(parsed.taskId);
+            }
           } else if (parsed.type === "exit") {
             exitedNormally = true;
-            const { exitCode, signal, timedOut, oom } = parsed.result;
+            const { exitCode, signal, timedOut, oom } = parsed.result ?? {};
             let statusText = `Process exited with code ${exitCode}`;
             if (signal) statusText += ` (signal: ${signal})`;
             if (timedOut) statusText = "Process timed out";
@@ -193,6 +347,12 @@ export function ExecutionSessionProvider({
               });
             }
 
+            if (Array.isArray(parsed.tests)) {
+              const next = parsed.tests.slice(0, 200) as WorkflowTestResult[];
+              workflowTests = next;
+              setTestResults(next);
+            }
+
             if (runRafIdRef.current !== null) {
               cancelAnimationFrame(runRafIdRef.current);
               runRafIdRef.current = null;
@@ -206,7 +366,6 @@ export function ExecutionSessionProvider({
               text: exitCode === 0 ? "Exited (0)" : `Exited (${exitCode})`,
               type: exitCode === 0 ? "success" : "error",
             });
-            // M44: only a failing run's own stderr is ever inspected.
             setMissingDependencyHint(
               exitCode !== 0 ? detectMissingDependency(accStderr) : null,
             );
@@ -220,8 +379,9 @@ export function ExecutionSessionProvider({
                     stdout: accStdout || parsed.result?.stdout || "",
                     stderr: accStderr || parsed.result?.stderr || "",
                   },
-                  activeFile,
-                  language,
+                  activeFile: opts.activeFile,
+                  language: opts.language,
+                  tests: workflowTests,
                 },
               }),
             );
@@ -274,9 +434,61 @@ export function ExecutionSessionProvider({
     [projectId],
   );
 
+  const run = useCallback(
+    (detail: RunDetail) => {
+      const { language, activeFile, langDisplay } = detail || ({} as RunDetail);
+      startExecution({
+        startMessage: { type: "start", language, activeFile },
+        label: `Starting execution (${activeFile ? `${activeFile} → ` : ""}${langDisplay || language})...`,
+        activeFile,
+        language,
+      });
+    },
+    [startExecution],
+  );
+
+  const runWorkflow = useCallback(
+    async (detail: WorkflowRunDetail) => {
+      if (!detail?.taskId || preparingRef.current) return;
+      const prepare = prepareRunRef.current;
+      if (prepare) {
+        const gen = sessionGenRef.current;
+        preparingRef.current = true;
+        try {
+          await prepare();
+        } catch {
+          // Best-effort: the server still persists the room before running.
+        } finally {
+          preparingRef.current = false;
+        }
+        if (gen !== sessionGenRef.current) return;
+      }
+      const task = workflowTasks.find((t) => t.id === detail.taskId);
+      startExecution({
+        startMessage: {
+          type: "start",
+          workflow: {
+            taskId: detail.taskId,
+            ...(detail.targetPath ? { targetPath: detail.targetPath } : {}),
+          },
+        },
+        label: `Starting ${task?.kind ?? "task"} (${detail.label || task?.name || detail.taskId})...`,
+        language: task?.kind,
+        workflowTaskId: detail.taskId,
+        workflowKind: task?.kind,
+      });
+    },
+    [startExecution, workflowTasks],
+  );
+
   const stop = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "stop" }));
+    const ws = wsRef.current;
+    // M86: Stop pressed before the socket opened would be dropped and the
+    // program would run to its timeout. Queue it; onopen sends it after start.
+    const queue = ws?.readyState === WebSocket.CONNECTING;
+    if (queue) pendingStopRef.current = true;
+    if (ws && (queue || ws.readyState === WebSocket.OPEN)) {
+      if (!queue) ws.send(JSON.stringify({ type: "stop" }));
       setLogs((prev) => [
         ...prev,
         {
@@ -440,10 +652,20 @@ export function ExecutionSessionProvider({
     };
   }, [run, stop, install]);
 
-  // Lifecycle reset — on projectId change AND on provider unmount, run the
-  // teardown that was previously Output's run-effect + install-effect cleanup.
+  useEffect(() => {
+    const onWorkflowAll = () => {
+      const task = workflowTasks.find((t) => t.kind === "test");
+      if (task) runWorkflow({ taskId: task.id });
+    };
+    document.addEventListener("ide-workflow-run-all", onWorkflowAll);
+    return () =>
+      document.removeEventListener("ide-workflow-run-all", onWorkflowAll);
+  }, [workflowTasks, runWorkflow]);
+
+  // Lifecycle teardown — on projectId change AND on provider unmount.
   useEffect(() => {
     return () => {
+      sessionGenRef.current += 1;
       const ws = wsRef.current;
       if (ws && ws.readyState !== WebSocket.CLOSED) {
         ws.onclose = null;
@@ -491,7 +713,13 @@ export function ExecutionSessionProvider({
       isInstalling,
       executionId,
       missingDependencyHint,
+      workflowTasks,
+      testResults,
+      lastWorkflowTaskId,
+      lastWorkflowKind,
       run,
+      runWorkflow,
+      refreshWorkflow,
       stop,
       sendStdin,
       clearLogs,
@@ -506,7 +734,13 @@ export function ExecutionSessionProvider({
       isInstalling,
       executionId,
       missingDependencyHint,
+      workflowTasks,
+      testResults,
+      lastWorkflowTaskId,
+      lastWorkflowKind,
       run,
+      runWorkflow,
+      refreshWorkflow,
       stop,
       sendStdin,
       clearLogs,

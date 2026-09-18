@@ -12,7 +12,7 @@ export default defineConfig({
     hookTimeout: 60000,
     server: {
       deps: {
-        external: [/^node:/],
+        external: [/^node:/, "playwright"],
       },
     },
   },

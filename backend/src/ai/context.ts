@@ -1,8 +1,8 @@
-import { promises as fs } from "node:fs";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
 import { safeResolve, assertInsideWorkspace } from "../files/service.js";
+import { readConfinedFile } from "../files/confined.js";
 import { searchProjectContent } from "../projects/search.js";
 import { searchGate } from "../execution/runGate.js";
 import type { AIContextBundle } from "./provider.js";
@@ -55,7 +55,7 @@ export async function buildAIContext(
   try {
     const fullPath = safeResolve(baseDir, opts.activeFilePath);
     await assertInsideWorkspace(baseDir, fullPath);
-    fileContent = await fs.readFile(fullPath, "utf-8");
+    fileContent = (await readConfinedFile(baseDir, fullPath)).content;
   } catch {
     fileContent = "";
   }

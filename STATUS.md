@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-09-13.
+Last updated: 2026-09-14.
 
 ## Current state
 
@@ -102,19 +102,15 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
     - `ce2007c` — new projects runnable by default: 9 self-contained starter
       templates, each with a detector-recognised entry file that auto-opens
       after creation; `validateTemplates()` module-load fail-fast.
-- **Current work (this commit):** M80 stabilization on top of `95d0679`.
-  HTTPS remotes are unchanged in product scope. This pass:
-  - makes backend lint CI-green by replacing the control-character regex
-    in `backend/src/git/remoteUrl.ts` with a `charCodeAt` loop (the
-    `no-control-regex` rule stays enforced);
-  - host-pins Git HTTPS credentials (`GIT_HTTPS_HOST`) so a PAT cannot
-    follow `origin` onto a different host;
-  - strips query strings from client-visible remote URLs;
-  - fixes nested file-tree paths, upload collab conflicts, collab
-    dispose/`addClient` races, terminal logout reaping, proxy/tree cache
-    eviction on project delete, and a few frontend listener/timer leaks.
-  See **M80 stabilization** below. Historical M80 verification numbers
-  remain in the Milestone 80 section.
+  - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
+    sections. HEAD before this work: `e9a5350`.
+- **Current work (this commit):** M86 Workspace Read-Your-Writes. Run,
+  Test/Build, Debug launch, install, and Git stage now see the editor's
+  latest collaborative edits instead of the debounced disk copy; viewers can
+  no longer write through Yjs SyncStep2; `.git` is unreachable through
+  normalized/real-path workspace writes; the sandbox pids limit fits the IDE's
+  own language server. M85 workspace reliability remains in place. No AI.
+  See **Milestone 86**.
 - PR #1 and PR #2 merged previously; `fix/preview-proxy-ws-auth` branch deleted.
 
 Note on numbering: `M1`/`M2`/`M3` (this doc's original bug-fix codenames) and
@@ -9457,3 +9453,490 @@ path; commits 15–16 do not alter observable happy-path behaviour (both the
 full Docker-backed backend suite and the frontend suite confirm no
 regression). No fresh live pass was run for these two commits — stated here
 rather than implied.
+
+## Milestone 81 — Language Intelligence
+
+**Objective:** first live language-server slice for Veyra without a new
+daemon, without rewriting Monaco/Yjs, and without making the editor depend
+on LSP availability.
+
+**Slice.** Python only (`pylsp` from pinned `python-lsp-server==1.12.2` in
+`docker/Dockerfile.runner`, venv `/opt/lsp`). Java JDT LS and clangd were
+rejected for image size and startup cost. The allowlist in
+`backend/src/lsp/languages.ts` is the only way to add a language.
+
+**Architecture.**
+
+```text
+Monaco providers (once per browser process)
+  → /ws/lsp?projectId=&language=python
+  → LanguageServerManager (one LspSession per project+python)
+  → docker exec -i -u ide -w /workspace <sandbox> pylsp
+```
+
+- Process lives **inside the project sandbox**, not on the app host.
+- Executable and argv come from the server allowlist, never the client.
+- Document URIs must be under `file:///workspace/…`; others are dropped.
+- `workspace/executeCommand`, client `initialize`/`shutdown`/`exit` are
+  blocked. Backend owns initialize.
+- Environment inside the container is explicit (`HOME=/tmp`, XDG_*,
+  `PYTHONUNBUFFERED`) — no Git PAT, no `SECRETS_MASTER_KEY`, no host env.
+- Host `docker` CLI env is a PATH/DOCKER_* allowlist, not `process.env`.
+- No SQLite/Yjs storage of LSP state.
+
+**Editor.** `useLanguageIntelligence` connects when a project has an open
+`.py` / `.pyi` file. `didChange` is throttled (200ms) from the live Monaco
+model, not from disk. Diagnostics use Monaco marker owner `lsp`, separate
+from post-run `cloudeee-problems`. Providers no-op when the bridge is not
+`ready`. Toolbar **Py LSP** chip; Problems panel merges run + LSP
+diagnostics.
+
+**Lifecycle.** Start once per project; reuse across collaborators; idle
+reap (default 120s); startup timeout (15s) → `unavailable` without a
+restart storm; crash → bounded restart (3 / 60s) then `failed`; project
+delete / sandbox `performStop` / process shutdown dispose sessions.
+
+**Caps.** `maxLspServers=8`, `maxLspServersPerProject=1`. Hitting the
+global cap with no idle victim returns `busy`; the editor stays usable.
+
+**Authz.** `/ws/lsp` uses the same project access check as collab (viewer+).
+Unauthenticated → 401; non-member → 403; unknown language → 1008.
+
+**Proven in tests (fake stdio language server, no Docker required):**
+diagnostics, completion, hover, definition, references, document symbols,
+workspace/symbol, session reuse, project isolation, idle reap, crash cap,
+startup timeout, spawn failure, malformed frame, process cap, executeCommand
+blocked, URI escape rejected, WS authz.
+
+**Not proven against a live `pylsp` in this environment** (no Docker CLI on
+the Windows workstation). CI builds `cloudeeeide-runner:latest` which
+installs the pinned server. Treat live pylsp as CI / deployment-proven
+once Actions is green.
+
+**Deferred (at M81):** rename, Java, C++, TypeScript LSP, workspace refactor,
+client-chosen servers, debugger. TypeScript LSP is implemented in M82.
+
+Live `pylsp` inside `cloudeeeide-runner` is installed by the Dockerfile
+CI job; M82 adds Docker-backed and Playwright proofs.
+
+## Milestone 82 — Production Language Intelligence
+
+**Objective:** evolve Veyra from "Python LSP works" into a reusable
+language-intelligence subsystem with first-class TypeScript/JavaScript
+(and TSX/JSX) intelligence, real pylsp E2E, canonical document sync, and
+lifecycle/security hardening. No AI assistant, debugger, rename engine, or
+Java/C++ LSP.
+
+**Architecture.**
+
+```text
+Monaco providers (once per browser process; python + typescript + javascript)
+  → /ws/lsp?projectId=&language=python|typescript
+  → LanguageServerManager (one LspSession per project+language)
+  → docker exec -i -u ide -w /workspace <sandbox> pylsp
+                                           typescript-language-server --stdio
+```
+
+Adapter layer is `backend/src/lsp/languages.ts` (`LspLanguageSpec`):
+executable, args, extra env, initializationOptions, documentLanguageId.
+Shared: JSON-RPC framing, URI allowlist, process caps, idle/crash/timeout.
+
+**TypeScript implementation.** `typescript-language-server@5.3.0` (Apache-2.0)
+wrapping pinned `typescript@5.8.3` / tsserver. Chosen over talking to
+tsserver directly (custom protocol) and over 6.0.0 (requires Node >= 22.22).
+Installed in `docker/Dockerfile.runner`. Never downloaded at runtime. Does
+not run `npm install`.
+
+**Document sync.** One authoritative stream per file. Additional client
+`didOpen` does not overwrite. When a Yjs room holds the path, that text
+wins over a stale socket payload; Y.Text observers push `didChange`.
+Frontend coalesces dirty paths for 200ms and **flushes** on teardown so
+the last keystroke is not dropped.
+
+**Caps.** `maxLspServers=8` (unchanged — tsserver is heavier than pylsp).
+`maxLspServersPerProject=2` (Python + TypeScript/JS). Startup timeout 30s.
+Idle 120s. 3 restarts / 60s then `failed`. Logout closes that user's
+socket only.
+
+**Security.** Language and executable from the server allowlist. Workspace
+from authenticated project metadata. Host `docker` CLI env is a PATH/DOCKER_*
+allowlist. Container env is HOME/XDG/TMPDIR/LANG plus language-specific
+PYTHON* for pylsp only. `workspace/executeCommand` still blocked.
+
+**Tests.** Fake stdio server (no Docker): protocol, lifecycle, security,
+canonical docs, dual-language sessions. Docker-backed (CI-required): real
+pylsp and typescript-language-server diagnostics/completion/hover/definition/
+references/symbols, TSX, missing-module degradation. Playwright (CI-required
+when the runner image exists): browser → Monaco → `/ws/lsp` → sandbox →
+real servers.
+
+**Deferred:** rename, workspace-wide refactor, Java LSP, C/C++ LSP,
+debugger, profiler, notebooks, AI coding assistant, AI agents.
+
+
+**Verification (2026-09-13, outer repo `D:/cloudide`):**
+
+- Backend lint: 0 errors / 0 warnings
+- Frontend lint: 0 errors / 18 warnings (pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components` in Admin/Editor/IDE/Settings/Toolbar/execution/perf harness). Adding those deps would refetch or rebind on every render. **No M82-file warnings.**
+- Backend `tsc --noEmit`: clean
+- Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests: **1023 passed / 0 failed** (133 files)
+- Backend tests: **1289 passed / 68 skipped / 0 failed** (114 files)
+- Focused M82 backend `lsp-*.test.ts`: **53 passed / 5 skipped** (3 Docker + 2 Playwright skipped — no Docker CLI on this workstation)
+- Focused M82 frontend `lsp.*.test.ts(x)` + throttle: included in the 1023
+- `git diff --check`: clean
+
+This workstation cannot run Docker or Playwright-against-runner-image. Those tests **throw in CI** if Docker/the runner image/`frontend/dist`/Chromium are missing (`CI=true`). Live `pylsp` / `typescript-language-server` Docker tests **passed** on GitHub Actions for `7ae30ee` (1355 tests green); the first CI run failed only the Playwright file-open step because API-created projects do not auto-open the template entry file (Sidebar `onProjectBootstrapped` is the create-from-UI path). The e2e now clicks `main.py` / `main.ts` in the file tree.
+
+Pinned runner image packages: `python-lsp-server[pyflakes,pycodestyle]==1.12.2`, `typescript@5.8.3`, `typescript-language-server@5.3.0` (Apache-2.0), `tsx@4.19.4`. Playwright `1.55.1` is a backend devDependency used only by the browser E2E file.
+
+## Milestone 83 — Debugging Foundation
+
+**Objective:** first-class sandboxed debugging for Python and
+Node/TypeScript using the Debug Adapter Protocol, reusing the existing
+project sandbox. No Java/C++ debugger, no profiler, no AI, no
+collaborative debugger control, no expression evaluation.
+
+**Architecture.**
+
+```text
+Monaco gutter + Debug panel
+  → /ws/debug?projectId=  (mediated JSON, not raw DAP)
+  → DebugSessionManager (one session per projectId+userId)
+  → docker exec -i -u ide -w /workspace <sandbox> veyra-debugpy | veyra-js-debug
+  → debugpy.adapter  |  vscode-js-debug TCP + docker/js-debug-stdio.mjs
+  → user program
+```
+
+Adapters are allowlisted in `backend/src/debug/languages.ts`. The client
+may name `python` or `node` plus a workspace-relative entry file. It
+cannot name an executable, adapter binary, container ID, cwd, or env.
+
+**Adapters (pinned in `docker/Dockerfile.runner`, never downloaded at
+session time):**
+
+| Runtime | Package | License | Wrapper |
+| --- | --- | --- | --- |
+| Python | `debugpy==1.8.21` in `/opt/debug/python` | MIT | `veyra-debugpy` |
+| Node / TypeScript | `js-debug-dap-v1.117.0.tar.gz` | MIT | `veyra-js-debug` → stdio↔TCP bridge |
+
+TypeScript is precompiled inside the sandbox by `veyra-js-debug` (`tsc`
+emit under `/workspace/.cloudide-build-debug/<pid>`, source maps rewritten
+to `/workspace/*.ts`). `node --import tsx` is **not** used for debug
+launch — tsx is not resolvable from `/workspace`, and `/tmp` emit made
+js-debug relativize maps to `./../tmp/...`. TSX/JSX React files are not
+a debug target in M83. The TypeScript language server for the project is
+stopped for the duration of a debug session (tsserver + js-debug otherwise
+fail to bind child-session pauses).
+
+**Session ownership.** User-owned. Isolation is the project sandbox;
+control is `(projectId, userId)`. Collaborators cannot operate another
+user's session. Not stored in Yjs.
+
+**Unsaved files.** Debug launch flushes dirty editor buffers through the
+existing save path. Flush failure **refuses** launch. After launch, if
+the paused file becomes dirty, the panel reports a source mismatch; the
+debuggee keeps the launch snapshot.
+
+**Run vs Debug.** Additional mode. Run is unchanged. Run is disabled
+while debugging; Debug is disabled while running/installing.
+
+**Evaluate.** Not exposed. DAP `evaluate`, `runInTerminal`, and
+`startDebugging` are rejected.
+
+**Caps.** `maxDebugSessions=4`, `maxDebugSessionsPerProject=2`,
+`maxDebugSessionsPerUser=1`. Startup 30s (handshake `launch` uses this
+budget — vscode-js-debug does not respond until the debuggee boots),
+request 10s, session 30 min.
+Stack ≤ 32 frames, variables ≤ 50, values ≤ 512 chars, output ≤ 64 KiB,
+protocol frames ≤ 256 KiB.
+
+**Lifecycle.** Disconnect / logout / project delete / sandbox stop /
+shutdown terminate the session (no reattach). Hung adapters fail into
+`unavailable` without a restart storm.
+
+**Security.** Host `docker` CLI env is PATH/DOCKER_* allowlist. Container
+env is HOME/XDG/TMPDIR/LANG plus PYTHONUNBUFFERED for Python — no
+secrets file, no Git PAT, no backend env. Workspace paths use
+`normalizeRelPath` + `assertInsideWorkspace`. `/ws/debug` requires
+editor role.
+
+**Tests.** Fake stdio DAP adapter (no Docker): protocol, lifecycle,
+security, WS authz, stale parent `continued` / late events. Docker-backed
+(CI-required): real debugpy and js-debug in the sandbox, env leakage, path
+escape, TypeScript `.ts` breakpoints + mapped stacks + nested sources,
+TypeScript pause after tsserver was already running. Playwright
+(CI-required when the runner image exists): browser → Monaco → `/ws/debug`
+→ sandbox → real adapters for Python, Node, and TypeScript.
+
+**Deferred:** Java debugger, C/C++ debugger, profiler, remote debugging,
+collaborative debugger control, time-travel, conditional breakpoint UI,
+expression/watch evaluation, user-provided adapters, TSX/JSX debug.
+
+**Verification (2026-09-14, outer repo `D:/cloudide`):**
+
+- Backend lint: 0 errors / 0 warnings
+- Backend `tsc --noEmit`: clean
+- Frontend lint: 0 errors / 20 warnings (pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components`; adding exhaustive-deps would refetch or rebind on every render)
+- Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests: **1041 passed / 0 failed** (138 files)
+- Backend tests: **1411 passed / 9 skipped / 0 failed** (121 files)
+- Docker debugger: Python, Node, TypeScript (including nested maps and tsserver-already-running) **PROVEN**
+- Playwright debugger: Python, Node, TypeScript breakpoint / pause / variables / continue **PROVEN**
+- `git diff --check`: run before commit
+
+`veyra-js-debug` accepts vscode-js-debug's reverse `startDebugging`
+request inside the sandbox by opening a second localhost DAP connection
+to the same `dapDebugServer` — the backend still sees one stdio session.
+After the child session owns the debuggee, parent *events* are dropped
+so a stale parent `continued` cannot overwrite a real child pause
+(the Node browser "stays Running" race).
+
+Pinned runner image debug packages: `debugpy==1.8.21` (MIT), `js-debug-dap-v1.117.0` (MIT). Playwright `1.55.1` is a backend devDependency used only by the browser E2E files.
+
+## Milestone 84 — Test / Task / Build Workflow
+
+**Objective:** first-class discovery and execution of project tests and
+builds without an arbitrary command UI, and without a second process
+engine. No AI.
+
+**Architecture.**
+
+```text
+Test Explorer (Tests tab)
+  → GET /api/projects/:id/workflow   (viewer+; discovery only)
+  → /ws/execute { type: start, workflow: { taskId, targetPath? } }
+  → resolveWorkflowTask (allowlist)
+  → sandboxRun (same slot / runGate / Stop as Run)
+  → bounded parse → Test Explorer / Problems
+```
+
+The client may send only `taskId` and an optional workspace-relative
+`targetPath`. Extra keys (`command`, `args`, `env`, `cwd`, `container`)
+are rejected. Script **bodies** are never interpolated; npm is invoked
+as `npm run <validated-name>`.
+
+**Discovery (explicit adapters).**
+
+| Origin | Included | Excluded |
+| --- | --- | --- |
+| `package.json` scripts | `test`, `build`, `test:*`, `build:*` matching `^[A-Za-z0-9][A-Za-z0-9:._/-]{0,63}$` | `start`, `pretest`, `dev`, arbitrary names |
+| pytest | `pytest.ini`, `conftest.py`, `[tool.pytest`, `pytest` in requirements, `test_*.py` | invented runners |
+
+**Security.** Same sandbox as Run. No project secrets injected (same as
+install). No host execution. Paths use `normalizeRelPath` +
+`isForbiddenRelPath`. Live debugger on the project refuses workflow
+start. Viewers can discover; `/ws/execute` remains editor+.
+
+**Resource limits.** Shared `maxConcurrentRuns` / `runGate`. Output
+capped at 64 KiB. Parsed cases capped at 200. Timeout is
+`buildTimeoutMs` (60s default). Stop uses the existing controller kill.
+
+**Python.** Discovery and resolve are implemented. Execution is
+`python3 -m pytest -v --tb=short`. The runner image does **not**
+preinstall pytest — execution is PARTIAL until the project installs it.
+
+**Verification (2026-09-14, outer repo `D:/cloudide`):**
+
+- Backend lint: 0 errors / 0 warnings
+- Backend `tsc --noEmit`: clean
+- Frontend lint: 0 errors / 19 warnings (pre-existing `react-hooks/exhaustive-deps` and `react-refresh/only-export-components`)
+- Frontend `tsc --noEmit` + `vite build`: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests: **1047 passed / 0 failed**
+- Backend tests: **1436 passed / 9 skipped**; one pre-existing local flake
+  (`python-deps.test.ts` pip install hit the 60s `sandboxRun` watchdog —
+  not an M84 change). Workflow unit/security/docker/Playwright **passed**.
+- Docker: `npm run test` / `npm run build` / cancel hang **PROVEN**
+- Playwright: Test Explorer discover → run → failure location → build;
+  Stop on hanging task **PROVEN**
+- `git diff --check`: run before commit
+
+**Deferred:** Jest/Vitest-specific adapters, per-test-name reruns,
+watch mode, coverage UI, Java/C++ builds, arbitrary task JSON,
+persisted task history. pytest is not preinstalled on the runner image.
+
+## Milestone 85 — Workspace Intelligence & IDE Reliability
+
+**Objective:** keep Git + LSP + Debug + Test + Build correct when used
+together on a real-sized project. No AI, no new sandbox, no rename
+engine, no global recursive watcher.
+
+**Proven problems and fixes:**
+
+1. **File tree could walk without a cap.** `treeListing()` now stops at
+   8 000 entries / depth 24 and returns `truncated`. Generated dirs
+   (`__pycache__`, `.mypy_cache`, `.pytest_cache`, `.tox`, `.eggs`) join
+   the existing skip set. Project delete calls `forgetTreeCache` so
+   generation keys do not accumulate.
+2. **Search scanned `.cloudide-build-*` debug emit.** Worker skip list
+   now matches the tree's build prefix. Client disconnect aborts the
+   worker (`AbortSignal`) and releases the search gate.
+3. **Git pull left a stale explorer.** Authoritative Git mutations
+   (checkout **and** pull) refresh the tree. Clone invalidates the cache
+   after files land.
+4. **Problems leaked across project switch.** Run/test diagnostics and
+   LSP chips are cleared with the tree/tabs. LSP still emits `stopped`
+   on teardown.
+5. **Pytest discovery missed nested `tests/unit/test_*.py` and
+   `*_test.py`.** Bounded walk (depth 4, 64 dirs). Saving
+   `package.json` / pytest markers rediscovers tasks; Test Explorer has
+   Refresh.
+6. **Workspace symbols had protocol support but no UI.** Command palette
+   `#` / **Go to Symbol in Workspace** uses `workspace/symbol` from
+   ready language servers. Paths outside `/workspace` are dropped.
+   **Rename is deferred** — applying LSP edits through Yjs is not
+   atomic.
+7. **Project switch left Output / Test Explorer state.** Closing the
+   execute socket with `onclose` nulled did not clear `isRunning` or
+   logs, so project B could look like it was still running project A's
+   process. A late `getWorkflow` for A could also overwrite B's tasks.
+   Session state now resets when `projectId` changes, and workflow
+   fetches are generation-gated.
+8. **Quick Open tied exact filenames without preferring the workspace
+   root.** Query `main.ts` now ranks `main.ts` above `pkg/main.ts`.
+9. **node:test TAP results had no file:line.** YAML `location:` is now
+   parsed so Test Explorer can open the failing test.
+10. **A failing test run stole the Tests tab.** ide-execution-result switched
+    to Problems whenever exitCode was non-zero and diagnostics existed.
+    Once TAP locations existed, that unmounted Test Explorer before results
+    painted. Test runs now keep the Tests tab; Problems still receives the
+    diagnostics.
+
+**Not added (evidence):** no SQLite search index (tree + worker search
+are sufficient at the tested scale); no recursive fs.watch (mutation
+paths already invalidate); no PTY restore across browser reload (M79
+still deferred — session ownership/security).
+
+**Tests.** `workspace-scale.test.ts` (large fixture), tree truncation,
+search skip/abort, nested pytest, pylsp multi-file definition,
+Command palette symbols, project-switch wiring, Playwright developer
+journey (open file → run tests → open failure → git commit).
+
+**Verification (2026-09-14, outer repo D:/cloudide, Node v24.19.0, Docker 29.7.2, runner image cloudeeeide-runner:latest 67c969e1c2da):**
+
+- Backend lint: 0 errors / 0 warnings
+- Backend `tsc --noEmit`: clean
+- Frontend lint: 0 errors / 19 warnings (pre-existing react-hooks/exhaustive-deps and react-refresh/only-export-components)
+- Frontend `tsc --noEmit` + `vite build` with NODE_OPTIONS=--max-old-space-size=4096: clean (pre-existing Monaco chunk-size warning)
+- Frontend tests (`CI=true npm test -w @cloud-ide/frontend`): **1059 passed / 0 failed** (144 files)
+- Backend tests (`CI=true npm test -w @cloud-ide/backend`): **1451 passed / 9 skipped / 0 failed** (129 files)
+- Docker: tree/search scale fixture, nested pytest discovery, pylsp multi-file `pkg.util.helper` definition, workflow npm test/build/cancel, debugger Python/Node/TypeScript **PROVEN**
+- Playwright (full suite + a second pass of journey/workflow/debug/LSP browser files): Test Explorer stay-on-tab, TAP location navigation, git init/stage/commit via API **PROVEN**
+- `git diff --check`: run before commit
+
+**Deferred:** semantic rename, Java/C++ LSP/debug, terminal reload
+persistence, search of `node_modules` on demand, monorepo project
+references beyond whatever tsserver already does for a single
+`tsconfig.json`.
+
+## Milestone 86 — Workspace Read-Your-Writes
+
+**Objective:** Run, Test/Build, Debug launch, dependency install, and Git
+stage operate on what the editor shows — not on whatever the collaboration
+persistence debounce last wrote. No new subsystem, no AI.
+
+**Proven problem.** Collaboration is always on: every keystroke lands in the
+server `Y.Doc` and reaches disk only after the 2s debounce (10s max). All of
+the consumers above read the workspace from disk. Run and Debug POSTed the
+invoking user's *dirty tabs* first; Test/Build and Git stage did nothing, and
+nobody covered a collaborator's last-second edits. Docker-backed tests were
+RED on `main`: Run of a room-only file failed with
+`python3: can't open file '/workspace/fresh.py'`, and a test task ran the old
+test file.
+
+**Architecture.**
+
+```text
+consumer (after authorization)
+  → collaborationManager.persistLiveEdits(projectId)
+  → CollaborationRoom.persistLiveEdits()   dirty files only, 5s bound
+      join in-flight pass → still dirty? → one serialized pass
+  → ok: continue   |   not ok: refuse, naming the files
+```
+
+- **Serialized flush passes.** One running + at most one coalesced queued
+  pass (`runFlushPass` / `startFlushPass`). Overlapping passes could let an
+  older snapshot of a file land after a newer one.
+- **Dirty stays dirty if the text changed during its write.** Otherwise the
+  barrier could report "persisted" while disk holds older bytes.
+- **Clean rooms are not rewritten.** The barrier never uses the legacy
+  "write every non-empty key" fallback, so consumers never bump mtimes of
+  unchanged files (watch-mode tools in the sandbox would restart).
+- **Refuse, never guess.** `/ws/execute` sends an `error` ("not started so
+  stale code is not run"); Git stage and install return
+  `409 live_edits_not_persisted` with `unpersisted`; debug sends an error.
+  Keys that can never be written (`EISDIR`, `ENOTDIR`, `ENOENT` parent,
+  `ENAMETOOLONG`, `EINVAL`, `ELOOP`) are dropped like escaping paths so a
+  planted key cannot block every consumer forever.
+- **Frontend.** Test/Build requests await the same best-effort dirty-buffer
+  save Run uses (`saveDirtyFilesBeforeExecution`, passed as `prepareRun`),
+  guarded against repeat clicks and project switch/unmount. A server `error`
+  frame now ends the attempt — before M86 it left Run/Test stuck in
+  "Running" (a pre-existing bug on every refusal path).
+- **Terminal is not gated** (arbitrary shell); it still sees the debounce.
+
+**Found and fixed during M86 (evidence-driven):**
+
+1. **Sandbox pids limit 64 → 256.** Docker's `--pids-limit` counts threads.
+   With the TypeScript language server up (~36 threads), `npm test` hung in a
+   futex until the task timeout (`pids.events: max 1`). Measured peak for
+   language server + a two-file test run: 58/64. Historian `pid_pressure`
+   thresholds are now relative to the configured limit (still 50/58 at 64).
+2. **Viewers could write files through Yjs `SyncStep2`.** The room dropped
+   `Update` frames from viewers but applied `SyncStep2`, which carries an
+   arbitrary update — a viewer could create, rewrite, or delete workspace
+   files. Both are now dropped; `SyncStep1` (read) still works. Reproduced
+   before the fix.
+3. **`.git` guard bypass (since M51).** `assertNotGitInternal` compared only
+   the raw first segment, so `./.git/config`, `sub/../.git/config`, and
+   `.GIT/config` wrote into the repository through `POST /file` (reproduced;
+   upload and collaborative keys had no `.git` check at all). Combined with
+   the Git filter-driver issue below this was host command execution for any
+   editor. The lexical check now normalizes (case, Win32 trailing dots /
+   spaces / `:stream`, `GIT~N`), and `assertInsideWorkspace` rejects any
+   real path under `.git` — covering REST, upload, collaboration load/flush,
+   debug entry, and symlinks/junctions such as `link -> .git`.
+4. **`/ws/execute` re-checks editor access on every `start`** so a
+   collaborator demoted on an open socket cannot run code.
+
+**Security review (dedicated pass).** Barrier reachable only after
+authorization; project id always server-derived; echoed paths are
+JSON/React text and bounded (20 listed, 5 shown, 120 chars).
+
+**Confirmed pre-existing issues NOT fixed here (next milestone):**
+
+- **Host command execution via repo-local Git config.** Host-side Git reads
+  the workspace's `.git/config`; `core.hooksPath` and `core.fsmonitor` are
+  overridden, but filter drivers are not. Writing `[filter "x"] clean = …`
+  into `.git/config` plus `* filter=x` in `.gitattributes` (possible from the
+  sandbox through the `/workspace` bind mount) made `POST /git/stage` run a
+  command on the host — reproduced. M86 closes the application write paths
+  into `.git` (item 3); the sandbox can still write `.git` through the bind
+  mount. The recommended fix is to run Git inside the project sandbox rather
+  than allowlisting exec-capable config (filters, textconv, `diff.external`,
+  merge drivers, includes, `info/attributes`) on the host. The same
+  follow-up must cover nested repositories / submodules (`sub/.git/config`,
+  e.g. `core.fsmonitor` in a child repo reached through a gitlink —
+  not reproduced).
+- **Symlink swap between the realpath check and the write** exists in both
+  the REST `writeProjectFile` and the collaboration flush; `POST /file`
+  already triggers it on demand, so M86 adds no new capability.
+
+**Not done:** terminal read-your-writes, explicit save-state UI for Git,
+per-file (instead of project-wide) refusal.
+
+**Verification (2026-09-16, outer repo D:/cloudide, Node v24.19.0, Docker 29.7.2, runner image rebuilt from `main` as `964d13fdcd2c`):**
+
+- Baseline on `main@434afa4` (re-run here first): backend **1451 passed / 9 skipped** (129 files), Playwright 8/8 — matches M85.
+- Backend lint: 0 errors / 0 warnings. Backend `tsc --noEmit`: clean.
+- Frontend lint: 0 errors / 19 warnings (pre-existing, unchanged count). Frontend `tsc --noEmit` + `vite build` (NODE_OPTIONS=--max-old-space-size=4096): clean.
+- Frontend tests (`CI=true npm test -w @cloud-ide/frontend`): **1066 passed / 0 failed** (145 files).
+- Backend tests (`CI=true npm test -w @cloud-ide/backend`, Docker up) on the final feature commit: **1491 passed / 9 skipped / 0 failed** (134 files).
+- Playwright: **10/10** — the M85 set plus "fix a failing test in Monaco and run immediately without saving" and "a collaborator's unsaved fix is what another tab's run executes" (the latter freezes the room debounce, so only the server barrier can pass it; verified RED without it).
+- RED before the fix (Docker): Run of a room-only file, test task on a room-only test, Git stage of room-only content, the collaborator journey; frontend stuck-"Running" on `error`. Mutation checks: reverting serialization, keep-dirty-on-change, the clean-key opt-out, permanent-error drop, `.git` guard, and the per-start role check each fail their tests.
+- `python-deps.test.ts` failed three isolated runs mid-session at the 60s pip watchdog **with `main`'s backend source as well** (environmental 9p/pip latency on this workstation, as noted in M84); it passed in the final full run.
+- Each commit on the branch type-checks and passes its own tests in isolation.
+- `git diff --check`: clean.
+- **CI history for this branch (PR #12), reported in full:** `c13db87` failed `workflow-browser › stops a hanging task` — a real Stop race, fixed below. `a90fada` failed `debug-browser › TypeScript` at the *page load* step (file tree not visible in 60s) and `9c351ec` failed `workflow-browser › …runs build` twice (build never reported `Exited (0)`); neither reproduced locally (full suite and the browser files repeatedly), and a re-run of `main@434afa4` on the same runners passed, so the failures could not be pinned on either side with the evidence available. Diagnostics were added to the workflow e2e (page errors, console errors, `/ws/execute` frames, UI state on timeout) and the final head is **green on two consecutive CI runs**. Note for the next milestone: heavy browser E2E on the 2-vCPU CI runner is the least stable part of the suite — if it recurs, the new diagnostics will show whether a `start` frame was ever sent.
+- **First CI run (PR #12, `c13db87`) failed** `workflow-browser › stops a hanging task` (Stop clicked right as Test Explorer showed Running; the task ran to its timeout). Root cause (pre-existing, timing-dependent on CI runners): the client dropped a stop sent while the execution socket was still connecting, and the server cancelled a not-yet-spawned process only on disconnect. Fixed in `fix(execution): honor Stop pressed before the process starts` with deterministic tests on both sides (RED before the fix); browser journeys re-run 3× locally, frontend **1067 passed**.
+- **Final verification on the branch head `ea585dc`:** backend **1493 passed / 9 skipped / 0 failed** (135 files), frontend **1067 passed** (145 files), Playwright 10/10, lint/typecheck/build clean, `git diff --check` clean.

@@ -1,43 +1,39 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { ApiError } from "../errors.js";
 import type { AppConfig } from "../config.js";
-import { IS_WINDOWS } from "../config.js";
-import { projectDir, workspacePath } from "../projects/service.js";
+import { projectDir } from "../projects/service.js";
 import { firstRedactedLine } from "./redact.js";
 import {
   containsAsciiControlChars,
   sanitizeRemoteUrlForClient,
 } from "./remoteUrl.js";
-
-const execFileAsync = promisify(execFile);
+import {
+  assertGitProjectId,
+  runSandboxGit,
+  _takeCapturedSandboxGitArgvForTests,
+  type SandboxGitOpts,
+} from "./sandboxGit.js";
+import { _takeCapturedTransportArgvForTests } from "./transport.js";
 
 /**
  * M51 — first-class local Git version control, one repository per project at
- * `<workspacePath>/.git`.
+ * `<workspace>/.git`.
  *
- * Every operation here shells out to the real `git` binary via `execFile`
- * (never a shell), against a cwd resolved **only** from the server's trusted
- * project lookup — the client never supplies a path, a `--git-dir`, a
- * `--work-tree`, a `-c`, a config path, or an executable.
+ * M87: every operation runs the real `git` binary **inside the project
+ * sandbox** (see `sandboxGit.ts`), never on the host. The repository is
+ * writable by project code, so its configuration, attributes, hooks, and
+ * nested repositories are treated as hostile; whatever they make Git execute
+ * stays in the container. Output is parsed as untrusted text.
  *
- * Safety envelope applied to every invocation (see `runGit`):
- *  - argv array, no shell, bounded timeout + output buffer, `windowsHide`;
- *  - a sanitized environment: no system/global/user git config, no
- *    credential helpers, no transport protocols, no interactive prompts;
- *  - `core.hooksPath` forced to a server-owned empty directory, so a hook
- *    committed into `.git/hooks` can never execute on this process;
- *  - client-provided branch names validated by git's own
- *    `check-ref-format --branch`; client pathspecs normalized, `--`-guarded,
- *    and rejected if absolute / traversing / targeting `.git` internals /
- *    option-like.
+ * Argument hygiene is unchanged from M51: argv arrays only; the client never
+ * supplies a path outside a validated pathspec, a `--git-dir`,
+ * `--work-tree`, `-c`, config path, or executable; client branch names are
+ * validated by Git's own `check-ref-format --branch`; client pathspecs are
+ * normalized, `--`-guarded or passed NUL-separated on stdin, and rejected if
+ * absolute / traversing / targeting `.git` internals / option-like.
  */
 
-const GIT_TIMEOUT_MS = 15_000;
-export const GIT_REMOTE_TIMEOUT_MS = 120_000;
-const GIT_MAX_BUFFER = 12 * 1024 * 1024;
 const LOG_DEFAULT_LIMIT = 50;
 const LOG_MAX_LIMIT = 200;
 const MAX_COMMIT_MESSAGE = 20_000;
@@ -48,81 +44,6 @@ const MAX_FILE_DIFF_LINES = 4000;
 const US = "\x1f"; // unit separator for --pretty / for-each-ref fields
 
 // ---------------------------------------------------------------------------
-// Environment + base arguments
-// ---------------------------------------------------------------------------
-
-let noHooksDirPromise: Promise<string> | null = null;
-async function ensureNoHooksDir(cfg: AppConfig): Promise<string> {
-  if (!noHooksDirPromise) {
-    noHooksDirPromise = (async () => {
-      const d = join(cfg.dataDir, ".git-no-hooks");
-      await fs.mkdir(d, { recursive: true });
-      return d;
-    })().catch((err) => {
-      noHooksDirPromise = null;
-      throw err;
-    });
-  }
-  return noHooksDirPromise;
-}
-
-function gitEnv(
-  isolatedHome: string,
-  opts: {
-    allowHttps?: boolean;
-    extraEnv?: NodeJS.ProcessEnv;
-    sslCaInfo?: string;
-  } = {},
-): NodeJS.ProcessEnv {
-  const devNull = IS_WINDOWS ? "NUL" : "/dev/null";
-  const env: NodeJS.ProcessEnv = {
-    // `git` must still be found on PATH.
-    PATH: process.env.PATH ?? "",
-    SystemRoot: process.env.SystemRoot, // Windows: git needs this to run
-    // Hard isolation from any ambient / user configuration.
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
-    GIT_ATTR_NOSYSTEM: "1",
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_ASKPASS: IS_WINDOWS ? "cmd /c exit 1" : "true",
-    GIT_PAGER: "cat",
-    // No `~/.gitconfig`, no `~/.git-credentials`.
-    HOME: isolatedHome,
-    USERPROFILE: isolatedHome,
-    LANG: "C",
-    LC_ALL: "C",
-    ...(opts.extraEnv ?? {}),
-  };
-  // Protocol isolation is not overridable via extraEnv: local operations stay
-  // transport-less; remote operations may enable HTTPS and nothing else.
-  env.GIT_ALLOW_PROTOCOL = opts.allowHttps ? "https" : "";
-  if (opts.allowHttps && opts.sslCaInfo) {
-    env.GIT_SSL_CAINFO = opts.sslCaInfo;
-    env.SSL_CERT_FILE = opts.sslCaInfo;
-  }
-  return env;
-}
-
-function baseArgs(hooksDir: string): string[] {
-  return [
-    "-c",
-    `core.hooksPath=${hooksDir}`,
-    "-c",
-    "core.fsmonitor=false",
-    "-c",
-    "protocol.file.allow=never",
-    "-c",
-    "commit.gpgsign=false",
-    "-c",
-    "tag.gpgsign=false",
-    "-c",
-    "gc.auto=0",
-    "-c",
-    "advice.detachedHead=false",
-  ];
-}
-
-// ---------------------------------------------------------------------------
 // Core runner
 // ---------------------------------------------------------------------------
 
@@ -130,11 +51,6 @@ interface GitResult {
   stdout: string;
   stderr: string;
   code: number;
-}
-
-async function gitCwd(cfg: AppConfig, projectId: string): Promise<string> {
-  // Trusted lookup only. `workspacePath` throws 404 if the directory is gone.
-  return workspacePath(cfg, projectId);
 }
 
 export function mapGitError(err: any, secrets: string[] = []): ApiError {
@@ -174,78 +90,34 @@ export function mapGitError(err: any, secrets: string[] = []): ApiError {
 export interface RunGitOpts {
   allowNonZero?: boolean;
   input?: string;
-  /** Remote HTTPS operations only. Default remains no-protocol. */
-  allowHttps?: boolean;
   timeoutMs?: number;
-  extraEnv?: NodeJS.ProcessEnv;
-  /** Values to strip from mapped errors (tokens, usernames). */
-  redact?: string[];
+  /** `git init` only: run without the pinned GIT_DIR / GIT_WORK_TREE. */
+  noRepoEnv?: boolean;
+  stdinFrom?: SandboxGitOpts["stdinFrom"];
+  stdoutTo?: SandboxGitOpts["stdoutTo"];
+  maxOutputBytes?: number;
 }
 
-const capturedGitArgv: string[][] = [];
-
-/** Test-only: drain argv recorded by `runGit` (never includes env values). */
+/** Test-only: drain argv of every Git process M87 started (sandbox + host). */
 export function _takeCapturedGitArgvForTests(): string[][] {
-  return capturedGitArgv.splice(0);
+  return [
+    ..._takeCapturedSandboxGitArgvForTests(),
+    ..._takeCapturedTransportArgvForTests(),
+  ];
 }
 
+/** Run Git in the project's sandbox. Non-zero exits throw unless allowed. */
 export async function runGit(
   cfg: AppConfig,
   projectId: string,
   args: string[],
   opts: RunGitOpts = {},
 ): Promise<GitResult> {
-  for (const a of args) {
-    if (typeof a !== "string" || a.includes("\0")) {
-      throw new ApiError(400, "invalid git argument", "invalid_git_arg");
-    }
+  const res = await runSandboxGit(cfg, projectId, args, opts);
+  if (res.code !== 0 && !opts.allowNonZero) {
+    throw mapGitError({ stderr: res.stderr });
   }
-  const cwd = await gitCwd(cfg, projectId);
-  const hooksDir = await ensureNoHooksDir(cfg);
-  const argv = [...baseArgs(hooksDir), ...args];
-  capturedGitArgv.push([...argv]);
-
-  try {
-    const child = execFileAsync("git", argv, {
-      cwd,
-      timeout: opts.timeoutMs ?? GIT_TIMEOUT_MS,
-      maxBuffer: GIT_MAX_BUFFER,
-      env: gitEnv(hooksDir, {
-        allowHttps: opts.allowHttps === true,
-        extraEnv: opts.extraEnv,
-        sslCaInfo: cfg.gitSslCaInfo,
-      }),
-      windowsHide: true,
-      encoding: "utf8" as const,
-    });
-    if (opts.input !== undefined && child.child.stdin) {
-      child.child.stdin.end(opts.input);
-    }
-    const { stdout, stderr } = await child;
-    return { stdout: String(stdout), stderr: String(stderr), code: 0 };
-  } catch (err: any) {
-    if (err?.code === "ENOENT") {
-      throw new ApiError(
-        500,
-        "git is not available on this server",
-        "git_unavailable",
-      );
-    }
-    if (err?.killed || err?.signal === "SIGTERM") {
-      throw new ApiError(504, "git operation timed out", "git_timeout");
-    }
-    if (typeof err?.message === "string" && err.message.includes("maxBuffer")) {
-      throw new ApiError(413, "git output too large", "git_output_too_large");
-    }
-    if (opts.allowNonZero && typeof err?.code === "number") {
-      return {
-        stdout: String(err.stdout ?? ""),
-        stderr: String(err.stderr ?? ""),
-        code: err.code,
-      };
-    }
-    throw mapGitError(err, opts.redact);
-  }
+  return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,13 +268,18 @@ export interface GitBranch {
 // Operations
 // ---------------------------------------------------------------------------
 
+/**
+ * The project has a repository Veyra manages: `<workspace>/.git` is a real
+ * directory. `lstat` never follows a sandbox-planted symlink, and a gitfile
+ * (`.git` as a file pointing elsewhere) is not a Veyra repository.
+ */
 export async function isRepository(
   cfg: AppConfig,
   projectId: string,
 ): Promise<boolean> {
-  const cwd = projectDir(cfg, projectId);
+  assertGitProjectId(projectId);
   try {
-    const st = await fs.stat(join(cwd, ".git"));
+    const st = await fs.lstat(join(projectDir(cfg, projectId), ".git"));
     return st.isDirectory();
   } catch {
     return false;
@@ -419,15 +296,11 @@ export async function initRepository(
     return { initialized: false, alreadyRepo: true, branch };
   }
 
-  try {
-    await runGit(cfg, projectId, ["init", "-b", "main"]);
-  } catch {
-    // Older git without `-b`: fall back and rename the unborn branch.
-    await runGit(cfg, projectId, ["init"]);
-    await runGit(cfg, projectId, ["symbolic-ref", "HEAD", "refs/heads/main"], {
-      allowNonZero: true,
-    });
-  }
+  // `--shared=world` keeps M51's property that a backend whose uid differs
+  // from the sandbox uid can still use the object store.
+  await runGit(cfg, projectId, ["init", "-q", "--shared=world", "-b", "main"], {
+    noRepoEnv: true,
+  });
 
   const { username } = user;
   await runGit(cfg, projectId, ["config", "user.name", username]);
@@ -436,23 +309,6 @@ export async function initRepository(
     "user.email",
     `${username}@veyra.local`,
   ]);
-
-  if (!IS_WINDOWS) {
-    // The backend process and the sandbox `ide` user (which runs the
-    // terminal git) may differ in uid on some hosts; make the object store
-    // group/other accessible so both can operate on the same repository.
-    await runGit(cfg, projectId, ["config", "core.sharedRepository", "world"], {
-      allowNonZero: true,
-    });
-    try {
-      const cwd = await gitCwd(cfg, projectId);
-      await execFileAsync("chmod", ["-R", "a+rwX", join(cwd, ".git")], {
-        timeout: 5000,
-      });
-    } catch {
-      // best-effort
-    }
-  }
 
   const branch = (await getCurrentBranch(cfg, projectId)).branch ?? "main";
   return { initialized: true, alreadyRepo: false, branch };
@@ -661,7 +517,7 @@ export async function getFileDiff(
           "-U3",
           "--no-index",
           "--",
-          IS_WINDOWS ? "NUL" : "/dev/null",
+          "/dev/null",
           path,
         ],
         { allowNonZero: true },
@@ -783,7 +639,16 @@ export async function stage(
   if (paths.length === 0) {
     throw new ApiError(400, "no paths to stage", "invalid_path");
   }
-  await runGit(cfg, projectId, ["add", "--", ...paths]);
+  await runGit(cfg, projectId, ["add", ...PATHSPEC_STDIN], {
+    input: nulList(paths),
+  });
+}
+
+/** Pathspecs travel NUL-separated on stdin, never as (Windows-length-limited) argv. */
+const PATHSPEC_STDIN = ["--pathspec-from-file=-", "--pathspec-file-nul"];
+
+function nulList(paths: string[]): string {
+  return paths.map((p) => `${p} `).join("");
 }
 
 export async function unstage(
@@ -797,15 +662,18 @@ export async function unstage(
     throw new ApiError(400, "no paths to unstage", "invalid_path");
   }
   if (await hasCommits(cfg, projectId)) {
-    await runGit(cfg, projectId, ["reset", "-q", "HEAD", "--", ...target]);
+    await runGit(cfg, projectId, ["reset", "-q", ...PATHSPEC_STDIN, "HEAD"], {
+      input: nulList(target),
+    });
   } else {
     // No HEAD yet: "unstage" means remove the entry from the index entirely.
     await runGit(
       cfg,
       projectId,
-      ["rm", "--cached", "-r", "-q", "--", ...target],
+      ["rm", "--cached", "-r", "-q", ...PATHSPEC_STDIN],
       {
         allowNonZero: true,
+        input: nulList(target),
       },
     );
   }
@@ -839,17 +707,22 @@ export async function commit(
   }
 
   const { username } = user;
-  await runGit(cfg, projectId, [
-    "-c",
-    `user.name=${username}`,
-    "-c",
-    `user.email=${username}@veyra.local`,
-    "commit",
-    "--no-verify",
-    "--no-gpg-sign",
-    "-m",
-    message,
-  ]);
+  await runGit(
+    cfg,
+    projectId,
+    [
+      "-c",
+      `user.name=${username}`,
+      "-c",
+      `user.email=${username}@veyra.local`,
+      "commit",
+      "--no-verify",
+      "--no-gpg-sign",
+      "-F",
+      "-",
+    ],
+    { input: message },
+  );
 
   const hashRes = await runGit(cfg, projectId, ["rev-parse", "HEAD"]);
   const shortRes = await runGit(cfg, projectId, [

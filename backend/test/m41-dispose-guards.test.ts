@@ -20,6 +20,7 @@ import { importProjectZip } from "../src/projects/archive.js";
 import { createZipArchive } from "../src/projects/zip.js";
 import { createWorkspaceBackup } from "../src/backup/workspaceBackup.js";
 import { restoreWorkspaceBackup } from "../src/backup/workspaceRestore.js";
+import { resetWriteControl } from "./confinedWriteMock.js";
 
 function makeMockWs() {
   return {
@@ -75,6 +76,7 @@ describe("M41 — disposed collaboration rooms never re-arm timers or flush stal
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    resetWriteControl();
     try {
       rmSync(tempWorkspacesDir, { recursive: true, force: true });
     } catch {}

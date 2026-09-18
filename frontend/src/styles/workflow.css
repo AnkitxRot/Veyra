@@ -1,0 +1,137 @@
+.workflow-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 8px 12px 12px;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.workflow-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.workflow-search {
+  flex: 1;
+  min-width: 120px;
+  background: var(--surface-recessed);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 3px 8px;
+  color: var(--fg-primary);
+}
+
+.workflow-state {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-recessed);
+  color: var(--fg-secondary);
+}
+
+.workflow-state-running {
+  color: #a6e3a1;
+}
+.workflow-state-failed {
+  color: #f38ba8;
+}
+.workflow-state-passed {
+  color: #a6e3a1;
+}
+
+.workflow-section {
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+}
+
+.workflow-section h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+.workflow-muted {
+  color: var(--fg-muted);
+  margin: 0;
+}
+
+.workflow-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.workflow-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.workflow-item:hover,
+.workflow-item.selected {
+  background: var(--surface-recessed);
+}
+
+.workflow-item button.link {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.workflow-mark {
+  width: 1.1em;
+  flex: none;
+  font-weight: 700;
+}
+
+.workflow-mark-passed {
+  color: #a6e3a1;
+}
+.workflow-mark-failed,
+.workflow-mark-error {
+  color: #f38ba8;
+}
+.workflow-mark-skipped {
+  color: #f9e2af;
+}
+
+.workflow-item-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.workflow-item-name {
+  word-break: break-word;
+}
+
+.workflow-item-meta {
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.workflow-detail {
+  max-height: 90px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-recessed);
+  border-radius: var(--radius-xs);
+  padding: 6px 8px;
+  color: var(--fg-secondary);
+}
+
+.workflow-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

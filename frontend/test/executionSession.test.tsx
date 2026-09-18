@@ -16,10 +16,14 @@ import type { Project } from "../src/types";
 // running program. This suite is the core proof of that guarantee.
 
 const apiMock = vi.fn();
+const getWorkflowMock = vi.fn(
+  async (_projectId?: string): Promise<{ tasks: unknown[] }> => ({ tasks: [] }),
+);
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
   getWebSocketUrl: (path: string, projectId: string) =>
     `ws://test${path}?projectId=${projectId}`,
+  getWorkflow: (projectId: string) => getWorkflowMock(projectId),
 }));
 
 import Output from "../src/components/Output/Output";
@@ -97,6 +101,8 @@ async function startRun() {
 
 beforeEach(() => {
   apiMock.mockReset();
+  getWorkflowMock.mockReset();
+  getWorkflowMock.mockResolvedValue({ tasks: [] });
   FakeWebSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
 });
@@ -241,6 +247,84 @@ describe("M53 — persistent project-scoped execution session", () => {
     document.removeEventListener("run-stopped", stopSpy);
   });
 
+  it("project switch drops logs, running flag, and a late workflow fetch from the previous project", async () => {
+    let resolveA: ((value: { tasks: unknown[] }) => void) | undefined;
+    getWorkflowMock.mockImplementation((pid?: string) => {
+      if (pid === "proj-1") {
+        return new Promise((resolve) => {
+          resolveA = resolve;
+        });
+      }
+      return Promise.resolve({
+        tasks: [
+          {
+            id: "npm:test",
+            name: "test",
+            kind: "test",
+            origin: "package.json",
+          },
+        ],
+      });
+    });
+
+    function Probe() {
+      const s = useExecutionSession();
+      return (
+        <div>
+          <span data-testid="logs">{s.logs.length}</span>
+          <span data-testid="running">{String(s.isRunning)}</span>
+          <span data-testid="results">{s.testResults.length}</span>
+          <span data-testid="tasks">
+            {s.workflowTasks.map((t) => t.id).join(",")}
+          </span>
+        </div>
+      );
+    }
+    function Host({ pid }: { pid: string }) {
+      return (
+        <ExecutionSessionProvider projectId={pid}>
+          <Probe />
+        </ExecutionSessionProvider>
+      );
+    }
+
+    const view = render(<Host pid="proj-1" />);
+    const ws = await startRun();
+    act(() => {
+      ws.simulateMessage({ type: "stdout", data: "from-a\n" });
+      ws.simulateMessage({
+        type: "workflow",
+        kind: "test",
+        tests: [{ name: "a", status: "fail" }],
+      });
+    });
+    await waitFor(() =>
+      expect(Number(view.getByTestId("logs").textContent)).toBeGreaterThan(0),
+    );
+    expect(view.getByTestId("running").textContent).toBe("true");
+
+    view.rerender(<Host pid="proj-2" />);
+    expect(view.getByTestId("logs").textContent).toBe("0");
+    expect(view.getByTestId("running").textContent).toBe("false");
+    expect(view.getByTestId("results").textContent).toBe("0");
+
+    await act(async () => {
+      resolveA?.({
+        tasks: [
+          {
+            id: "pytest:all",
+            name: "pytest",
+            kind: "test",
+            origin: "pytest",
+          },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(view.getByTestId("tasks").textContent).toBe("npm:test"),
+    );
+  });
+
   it("M48 regression: a run dispatches the `run-started` document event (was `ide-run-started`, never fired)", async () => {
     // Mirrors IDE.tsx's M48 activity effect after the M53 fix.
     const activitySpy = vi.fn();
@@ -274,6 +358,37 @@ describe("M53 — persistent project-scoped execution session", () => {
       }),
     );
     await waitFor(() => expect(activitySpy).toHaveBeenCalledWith("restore"));
+  });
+
+  it("runWorkflow sends a structured start frame without a command", async () => {
+    function Probe() {
+      const { runWorkflow } = useExecutionSession();
+      return (
+        <button
+          type="button"
+          onClick={() => runWorkflow({ taskId: "npm:test", targetPath: "a.js" })}
+        >
+          wf
+        </button>
+      );
+    }
+    const view = render(
+      <ExecutionSessionProvider projectId={project.id}>
+        <Probe />
+      </ExecutionSessionProvider>,
+    );
+    fireEvent.click(view.getByText("wf"));
+    await waitFor(() =>
+      expect(FakeWebSocket.instances.length).toBeGreaterThan(0),
+    );
+    const ws = FakeWebSocket.latest();
+    act(() => ws.simulateOpen());
+    const start = ws.sent.map((m) => JSON.parse(m)).find((m) => m.type === "start");
+    expect(start).toEqual({
+      type: "start",
+      workflow: { taskId: "npm:test", targetPath: "a.js" },
+    });
+    expect(start.command).toBeUndefined();
   });
 
   it("useExecutionSession() outside a provider throws", () => {

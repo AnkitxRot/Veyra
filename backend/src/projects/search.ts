@@ -106,7 +106,14 @@ const MAX_SEARCH_FILE_BYTES = ${MAX_SEARCH_FILE_BYTES};
 
 const IGNORE_DIRS = new Set([
   '.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.venv', '__pycache__', '.cache',
+  '.mypy_cache', '.pytest_cache', '.tox', '.eggs',
 ]);
+
+function shouldSkipName(name) {
+  if (IGNORE_DIRS.has(name)) return true;
+  if (name.startsWith('.cloudide-build-')) return true;
+  return false;
+}
 
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'ico', 'svg', 'webp', 'pdf', 'zip', 'tar', 'gz', '7z',
@@ -195,7 +202,7 @@ function run(workspaceDir, options, regex, mode) {
       const dirent = dirents[i];
       const name = dirent.name;
 
-      if (IGNORE_DIRS.has(name)) continue;
+      if (shouldSkipName(name)) continue;
 
       if (dirent.isDirectory()) {
         traverseDir(join(currentDir, name));
@@ -356,6 +363,7 @@ async function runContentWorker<
   workspaceDir: string,
   options: SearchOptions & { replacement?: string },
   mode: "search" | "replace",
+  signal?: AbortSignal,
 ): Promise<T> {
   const startTime = performance.now();
   const {
@@ -400,6 +408,18 @@ async function runContentWorker<
   }
 
   return new Promise<T>((resolve, reject) => {
+    const truncatedEmpty = (): T =>
+      ({
+        ...emptyResult,
+        durationMs: Math.round((performance.now() - startTime) * 100) / 100,
+        truncated: true,
+      }) as T;
+
+    if (signal?.aborted) {
+      resolve(truncatedEmpty());
+      return;
+    }
+
     const worker = new Worker(WORKER_SOURCE, {
       eval: true,
       workerData: {
@@ -418,31 +438,27 @@ async function runContentWorker<
     });
 
     let settled = false;
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      worker.terminate().catch(() => {});
-      resolve({
-        ...emptyResult,
-        durationMs: Math.round((performance.now() - startTime) * 100) / 100,
-        truncated: true,
-      });
-    }, WORKER_HARD_TIMEOUT_MS);
-
-    worker.once("message", (msg: T) => {
+    function finish(fn: () => void) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
       worker.terminate().catch(() => {});
-      resolve(msg);
+      fn();
+    }
+    const onAbort = () => finish(() => resolve(truncatedEmpty()));
+    const timeout = setTimeout(() => {
+      finish(() => resolve(truncatedEmpty()));
+    }, WORKER_HARD_TIMEOUT_MS);
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    worker.once("message", (msg: T) => {
+      finish(() => resolve(msg));
     });
 
     worker.once("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      worker.terminate().catch(() => {});
-      reject(err);
+      finish(() => reject(err));
     });
   });
 }
@@ -450,8 +466,14 @@ async function runContentWorker<
 export async function searchProjectContent(
   workspaceDir: string,
   options: SearchOptions,
+  signal?: AbortSignal,
 ): Promise<SearchResponse> {
-  return runContentWorker<SearchResponse>(workspaceDir, options, "search");
+  return runContentWorker<SearchResponse>(
+    workspaceDir,
+    options,
+    "search",
+    signal,
+  );
 }
 
 /**
@@ -467,6 +489,12 @@ export async function searchProjectContent(
 export async function replaceProjectContent(
   workspaceDir: string,
   options: ReplaceOptions,
+  signal?: AbortSignal,
 ): Promise<ReplaceResponse> {
-  return runContentWorker<ReplaceResponse>(workspaceDir, options, "replace");
+  return runContentWorker<ReplaceResponse>(
+    workspaceDir,
+    options,
+    "replace",
+    signal,
+  );
 }

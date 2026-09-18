@@ -32,6 +32,7 @@
     "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.67.0",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "playwright": "1.55.1"
   }
 }

@@ -1,0 +1,162 @@
+.debug-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 8px 12px 12px;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.debug-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.debug-state {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-recessed);
+  color: var(--fg-secondary);
+}
+
+.debug-state-paused {
+  color: #f9e2af;
+}
+.debug-state-running {
+  color: #a6e3a1;
+}
+.debug-state-failed,
+.debug-state-unavailable {
+  color: #f38ba8;
+}
+
+.debug-message,
+.debug-mismatch {
+  color: var(--fg-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.debug-mismatch {
+  color: #f9e2af;
+}
+
+.debug-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.debug-stack,
+.debug-vars {
+  min-height: 0;
+  overflow: auto;
+}
+
+.debug-stack h3,
+.debug-vars h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+.debug-muted {
+  color: var(--fg-muted);
+  margin: 0;
+}
+
+.debug-stack ul,
+.debug-vars ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.debug-frame,
+.debug-var {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--fg-secondary);
+  padding: 3px 4px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.debug-frame:hover,
+.debug-var:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.debug-frame.active {
+  color: #f9e2af;
+  background: rgba(249, 226, 175, 0.08);
+}
+
+.debug-scope-name {
+  font-weight: 600;
+  color: var(--fg-primary);
+  margin: 4px 0;
+}
+
+.debug-var-name {
+  color: var(--accent);
+  margin-right: 8px;
+}
+
+.debug-var-value {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.debug-var.nested {
+  padding-left: 16px;
+}
+
+.debug-output {
+  margin: 0;
+  max-height: 80px;
+  overflow: auto;
+  background: var(--surface-recessed);
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.monaco-editor .debug-breakpoint-glyph {
+  background: #e64553;
+  border-radius: 50%;
+  width: 8px !important;
+  height: 8px !important;
+  margin-left: 5px;
+  margin-top: 5px;
+}
+
+.monaco-editor .debug-breakpoint-glyph.verified {
+  background: #f38ba8;
+}
+
+.monaco-editor .debug-current-line {
+  background: rgba(249, 226, 175, 0.14);
+}
+
+.monaco-editor .debug-current-line-glyph {
+  border-left: 2px solid #f9e2af;
+}

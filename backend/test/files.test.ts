@@ -2,8 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   safeResolve,
   tree,
+  treeListing,
   listFiles,
   invalidateTreeCache,
+  setTreeLimitsForTests,
+  forgetTreeCache,
 } from "../src/files/service.js";
 import { promises as fsPromises } from "node:fs";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -97,6 +100,47 @@ describe("tree", () => {
     expect(files.filter((f) => f.startsWith(".cloudide-build-"))).toHaveLength(
       0,
     );
+  });
+
+  it("skips generated interpreter/cache directories", async () => {
+    const root = join(tmp, "pycache-root");
+    mkdirSync(join(root, "__pycache__"), { recursive: true });
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "__pycache__", "mod.cpython-312.pyc"), "");
+    writeFileSync(join(root, "src", "main.py"), "");
+    invalidateTreeCache(root);
+    const nodes = await tree(root);
+    expect(nodes.map((n) => n.name).sort()).toEqual(["src"]);
+  });
+
+  it("truncates a listing once the entry budget is exhausted", async () => {
+    const root = join(tmp, "huge-root");
+    mkdirSync(root, { recursive: true });
+    for (let i = 0; i < 40; i++) {
+      writeFileSync(join(root, `f${String(i).padStart(2, "0")}.txt`), "x");
+    }
+    setTreeLimitsForTests({ maxEntries: 10, maxDepth: 8 });
+    invalidateTreeCache(root);
+    try {
+      const listing = await treeListing(root);
+      expect(listing.truncated).toBe(true);
+      expect(listing.scanned).toBeLessThanOrEqual(10);
+      expect(listing.tree.length).toBeLessThan(40);
+    } finally {
+      setTreeLimitsForTests(null);
+    }
+  });
+
+  it("forgetTreeCache drops the generation key for a deleted workspace", async () => {
+    const root = join(tmp, "gone-root");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "a.txt"), "a");
+    invalidateTreeCache(root);
+    await tree(root);
+    forgetTreeCache(root);
+    writeFileSync(join(root, "b.txt"), "b");
+    const nodes = await tree(root);
+    expect(nodes.map((n) => n.name).sort()).toEqual(["a.txt", "b.txt"]);
   });
 
   it("returns workspace-relative paths for nested files", async () => {

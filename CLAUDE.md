@@ -41,10 +41,15 @@ backend/
       languages.ts    # Language registry (python, node, c, cpp, java, typescript, html, css, etc.)
       detect.ts       # Language detection from files & activeFile
     ws/
-      index.ts        # WebSocket upgrade handler — auth + route to terminal/execution
+      index.ts        # WebSocket upgrade — auth + route to terminal/execution/lsp/debug
       terminal.ts     # /ws/terminal — docker exec bash session via node-pty
       execution.ts    # /ws/execute — run project via WebSocket stream
-  scratch-test.js     # Standalone e2e test script (auth + project + WS execution)
+    debug/
+      manager.ts      # DebugSessionManager — user-owned DAP sessions
+      session.ts      # DAP client, state machine, path rewrite, bounds
+      ws.ts           # /ws/debug — mediated debugger protocol
+      languages.ts    # Allowlisted adapters (debugpy, vscode-js-debug)
+    scratch-test.js   # Standalone e2e test script (auth + project + WS execution)
   vitest.config.ts    # Vitest config — testTimeout/hookTimeout 60000ms
   tsconfig.json       # Extends ../tsconfig.base.json, includes src + test
   test/
@@ -75,10 +80,11 @@ frontend/
       IDE/IDE.tsx             # Main IDE layout — sidebar, editor, bottom panel tabs
       Sidebar/Sidebar.tsx     # Project list, file tree explorer with context menus
       Editor/Editor.tsx       # Monaco editor wrapper with tabs, save, dirty tracking
-      Toolbar/Toolbar.tsx     # Run/Stop button, capability indicators
+      Toolbar/Toolbar.tsx     # Run/Stop/Debug buttons, capability indicators
       Output/Output.tsx       # Execution log panel (WebSocket-based stdout/stderr)
       Terminal/Terminal.tsx   # xterm.js terminal panel (WebSocket-based)
       Preview/Preview.tsx     # iframe proxy for running web apps in sandbox
+      Debug/DebugPanel.tsx    # Debugger toolbar, call stack, variables
 ```
 
 ## Key Architecture Patterns
@@ -93,9 +99,11 @@ Each project gets a persistent Docker container (`ide-sandbox-{projectId}`) moun
 `runProject()` in `execution/pipeline.ts` orchestrates: language detection → main file resolution → compilation (if applicable) → execution. Each step can short-circuit with specific outcome types (`no_language`, `no_main_file`, `compile_error`, `not_runnable`, etc.).
 
 ### WebSocket Protocol
-Two WebSocket endpoints:
+WebSocket endpoints:
 - `/ws/terminal` — bidirectional shell session (messages: `{type: 'data'|'resize'}` → server, `{type: 'data'}` ← server)
 - `/ws/execute` — one-way execution stream (messages: `{type: 'start'|'stdin'|'stop'}` → server, `{type: 'stdout'|'stderr'|'status'|'exit'|'error'}` ← server)
+- `/ws/lsp` — language intelligence (JSON-RPC framed by the backend)
+- `/ws/debug` — mediated debugger (launch / breakpoints / continue / pause / step / stack / variables / terminate). Not raw DAP.
 
 ### File Service Path Traversal Protection
 `safeResolve()` validates relative paths against workspace root. `assertInsideWorkspace()` resolves symlinks to confirm paths stay within workspace boundaries.
@@ -170,6 +178,7 @@ Environment variables:
 - `backend/src/execution/languages.ts` — registry of supported languages, extensions, main files, compile/run commands
 - `backend/src/execution/sandbox.ts` — `SandboxManager` singleton for persistent Docker containers (`ide-sandbox-{id}`) with security options (`--security-opt no-new-privileges --cap-drop ALL`); `deleteProject` in service.ts calls `stopProjectSandbox` for cleanup
 - `backend/src/execution/pipeline.ts` — `runProject()` orchestrator
+- `backend/src/debug/manager.ts` — user-owned DAP sessions in the project sandbox
 - `backend/src/projects/routes.ts` — all project REST endpoints (CRUD, files, run, install, proxy)
 - `frontend/src/components/IDE/IDE.tsx` — main layout orchestrator, coordinates all sub-components
 - `frontend/src/api.ts` — API client with auth token management and WebSocket URL builder

@@ -10,11 +10,52 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     default-jdk \
     git \
+    ca-certificates \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install tsx globally for TypeScript execution
-RUN npm install -g tsx typescript
+# Install pinned runtimes used for execution AND language intelligence.
+# tsx: TypeScript execution. typescript: compiler + tsserver for the LSP.
+# typescript-language-server@5.3.0: maintained LSP adapter (Apache-2.0);
+# 5.3.x does not require Node >= 22.22 (6.0.0 does). Never a floating "latest".
+RUN npm install -g \
+      tsx@4.19.4 \
+      typescript@5.8.3 \
+      typescript-language-server@5.3.0
+
+# M81/M82 — language servers. Python is isolated in a venv so it cannot
+# shadow the system interpreter used for user runs. Pinned; never floating.
+RUN python3 -m venv /opt/lsp \
+ && /opt/lsp/bin/pip install --upgrade pip \
+ && /opt/lsp/bin/pip install --no-cache-dir \
+      'python-lsp-server[pyflakes,pycodestyle]==1.12.2'
+
+# M83 — debug adapters. Isolated from user runs and from /opt/lsp.
+# debugpy 1.8.21 (MIT) is the Python DAP adapter.
+# vscode-js-debug 1.117.0 (MIT) is the Node/TypeScript DAP server (TCP);
+# docker/js-debug-stdio.mjs bridges that to stdio for `docker exec -i`.
+# Never downloaded at debug-session time. Never a floating "latest".
+RUN python3 -m venv /opt/debug/python \
+ && /opt/debug/python/bin/pip install --upgrade pip \
+ && /opt/debug/python/bin/pip install --no-cache-dir 'debugpy==1.8.21' \
+ && curl -fsSL -o /tmp/js-debug-dap.tar.gz \
+      https://github.com/microsoft/vscode-js-debug/releases/download/v1.117.0/js-debug-dap-v1.117.0.tar.gz \
+ && tar -xzf /tmp/js-debug-dap.tar.gz -C /opt/debug \
+ && rm /tmp/js-debug-dap.tar.gz \
+ && mkdir -p /opt/debug/bin \
+ && printf '%s\n' '#!/bin/sh' 'exec /opt/debug/python/bin/python -m debugpy.adapter "$@"' \
+      > /opt/debug/bin/veyra-debugpy \
+ && printf '%s\n' '#!/bin/sh' 'exec node /opt/debug/js-debug-stdio.mjs "$@"' \
+      > /opt/debug/bin/veyra-js-debug \
+ && chmod 755 /opt/debug/bin/veyra-debugpy /opt/debug/bin/veyra-js-debug \
+ && test -f /opt/debug/js-debug/src/dapDebugServer.js
+
+# Copied last so wrapper edits do not rebuild debugpy / js-debug.
+COPY docker/js-debug-stdio.mjs /opt/debug/js-debug-stdio.mjs
+RUN chmod 755 /opt/debug/js-debug-stdio.mjs
+
+ENV PATH="/opt/debug/bin:/opt/lsp/bin:${PATH}"
 
 # The workspace .git is created by the backend process; inside this already
 # isolated sandbox the terminal git must operate on it regardless of which

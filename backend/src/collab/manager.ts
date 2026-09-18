@@ -4,11 +4,16 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import type { WebSocket } from "ws";
-import { promises as fs } from "node:fs";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { ApiError } from "../errors.js";
 import { projectDir } from "../projects/service.js";
-import { assertInsideWorkspace, safeResolve } from "../files/service.js";
+import {
+  assertInsideWorkspace,
+  assertNotGitInternal,
+  safeResolve,
+} from "../files/service.js";
+import { readConfinedFile, writeConfinedFile } from "../files/confined.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
 import { getDisplayName, getAvatarVersion, getPronouns } from "../profile/store.js";
 import {
@@ -107,6 +112,67 @@ const AWARENESS_MAX_CLIENT_IDS_PER_CONNECTION = 8;
 //  - `emitExternalMutationNotice()` sends bounded, metadata-only notices to
 //    non-initiating collaborators whose active file was mutated externally.
 const FLUSH_BEFORE_DISPOSE_TIMEOUT_MS = 5000;
+
+// M86: workspace read-your-writes. Run, Test/Build tasks, Debug launch,
+// dependency install, and Git stage read the workspace from disk, which lags
+// the room by the persistence debounce (2s, 10s max). `persistLiveEdits()` is
+// the barrier those consumers await first: it writes only files that are
+// actually dirty, never overlaps another flush pass, is timeout-bounded, and
+// reports what did not land so the caller refuses instead of using stale bytes.
+const PERSIST_LIVE_EDITS_TIMEOUT_MS = 5000;
+const UNPERSISTED_REPORT_MAX = 20;
+/** Write failures that retrying can never fix for the same path. Transient
+ *  ones (EACCES, EPERM, ENOSPC, EIO, …) keep the file dirty and refuse. */
+const PERMANENT_WRITE_ERROR_CODES = new Set([
+  "EISDIR",
+  "ENOTDIR",
+  "ENOENT",
+  "ENAMETOOLONG",
+  "EINVAL",
+  "ELOOP",
+  // M87: the confined write found the opened file outside the workspace
+  // (a symlink/directory swapped in after the path check).
+  "invalid_path",
+]);
+export const LIVE_EDITS_NOT_PERSISTED = "live_edits_not_persisted";
+
+/** Maximum idle-disposal retries for a permanently failing write. */
+const MAX_IDLE_DISPOSE_RETRIES = 3;
+
+export interface LiveEditsPersistResult {
+  ok: boolean;
+  /** Workspace-relative paths whose latest edits are not on disk (bounded). */
+  unpersisted: string[];
+}
+
+/** Bounded, user-facing sentence naming the files that did not persist. */
+export function describeUnpersistedLiveEdits(paths: string[]): string {
+  const shown = paths
+    .slice(0, 5)
+    .map((p) => (p.length > 120 ? `${p.slice(0, 117)}...` : p));
+  const more =
+    paths.length > shown.length ? ` and ${paths.length - shown.length} more` : "";
+  return `Latest edits to ${shown.join(", ") || "the workspace"}${more} could not be saved to disk`;
+}
+
+/**
+ * Route helper for HTTP consumers. Call only after authorization. Throws a
+ * 409 naming the unpersisted files; `consequence` says what did not happen.
+ */
+export async function requireLiveEditsPersisted(
+  projectId: string,
+  consequence: string,
+): Promise<void> {
+  const r = await collaborationManager.persistLiveEdits(projectId);
+  if (r.ok) return;
+  throw new ApiError(
+    409,
+    `${describeUnpersistedLiveEdits(r.unpersisted)}. ${consequence}`,
+    LIVE_EDITS_NOT_PERSISTED,
+    { unpersisted: r.unpersisted },
+  );
+}
+
 const EXTERNAL_MUTATION_NOTICE_DEDUP_MS = 1000;
 const EXTERNAL_MUTATION_NOTICE_DEDUP_MAX_ENTRIES = 500;
 const DESTRUCTIVE_MUTATION_TTL_MS = 60_000;
@@ -208,7 +274,7 @@ interface RunOutputEntry {
   seq: number;
   /** Chunks arrived since the last flush, awaiting the coalesced broadcast. */
   pending: RunOutputChunk[];
-  flushTimer: NodeJS.Timeout | null;
+  flushTimer: ITimer | null;
 }
 
 export interface RunStatusEntry {
@@ -231,7 +297,108 @@ export interface CollaborationRoomOptions {
   lowWatermarkBytes?: number;
 }
 
-/** Rejects if the wrapped promise has not settled within `ms`. */
+// ===========================================================================
+// M91 — Clock abstraction for deterministic idle-disposal testing
+// ===========================================================================
+//
+// Production: SystemClock uses real setTimeout/Date.now.
+// Tests: VirtualClock queues timers and fires them from advanceBy(), so
+// tests can advance 10s/20s/40s/… of backoff in a single microtask — no
+// vi.useFakeTimers() needed (which breaks real I/O like fs.realpath/fs.access
+// and causes worker crashes).
+
+export interface IClock {
+  setTimeout(fn: () => void, ms: number): ITimer;
+  setInterval(fn: () => void, ms: number): ITimer;
+  now(): number;
+}
+
+export interface ITimer {
+  clear(): void;
+}
+
+/** Production clock — delegates to real Node.js timers. */
+export class SystemClock implements IClock {
+  setTimeout(fn: () => void, ms: number): ITimer {
+    return new RealTimer(setTimeout(fn, ms));
+  }
+  setInterval(fn: () => void, ms: number): ITimer {
+    return new RealTimer(setInterval(fn, ms));
+  }
+  now(): number {
+    return Date.now();
+  }
+}
+
+class RealTimer implements ITimer {
+  private readonly t: ReturnType<typeof setTimeout | typeof setInterval>;
+  constructor(t: ReturnType<typeof setTimeout | typeof setInterval>) {
+    this.t = t;
+  }
+  clear(): void {
+    clearTimeout(this.t);
+    clearInterval(this.t);
+  }
+}
+
+/** Deterministic clock for tests. */
+export class VirtualClock implements IClock {
+  private readonly timers: VTimer[] = [];
+  public virtualTime = 0;
+
+  setTimeout(fn: () => void, ms: number): ITimer {
+    const t = new VTimer(this, this.virtualTime + ms, fn, false);
+    this.timers.push(t);
+    return t;
+  }
+
+  setInterval(fn: () => void, ms: number): ITimer {
+    const t = new VTimer(this, this.virtualTime + ms, fn, true, ms);
+    this.timers.push(t);
+    return t;
+  }
+
+  cancel(t: VTimer): void {
+    const i = this.timers.indexOf(t);
+    if (i >= 0) this.timers.splice(i, 1);
+  }
+
+  async advanceBy(ms: number): Promise<void> {
+    this.virtualTime += ms;
+    let guard = 0;
+    while (this.timers.length > 0 && guard++ < 10000) {
+      this.timers.sort((a, b) => a.fireAt - b.fireAt);
+      const due = this.timers.filter((t) => t.fireAt <= this.virtualTime);
+      if (due.length === 0) break;
+      for (const t of due) {
+        this.cancel(t);
+        if (t.isInterval) {
+          // Reschedule interval
+          t.fireAt = this.virtualTime + t.intervalMs!;
+          this.timers.push(t);
+        }
+        await t.fn();
+      }
+    }
+  }
+
+  now(): number {
+    return this.virtualTime;
+  }
+}
+
+class VTimer implements ITimer {
+  constructor(
+    private readonly clock: VirtualClock,
+    public fireAt: number,
+    public readonly fn: () => void,
+    public readonly isInterval: boolean = false,
+    public readonly intervalMs?: number,
+  ) {}
+  clear(): void {
+    this.clock.cancel(this);
+  }
+}
 function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
@@ -277,10 +444,21 @@ export class CollaborationRoom {
   private readonly cfg: AppConfig;
   private readonly db: Db;
   private readonly dirtyFiles: Set<string> = new Set();
-  private debounceTimer: NodeJS.Timeout | null = null;
-  private maxFlushTimer: NodeJS.Timeout | null = null;
+  /** M86: the flush pass currently writing. Passes never overlap, so an
+   *  older snapshot of a file can never land after a newer one. */
+  private flushRunning: Promise<string[]> | null = null;
+  /** M86: at most one pass coalesced behind `flushRunning`. */
+  private flushQueued: {
+    promise: Promise<string[]>;
+    resolve: (failed: string[]) => void;
+    reject: (err: unknown) => void;
+    writeCleanKeys: boolean;
+  } | null = null;
+  private debounceTimer: ITimer | null = null;
+  private maxFlushTimer: ITimer | null = null;
   private lastFlushTime: number = Date.now();
-  private idleDisposeTimer: NodeJS.Timeout | null = null;
+  private idleDisposeTimer: ITimer | null = null;
+  private idleDisposeRetries = 0;
   private readonly onDisposeCallback: (projectId: string) => void;
 
   // M6: coalescing + backpressure. See DEFAULT_* constants above for the
@@ -298,7 +476,7 @@ export class CollaborationRoom {
    *  pending *outbound* work, not per-client backlog (see slowClients). */
   private pendingYjsUpdates: Uint8Array[] = [];
   private pendingYjsOrigins: Set<unknown> = new Set();
-  private yjsCoalesceTimer: NodeJS.Timeout | null = null;
+  private yjsCoalesceTimer: ITimer | null = null;
 
   /** Awareness clientIDs that changed since the last flush. Re-encoded from
    *  LIVE awareness state at flush time (not a snapshot taken when queued),
@@ -306,7 +484,7 @@ export class CollaborationRoom {
    *  shape as the frontend's utils/throttleLatest.ts. */
   private pendingAwarenessClientIds: Set<number> = new Set();
   private pendingAwarenessOrigins: Set<unknown> = new Set();
-  private awarenessCoalesceTimer: NodeJS.Timeout | null = null;
+  private awarenessCoalesceTimer: ITimer | null = null;
 
   /** Clients currently backpressured on Yjs updates: broadcasts are skipped
    *  entirely (never queued per-client — see the field doc above) until
@@ -315,17 +493,17 @@ export class CollaborationRoom {
    *  protocol's `messageYjsUpdate` framing. This is what makes skipping
    *  safe: nothing is ever permanently lost, only deferred. */
   private readonly slowClients: Set<WebSocket> = new Set();
-  private slowClientRecheckTimer: NodeJS.Timeout | null = null;
+  private slowClientRecheckTimer: ITimer | null = null;
   // M74: safety-net awareness reconciliation for sockets that die without a
   // 'close' event. Runs only while the room is non-empty.
-  private awarenessReconcileTimer: NodeJS.Timeout | null = null;
+  private awarenessReconcileTimer: ITimer | null = null;
 
   // M54: ephemeral run-status registry, keyed by executionId. Populated
   // exclusively by the real server-side execution lifecycle via
   // CollaborationManager.notifyRunStatus — never from a client message.
   private readonly runStatus = new Map<string, RunStatusEntry>();
-  private readonly runStatusLingerTimers = new Map<string, NodeJS.Timeout>();
-  private runStatusSweepTimer: NodeJS.Timeout | null = null;
+  private readonly runStatusLingerTimers = new Map<string, ITimer>();
+  private runStatusSweepTimer: ITimer | null = null;
 
   // M65: ephemeral shared run-output buffers, keyed by executionId. Populated
   // only via CollaborationManager.notifyRunOutput (the authenticated execution
@@ -342,7 +520,7 @@ export class CollaborationRoom {
   // Y.Doc or awareness.
   private readonly attentionRateLimiters = new WeakMap<WebSocket, RateLimiter>();
   private readonly attentionRegistry = new AttentionRequestRegistry();
-  private readonly attentionExpiryTimers = new Map<string, NodeJS.Timeout>();
+  private readonly attentionExpiryTimers = new Map<string, ITimer>();
 
   /** Set at the start of dispose(). awareness.destroy() below internally
    *  calls setLocalState(null), which fires this room's own
@@ -418,6 +596,7 @@ export class CollaborationRoom {
     onDispose: (projectId: string) => void,
     options: CollaborationRoomOptions = {},
     private readonly historian: CollaborationHistorian = collaborationHistorian,
+    readonly clock: IClock = new SystemClock(),
   ) {
     this.projectId = projectId;
     this.cfg = cfg;
@@ -592,7 +771,7 @@ export class CollaborationRoom {
     this.pendingYjsUpdates.push(update);
     this.pendingYjsOrigins.add(origin);
     if (!this.yjsCoalesceTimer) {
-      this.yjsCoalesceTimer = setTimeout(() => {
+      this.yjsCoalesceTimer = this.clock.setTimeout(() => {
         this.yjsCoalesceTimer = null;
         this.flushYjsUpdates();
       }, this.yjsCoalesceMs);
@@ -644,7 +823,7 @@ export class CollaborationRoom {
     for (const id of clientIds) this.pendingAwarenessClientIds.add(id);
     this.pendingAwarenessOrigins.add(origin);
     if (!this.awarenessCoalesceTimer) {
-      this.awarenessCoalesceTimer = setTimeout(() => {
+      this.awarenessCoalesceTimer = this.clock.setTimeout(() => {
         this.awarenessCoalesceTimer = null;
         this.flushAwareness();
       }, this.awarenessCoalesceMs);
@@ -724,10 +903,9 @@ export class CollaborationRoom {
     if (this.slowClients.has(client)) return;
     this.slowClients.add(client);
     if (!this.slowClientRecheckTimer) {
-      this.slowClientRecheckTimer = setInterval(() => {
+      this.slowClientRecheckTimer = this.clock.setInterval(() => {
         this.recheckSlowClients();
       }, SLOW_CLIENT_RECHECK_MS);
-      this.slowClientRecheckTimer.unref?.();
     }
   }
 
@@ -740,7 +918,7 @@ export class CollaborationRoom {
   private recheckSlowClients(): void {
     if (this.slowClients.size === 0) {
       if (this.slowClientRecheckTimer) {
-        clearInterval(this.slowClientRecheckTimer);
+        this.slowClientRecheckTimer.clear();
         this.slowClientRecheckTimer = null;
       }
       return;
@@ -758,7 +936,7 @@ export class CollaborationRoom {
       }
     }
     if (this.slowClients.size === 0 && this.slowClientRecheckTimer) {
-      clearInterval(this.slowClientRecheckTimer);
+      this.slowClientRecheckTimer.clear();
       this.slowClientRecheckTimer = null;
     }
   }
@@ -823,7 +1001,7 @@ export class CollaborationRoom {
 
     const existingLinger = this.runStatusLingerTimers.get(input.executionId);
     if (existingLinger) {
-      clearTimeout(existingLinger);
+      existingLinger.clear();
       this.runStatusLingerTimers.delete(input.executionId);
     }
 
@@ -833,7 +1011,7 @@ export class CollaborationRoom {
     }
 
     // Terminal state: keep it visible briefly, then clear.
-    const timer = setTimeout(() => {
+    const timer = this.clock.setTimeout(() => {
       this.runStatusLingerTimers.delete(input.executionId);
       this.runStatus.delete(input.executionId);
       // M65: the shared output buffer is bound to this status entry.
@@ -845,7 +1023,6 @@ export class CollaborationRoom {
         state: "cleared",
       });
     }, RUN_STATUS_LINGER_MS);
-    timer.unref?.();
     this.runStatusLingerTimers.set(input.executionId, timer);
   }
 
@@ -864,7 +1041,7 @@ export class CollaborationRoom {
 
   private ensureRunStatusSweep(): void {
     if (this.runStatusSweepTimer) return;
-    this.runStatusSweepTimer = setInterval(() => {
+    this.runStatusSweepTimer = this.clock.setInterval(() => {
       const now = Date.now();
       for (const [id, entry] of Array.from(this.runStatus.entries())) {
         if (
@@ -875,7 +1052,7 @@ export class CollaborationRoom {
           this.deleteRunOutput(id); // M65
           const linger = this.runStatusLingerTimers.get(id);
           if (linger) {
-            clearTimeout(linger);
+            linger.clear();
             this.runStatusLingerTimers.delete(id);
           }
           this.broadcastRunStatus({
@@ -890,11 +1067,10 @@ export class CollaborationRoom {
         (e) => e.state === "running",
       );
       if (!stillRunning && this.runStatusSweepTimer) {
-        clearInterval(this.runStatusSweepTimer);
+        this.runStatusSweepTimer.clear();
         this.runStatusSweepTimer = null;
       }
     }, RUN_STATUS_SWEEP_MS);
-    this.runStatusSweepTimer.unref?.();
   }
 
   /**
@@ -907,10 +1083,10 @@ export class CollaborationRoom {
    */
   private ensureAwarenessReconcileSweep(): void {
     if (this.awarenessReconcileTimer) return;
-    this.awarenessReconcileTimer = setInterval(() => {
+    this.awarenessReconcileTimer = this.clock.setInterval(() => {
       if (this.disposed || this.clients.size === 0) {
         if (this.awarenessReconcileTimer) {
-          clearInterval(this.awarenessReconcileTimer);
+          this.awarenessReconcileTimer.clear();
           this.awarenessReconcileTimer = null;
         }
         return;
@@ -918,7 +1094,6 @@ export class CollaborationRoom {
       this.reconcileAwarenessAgainstLiveSockets();
       this.refreshLiveAwareness();
     }, this.awarenessReconcileMs);
-    this.awarenessReconcileTimer.unref?.();
   }
 
   /**
@@ -1025,12 +1200,13 @@ export class CollaborationRoom {
     this.trimRunOutput(entry);
 
     if (!entry.flushTimer) {
-      entry.flushTimer = setTimeout(() => {
+      entry.flushTimer = this.clock.setTimeout(() => {
         const e = this.runOutput.get(executionId);
-        if (e) e.flushTimer = null;
+        if (e) {
+          e.flushTimer = null;
+        }
         this.flushRunOutput(executionId);
       }, RUN_OUTPUT_FLUSH_MS);
-      entry.flushTimer.unref?.();
     }
   }
 
@@ -1089,7 +1265,7 @@ export class CollaborationRoom {
   private deleteRunOutput(executionId: string): void {
     const entry = this.runOutput.get(executionId);
     if (!entry) return;
-    if (entry.flushTimer) clearTimeout(entry.flushTimer);
+    if (entry.flushTimer) entry.flushTimer.clear();
     this.runOutput.delete(executionId);
   }
 
@@ -1355,12 +1531,11 @@ export class CollaborationRoom {
   }
 
   private scheduleAttentionExpiry(event: AttentionEvent): void {
-    const delay = Math.max(0, event.expiresAt - Date.now());
-    const timer = setTimeout(() => {
+    const delay = Math.max(0, event.expiresAt - this.clock.now());
+    const timer = this.clock.setTimeout(() => {
       this.attentionExpiryTimers.delete(event.id);
       this.clearAttentionRequest(event.id, "expired");
     }, delay);
-    timer.unref?.();
     this.attentionExpiryTimers.set(event.id, timer);
   }
 
@@ -1375,7 +1550,7 @@ export class CollaborationRoom {
   ): void {
     const timer = this.attentionExpiryTimers.get(id);
     if (timer) {
-      clearTimeout(timer);
+      timer.clear();
       this.attentionExpiryTimers.delete(id);
     }
     const event = this.attentionRegistry.delete(id);
@@ -1462,7 +1637,7 @@ export class CollaborationRoom {
     if (res.evicted) {
       const t = this.attentionExpiryTimers.get(res.evicted.id);
       if (t) {
-        clearTimeout(t);
+        t.clear();
         this.attentionExpiryTimers.delete(res.evicted.id);
       }
       if (res.evicted.targetUserId !== undefined) {
@@ -1606,6 +1781,9 @@ export class CollaborationRoom {
     const baseDir = projectDir(this.cfg, this.projectId);
     let fullPath: string;
     try {
+      // M86: `.git` internals are never collaborative files (same rule as
+      // the REST file routes).
+      assertNotGitInternal(filePath);
       fullPath = safeResolve(baseDir, filePath);
       await assertInsideWorkspace(baseDir, fullPath);
     } catch (err) {
@@ -1632,7 +1810,8 @@ export class CollaborationRoom {
 
     if (yText.length === 0) {
       try {
-        const content = await fs.readFile(fullPath, "utf-8");
+        // M87: verify the opened file, not just the path checked above.
+        const { content } = await readConfinedFile(baseDir, fullPath);
         // Only insert if Y.Text is still empty
         if (yText.length === 0) {
           this.doc.transact(() => {
@@ -1724,9 +1903,13 @@ export class CollaborationRoom {
       return;
     }
     if (this.idleDisposeTimer) {
-      clearTimeout(this.idleDisposeTimer);
+      this.idleDisposeTimer.clear();
       this.idleDisposeTimer = null;
     }
+    // M91: reset the retry counter when a client aborts idle disposal by
+    // joining — the pending retry schedule is cancelled, so the count no
+    // longer reflects real consecutive failures.
+    this.idleDisposeRetries = 0;
 
     this.clients.set(ws, clientState);
 
@@ -1840,10 +2023,14 @@ export class CollaborationRoom {
         case MESSAGE_SYNC: {
           const syncType = decoding.peekVarUint(decoder);
 
-          // Viewer Role Protection: Reject edit updates from read-only viewers
+          // Viewer Role Protection: Reject edit updates from read-only viewers.
+          // M86: SyncStep2 carries a Yjs update too — applying it let a viewer
+          // create, rewrite, or delete workspace files. Viewers may still send
+          // SyncStep1 (a read request answered with the document).
           if (
             clientState.role === "viewer" &&
-            syncType === syncProtocol.messageYjsUpdate
+            (syncType === syncProtocol.messageYjsUpdate ||
+              syncType === syncProtocol.messageYjsSyncStep2)
           ) {
             console.warn(
               `[CollabRoom:${this.projectId}] Blocked edit attempt from viewer ${clientState.username}`,
@@ -2017,7 +2204,7 @@ export class CollaborationRoom {
       )) {
         const t = this.attentionExpiryTimers.get(e.id);
         if (t) {
-          clearTimeout(t);
+          t.clear();
           this.attentionExpiryTimers.delete(e.id);
         }
         if (e.targetUserId !== undefined) {
@@ -2031,9 +2218,9 @@ export class CollaborationRoom {
       for (const e of this.attentionRegistry.deleteByTarget(
         clientState.userId,
       )) {
-        const t = this.attentionExpiryTimers.get(e.id);
-        if (t) {
-          clearTimeout(t);
+        const t2 = this.attentionExpiryTimers.get(e.id);
+        if (t2) {
+          t2.clear();
           this.attentionExpiryTimers.delete(e.id);
         }
       }
@@ -2065,7 +2252,7 @@ export class CollaborationRoom {
     // If room is now empty, schedule a grace period before disposing
     if (this.clients.size === 0) {
       if (this.awarenessReconcileTimer) {
-        clearInterval(this.awarenessReconcileTimer);
+        this.awarenessReconcileTimer.clear();
         this.awarenessReconcileTimer = null;
       }
       this.scheduleIdleDisposal();
@@ -2332,6 +2519,9 @@ export class CollaborationRoom {
    */
   private isPersistablePath(filePath: string): boolean {
     try {
+      // M86: never queue writes into `.git` (repository config there is
+      // honored by host-side Git).
+      assertNotGitInternal(filePath);
       safeResolve(projectDir(this.cfg, this.projectId), filePath);
       return true;
     } catch {
@@ -2344,17 +2534,17 @@ export class CollaborationRoom {
 
   private scheduleDebouncedPersistence(): void {
     if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
+      this.debounceTimer.clear();
     }
 
     // Schedule 2s debounce
-    this.debounceTimer = setTimeout(() => {
+    this.debounceTimer = this.clock.setTimeout(() => {
       this.flushToDisk();
     }, 2000);
 
     // Schedule max 10s delay if not already active
     if (!this.maxFlushTimer) {
-      this.maxFlushTimer = setTimeout(() => {
+      this.maxFlushTimer = this.clock.setTimeout(() => {
         this.flushToDisk();
       }, 10000);
     }
@@ -2364,6 +2554,106 @@ export class CollaborationRoom {
    * Materializes dirty Y.Text contents to the workspace filesystem.
    */
   public async flushToDisk(): Promise<void> {
+    await this.runFlushPass(true);
+  }
+
+  /**
+   * M86: read-your-writes barrier for workspace consumers (Run, Test/Build,
+   * Debug launch, install, Git stage). Resolves once every edit the room had
+   * received when this was called is on disk, or reports the files that could
+   * not be written within `timeoutMs`.
+   *
+   * - Writes only dirty files. A clean room returns without touching disk, so
+   *   consumers never bump mtimes of unchanged files (watch-mode tools in the
+   *   sandbox would restart).
+   * - An in-flight pass is joined first: it snapshotted every file dirtied
+   *   before it started and reads each file's text at write time, and any
+   *   edit that lands after its snapshot or during its write keeps that file
+   *   dirty (see flushOnce). So only a still-dirty room needs another pass.
+   * - Edits arriving after the call are not required, so they never turn a
+   *   successful persist into a refusal.
+   * - A disposed room has nothing authoritative left to write (M41).
+   */
+  public async persistLiveEdits(opts?: {
+    timeoutMs?: number;
+  }): Promise<LiveEditsPersistResult> {
+    if (this.disposed) return { ok: true, unpersisted: [] };
+    const timeoutMs = opts?.timeoutMs ?? PERSIST_LIVE_EDITS_TIMEOUT_MS;
+
+    const persist = async (): Promise<string[]> => {
+      if (this.flushRunning) {
+        await this.flushRunning.catch(() => undefined);
+      }
+      if (this.disposed || this.dirtyFiles.size === 0) return [];
+      return this.runFlushPass(false);
+    };
+
+    try {
+      const failed = await withTimeout(
+        persist(),
+        timeoutMs,
+        `room ${this.projectId} persistLiveEdits`,
+      );
+      const unpersisted = failed.slice(0, UNPERSISTED_REPORT_MAX);
+      return { ok: unpersisted.length === 0, unpersisted };
+    } catch (err) {
+      console.error(
+        `[CollabRoom:${this.projectId}] persistLiveEdits did not complete:`,
+        err,
+      );
+      const unpersisted = Array.from(this.dirtyFiles).slice(
+        0,
+        UNPERSISTED_REPORT_MAX,
+      );
+      return { ok: false, unpersisted };
+    }
+  }
+
+  /**
+   * M86: serialize flush passes. Starts a pass now if none is running;
+   * otherwise coalesces into ONE queued pass that starts the moment the
+   * running one settles (bounded: never more than one running + one queued).
+   * `writeCleanKeys` preserves the legacy timer/shutdown fallback of writing
+   * every non-empty Y.Text when nothing is dirty; the M86 barrier passes
+   * false. A queued pass writes clean keys if any of its callers asked to.
+   */
+  private runFlushPass(writeCleanKeys: boolean): Promise<string[]> {
+    if (!this.flushRunning) return this.startFlushPass(writeCleanKeys);
+    if (this.flushQueued) {
+      this.flushQueued.writeCleanKeys ||= writeCleanKeys;
+      return this.flushQueued.promise;
+    }
+    let resolve!: (failed: string[]) => void;
+    let reject!: (err: unknown) => void;
+    const promise = new Promise<string[]>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.flushQueued = { promise, resolve, reject, writeCleanKeys };
+    return promise;
+  }
+
+  private startFlushPass(writeCleanKeys: boolean): Promise<string[]> {
+    const pass = this.flushOnce(writeCleanKeys);
+    this.flushRunning = pass;
+    const settle = () => {
+      if (this.flushRunning === pass) this.flushRunning = null;
+      const queued = this.flushQueued;
+      if (!queued) return;
+      this.flushQueued = null;
+      // Started synchronously in the same reaction that cleared
+      // `flushRunning`, so no other caller can slip a concurrent pass in.
+      this.startFlushPass(queued.writeCleanKeys).then(
+        queued.resolve,
+        queued.reject,
+      );
+    };
+    pass.then(settle, settle);
+    return pass;
+  }
+
+  /** One flush pass. Returns the paths whose write failed (still dirty). */
+  private async flushOnce(writeCleanKeys: boolean): Promise<string[]> {
     // M41: a disposed room's doc/awareness are already destroyed, and any
     // content this.doc.getText(...) still returns is a frozen snapshot from
     // the moment of destruction — necessarily pre-disposal, since dispose()
@@ -2373,18 +2663,18 @@ export class CollaborationRoom {
     // legitimately fresh content was written since. This is the final,
     // authoritative guard: even if some other path reaches flushToDisk() on
     // a disposed room in the future, it must still refuse to write.
-    if (this.disposed) return;
+    if (this.disposed) return [];
 
     // M60: a flush-to-disk is a burst-close boundary — history and disk should
     // agree on which files changed. Synchronous, in-memory only.
     this.historian.closeProjectBursts(this.projectId, "flush");
 
     if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
+      this.debounceTimer.clear();
       this.debounceTimer = null;
     }
     if (this.maxFlushTimer) {
-      clearTimeout(this.maxFlushTimer);
+      this.maxFlushTimer.clear();
       this.maxFlushTimer = null;
     }
 
@@ -2397,7 +2687,9 @@ export class CollaborationRoom {
     // tracked path touched by handleExternalFileMutation's own doc.getText()
     // call) rather than real content — writing those back to disk would
     // resurrect a deleted or renamed-away file as an empty ghost file.
-    if (filesToFlush.length === 0) {
+    // M86: the read-your-writes barrier opts out, so a consumer never
+    // rewrites (and re-timestamps) files that are already persisted.
+    if (filesToFlush.length === 0 && writeCleanKeys) {
       for (const [key, type] of (
         this.doc.share as Map<string, any>
       ).entries()) {
@@ -2407,7 +2699,12 @@ export class CollaborationRoom {
       }
     }
 
+    const failed: string[] = [];
     for (const filePath of filesToFlush) {
+      // M86: passes can now be queued behind one another; a room disposed
+      // mid-pass (import/restore/delete) must not have its frozen snapshot
+      // written over the replacement content (same rule as the M41 guard).
+      if (this.disposed) return failed;
       // Realpath boundary enforcement, mirroring the REST file routes
       // (safeResolve + assertInsideWorkspace). markFileDirty()'s lexical
       // check cannot see symlinks, and a user with terminal/docker-exec
@@ -2420,6 +2717,9 @@ export class CollaborationRoom {
       // symlinks before writing with the server's privileges.
       let fullPath: string;
       try {
+        // M86: the clean-key fallback writes keys that never passed
+        // markFileDirty(), so `.git` must be refused here too.
+        assertNotGitInternal(filePath);
         fullPath = safeResolve(baseDir, filePath);
         await assertInsideWorkspace(baseDir, fullPath);
       } catch (err) {
@@ -2438,12 +2738,34 @@ export class CollaborationRoom {
       try {
         const yText = this.doc.getText(filePath);
         const content = yText.toString();
-        await fs.writeFile(fullPath, content, "utf-8");
+        // M87: truncates/writes only after proving the opened file is
+        // inside the workspace (closes the check-then-write race).
+        await writeConfinedFile(baseDir, fullPath, content);
         // Only mark clean once the write actually landed. Clearing
         // unconditionally would falsely mark a failed write as persisted,
         // and nothing would ever retry it.
-        this.dirtyFiles.delete(filePath);
+        // M86: and only if the text is still what was written. An edit that
+        // arrived during the write re-marked the file dirty; clearing it here
+        // would let the read-your-writes barrier treat the room as persisted
+        // while the disk holds the older bytes.
+        if (!this.disposed && this.doc.getText(filePath).toString() === content) {
+          this.dirtyFiles.delete(filePath);
+        }
       } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code && PERMANENT_WRITE_ERROR_CODES.has(code)) {
+          // M86: a key that can never exist at this path (an existing
+          // directory, a missing parent, an invalid name) is dropped like an
+          // escaping path. Left dirty, it would make the read-your-writes
+          // barrier refuse Run / Test / Debug / install / stage for every
+          // collaborator forever — and honest clients re-seed it on reconnect.
+          this.dirtyFiles.delete(filePath);
+          console.warn(
+            `[CollabRoom:${this.projectId}] Dropping unwritable collaborative key ${filePath} (${code})`,
+          );
+          continue;
+        }
+        failed.push(filePath);
         console.error(
           `[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`,
           err,
@@ -2451,7 +2773,8 @@ export class CollaborationRoom {
       }
     }
 
-    this.lastFlushTime = Date.now();
+    this.lastFlushTime = this.clock.now();
+    return failed;
   }
 
   /**
@@ -2487,6 +2810,9 @@ export class CollaborationRoom {
     if (this.flushBeforeDisposePromise) return this.flushBeforeDisposePromise;
 
     const timeoutMs = opts?.timeoutMs ?? FLUSH_BEFORE_DISPOSE_TIMEOUT_MS;
+    // M86: flushToDisk() is serialized with every other pass, so this budget
+    // can include waiting for one in-flight pass. On a wedged disk that times
+    // out and fails closed (`flushed: false`) instead of racing older bytes.
     this.flushBeforeDisposePromise = (async () => {
       try {
         await withTimeout(
@@ -2671,7 +2997,23 @@ export class CollaborationRoom {
     // disposed guard, in case some future caller invokes this directly.
     if (this.disposed) return;
 
-    if (this.idleDisposeTimer) clearTimeout(this.idleDisposeTimer);
+    if (this.idleDisposeTimer) {
+      this.idleDisposeTimer.clear();
+      this.idleDisposeTimer = null;
+    }
+
+    // M91: cap the retry count. A permanently failing write (disk full,
+    // workspace removed) retries with exponential backoff up to
+    // IDLE_DISPOSE_RETRY_CAP_MS; after MAX_IDLE_DISPOSE_RETRIES the room is
+    // disposed with a warning so production cannot enter an unbounded retry
+    // loop and fake-timer test harnesses stay bounded.
+    if (this.idleDisposeRetries >= MAX_IDLE_DISPOSE_RETRIES) {
+      console.error(
+        `[CollabRoom:${this.projectId}] giving up after ${this.idleDisposeRetries} failed idle-disposal flushes; disposing with ${this.dirtyFiles.size} unpersisted file(s)`,
+      );
+      this.dispose();
+      return;
+    }
 
     // Idle grace timer before freeing room from memory. On retry (a prior
     // flush left files dirty) the delay doubles, capped at
@@ -2680,7 +3022,7 @@ export class CollaborationRoom {
     // degrades to an infrequent retry instead of hammering the filesystem
     // and logs forever at a fixed 10s cadence. Content is never dropped —
     // only the retry cadence backs off.
-    this.idleDisposeTimer = setTimeout(async () => {
+    this.idleDisposeTimer = this.clock.setTimeout(async () => {
       // M41: the room may have been disposed by an explicit operation
       // (import/restore/delete) during the delay window between this timer
       // being armed and firing. flushToDisk() already refuses to write once
@@ -2711,6 +3053,7 @@ export class CollaborationRoom {
           console.error(
             `[CollabRoom:${this.projectId}] idle disposal deferred: ${this.dirtyFiles.size} file(s) failed to flush, retrying in ${nextDelay}ms`,
           );
+          this.idleDisposeRetries++;
           this.scheduleIdleDisposal(nextDelay);
         }
       }
@@ -2728,34 +3071,52 @@ export class CollaborationRoom {
     // historian's broadcaster) still finds live clients.
     this.historian.closeProjectBursts(this.projectId, "dispose");
     this.disposed = true;
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    if (this.maxFlushTimer) clearTimeout(this.maxFlushTimer);
-    if (this.idleDisposeTimer) clearTimeout(this.idleDisposeTimer);
-    if (this.yjsCoalesceTimer) clearTimeout(this.yjsCoalesceTimer);
-    if (this.awarenessCoalesceTimer) clearTimeout(this.awarenessCoalesceTimer);
-    if (this.slowClientRecheckTimer) clearInterval(this.slowClientRecheckTimer);
+    if (this.debounceTimer) {
+      this.debounceTimer.clear();
+      this.debounceTimer = null;
+    }
+    if (this.maxFlushTimer) {
+      this.maxFlushTimer.clear();
+      this.maxFlushTimer = null;
+    }
+    if (this.idleDisposeTimer) {
+      this.idleDisposeTimer.clear();
+      this.idleDisposeTimer = null;
+    }
+    if (this.yjsCoalesceTimer) {
+      this.yjsCoalesceTimer.clear();
+      this.yjsCoalesceTimer = null;
+    }
+    if (this.awarenessCoalesceTimer) {
+      this.awarenessCoalesceTimer.clear();
+      this.awarenessCoalesceTimer = null;
+    }
+    if (this.slowClientRecheckTimer) {
+      this.slowClientRecheckTimer.clear();
+      this.slowClientRecheckTimer = null;
+    }
     if (this.awarenessReconcileTimer) {
-      clearInterval(this.awarenessReconcileTimer);
+      this.awarenessReconcileTimer.clear();
       this.awarenessReconcileTimer = null;
     }
     // M54: run-status registry teardown.
-    for (const t of this.runStatusLingerTimers.values()) clearTimeout(t);
+    for (const t of this.runStatusLingerTimers.values()) t.clear();
     this.runStatusLingerTimers.clear();
     if (this.runStatusSweepTimer) {
-      clearInterval(this.runStatusSweepTimer);
+      this.runStatusSweepTimer.clear();
       this.runStatusSweepTimer = null;
     }
     this.runStatus.clear();
     // M65: shared run-output teardown.
     for (const e of this.runOutput.values()) {
-      if (e.flushTimer) clearTimeout(e.flushTimer);
+      if (e.flushTimer) e.flushTimer.clear();
     }
     this.runOutput.clear();
     this.displayNameByUser.clear();
     this.avatarVersionByUser.clear();
     this.pronounsByUser.clear();
     // M58: attention teardown.
-    for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
+    for (const t of this.attentionExpiryTimers.values()) t.clear();
     this.attentionExpiryTimers.clear();
     this.attentionRegistry.clear();
     this.yjsCoalesceTimer = null;
@@ -2945,6 +3306,20 @@ export class CollaborationManager {
     const room = this.rooms.get(projectId);
     if (!room) return Promise.resolve({ flushed: true, remainingDirty: [] });
     return room.flushBeforeDestructiveDispose(opts);
+  }
+
+  /**
+   * M86: read-your-writes barrier for a workspace consumer. No live room =>
+   * disk is already authoritative => `ok`. See
+   * {@link CollaborationRoom.persistLiveEdits}. Callers must authorize first.
+   */
+  public persistLiveEdits(
+    projectId: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<LiveEditsPersistResult> {
+    const room = this.rooms.get(projectId);
+    if (!room) return Promise.resolve({ ok: true, unpersisted: [] });
+    return room.persistLiveEdits(opts);
   }
 
   /**

@@ -40,6 +40,9 @@ import Output from "../Output/Output";
 import Terminal from "../Terminal/Terminal";
 import Preview from "../Preview/Preview";
 import { ExecutionSessionProvider } from "../../hooks/useExecutionSession";
+import { DebugSessionProvider } from "../../hooks/useDebugger";
+import DebugPanel from "../Debug/DebugPanel";
+import TestExplorer from "../Workflow/TestExplorer";
 import SourceControlPanel from "../Git/SourceControlPanel";
 import ProblemsPanel from "../Output/ProblemsPanel";
 import ResourcesView from "../Resources/ResourcesView";
@@ -105,12 +108,14 @@ import ProjectSharingModal from "../Collab/ProjectSharingModal";
 import ProjectSecretsModal from "../ProjectSecrets/ProjectSecretsModal";
 import { CommandRegistry, Command } from "../../utils/commands";
 import { buildFileIndex, IndexedFile } from "../../utils/fileIndex";
+import { searchWorkspaceSymbols } from "../../lsp/workspaceSymbols";
 import {
   getRecentFiles,
   addRecentFile,
   addRecentProject,
 } from "../../utils/recentStore";
 import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
+import { workflowResultsToDiagnostics } from "../../utils/workflowDiagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import {
   resolveKeymap,
@@ -132,12 +137,19 @@ import { handleSaveError } from "../../utils/collabConflict";
 import { openAndRevealLocation } from "../../utils/revealLocation";
 import { appendOpenFile } from "../../utils/openFiles";
 import {
+  LSP_DIAGNOSTICS_EVENT,
+  LSP_OPEN_REVEAL_EVENT,
+  LSP_STATUS_EVENT,
+  type LspStatus,
+} from "../../lsp/types";
+import {
   readProjectSession,
   writeProjectSession,
   getLastProjectId,
   setLastProjectId,
   resolveProjectSelection,
   resolvePendingEntryOpen,
+  type BottomPanelTab,
 } from "../../utils/sessionStore";
 import {
   IconTerminal,
@@ -151,6 +163,7 @@ import {
   IconAlertTriangle,
   IconActivity,
   IconGitBranch,
+  IconPlay,
 } from "../common/Icons";
 
 // M56: human-readable label for an external-mutation notice.
@@ -233,9 +246,7 @@ export default function IDE({
   // Populated by the (lazily loaded) Editor on mount: the live Monaco model
   // registry that serves as the save-time source of truth. See M1.
   const liveApiRef = useRef<LiveContentApi | null>(null);
-  const [bottomTab, setBottomTab] = useState<
-    "output" | "problems" | "resources" | "terminal" | "preview" | "git"
-  >("output");
+  const [bottomTab, setBottomTab] = useState<BottomPanelTab>("output");
   // M51: local Git state, surfaced as a status-bar badge.
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [gitInitialized, setGitInitialized] = useState(false);
@@ -246,13 +257,17 @@ export default function IDE({
 
   // M1: Command Palette & Quick Open States
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-  const [paletteMode, setPaletteMode] = useState<"commands" | "files">("files");
+  const [paletteMode, setPaletteMode] = useState<"commands" | "files" | "symbols">("files");
   const [recentFilesList, setRecentFilesList] = useState<string[]>([]);
   const [registeredCommands, setRegisteredCommands] = useState<Command[]>([]);
 
   // M2: Full Workspace Search & Problems Diagnostics States
   const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
+  const [lspDiagnostics, setLspDiagnostics] = useState<Diagnostic[]>([]);
+  const [lspStatuses, setLspStatuses] = useState<Record<string, LspStatus>>(
+    {},
+  );
   // M22: User Preferences & Editor Settings States
   const [preferences, setPreferences] =
     useState<UserPreferences>(DEFAULT_PREFERENCES);
@@ -612,6 +627,9 @@ export default function IDE({
     clearNotices();
     setGitBranch(null);
     setGitInitialized(false);
+    setDiagnostics([]);
+    setLspDiagnostics([]);
+    setLspStatuses({});
 
     if (!project) {
       if (collabClientRef.current) {
@@ -1088,7 +1106,7 @@ export default function IDE({
     treeLoadingPidRef.current = pid;
     if (treeLoadedForRef.current !== pid) setTreeStatus("loading");
     try {
-      const res = await api<{ tree: TreeNode[] }>(
+      const res = await api<{ tree: TreeNode[]; truncated?: boolean }>(
         `/api/projects/${pid}/tree`,
       );
       if (gen !== treeLoadGenRef.current) return;
@@ -1096,6 +1114,16 @@ export default function IDE({
       treeLoadedForRef.current = pid;
       setTreeStatus("ready");
       dismissNoticeKey("tree-load");
+      if (res.truncated) {
+        notify({
+          kind: "warning",
+          text: "File tree truncated for this large project. Some files are hidden from the explorer.",
+          ttl: 8000,
+          dedupeKey: "tree-truncated",
+        });
+      } else {
+        dismissNoticeKey("tree-truncated");
+      }
     } catch {
       if (gen !== treeLoadGenRef.current) return;
       setTreeStatus("error");
@@ -1460,9 +1488,9 @@ export default function IDE({
         });
       }
 
-      // A branch checkout can add or remove files, not just change contents —
-      // refresh the explorer so it reflects the checked-out tree.
-      if (opts.noticeLabel === "Branch checkout") {
+      // Checkout and pull rewrite the workspace (add/remove files). Refresh
+      // the explorer. Replace All only edits existing files.
+      if (opts.authoritative) {
         void loadTree();
       }
     },
@@ -2580,6 +2608,38 @@ export default function IDE({
     return () => document.removeEventListener(IDE_NOTICE_EVENT, onNotice);
   }, [notify]);
 
+  // Auto-save dirty files before executing. M1: content comes from the
+  // live editor model (openFiles[].content is stale during typing), and
+  // only files whose save actually succeeded are marked clean — the old
+  // code cleared `dirty` even when the POST threw.
+  // M86: shared by Run and Test/Build tasks. Best-effort — the server
+  // persists the collaboration room before executing either way. Debug keeps
+  // its own strict variant below (it refuses to launch on a failed flush).
+  const saveDirtyFilesBeforeExecution = useCallback(async () => {
+    if (!project) return;
+    const dirtyFiles = openFilesRef.current.filter((f) => f.dirty);
+    const savedContents = new Map<string, string>();
+    for (const f of dirtyFiles) {
+      const content = resolveLiveFileContent(f.path);
+      if (content === null) continue;
+      try {
+        await api(`/api/projects/${project.id}/file`, {
+          method: "POST",
+          body: JSON.stringify({ path: f.path, content }),
+        });
+        savedContents.set(f.path, content);
+      } catch {}
+    }
+    setOpenFiles((prev) =>
+      prev.map((f) => {
+        const saved = savedContents.get(f.path);
+        return saved !== undefined
+          ? { ...f, content: saved, dirty: false }
+          : f;
+      }),
+    );
+  }, [project, resolveLiveFileContent]);
+
   // Listen to ide-run event from Toolbar
   useEffect(() => {
     const handleRunRequest = async (e: Event) => {
@@ -2590,31 +2650,7 @@ export default function IDE({
       } = (e as CustomEvent).detail;
       if (!project) return;
 
-      // Auto-save dirty files before executing. M1: content comes from the
-      // live editor model (openFiles[].content is stale during typing), and
-      // only files whose save actually succeeded are marked clean — the old
-      // code cleared `dirty` even when the POST threw.
-      const dirtyFiles = openFiles.filter((f) => f.dirty);
-      const savedContents = new Map<string, string>();
-      for (const f of dirtyFiles) {
-        const content = resolveLiveFileContent(f.path);
-        if (content === null) continue;
-        try {
-          await api(`/api/projects/${project.id}/file`, {
-            method: "POST",
-            body: JSON.stringify({ path: f.path, content }),
-          });
-          savedContents.set(f.path, content);
-        } catch {}
-      }
-      setOpenFiles((prev) =>
-        prev.map((f) => {
-          const saved = savedContents.get(f.path);
-          return saved !== undefined
-            ? { ...f, content: saved, dirty: false }
-            : f;
-        }),
-      );
+      await saveDirtyFilesBeforeExecution();
 
       // M45: switch to output tab and expand drawer if collapsed. Must be
       // flushSync — see the identical M44 comment on the ide-install effect
@@ -2641,7 +2677,73 @@ export default function IDE({
 
     document.addEventListener("ide-run", handleRunRequest);
     return () => document.removeEventListener("ide-run", handleRunRequest);
-  }, [project, openFiles, resolveLiveFileContent, setIsBottomCollapsed]);
+  }, [project, saveDirtyFilesBeforeExecution, setIsBottomCollapsed]);
+
+  useEffect(() => {
+    const handleDebugRequest = async (e: Event) => {
+      const { activeFile: reqFile } = (e as CustomEvent).detail ?? {};
+      if (!project || !reqFile) return;
+      const dirtyFiles = openFiles.filter((f) => f.dirty);
+      const savedContents = new Map<string, string>();
+      for (const f of dirtyFiles) {
+        const content = resolveLiveFileContent(f.path);
+        if (content === null) {
+          if (f.path !== reqFile) continue;
+          notify({
+            kind: "error",
+            text: `Cannot start debugger: unsaved file ${f.path} could not be flushed.`,
+            ttl: 6000,
+            surface: "stack",
+            dedupeKey: "debug-flush",
+          });
+          return;
+        }
+        try {
+          await api(`/api/projects/${project.id}/file`, {
+            method: "POST",
+            body: JSON.stringify({ path: f.path, content }),
+          });
+          savedContents.set(f.path, content);
+        } catch (err: any) {
+          notify({
+            kind: "error",
+            text:
+              err?.message ??
+              `Cannot start debugger: failed to save ${f.path}.`,
+            ttl: 6000,
+            surface: "stack",
+            dedupeKey: "debug-flush",
+          });
+          return;
+        }
+      }
+      setOpenFiles((prev) =>
+        prev.map((f) => {
+          const saved = savedContents.get(f.path);
+          return saved !== undefined
+            ? { ...f, content: saved, dirty: false }
+            : f;
+        }),
+      );
+      flushSync(() => {
+        setBottomTab("debug");
+        setIsBottomCollapsed(false);
+      });
+      document.dispatchEvent(
+        new CustomEvent("ide-debug-confirmed", {
+          detail: { activeFile: reqFile },
+        }),
+      );
+    };
+    document.addEventListener("ide-debug", handleDebugRequest);
+    return () => document.removeEventListener("ide-debug", handleDebugRequest);
+  }, [
+    project,
+    openFiles,
+    resolveLiveFileContent,
+    setIsBottomCollapsed,
+    notify,
+  ]);
 
   // M43/M44: Output (which owns the actual install request/stream) only
   // exists in the DOM while bottomTab === "output" and the panel isn't
@@ -2677,16 +2779,25 @@ export default function IDE({
         result,
         activeFile: runFile,
         language,
+        tests,
       } = (e as CustomEvent).detail || {};
       if (!result) return;
 
       const rawCombined = `${result.stdout || ""}\n${result.stderr || ""}`;
-      const newDiags = parseDiagnostics(rawCombined, language, runFile);
+      const newDiags = [
+        ...workflowResultsToDiagnostics(tests),
+        ...parseDiagnostics(rawCombined, language, runFile),
+      ];
 
       if (newDiags.length > 0) {
         setDiagnostics(newDiags);
-        // Automatically reveal Problems tab if compiler error occurred
-        if (result.type === "compile_error" || result.exitCode !== 0) {
+        // Test runs already have Test Explorer in front; stealing the tab
+        // unmounts it and hides the results the user just produced.
+        const testRun = Array.isArray(tests) && tests.length > 0;
+        if (
+          !testRun &&
+          (result.type === "compile_error" || result.exitCode !== 0)
+        ) {
           setBottomTab("problems");
           setIsBottomCollapsed(false);
         }
@@ -2703,6 +2814,46 @@ export default function IDE({
         handleExecutionResult,
       );
   }, [setIsBottomCollapsed]);
+
+  useEffect(() => {
+    const onStatus = (e: Event) => {
+      const status = (e as CustomEvent).detail as LspStatus | undefined;
+      if (!status?.language) return;
+      setLspStatuses((prev) => {
+        const next = { ...prev };
+        if (status.state === "stopped") delete next[status.language];
+        else next[status.language] = status;
+        return next;
+      });
+    };
+    const onDiags = (e: Event) => {
+      const diagnostics = (e as CustomEvent).detail?.diagnostics as
+        | Diagnostic[]
+        | undefined;
+      setLspDiagnostics(Array.isArray(diagnostics) ? diagnostics : []);
+    };
+    const onReveal = (e: Event) => {
+      const d = (e as CustomEvent).detail as {
+        filePath?: string;
+        line?: number;
+        column?: number;
+      };
+      if (!d?.filePath) return;
+      void openAndRevealLocation(handleOpenFile, {
+        filePath: d.filePath,
+        line: d.line || 1,
+        column: d.column,
+      });
+    };
+    document.addEventListener(LSP_STATUS_EVENT, onStatus);
+    document.addEventListener(LSP_DIAGNOSTICS_EVENT, onDiags);
+    document.addEventListener(LSP_OPEN_REVEAL_EVENT, onReveal);
+    return () => {
+      document.removeEventListener(LSP_STATUS_EVENT, onStatus);
+      document.removeEventListener(LSP_DIAGNOSTICS_EVENT, onDiags);
+      document.removeEventListener(LSP_OPEN_REVEAL_EVENT, onReveal);
+    };
+  }, [handleOpenFile]);
 
   // M5: AI Action Trigger Handler
   const handleTriggerAIAction = useCallback(
@@ -2861,6 +3012,16 @@ export default function IDE({
         },
       },
       {
+        id: "workbench.action.gotoSymbol",
+        title: "Go to Symbol in Workspace",
+        description: "Search language-server symbols across the project",
+        category: "Navigation",
+        handler: () => {
+          setPaletteMode("symbols");
+          setIsPaletteOpen(true);
+        },
+      },
+      {
         id: "workbench.action.showCommands",
         title: "Command Palette",
         description: "Show and run IDE commands",
@@ -3006,6 +3167,54 @@ export default function IDE({
         handler: () => {
           setBottomTab("resources");
           setIsBottomCollapsed(false);
+        },
+      },
+      {
+        id: "execution.action.debug",
+        title: "Debug Current File",
+        description:
+          "Launch the current Python or Node/TypeScript file under the sandbox debugger",
+        category: "Execution",
+        available: () => !!project && !!activeFile,
+        handler: () => {
+          const btn = document.querySelector(
+            '[data-testid="debug-start"]',
+          ) as HTMLButtonElement | null;
+          btn?.click();
+        },
+      },
+      {
+        id: "execution.action.openDebug",
+        title: "Switch to Debug Panel",
+        description: "Show debugger toolbar, call stack, and variables",
+        category: "Execution",
+        handler: () => {
+          setBottomTab("debug");
+          setIsBottomCollapsed(false);
+        },
+      },
+      {
+        id: "execution.action.openTests",
+        title: "Switch to Test Explorer",
+        description: "Discover and run project tests and builds",
+        category: "Execution",
+        handler: () => {
+          setBottomTab("tests");
+          setIsBottomCollapsed(false);
+        },
+      },
+      {
+        id: "execution.action.runTests",
+        title: "Run Project Tests",
+        description: "Run the discovered test task in the project sandbox",
+        category: "Execution",
+        available: () => !!project && projectRole !== "viewer",
+        handler: () => {
+          flushSync(() => {
+            setBottomTab("tests");
+            setIsBottomCollapsed(false);
+          });
+          document.dispatchEvent(new Event("ide-workflow-run-all"));
         },
       },
       {
@@ -3182,6 +3391,7 @@ export default function IDE({
     };
   }, [
     project,
+    projectRole,
     activeFile,
     user.role,
     onSwitchToAdmin,
@@ -3306,8 +3516,13 @@ export default function IDE({
     setBottomHeight,
   ]);
 
-  const errorCount = diagnostics.filter((d) => d.severity === "error").length;
-  const warningCount = diagnostics.filter(
+  const problemDiagnostics = useMemo(
+    () => [...diagnostics, ...lspDiagnostics],
+    [diagnostics, lspDiagnostics],
+  );
+  const errorCount = problemDiagnostics.filter((d) => d.severity === "error")
+    .length;
+  const warningCount = problemDiagnostics.filter(
     (d) => d.severity === "warning",
   ).length;
 
@@ -3388,6 +3603,7 @@ export default function IDE({
           onOpenTeamPanel={() => setTeamPanelOpen((v) => !v)}
           incomingRequestCount={incomingRequestCount}
           attention={attention}
+          lspStatuses={Object.values(lspStatuses)}
         />
         {user && (
           <AttentionTray
@@ -3631,7 +3847,7 @@ export default function IDE({
                     }
                   />
                   <span>Problems</span>
-                  {diagnostics.length > 0 && (
+                  {problemDiagnostics.length > 0 && (
                     <span
                       className={`glass-badge ${errorCount > 0 ? "glass-badge-error" : "glass-badge-warning"}`}
                       style={{
@@ -3640,7 +3856,7 @@ export default function IDE({
                         marginLeft: "4px",
                       }}
                     >
-                      {diagnostics.length}
+                      {problemDiagnostics.length}
                     </span>
                   )}
                 </button>
@@ -3704,6 +3920,32 @@ export default function IDE({
                     </span>
                   )}
                 </button>
+
+                <button
+                  className={`panel-tab ${bottomTab === "debug" && !isBottomCollapsed ? "active" : ""}`}
+                  onClick={() => {
+                    setBottomTab("debug");
+                    setIsBottomCollapsed(false);
+                  }}
+                  role="tab"
+                  data-testid="debug-tab"
+                >
+                  <IconPlay size={12} />
+                  <span>Debug</span>
+                </button>
+
+                <button
+                  className={`panel-tab ${bottomTab === "tests" && !isBottomCollapsed ? "active" : ""}`}
+                  onClick={() => {
+                    setBottomTab("tests");
+                    setIsBottomCollapsed(false);
+                  }}
+                  role="tab"
+                  data-testid="tests-tab"
+                >
+                  <IconCheck size={12} />
+                  <span>Tests</span>
+                </button>
               </div>
 
               <div className="panel-actions">
@@ -3750,7 +3992,7 @@ export default function IDE({
                 )}
                 {bottomTab === "problems" && (
                   <ProblemsPanel
-                    diagnostics={diagnostics}
+                    diagnostics={problemDiagnostics}
                     onSelectDiagnostic={(filePath, line, column) => {
                       // The diagnostic's file may not be an open tab (an error
                       // in a file the user never opened). Open it first —
@@ -3761,7 +4003,10 @@ export default function IDE({
                         column,
                       });
                     }}
-                    onClearDiagnostics={() => setDiagnostics([])}
+                    onClearDiagnostics={() => {
+                      setDiagnostics([]);
+                      setLspDiagnostics([]);
+                    }}
                     onExplainDiagnostic={(diag) => {
                       handleTriggerAIAction("explain", {
                         path: diag.filePath,
@@ -3801,6 +4046,10 @@ export default function IDE({
                       setGitBranch(s.branch);
                     }}
                   />
+                )}
+                {bottomTab === "debug" && <DebugPanel />}
+                {bottomTab === "tests" && (
+                  <TestExplorer projectRole={projectRole} />
                 )}
               </div>
             )}
@@ -3953,6 +4202,14 @@ export default function IDE({
         onExecuteCommand={(id) => {
           CommandRegistry.getInstance().execute(id);
         }}
+        searchSymbols={searchWorkspaceSymbols}
+        onOpenSymbol={(hit) => {
+          void openAndRevealLocation(handleOpenFile, {
+            filePath: hit.filePath,
+            line: hit.line,
+            column: hit.column,
+          });
+        }}
       />
 
       {/* Full Workspace Text Search Modal */}
@@ -4081,8 +4338,16 @@ export default function IDE({
   // the whole layout here means switching the bottom panel away from Output (or
   // collapsing it) can never unmount the session and kill a running program.
   return (
-    <ExecutionSessionProvider projectId={project?.id ?? null}>
-      {ideLayout}
+    <ExecutionSessionProvider
+      projectId={project?.id ?? null}
+      prepareRun={saveDirtyFilesBeforeExecution}
+    >
+      <DebugSessionProvider
+        projectId={project?.id ?? null}
+        dirtyPaths={openFiles.filter((f) => f.dirty).map((f) => f.path)}
+      >
+        {ideLayout}
+      </DebugSessionProvider>
     </ExecutionSessionProvider>
   );
 }

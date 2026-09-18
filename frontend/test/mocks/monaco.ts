@@ -51,6 +51,14 @@ export class FakeModel {
     };
   }
 
+  getWordUntilPosition(position: { lineNumber: number; column: number }) {
+    return {
+      word: "",
+      startColumn: position.column,
+      endColumn: position.column,
+    };
+  }
+
   // Mirrors real Monaco's full-content replace shape used by
   // applyLiveContent(): a single edit op whose `.text` is the new content.
   pushEditOperations(
@@ -178,6 +186,14 @@ export class FakeEditorInstance {
     this.updateOptionsCalls.push(opts);
   }
 
+  private mouseDownListeners: Array<(e: unknown) => void> = [];
+  onMouseDown(cb: (e: unknown) => void) {
+    this.mouseDownListeners.push(cb);
+    return { dispose: () => {} };
+  }
+  _fireMouseDown(e: unknown) {
+    for (const cb of this.mouseDownListeners) cb(e);
+  }
   layout() {}
   dispose() {
     this.disposed = true;
@@ -300,6 +316,62 @@ const KeyCode = {
 };
 const MarkerSeverity = { Error: 8, Warning: 4, Info: 2, Hint: 1 };
 
+const languages = {
+  _completion: [] as unknown[],
+  _hover: [] as unknown[],
+  _definition: [] as unknown[],
+  _references: [] as unknown[],
+  _symbols: [] as unknown[],
+  _signature: [] as unknown[],
+  registerCompletionItemProvider: (_lang: string, provider: unknown) => {
+    languages._completion.push(provider);
+    return { dispose() {} };
+  },
+  registerHoverProvider: (_lang: string, provider: unknown) => {
+    languages._hover.push(provider);
+    return { dispose() {} };
+  },
+  registerDefinitionProvider: (_lang: string, provider: unknown) => {
+    languages._definition.push(provider);
+    return { dispose() {} };
+  },
+  registerReferenceProvider: (_lang: string, provider: unknown) => {
+    languages._references.push(provider);
+    return { dispose() {} };
+  },
+  registerDocumentSymbolProvider: (_lang: string, provider: unknown) => {
+    languages._symbols.push(provider);
+    return { dispose() {} };
+  },
+  registerSignatureHelpProvider: (_lang: string, provider: unknown) => {
+    languages._signature.push(provider);
+    return { dispose() {} };
+  },
+  CompletionItemKind: {
+    Text: 18,
+    Method: 0,
+    Function: 1,
+    Constructor: 2,
+    Field: 3,
+    Variable: 4,
+    Class: 5,
+    Property: 9,
+    Keyword: 17,
+    File: 16,
+  },
+  SymbolKind: {
+    File: 0,
+    Class: 4,
+    Method: 5,
+    Function: 11,
+    Variable: 12,
+  },
+  typescript: {
+    typescriptDefaults: { setModeConfiguration() {} },
+    javascriptDefaults: { setModeConfiguration() {} },
+  },
+};
+
 class Range {
   constructor(
     public startLineNumber: number,
@@ -315,6 +387,10 @@ class Selection extends Range {
   }
 }
 
+(editor as Record<string, unknown>).MouseTargetType = {
+  GUTTER_GLYPH_MARGIN: 2,
+  CONTENT_TEXT: 6,
+};
 (editor as Record<string, unknown>).OverviewRulerLane = {
   Left: 1,
   Center: 2,
@@ -335,6 +411,7 @@ export const monaco = {
   MarkerSeverity,
   Range,
   Selection,
+  languages,
 };
 
 export function __resetMonacoMocks() {
@@ -342,6 +419,12 @@ export function __resetMonacoMocks() {
   lastEditorInstance = null;
   editorCreateCount = 0;
   setThemeCalls = [];
+  languages._completion = [];
+  languages._hover = [];
+  languages._definition = [];
+  languages._references = [];
+  languages._symbols = [];
+  languages._signature = [];
 }
 
 export function __getLastEditorInstance(): FakeEditorInstance | null {
