@@ -24,9 +24,8 @@
  *   resetWriteControl();
  */
 
-import {
-  setConfinedWriteForTests,
-} from "../src/files/confined.js";
+import { setConfinedWriteForTests } from "../src/files/confined.js";
+import { writeFileSync } from "node:fs";
 
 let writeControlReset: (() => void) | null = null;
 
@@ -61,7 +60,6 @@ export function controlWriteFile(
   setConfinedWriteForTests(handler);
   return (config?: { passThrough?: boolean }) => {
     if (config?.passThrough) {
-      const { writeFileSync } = require("node:fs");
       setConfinedWriteForTests(async (abs, data) => {
         writeFileSync(abs, data, "utf-8");
       });

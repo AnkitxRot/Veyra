@@ -29,7 +29,6 @@ import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
 import {
   controlWriteFile,
-  failWritesTo,
   resetWriteControl,
 } from "./confinedWriteMock.js";
 
@@ -700,7 +699,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     try {
       const room = new CollaborationRoom(project.id, cfg, db, onDispose);
       const filePath = "test.txt";
-      const diskPath = join(projectDir(cfg, project.id), filePath);
+      const _diskPath = join(projectDir(cfg, project.id), filePath);
 
       const ws = makeMockWs();
       await room.addClient(ws, { userId: 1, username: "eli", role: "editor" });
@@ -711,7 +710,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       room.markFileDirty(filePath);
 
       let writeAttempt = 0;
-      cleanup13 = controlWriteFile(async (abs: string, data: string) => {
+      cleanup13 = controlWriteFile(async (_abs: string, _data: string) => {
         writeAttempt++;
         throw Object.assign(new Error("EIO: i/o error"), { code: "EIO" });
       });

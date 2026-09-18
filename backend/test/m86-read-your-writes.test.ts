@@ -55,7 +55,7 @@ import {
 } from "../src/files/confined.js";
 
 const MESSAGE_SYNC = 0;
-const realWriteFile = fsp.writeFile.bind(fsp);
+const _realWriteFile = fsp.writeFile.bind(fsp);
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));

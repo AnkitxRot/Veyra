@@ -41,7 +41,7 @@ async function setupRoom(onDispose: (projectId: string) => void) {
     clock,
   );
   const ws = makeWs();
-  return { cfg, db, room, ws, project, clock };
+  return { cfg, db, room, _ws: ws, _project: project, clock };
 }
 
 describe("M91 Idle-Disposal Retry", () => {
