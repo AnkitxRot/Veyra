@@ -16,6 +16,7 @@ import {
 import { readConfinedFile, writeConfinedFile } from "../files/confined.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
 import { getDisplayName, getAvatarVersion, getPronouns } from "../profile/store.js";
+import { recordAuditLog } from "../audit.js";
 import {
   effectiveDisplayName,
   sanitizeStoredPronouns,
@@ -3070,6 +3071,16 @@ export class CollaborationRoom {
     // persists them. Runs first so the "collab_change" broadcast (via the
     // historian's broadcaster) still finds live clients.
     this.historian.closeProjectBursts(this.projectId, "dispose");
+    if (this.db) {
+      try {
+        recordAuditLog(this.db, {
+          userId: null,
+          projectId: this.projectId,
+          eventType: "COLLAB_ROOM_DISPOSED",
+          details: {},
+        });
+      } catch {}
+    }
     this.disposed = true;
     if (this.debounceTimer) {
       this.debounceTimer.clear();
@@ -3183,6 +3194,16 @@ export class CollaborationManager {
           lowWatermarkBytes: this.cfg.collabLowWatermarkBytes,
         },
       );
+      if (this.db) {
+        try {
+          recordAuditLog(this.db, {
+            userId: null,
+            projectId,
+            eventType: "COLLAB_ROOM_CREATED",
+            details: {},
+          });
+        } catch {}
+      }
       this.rooms.set(projectId, room);
     }
     return room;

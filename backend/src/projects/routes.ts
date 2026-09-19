@@ -795,6 +795,17 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         throw new ApiError(400, "content is required", "invalid_content");
       const cwd = await workspacePath(cfg, project.id);
       await writeProjectFile(cwd, path, content);
+      if (db) {
+        try {
+          recordAuditLog(db, {
+            userId: userOf(req).id,
+            projectId: project.id,
+            eventType: "FILE_UPLOADED",
+            details: { path, size: Buffer.byteLength(content, "utf8") },
+            ipAddress: req.ip,
+          });
+        } catch {}
+      }
       const mutation = await collaborationManager.notifyExternalFileMutation(
         project.id,
         path,
@@ -1428,6 +1439,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           stdin,
           userId,
           secretEnv,
+          db,
         });
         res.json(result);
       } finally {

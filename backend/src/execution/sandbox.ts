@@ -17,6 +17,7 @@ import { RunGate } from "./runGate.js";
 import { terminalSessions } from "./terminalSessions.js";
 import { languageServers } from "../lsp/manager.js";
 import { debugSessions } from "../debug/manager.js";
+import { recordAuditLog } from "../audit.js";
 import {
   renderSecretsEnvFile,
   secretsExecPrefix,
@@ -183,10 +184,16 @@ export class SandboxManager {
   private roomOccupancyProvider:
     | ((projectId: string) => { liveClients: number; distinctUsers: number })
     | null = null;
+  private auditDb: Db | null = null;
 
   static getInstance(): SandboxManager {
     if (!this.instance) this.instance = new SandboxManager();
     return this.instance;
+  }
+
+  /** M92: set the DB handle for audit trail instrumentation. */
+  setDb(db: Db): void {
+    this.auditDb = db;
   }
 
   /** M74: register the collaboration-room occupancy source (see app.ts). */
@@ -433,6 +440,16 @@ export class SandboxManager {
         roomEverOccupied: false,
         roomEmptyAt: null,
       });
+      if (this.auditDb) {
+        try {
+          recordAuditLog(this.auditDb, {
+            userId,
+            projectId,
+            eventType: "SANDBOX_CREATED",
+            details: { containerId, isRecreation: hasStaleEntry },
+          });
+        } catch {}
+      }
       return containerId;
     } finally {
       if (needsGlobalSlot) this.reservedProjectIds.delete(projectId);
@@ -578,11 +595,22 @@ export class SandboxManager {
     if (info && info.ownerId !== undefined) {
       sandboxGate.release(info.ownerId);
     }
+    const ownerId = info?.ownerId;
     this.projectContainers.delete(projectId);
     this.connectedNetworks.delete(projectId);
     this.provisionedNetworks.delete(projectId);
     this.statsCache.delete(projectId);
     this.inFlightStats.delete(projectId);
+    if (this.auditDb) {
+      try {
+        recordAuditLog(this.auditDb, {
+          userId: ownerId ?? null,
+          projectId,
+          eventType: "SANDBOX_STOPPED",
+          details: { containerId: cid },
+        });
+      } catch {}
+    }
   }
 
   async cleanupAllSandboxes(): Promise<void> {
@@ -812,6 +840,16 @@ export class SandboxManager {
 
       if (idleEligible || graceEligible) {
         await this.stopProjectSandbox(projectId);
+        if (this.auditDb) {
+          try {
+            recordAuditLog(this.auditDb, {
+              userId: info.ownerId ?? null,
+              projectId,
+              eventType: "SANDBOX_REAPED",
+              details: { containerId: info.containerId, reason: "idle_timeout" },
+            });
+          } catch {}
+        }
         reaped.push(projectId);
       }
     }

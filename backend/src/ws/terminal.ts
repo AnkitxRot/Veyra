@@ -10,6 +10,7 @@ import {
   terminalSessions,
   type RegistryPty,
 } from "../execution/terminalSessions.js";
+import { recordAuditLog } from "../audit.js";
 import { resolveSecretsForInjection } from "../projectsecrets/store.js";
 import {
   writeContainerSecretsFile,
@@ -340,6 +341,16 @@ export async function handleTerminalConnection(
         : null,
       onEnd: releasePermit,
     });
+    if (db) {
+      try {
+        recordAuditLog(db, {
+          userId,
+          projectId,
+          eventType: "TERMINAL_SESSION_CREATED",
+          details: { terminalId, containerId },
+        });
+      } catch {}
+    }
   } catch (err: any) {
     // e.g. a concurrent connection for the same terminalId won the create
     // race. No registry entry exists for this call, so nothing will fire

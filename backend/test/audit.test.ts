@@ -15,6 +15,9 @@ import { recordAuditLog, queryAuditLogs } from "../src/audit.js";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
+import { CollaborationManager } from "../src/collab/manager.js";
+import { TerminalSessionRegistry } from "../src/execution/terminalSessions.js";
+import * as gitService from "../src/git/service.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: any };

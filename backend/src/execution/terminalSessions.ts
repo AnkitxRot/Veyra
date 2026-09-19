@@ -12,6 +12,8 @@
  * an opaque client-generated value and is never a standalone lookup key — a
  * different user or project simply produces a different registry key.
  */
+import type { Db } from "../db.js";
+import { recordAuditLog } from "../audit.js";
 
 export const DEFAULT_TERMINAL_DETACH_GRACE_MS = 90_000;
 export const TERMINAL_RING_MAX_BYTES = 256 * 1024;
@@ -145,6 +147,15 @@ export class TerminalSessionRegistry {
    *  reason instead of a generic miss. Bounded, insertion-ordered. */
   private tombstones = new Map<string, TerminalEndedReason>();
   private static readonly TOMBSTONE_CAP = 64;
+
+  readonly auditDb?: Db;
+  private auditHandler?: (event: {
+    eventType: "TERMINAL_SESSION_CLOSED";
+    userId: number;
+    projectId: string;
+    terminalId: string;
+    reason: TerminalEndedReason;
+  }) => void;
 
   private tombstone(key: string, reason: TerminalEndedReason): void {
     this.tombstones.delete(key);
@@ -397,6 +408,14 @@ export class TerminalSessionRegistry {
     entry.ring.clear();
     this.sessions.delete(key);
     this.tombstone(key, reason);
+    if (this.auditDb) {
+      recordAuditLog(this.auditDb, {
+        userId,
+        projectId,
+        eventType: "TERMINAL_SESSION_CLOSED",
+        details: { reason },
+      });
+    }
     try {
       entry.onEnd();
     } catch {

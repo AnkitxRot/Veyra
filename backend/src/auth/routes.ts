@@ -253,8 +253,8 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
 
       recordAuditLog(db, {
         userId,
-        eventType: "AUTH_LOGIN",
-        details: { action: "register", username },
+        eventType: "USER_REGISTERED",
+        details: { username },
         ipAddress: req.ip,
       });
 
@@ -292,6 +292,11 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
       if (!row || !valid) {
         recordAuditLog(db, {
           eventType: "AUTH_FAILED_LOGIN",
+          details: { username, reason: "invalid_credentials" },
+          ipAddress: req.ip,
+        });
+        recordAuditLog(db, {
+          eventType: "USER_LOGIN_FAILED",
           details: { username, reason: "invalid_credentials" },
           ipAddress: req.ip,
         });
@@ -346,6 +351,11 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
       if (!row || !valid) {
         recordAuditLog(db, {
           eventType: "AUTH_FAILED_LOGIN",
+          details: { username, reason: "admin_login_invalid_credentials" },
+          ipAddress: req.ip,
+        });
+        recordAuditLog(db, {
+          eventType: "USER_LOGIN_FAILED",
           details: { username, reason: "admin_login_invalid_credentials" },
           ipAddress: req.ip,
         });

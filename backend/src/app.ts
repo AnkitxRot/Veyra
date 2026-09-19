@@ -70,6 +70,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   sandboxManager.setRoomOccupancyProvider((projectId) =>
     collaborationManager.roomOccupancy(projectId),
   );
+  sandboxManager.setDb(db);
   const app = express();
   app.disable("x-powered-by");
 
