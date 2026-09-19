@@ -171,15 +171,21 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     }
   });
 
-  router.post("/:id/git/stage", async (req, res, next) => {
+  router.post("/:id/git/stage", async (req, res,next) => {
     try {
       requireWrite(req);
+      const user = userOf(req);
       const { paths, all } = req.body ?? {};
       await locked(req.params.id, async () => {
-        // M86: `git add` reads the working tree, which lags the collaboration
-        // room by the persistence debounce. Stage what the editor shows.
         await requireLiveEditsPersisted(req.params.id, "Nothing was staged.");
         return git.stage(cfg, req.params.id, { paths, all: all === true });
+      });
+      recordAuditLog(db, {
+        userId: user.id,
+        projectId: req.params.id,
+        eventType: "GIT_OPERATION",
+        details: { operation: "stage", paths: paths ?? [] },
+        ipAddress: req.ip,
       });
       res.json({ ok: true });
     } catch (err) {
@@ -190,10 +196,18 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
   router.post("/:id/git/unstage", async (req, res, next) => {
     try {
       requireWrite(req);
+      const user = userOf(req);
       const { paths, all } = req.body ?? {};
       await locked(req.params.id, () =>
         git.unstage(cfg, req.params.id, { paths, all: all === true }),
       );
+      recordAuditLog(db, {
+        userId: user.id,
+        projectId: req.params.id,
+        eventType: "GIT_OPERATION",
+        details: { operation: "unstage", paths: paths ?? [] },
+        ipAddress: req.ip,
+      });
       res.json({ ok: true });
     } catch (err) {
       next(err);

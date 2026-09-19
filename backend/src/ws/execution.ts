@@ -290,6 +290,7 @@ export async function handleExecutionConnection(
               activeFile: parsed.activeFile,
               userId,
               secretEnv,
+              db,
               onStdout: (data) => streamOut("stdout", data),
               onStderr: (data) => streamOut("stderr", data),
               onStatus: streamStatus,

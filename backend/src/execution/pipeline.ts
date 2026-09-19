@@ -2,12 +2,14 @@ import { promises as fs, constants } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
+import type { Db } from "../db.js";
 import { IS_WINDOWS } from "../config.js";
 import { listFiles } from "../files/service.js";
 import { detectLanguage, resolveMainFile } from "./detect.js";
 import { getLang } from "./languages.js";
 import { sandboxRun, type SandboxController } from "./sandbox.js";
 import { isDockerRunningAsync, isRunnerImageAvailableAsync } from "../tools.js";
+import { recordAuditLog, type AuditEventType } from "../audit.js";
 
 export type RunOutcome =
   | "success"
@@ -44,6 +46,8 @@ interface RunSpec {
   /** M47: decrypted project secrets to inject into the RUN phase (not
    *  compile). Resolved + SECRET_ACCESSED-audited by the caller. */
   secretEnv?: Record<string, string>;
+  /** Optional DB handle for audit trail instrumentation. */
+  db?: Db;
 }
 
 export async function runProject(
@@ -131,6 +135,22 @@ export async function runProject(
 
   const ctx = { workspaceDir, mainFile, buildDir: buildDirName, files };
 
+  // Audit: execution has passed all pre-flight checks and is beginning.
+  if (spec.db) {
+    try {
+      recordAuditLog(spec.db, {
+        userId: spec.userId,
+        projectId,
+        eventType: "EXECUTION_STARTED",
+        details: {
+          language: lang.id,
+          mainFile,
+          hasCompileStep: !!lang.compile,
+        },
+      });
+    } catch {}
+  }
+
   if (lang.compile) {
     if (spec.onStatus) spec.onStatus(`Compiling with ${lang.compile.cmd}...`);
     await fs.mkdir(buildDir, { recursive: true });
@@ -171,6 +191,23 @@ export async function runProject(
     });
     if (compileRes.exitCode !== 0) {
       await fs.rm(buildDir, { recursive: true, force: true });
+      if (spec.db) {
+        try {
+          recordAuditLog(spec.db, {
+            userId: spec.userId,
+            projectId,
+            eventType: "EXECUTION_FAILED",
+            details: {
+              language: lang.id,
+              mainFile,
+              phase: "compile",
+              exitCode: compileRes.exitCode,
+              timedOut: compileRes.timedOut,
+              durationMs: compileRes.durationMs,
+            },
+          });
+        } catch {}
+      }
       return {
         ...base,
         type: "compile_error",
@@ -209,6 +246,25 @@ export async function runProject(
     try {
       await fs.access(buildDir, constants.F_OK);
       await fs.rm(buildDir, { recursive: true, force: true });
+    } catch {}
+  }
+
+  // Audit: execution completed successfully.
+  if (spec.db) {
+    try {
+      recordAuditLog(spec.db, {
+        userId: spec.userId,
+        projectId,
+        eventType: "EXECUTION_COMPLETED",
+        details: {
+          language: lang.id,
+          mainFile,
+          exitCode: runRes.exitCode,
+          timedOut: runRes.timedOut,
+          oom: runRes.oom,
+          durationMs: runRes.durationMs,
+        },
+      });
     } catch {}
   }
 
