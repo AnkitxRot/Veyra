@@ -121,6 +121,10 @@ export interface AppConfig {
   collabAwayMaxEvents: number;
   collabAwayNoticeMs: number;
   collabOpenBurstsMax: number;
+  /** M93 — audit log retention in days. */
+  auditRetentionDays: number;
+  /** M93 — interval between audit log GC runs. */
+  auditGcIntervalMs: number;
   /** M61-A: per-(user, project) comment-write rate limit (create/reply/edit).
    *  See docs/superpowers/specs/2026-08-31-m61-contextual-comments-customization-design.md §4.4. */
   commentWriteMax: number;
@@ -473,6 +477,12 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
         min: 10,
         max: 1_000_000,
       }),
+    auditRetentionDays:
+      overrides.auditRetentionDays ??
+      boundedIntEnv("AUDIT_RETENTION_DAYS", 365, { min: 1, max: 3_650 }),
+    auditGcIntervalMs:
+      overrides.auditGcIntervalMs ??
+      Number(process.env.AUDIT_GC_INTERVAL_MS ?? 21_600_000),
     commentWriteMax:
       overrides.commentWriteMax ??
       boundedIntEnv("COMMENT_WRITE_MAX", 30, { min: 1, max: 100_000 }),

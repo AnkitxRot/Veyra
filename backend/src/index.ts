@@ -10,6 +10,7 @@ import { telemetryHistorian } from "./execution/historian.js";
 import { collaborationHistorian } from "./collab/historian.js";
 import { deleteExpiredSessions } from "./auth/middleware.js";
 import { cleanupExpiredDemoAccounts } from "./auth/demoGc.js";
+import { pruneAuditLogs } from "./audit.js";
 import { hashPassword } from "./auth/passwords.js";
 import { ensureAdminUser } from "./db.js";
 import { collaborationManager } from "./collab/manager.js";
@@ -207,7 +208,7 @@ async function start(): Promise<void> {
   verifySecretsKeyOnStartup(config, db);
 
   // Startup hardening: drop expired sessions, purge expired demo accounts,
-  // then reconcile Docker state (removes orphaned containers, rebuilds preview
+  // prune old audit logs, then reconcile Docker state (removes orphaned containers, rebuilds preview
   // port mappings). Reconcile is awaited so sandbox-dependent operations never
   // observe stale state.
   deleteExpiredSessions(db);
@@ -215,6 +216,14 @@ async function start(): Promise<void> {
     await cleanupExpiredDemoAccounts(config, db);
   } catch (err) {
     console.error("[auth] startup demo GC failed:", err);
+  }
+  try {
+    const pruned = pruneAuditLogs(db, config.auditRetentionDays);
+    if (pruned > 0) {
+      console.log(`[audit] startup GC: pruned ${pruned} old audit log entries`);
+    }
+  } catch (err) {
+    console.error("[audit] startup retention GC failed:", err);
   }
   try {
     await sandboxManager.reconcile(config, db);
@@ -234,6 +243,18 @@ async function start(): Promise<void> {
     }
   }, config.sessionGcIntervalMs);
   sessionGcTimer.unref();
+
+  const auditGcTimer = setInterval(() => {
+    try {
+      const pruned = pruneAuditLogs(db, config.auditRetentionDays);
+      if (pruned > 0) {
+        console.log(`[audit] periodic GC: pruned ${pruned} old audit log entries`);
+      }
+    } catch (err) {
+      console.error("[audit] periodic retention GC failed:", err);
+    }
+  }, config.auditGcIntervalMs);
+  auditGcTimer.unref();
 
   const server = app.listen(config.port, () => {
     console.log(
@@ -256,6 +277,7 @@ async function start(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     clearInterval(sessionGcTimer);
+    clearInterval(auditGcTimer);
     void performGracefulShutdown({ server, wss, db, config }, { signal });
   };
 

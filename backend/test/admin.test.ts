@@ -169,6 +169,32 @@ describe("Admin API Endpoints & Control Plane Capabilities", () => {
     expect(res.data.total).toBeGreaterThanOrEqual(1);
   });
 
+  it("GET /api/admin/audit-integrity returns failure counter snapshot", async () => {
+    const res = await api.request("GET", "/api/admin/audit-integrity", {
+      token: adminToken,
+    });
+    expect(res.status).toBe(200);
+    expect(res.data.totalFailures).toBe(0);
+    expect(res.data.byCategory).toBeDefined();
+    expect(res.data.since).toBeDefined();
+  });
+
+  it("GET /api/admin/audit-integrity rejects non-admin with 403", async () => {
+    const res = await api.request("GET", "/api/admin/audit-integrity", {
+      token: userToken,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /api/admin/overview includes auditWriteFailures counter", async () => {
+    const res = await api.request("GET", "/api/admin/overview", {
+      token: adminToken,
+    });
+    expect(res.status).toBe(200);
+    expect(res.data.counters.auditWriteFailures).toBeDefined();
+    expect(typeof res.data.counters.auditWriteFailures).toBe("number");
+  });
+
   it("POST /api/admin/sandboxes/:containerId/terminate rejects unmanaged containers", async () => {
     const res = await api.request(
       "POST",

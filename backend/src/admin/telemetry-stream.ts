@@ -2,7 +2,7 @@ import { WebSocket } from 'ws';
 import type { Db } from '../db.js';
 import type { AppConfig } from '../config.js';
 import { SandboxManager } from '../execution/sandbox.js';
-import { auditEmitter, AuditRecord } from '../audit.js';
+import { auditEmitter, auditFailureEmitter, getAuditFailureSnapshot, type AuditRecord } from '../audit.js';
 
 export class AdminTelemetryStreamManager {
   private static instance: AdminTelemetryStreamManager;
@@ -17,6 +17,10 @@ export class AdminTelemetryStreamManager {
     // Listen for platform events from audit system
     auditEmitter.on('audit', (record: AuditRecord) => {
       this.broadcastEvent(record);
+    });
+    // M93: listen for audit write failures
+    auditFailureEmitter.on('failure', () => {
+      this.broadcastAuditIntegrity();
     });
   }
 
@@ -37,6 +41,8 @@ export class AdminTelemetryStreamManager {
 
     // Send initial snapshot immediately
     this.sendSnapshot(ws).catch(() => {});
+    // M93: send initial audit integrity snapshot
+    this.sendAuditIntegritySnapshot(ws).catch(() => {});
 
     // Start 1Hz background collector if first client connected
     if (this.clients.size === 1 && !this.ticker) {
@@ -119,6 +125,17 @@ export class AdminTelemetryStreamManager {
     );
   }
 
+  private async sendAuditIntegritySnapshot(ws: WebSocket) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(
+      JSON.stringify({
+        type: 'audit_integrity',
+        data: getAuditFailureSnapshot(),
+        timestamp: Date.now(),
+      })
+    );
+  }
+
   public broadcastEvent(record: AuditRecord) {
     if (this.clients.size === 0) return;
     const message = JSON.stringify({
@@ -132,6 +149,25 @@ export class AdminTelemetryStreamManager {
           ws.send(message);
         } catch {
           // ignore send failures for individual clients; other clients still receive the event
+        }
+      }
+    }
+  }
+
+  private broadcastAuditIntegrity() {
+    if (this.clients.size === 0) return;
+    const snapshot = getAuditFailureSnapshot();
+    const message = JSON.stringify({
+      type: 'audit_integrity',
+      data: snapshot,
+      timestamp: Date.now(),
+    });
+    for (const ws of this.clients) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(message);
+        } catch {
+          // ignore send failures for individual clients
         }
       }
     }

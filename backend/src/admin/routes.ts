@@ -27,7 +27,7 @@ import {
   isRunnerImageAvailable,
 } from "../tools.js";
 import { SandboxManager } from "../execution/sandbox.js";
-import { recordAuditLog, queryAuditLogs } from "../audit.js";
+import { recordAuditLog, queryAuditLogs, getAuditFailureSnapshot } from "../audit.js";
 import { RateLimiter } from "../auth/ratelimit.js";
 import { hashPassword } from "../auth/passwords.js";
 import { telemetryHistorian } from "../execution/historian.js";
@@ -123,6 +123,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
             totalProjects: totalProjectsRow?.count ?? 0,
             activeSandboxes: activeSandboxes.length,
             totalExecutions: totalRunsRow?.count ?? 0,
+            auditWriteFailures: getAuditFailureSnapshot().totalFailures,
           },
           aggregateTelemetry: {
             cpuPercent: Math.round(aggregateCpu * 10) / 10,
@@ -132,6 +133,18 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
             pids: aggregatePids,
           },
         });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // 1a. M93 — audit write failure integrity
+  router.get(
+    "/audit-integrity",
+    (req: Request, res: Response, next: NextFunction) => {
+      try {
+        res.json(getAuditFailureSnapshot());
       } catch (err) {
         next(err);
       }
