@@ -79,6 +79,95 @@ export interface AuditRecord {
 }
 
 export const auditEmitter = new EventEmitter();
+export const auditFailureEmitter = new EventEmitter();
+
+/** Test-only: reset the failure counter to a clean state. */
+export function _resetAuditFailureStateForTests(): void {
+  state.totalFailures = 0;
+  state.byCategory = {};
+  state.lastFailureAt = null;
+  state.lastFailureMessage = null;
+  state.since = Date.now();
+}
+
+/** M93 — in-memory audit write failure counter. Process-local, resets on restart. */
+export interface AuditFailureSnapshot {
+  totalFailures: number;
+  byCategory: Record<string, number>;
+  lastFailureAt: string | null;
+  lastFailureMessage: string | null;
+  since: string;
+}
+
+interface AuditFailureState {
+  totalFailures: number;
+  byCategory: Record<string, number>;
+  lastFailureAt: number | null;
+  lastFailureMessage: string | null;
+  since: number;
+}
+
+const state: AuditFailureState = {
+  totalFailures: 0,
+  byCategory: {},
+  lastFailureAt: null,
+  lastFailureMessage: null,
+  since: Date.now(),
+};
+
+const MAX_MESSAGE_LENGTH = 200;
+
+function classifyError(err: unknown): string {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (msg.includes("disk") || msg.includes("full") || msg.includes("sqlite") || msg.includes("locked")) {
+      return "db_error";
+    }
+    if (msg.includes("constraint") || msg.includes("foreign key") || msg.includes("unique") || msg.includes("schema")) {
+      return "integrity_error";
+    }
+  }
+  return "unknown";
+}
+
+export function recordAuditFailure(err: unknown): void {
+  const category = classifyError(err);
+  const message = err instanceof Error ? err.message : String(err);
+  const truncated = message.length > MAX_MESSAGE_LENGTH ? message.slice(0, MAX_MESSAGE_LENGTH) + "…" : message;
+
+  state.totalFailures++;
+  state.byCategory[category] = (state.byCategory[category] ?? 0) + 1;
+  state.lastFailureAt = Date.now();
+  state.lastFailureMessage = truncated;
+
+  auditFailureEmitter.emit("failure", {
+    totalFailures: state.totalFailures,
+    byCategory: { ...state.byCategory },
+    lastFailureAt: state.lastFailureAt,
+    lastFailureMessage: state.lastFailureMessage,
+    since: new Date(state.since).toISOString(),
+  });
+}
+
+export function getAuditFailureSnapshot(): AuditFailureSnapshot {
+  return {
+    totalFailures: state.totalFailures,
+    byCategory: { ...state.byCategory },
+    lastFailureAt: state.lastFailureAt !== null ? new Date(state.lastFailureAt).toISOString() : null,
+    lastFailureMessage: state.lastFailureMessage,
+    since: new Date(state.since).toISOString(),
+  };
+}
+
+/** M93 — delete audit_logs rows older than retentionDays. */
+export function pruneAuditLogs(db: Db, retentionDays: number): number {
+  const result = db
+    .prepare(
+      "DELETE FROM audit_logs WHERE created_at < datetime('now', '-' || ? || ' days')",
+    )
+    .run(retentionDays);
+  return Number(result.changes);
+}
 
 const REDACTED_KEYS = new Set([
   "password",
@@ -174,6 +263,7 @@ export function recordAuditLog(
   } catch (err) {
     // Non-fatal: audit log should not crash transaction
     console.error("[AuditLog] Failed to record audit log:", err);
+    recordAuditFailure(err);
   }
 }
 
