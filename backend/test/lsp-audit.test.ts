@@ -8,19 +8,23 @@ import {
   languageServers,
   resetLanguageServersForTests,
 } from "../src/lsp/manager.js";
-import type { LanguageClientSocket } from "../src/lsp/session.js";
+import type { LspClientSocket } from "../src/lsp/session.js";
+import type { LspSpawnRequest } from "../src/lsp/process.js";
 import type { Db } from "../src/db.js";
 
 const fakeLsp = fileURLToPath(new URL("./fixtures/fake-lsp.mjs", import.meta.url));
 
-function spawnFake(_req: { id: string }) {
+let crashEnv: NodeJS.ProcessEnv = {};
+
+function spawnFake(_req: LspSpawnRequest) {
   return spawn(process.execPath, [fakeLsp], {
     stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, ...crashEnv },
     windowsHide: true,
   });
 }
 
-class FakeSock implements LanguageClientSocket {
+class FakeSock implements LspClientSocket {
   readyState = 1;
   messages: any[] = [];
   send(data: string): void {
@@ -148,7 +152,7 @@ describe("M94 — LSP Audit Trail Coverage", () => {
   });
 
   it("records LSP_SESSION_FAILED when language server crashes repeatedly", async () => {
-    languageServers.setSpawnForTests(spawnFake({ FAKE_LSP_CRASH: "1" }));
+    crashEnv = { FAKE_LSP_CRASH: "1" };
     const cfg = makeTestConfig({ lspMaxRestarts: 1, lspRestartWindowMs: 60_000 });
     const { db, close } = await startTestApi(cfg);
     db.exec("PRAGMA foreign_keys=OFF");
@@ -218,8 +222,8 @@ describe("M94 — LSP Audit Trail Coverage", () => {
     );
 
     // Remove the client so session1 becomes idle, then explicitly evict
-    session1.removeClient(sock1);
-    session1.dispose("evicted");
+    session1!.removeClient(sock1);
+    session1!.dispose("evicted");
 
     const evicted = getAuditRows(db, "LSP_SESSION_EVICTED", "evict-target");
     expect(evicted.length).toBeGreaterThanOrEqual(1);
