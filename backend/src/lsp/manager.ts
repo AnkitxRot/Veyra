@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import type { Db } from "../db.js";
 import { collabDocumentSource, type LspDocumentSource } from "./canonical.js";
 import { getLspLanguage, type LspLanguageSpec } from "./languages.js";
 import {
@@ -58,6 +59,7 @@ export class LanguageServerManager {
   private readonly sessions = new Map<string, LspSession>();
   private spawnOverride: LspSpawnFn | null = null;
   private containerOverride: ((projectId: string) => string) | null = null;
+  private auditDb: Db | null = null;
 
   /** Test-only: replace Docker spawn with a local process factory. */
   setSpawnForTests(fn: LspSpawnFn | null): void {
@@ -67,6 +69,10 @@ export class LanguageServerManager {
   /** Test-only: skip sandbox creation. */
   setContainerForTests(fn: ((projectId: string) => string) | null): void {
     this.containerOverride = fn;
+  }
+
+  setAuditDbForTests(db: Db | null): void {
+    this.auditDb = db;
   }
 
   sessionCount(): number {
@@ -119,6 +125,7 @@ export class LanguageServerManager {
       opts.projectId,
       spec,
       containerId,
+      opts.userId,
       {
         spawn,
         documentSource:
@@ -129,6 +136,7 @@ export class LanguageServerManager {
           const k = keyOf(s.projectId, s.language.id);
           if (this.sessions.get(k) === s) this.sessions.delete(k);
         },
+        auditDb: this.auditDb ?? undefined,
       },
       limitsFromConfig(opts.cfg, spec),
     );

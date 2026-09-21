@@ -39,6 +39,8 @@ function isLive(session: DebugSession): boolean {
   );
 }
 
+import type { Db } from "../db.js";
+
 /**
  * User-owned debugger sessions. Isolation is the project sandbox; control is
  * per (project, user). Collaborators cannot operate another user's session.
@@ -47,6 +49,7 @@ export class DebugSessionManager {
   private readonly sessions = new Map<string, DebugSession>();
   private spawnOverride: DebugSpawnFn | null = null;
   private containerOverride: ((projectId: string) => string) | null = null;
+  private auditDb: Db | null = null;
   private attachDelayMs = 0;
   private liveCount = 0;
 
@@ -56,6 +59,10 @@ export class DebugSessionManager {
 
   setContainerForTests(fn: ((projectId: string) => string) | null): void {
     this.containerOverride = fn;
+  }
+
+  setAuditDbForTests(db: Db | null): void {
+    this.auditDb = db;
   }
 
   setAttachDelayForTests(ms: number): void {
@@ -115,6 +122,7 @@ export class DebugSessionManager {
         release: () => {
           if (this.liveCount > 0) this.liveCount -= 1;
         },
+        auditDb: this.auditDb ?? undefined,
       },
       limitsFromConfig(opts.cfg),
     );
