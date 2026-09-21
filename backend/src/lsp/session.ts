@@ -1,31 +1,12 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import {
-  encodeLspFrame,
-  isJsonRpcNotification,
-  isJsonRpcRequest,
-  isJsonRpcResponse,
-  LspFrameParser,
-  type JsonRpcMessage,
-} from "./jsonrpc.js";
+import type { Db } from "../db.js";
+import { encodeLspFrame, isJsonRpcNotification, isJsonRpcRequest, isJsonRpcResponse, LspFrameParser, type JsonRpcMessage } from "./jsonrpc.js";
 import type { LspLanguageSpec } from "./languages.js";
-import {
-  resolveCanonicalText,
-  type LspDocumentSource,
-} from "./canonical.js";
-import {
-  CLIENT_REQUESTS,
-  isAllowedClientNotification,
-  isAllowedClientRequest,
-  SERVER_NOTIFICATIONS_FORWARDED,
-  SERVER_REQUESTS_HANDLED,
-} from "./protocol.js";
-import {
-  fromWorkspaceUri,
-  rewriteUris,
-  toWorkspaceUri,
-  WORKSPACE_ROOT_URI,
-} from "./uri.js";
+import { resolveCanonicalText, type LspDocumentSource } from "./canonical.js";
+import { CLIENT_REQUESTS, isAllowedClientNotification, isAllowedClientRequest, SERVER_NOTIFICATIONS_FORWARDED, SERVER_REQUESTS_HANDLED } from "./protocol.js";
+import { fromWorkspaceUri, rewriteUris, toWorkspaceUri, WORKSPACE_ROOT_URI } from "./uri.js";
 import type { LspSpawnFn } from "./process.js";
+import { recordAuditLog, type AuditEventType } from "../audit.js";
 
 export type LspSessionState =
   | "starting"
@@ -99,6 +80,7 @@ export interface LspSessionHooks {
    * the file — one authoritative stream per path, not last-socket-wins.
    */
   documentSource?: LspDocumentSource | null;
+  auditDb?: Db;
 }
 
 /**
@@ -107,6 +89,7 @@ export interface LspSessionHooks {
  */
 export class LspSession {
   readonly projectId: string;
+  readonly userId: number;
   readonly language: LspLanguageSpec;
   readonly containerId: string;
   readonly limits: LspSessionLimits;
@@ -129,21 +112,40 @@ export class LspSession {
   private initializeSent = false;
   private readonly documentSource: LspDocumentSource | null;
   lastActivity = Date.now();
+  private _auditTerminalLogged = false;
+  private _startCount = 0;
 
   constructor(
     projectId: string,
     language: LspLanguageSpec,
     containerId: string,
+    userId: number,
     hooks: LspSessionHooks,
     limits: Partial<LspSessionLimits> = {},
   ) {
     this.projectId = projectId;
+    this.userId = userId;
     this.language = language;
     this.containerId = containerId;
     this.hooks = hooks;
     this.limits = { ...DEFAULT_LSP_SESSION_LIMITS, ...limits };
     this.parser = new LspFrameParser(this.limits.messageMaxBytes);
     this.documentSource = hooks.documentSource ?? null;
+  }
+
+  private recordAudit(eventType: AuditEventType, message: string): void {
+    const db = this.hooks.auditDb;
+    if (!db) return;
+    try {
+      recordAuditLog(db, {
+        userId: this.userId,
+        projectId: this.projectId,
+        eventType,
+        details: { language: this.language.id, message },
+      });
+    } catch {
+      // Non-fatal: audit failure must not break the LSP lifecycle
+    }
   }
 
   get pid(): number | undefined {
@@ -161,6 +163,7 @@ export class LspSession {
   start(): void {
     if (this.disposed) return;
     if (this.child) return;
+    const isRestart = this._startCount > 0;
     this.setState("starting", "starting language server");
     try {
       this.child = this.hooks.spawn({
@@ -171,6 +174,11 @@ export class LspSession {
       this.fail("unavailable", err?.message ?? "failed to spawn language server");
       return;
     }
+    this._startCount++;
+    if (isRestart) {
+      this.recordAudit("LSP_SESSION_RESTARTED", "language server restarting");
+    }
+    this.recordAudit("LSP_SESSION_STARTED", "language server process started");
     const child = this.child;
     child.stdin.on("error", () => {});
     this.writeStdin = (data) => {
@@ -328,6 +336,11 @@ export class LspSession {
     }
     this.clients.clear();
     this.clearDocs();
+    if (!this._auditTerminalLogged) {
+      this._auditTerminalLogged = true;
+      const eventType = reason === "evicted" ? "LSP_SESSION_EVICTED" : "LSP_SESSION_STOPPED";
+      this.recordAudit(eventType, reason);
+    }
     this.hooks.onDead(this);
   }
 
@@ -451,6 +464,7 @@ export class LspSession {
         }
         this.sendServer({ jsonrpc: "2.0", method: "initialized", params: {} });
         this.setState("ready");
+        this.recordAudit("LSP_SESSION_STARTED", "language server ready");
         return;
       }
       if (typeof msg.id !== "number") return;
@@ -681,6 +695,11 @@ export class LspSession {
     this.clearStartupTimer();
     this.parser.reset();
     this.initializeSent = false;
+    const terminal = state === "failed" ? "crash" : "unavailable";
+    if (!this._auditTerminalLogged) {
+      this._auditTerminalLogged = true;
+      this.recordAudit("LSP_SESSION_FAILED", terminal);
+    }
     this.setState(state, message);
     const child = this.child;
     this.child = null;

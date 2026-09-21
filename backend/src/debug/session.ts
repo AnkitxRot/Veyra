@@ -29,6 +29,8 @@ import {
   type LaunchConfig,
 } from "./protocol.js";
 import type { DebugSpawnFn } from "./process.js";
+import { recordAuditLog, type AuditEventType } from "../audit.js";
+import type { Db } from "../db.js";
 
 export type DebugSessionState =
   | "idle"
@@ -75,6 +77,7 @@ export interface DebugSessionHooks {
   tryAcquire: () => boolean;
   release: () => void;
   now?: () => number;
+  auditDb?: Db;
 }
 
 interface PendingDap {
@@ -156,6 +159,7 @@ export class DebugSession {
   private stopInFlight = false;
   /** Drain js-debug's compiled-TS stop-on-entry before surfacing the user pause. */
   private drainEntryStop = false;
+  private _auditTerminalLogged = false;
 
   constructor(
     projectId: string,
@@ -172,6 +176,21 @@ export class DebugSession {
     this.hooks = hooks;
     this.limits = { ...DEFAULT_DEBUG_SESSION_LIMITS, ...limits };
     this.parser = new LspFrameParser(this.limits.messageMaxBytes);
+  }
+
+  private recordAudit(eventType: AuditEventType, message: string): void {
+    const db = this.hooks.auditDb;
+    if (!db) return;
+    try {
+      recordAuditLog(db, {
+        userId: this.userId,
+        projectId: this.projectId,
+        eventType,
+        details: { language: this.language?.id ?? null, message },
+      });
+    } catch {
+      // Non-fatal: audit failure must not break the DAP lifecycle
+    }
   }
 
   get pid(): number | undefined {
@@ -292,6 +311,15 @@ export class DebugSession {
       this.socket?.close(1000, reason);
     } catch {}
     this.socket = null;
+    if (!this._auditTerminalLogged) {
+      this._auditTerminalLogged = true;
+      const eventType = reason === "session_timeout"
+        ? "DEBUG_SESSION_TIMEOUT"
+        : reason === "unavailable" || reason === "failed"
+          ? "DEBUG_SESSION_FAILED"
+          : "DEBUG_SESSION_STOPPED";
+      this.recordAudit(eventType, reason);
+    }
     this.hooks.onDead(this);
   }
 
@@ -400,6 +428,7 @@ export class DebugSession {
         this.state === "unavailable" ||
         this.state === "idle"
       ) {
+        // Expected termination (explicit dispose or already in terminal state)
         return;
       }
       this.fail("failed", "debug adapter exited unexpectedly");
@@ -414,6 +443,7 @@ export class DebugSession {
           err?.message ?? "debugger launch failed",
         );
       }
+      return;
     }
   }
 
@@ -453,6 +483,7 @@ export class DebugSession {
     if (this.state === "starting" && !this.stopInFlight) {
       this.setState("running");
     }
+    this.recordAudit("DEBUG_SESSION_STARTED", "debug session running");
   }
 
   private waitForInitialized(): Promise<void> {
@@ -1078,6 +1109,14 @@ export class DebugSession {
     this.killAdapter(message);
     this.releaseSlot();
     this.setState(state, full);
+    const isTimedOut = message.toLowerCase().includes("timed out");
+    const failureType = state === "unavailable"
+      ? (isTimedOut ? "DEBUG_SESSION_TIMEOUT" : "DEBUG_SESSION_FAILED")
+      : isTimedOut
+        ? "DEBUG_SESSION_TIMEOUT"
+        : "DEBUG_SESSION_FAILED";
+    this.recordAudit(failureType, full.slice(0, 200));
+    this._auditTerminalLogged = true;
   }
 
   private finishTerminated(message: string): void {
