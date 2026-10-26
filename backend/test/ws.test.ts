@@ -1,3 +1,4 @@
+import { log } from "../src/logger.js";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { parse } from "node:url";
 import { createServer, type Server } from "node:http";
@@ -194,7 +195,7 @@ describe("admin ws server survives a malformed client frame", () => {
     // listener, which masks a missing one here — so assert on this
     // branch's own observable handler output, otherwise this test would
     // still pass with the handler deleted.
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(() => {});
 
     try {
       const clientWs = new WebSocket(

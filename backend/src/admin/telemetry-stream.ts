@@ -8,6 +8,7 @@ import {
   getAuditFailureSnapshot,
   type AuditRecord,
 } from "../audit.js";
+import { log } from "../logger.js";
 
 export class AdminTelemetryStreamManager {
   private static instance: AdminTelemetryStreamManager;
@@ -83,7 +84,7 @@ export class AdminTelemetryStreamManager {
     this.stopCollector();
     this.ticker = setInterval(() => {
       this.collectAndBroadcast().catch((err) => {
-        console.error("[AdminTelemetry] Collector tick error:", err);
+        log.error("[AdminTelemetry] Collector tick error:", err);
       });
     }, 1000); // 1 Hz tick
     this.ticker.unref();

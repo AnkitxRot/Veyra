@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { log } from "./logger.js";
 
 export class ApiError extends Error {
   status: number;
@@ -39,6 +40,6 @@ export function errorMiddleware(
     res.status(400).json({ error: { code: "invalid_json", message: "invalid JSON body" } });
     return;
   }
-  console.error("[error]", err);
+  log.error("[error]", err);
   res.status(500).json({ error: { code: "internal_error", message: "internal server error" } });
 }

@@ -3,6 +3,7 @@ import type { AppConfig } from "../config.js";
 import { workspacePath } from "../projects/service.js";
 import { debugSessions } from "./manager.js";
 import type { DebugSession } from "./session.js";
+import { log } from "../logger.js";
 
 const WS_OPEN = 1;
 const MAX_QUEUED_FRAMES = 32;
@@ -105,7 +106,7 @@ export async function handleDebugConnection(
   };
   ws.on("close", drop);
   ws.on("error", (err) => {
-    console.error("[ws] debug socket error:", err);
+    log.error("[ws] debug socket error:", err);
     drop();
   });
 }

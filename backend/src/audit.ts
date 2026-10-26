@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { Db } from "./db.js";
+import { log } from "./logger.js";
 
 export type AuditEventType =
   | "AUTH_LOGIN"
@@ -284,7 +285,7 @@ export function recordAuditLog(
     auditEmitter.emit("audit", record);
   } catch (err) {
     // Non-fatal: audit log should not crash transaction
-    console.error("[AuditLog] Failed to record audit log:", err);
+    log.error("[AuditLog] Failed to record audit log:", err);
     recordAuditFailure(err);
   }
 }

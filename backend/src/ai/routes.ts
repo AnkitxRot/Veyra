@@ -13,6 +13,7 @@ import { collaborationManager } from "../collab/manager.js";
 import { aiProviderRegistry, type AIAction } from "./provider.js";
 import { buildAIContext } from "./context.js";
 import { runAIVerification } from "./verify.js";
+import { log } from "../logger.js";
 
 // Stateless "revision token" for a file's content, used to detect whether
 // the authoritative content has changed between when an AI patch was
@@ -153,7 +154,7 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
           );
           snapshotId = snap.id;
         } catch (err: any) {
-          console.error("[AI] Failed to create safety snapshot:", err);
+          log.error("[AI] Failed to create safety snapshot:", err);
           throw new ApiError(
             500,
             `Could not create the requested safety snapshot before applying this patch: ${err.message || "unknown error"}`,

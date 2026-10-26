@@ -13,6 +13,7 @@ import { debugSessions } from "../debug/manager.js";
 import { parseWorkflowRequest } from "../workflow/resolve.js";
 import { runWorkflowTask } from "../workflow/run.js";
 import type { TestCaseResult } from "../workflow/parse.js";
+import { log } from "../logger.js";
 
 // --- M54: collaborative run awareness — safe metadata derivation ------------
 //
@@ -323,7 +324,7 @@ export async function handleExecutionConnection(
                 execSummary.peakMemoryBytes || 0,
               );
             } catch (dbErr) {
-              console.error("[execution] failed to record run history:", dbErr);
+              log.error("[execution] failed to record run history:", dbErr);
             }
           }
 

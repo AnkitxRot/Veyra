@@ -21,6 +21,7 @@ import {
   registerProxySocket,
   unregisterProxySocket,
 } from "./connectionRegistry.js";
+import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // M3 (BUG-4): WebSocket hardening — payload limits + heartbeat reaper.
@@ -93,7 +94,7 @@ function adoptClient(ws: WebSocket, meta: Omit<SocketMetadata, "isAlive">): void
     const code = (err as { code?: unknown }).code;
     if (typeof code === "string" && code.startsWith("WS_ERR_")) {
       const m = socketMeta.get(ws);
-      console.warn(
+      log.warn(
         "[ws] frame_limit_violation",
         JSON.stringify({
           event: "ws_frame_limit_violation",
@@ -116,7 +117,7 @@ function createHeartbeatController(wss: WebSocketServer): HeartbeatController {
       if (!meta) continue; // foreign/unmanaged socket (e.g. raw proxy pipe)
 
       if (meta.isAlive === false) {
-        console.warn(
+        log.warn(
           "[ws] heartbeat timeout",
           JSON.stringify({
             event: "ws_heartbeat_timeout",
@@ -239,7 +240,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
         // throws synchronously and takes down the whole process, and the
         // connection registry must be cleaned up on the error path too.
         ws.on("error", (err) => {
-          console.error("[ws] admin socket error:", err);
+          log.error("[ws] admin socket error:", err);
           unregisterConnection(row.id, ws);
         });
         adminStreamManager.addClient(ws);
@@ -259,7 +260,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
         registerProxySocket(row.id, socket);
         socket.on("close", () => unregisterProxySocket(row.id, socket));
         socket.on("error", (err: unknown) => {
-          console.error("[ws] proxy socket error:", err);
+          log.error("[ws] proxy socket error:", err);
           unregisterProxySocket(row.id, socket);
         });
         entry.proxy.upgrade(req, socket, head);
@@ -277,7 +278,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
                     : "500 Internal Server Error";
           socket.write(`HTTP/1.1 ${reasonPhrase}\r\n\r\n`);
         } else {
-          console.error("[ws] proxy upgrade error:", err);
+          log.error("[ws] proxy upgrade error:", err);
           socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
         }
         socket.destroy();
@@ -354,7 +355,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
         // frame or dropping the TCP connection abnormally would otherwise
         // take down the whole server for every connected user.
         ws.on("error", (err) => {
-          console.error("[ws] terminal socket error:", err);
+          log.error("[ws] terminal socket error:", err);
           unregisterConnection(row.id, ws);
         });
         const terminalId = typeof query.terminalId === "string" ? query.terminalId : undefined;
@@ -370,7 +371,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
           Number.isFinite(lastSeqRaw) ? lastSeqRaw : 0,
           resume,
         ).catch((err) => {
-          console.error("[ws] terminal connection error:", err);
+          log.error("[ws] terminal connection error:", err);
           ws.close();
         });
       });
@@ -383,11 +384,11 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
         registerConnection(row.id, ws);
         ws.on("close", () => unregisterConnection(row.id, ws));
         ws.on("error", (err) => {
-          console.error("[ws] execution socket error:", err);
+          log.error("[ws] execution socket error:", err);
           unregisterConnection(row.id, ws);
         });
         handleExecutionConnection(ws, projectId, row.id, row.username, cfg, db).catch((err) => {
-          console.error("[ws] execution connection error:", err);
+          log.error("[ws] execution connection error:", err);
           ws.close();
         });
       });
@@ -400,11 +401,11 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
         registerConnection(row.id, ws);
         ws.on("close", () => unregisterConnection(row.id, ws));
         ws.on("error", (err) => {
-          console.error("[ws] debug socket error:", err);
+          log.error("[ws] debug socket error:", err);
           unregisterConnection(row.id, ws);
         });
         handleDebugConnection(ws, projectId, row.id, cfg).catch((err) => {
-          console.error("[ws] debug connection error:", err);
+          log.error("[ws] debug connection error:", err);
           ws.close();
         });
       });
@@ -417,12 +418,12 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
         registerConnection(row.id, ws);
         ws.on("close", () => unregisterConnection(row.id, ws));
         ws.on("error", (err) => {
-          console.error("[ws] lsp socket error:", err);
+          log.error("[ws] lsp socket error:", err);
           unregisterConnection(row.id, ws);
         });
         const language = typeof query.language === "string" ? query.language : "";
         handleLspConnection(ws, projectId, language, row.id, cfg).catch((err) => {
-          console.error("[ws] lsp connection error:", err);
+          log.error("[ws] lsp connection error:", err);
           ws.close();
         });
       });

@@ -33,6 +33,7 @@ import { collaborationManager } from "../collab/manager.js";
 import { closeAllConnectionsForUser, activeConnectionCount } from "../ws/connectionRegistry.js";
 import { invalidateCachedSessionsForUser } from "../auth/sessionCache.js";
 import { getObservabilitySnapshot } from "../observability.js";
+import { log } from "../logger.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -733,7 +734,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
         try {
           await sandboxManager.stopProjectSandbox(p.id);
         } catch (err) {
-          console.error(`[delete-user] failed to stop sandbox for project ${p.id}:`, err);
+          log.error(`[delete-user] failed to stop sandbox for project ${p.id}:`, err);
         }
 
         // Delete workspace directory on disk
@@ -741,7 +742,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
           const wsPath = join(cfg.workspacesDir, p.id);
           rmSync(wsPath, { recursive: true, force: true });
         } catch (err) {
-          console.error(`[delete-user] failed to rm workspace dir for project ${p.id}:`, err);
+          log.error(`[delete-user] failed to rm workspace dir for project ${p.id}:`, err);
         }
 
         // Delete project runs and snapshots

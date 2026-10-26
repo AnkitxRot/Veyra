@@ -28,6 +28,7 @@ import {
 } from "./attention.js";
 import { collaborationHistorian, type CollaborationHistorian } from "./historian.js";
 import { touchLastSeen } from "./lastSeen.js";
+import { log } from "../logger.js";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -1723,7 +1724,7 @@ export class CollaborationRoom {
       fullPath = safeResolve(baseDir, filePath);
       await assertInsideWorkspace(baseDir, fullPath);
     } catch (err) {
-      console.warn(
+      log.warn(
         `[CollabRoom:${this.projectId}] Refusing to load ${filePath}: path escapes the workspace`,
         err,
       );
@@ -1960,7 +1961,7 @@ export class CollaborationRoom {
             (syncType === syncProtocol.messageYjsUpdate ||
               syncType === syncProtocol.messageYjsSyncStep2)
           ) {
-            console.warn(
+            log.warn(
               `[CollabRoom:${this.projectId}] Blocked edit attempt from viewer ${clientState.username}`,
             );
             return;
@@ -2054,7 +2055,7 @@ export class CollaborationRoom {
         }
       }
     } catch (err) {
-      console.error(`[CollabRoom:${this.projectId}] Error handling message:`, err);
+      log.error(`[CollabRoom:${this.projectId}] Error handling message:`, err);
     }
   }
 
@@ -2408,7 +2409,7 @@ export class CollaborationRoom {
       safeResolve(projectDir(this.cfg, this.projectId), filePath);
       return true;
     } catch {
-      console.warn(
+      log.warn(
         `[CollabRoom:${this.projectId}] Ignoring unsafe collaborative file key: ${filePath}`,
       );
       return false;
@@ -2478,7 +2479,7 @@ export class CollaborationRoom {
       const unpersisted = failed.slice(0, UNPERSISTED_REPORT_MAX);
       return { ok: unpersisted.length === 0, unpersisted };
     } catch (err) {
-      console.error(`[CollabRoom:${this.projectId}] persistLiveEdits did not complete:`, err);
+      log.error(`[CollabRoom:${this.projectId}] persistLiveEdits did not complete:`, err);
       const unpersisted = Array.from(this.dirtyFiles).slice(0, UNPERSISTED_REPORT_MAX);
       return { ok: false, unpersisted };
     }
@@ -2598,7 +2599,7 @@ export class CollaborationRoom {
         // path retained here would block idle disposal forever via the
         // scheduleIdleDisposal() retry/backoff loop.
         this.dirtyFiles.delete(filePath);
-        console.warn(
+        log.warn(
           `[CollabRoom:${this.projectId}] Refusing to persist ${filePath}: path escapes the workspace`,
           err,
         );
@@ -2630,13 +2631,13 @@ export class CollaborationRoom {
           // barrier refuse Run / Test / Debug / install / stage for every
           // collaborator forever — and honest clients re-seed it on reconnect.
           this.dirtyFiles.delete(filePath);
-          console.warn(
+          log.warn(
             `[CollabRoom:${this.projectId}] Dropping unwritable collaborative key ${filePath} (${code})`,
           );
           continue;
         }
         failed.push(filePath);
-        console.error(`[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`, err);
+        log.error(`[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`, err);
       }
     }
 
@@ -2691,7 +2692,7 @@ export class CollaborationRoom {
         // Timeout or an unexpected plumbing throw. flushToDisk() already
         // handles per-file write errors and leaves those files dirty, so
         // `remainingDirty` below is the authoritative signal either way.
-        console.error(
+        log.error(
           `[CollabRoom:${this.projectId}] flushBeforeDestructiveDispose did not complete cleanly:`,
           err,
         );
@@ -2865,7 +2866,7 @@ export class CollaborationRoom {
     // disposed with a warning so production cannot enter an unbounded retry
     // loop and fake-timer test harnesses stay bounded.
     if (this.idleDisposeRetries >= MAX_IDLE_DISPOSE_RETRIES) {
-      console.error(
+      log.error(
         `[CollabRoom:${this.projectId}] giving up after ${this.idleDisposeRetries} failed idle-disposal flushes; disposing with ${this.dirtyFiles.size} unpersisted file(s)`,
       );
       this.dispose();
@@ -2904,7 +2905,7 @@ export class CollaborationRoom {
           // copy of content that failed to persist. Retry after a
           // (back-off-capped) grace period instead.
           const nextDelay = Math.min(delayMs * 2, CollaborationRoom.IDLE_DISPOSE_RETRY_CAP_MS);
-          console.error(
+          log.error(
             `[CollabRoom:${this.projectId}] idle disposal deferred: ${this.dirtyFiles.size} file(s) failed to flush, retrying in ${nextDelay}ms`,
           );
           this.idleDisposeRetries++;
@@ -3370,7 +3371,7 @@ export class CollaborationManager {
               // flushToDisk() already contains per-file error handling; this
               // catch exists so an unexpected throw in the room-level plumbing
               // is attributed and contained rather than aborting siblings.
-              console.error(`[CollabManager] room ${room.projectId} failed to flush:`, err);
+              log.error(`[CollabManager] room ${room.projectId} failed to flush:`, err);
               throw err;
             }
           })(),
@@ -3382,7 +3383,7 @@ export class CollaborationManager {
 
     const failed = results.filter((r) => r.status === "rejected").length;
     if (failed > 0) {
-      console.error(
+      log.error(
         `[CollabManager] flushAllRooms finished with ${failed}/${rooms.length} room(s) failed — unpersisted content remains dirty in those rooms`,
       );
     }

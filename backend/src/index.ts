@@ -18,6 +18,7 @@ import { verifySecretsKeyOnStartup } from "./projectsecrets/store.js";
 import { instrumentDb, startEventLoopMonitor } from "./observability.js";
 import type { WebSocketServer } from "ws";
 import type { Server as HttpServer } from "node:http";
+import { log } from "./logger.js";
 
 const ADMIN_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -39,7 +40,7 @@ async function bootstrapAdmin(config: AppConfig, db: Db): Promise<void> {
       .prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'")
       .get() as { count: number };
     if (count === 0) {
-      console.error(
+      log.error(
         "[admin] ADMIN_PASSWORD is not set and no administrator account exists. " +
           "Set ADMIN_USERNAME and ADMIN_PASSWORD and restart to provision the initial admin.",
       );
@@ -49,16 +50,14 @@ async function bootstrapAdmin(config: AppConfig, db: Db): Promise<void> {
   }
 
   if (!ADMIN_USERNAME_RE.test(adminUser)) {
-    console.error(
+    log.error(
       `[admin] ADMIN_USERNAME "${adminUser}" is invalid: must be 3-32 characters of [a-zA-Z0-9_].`,
     );
     process.exit(1);
     return;
   }
   if (adminPass.length < config.minPasswordLength) {
-    console.error(
-      `[admin] ADMIN_PASSWORD must be at least ${config.minPasswordLength} characters.`,
-    );
+    log.error(`[admin] ADMIN_PASSWORD must be at least ${config.minPasswordLength} characters.`);
     process.exit(1);
     return;
   }
@@ -98,11 +97,11 @@ export async function performGracefulShutdown(
 ): Promise<void> {
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const { server, wss, db, config } = ctx;
-  console.log(`[shutdown] ${options.signal ?? "shutdown"} received, draining...`);
+  log.info(`[shutdown] ${options.signal ?? "shutdown"} received, draining...`);
 
   // Force-exit fallback armed for the entire sequence.
   const forceTimer = setTimeout(() => {
-    console.error("[shutdown] grace period elapsed, forcing exit");
+    log.error("[shutdown] grace period elapsed, forcing exit");
     exit(0);
   }, config.shutdownGraceMs);
   forceTimer.unref();
@@ -115,14 +114,14 @@ export async function performGracefulShutdown(
   try {
     telemetryHistorian.stop();
   } catch (err) {
-    console.error("[shutdown] telemetry historian stop failed:", err);
+    log.error("[shutdown] telemetry historian stop failed:", err);
   }
   try {
     // M60: close every open edit burst and drain the write queue
     // synchronously (node:sqlite is synchronous) before the DB is closed.
     collaborationHistorian.stop();
   } catch (err) {
-    console.error("[shutdown] collaboration historian stop failed:", err);
+    log.error("[shutdown] collaboration historian stop failed:", err);
   }
 
   // 1. Stop accepting new HTTP requests. Idle keep-alive sockets are closed
@@ -149,17 +148,17 @@ export async function performGracefulShutdown(
   try {
     terminalSessions.disposeAll("server_shutdown");
   } catch (err) {
-    console.error("[shutdown] terminal session dispose failed:", err);
+    log.error("[shutdown] terminal session dispose failed:", err);
   }
   try {
     languageServers.disposeAll("server_shutdown");
   } catch (err) {
-    console.error("[shutdown] language server dispose failed:", err);
+    log.error("[shutdown] language server dispose failed:", err);
   }
   try {
     debugSessions.disposeAll("server_shutdown");
   } catch (err) {
-    console.error("[shutdown] debug session dispose failed:", err);
+    log.error("[shutdown] debug session dispose failed:", err);
   }
 
   // 3. Persist all dirty collaboration rooms. Budget: min(5s, grace-1s),
@@ -173,7 +172,7 @@ export async function performGracefulShutdown(
       t.unref?.();
     }),
   ]).catch((err) => {
-    console.error("[shutdown] collaboration room flush failed:", err);
+    log.error("[shutdown] collaboration room flush failed:", err);
   });
 
   await Promise.all([drained, flushed]);
@@ -184,7 +183,7 @@ export async function performGracefulShutdown(
     db.close();
   } catch {}
 
-  console.log("[shutdown] graceful shutdown complete");
+  log.info("[shutdown] graceful shutdown complete");
   // 5.
   exit(0);
 }
@@ -210,20 +209,20 @@ async function start(): Promise<void> {
   try {
     await cleanupExpiredDemoAccounts(config, db);
   } catch (err) {
-    console.error("[auth] startup demo GC failed:", err);
+    log.error("[auth] startup demo GC failed:", err);
   }
   try {
     const pruned = pruneAuditLogs(db, config.auditRetentionDays);
     if (pruned > 0) {
-      console.log(`[audit] startup GC: pruned ${pruned} old audit log entries`);
+      log.info(`[audit] startup GC: pruned ${pruned} old audit log entries`);
     }
   } catch (err) {
-    console.error("[audit] startup retention GC failed:", err);
+    log.error("[audit] startup retention GC failed:", err);
   }
   try {
     await sandboxManager.reconcile(config, db);
   } catch (err) {
-    console.error("[sandbox] startup reconciliation failed:", err);
+    log.error("[sandbox] startup reconciliation failed:", err);
   }
 
   sandboxManager.startReaper(config);
@@ -231,10 +230,10 @@ async function start(): Promise<void> {
     try {
       deleteExpiredSessions(db);
       void cleanupExpiredDemoAccounts(config, db).catch((err) => {
-        console.error("[auth] periodic demo GC failed:", err);
+        log.error("[auth] periodic demo GC failed:", err);
       });
     } catch (err) {
-      console.error("[auth] session GC failed:", err);
+      log.error("[auth] session GC failed:", err);
     }
   }, config.sessionGcIntervalMs);
   sessionGcTimer.unref();
@@ -243,23 +242,23 @@ async function start(): Promise<void> {
     try {
       const pruned = pruneAuditLogs(db, config.auditRetentionDays);
       if (pruned > 0) {
-        console.log(`[audit] periodic GC: pruned ${pruned} old audit log entries`);
+        log.info(`[audit] periodic GC: pruned ${pruned} old audit log entries`);
       }
     } catch (err) {
-      console.error("[audit] periodic retention GC failed:", err);
+      log.error("[audit] periodic retention GC failed:", err);
     }
   }, config.auditGcIntervalMs);
   auditGcTimer.unref();
 
   const server = app.listen(config.port, () => {
-    console.log(`Cloud IDE backend listening on http://localhost:${config.port}`);
-    console.log(`  data dir:    ${config.dataDir}`);
-    console.log(`  platform:    ${process.platform}`);
-    console.log(
+    log.info(`Cloud IDE backend listening on http://localhost:${config.port}`);
+    log.info(`  data dir:    ${config.dataDir}`);
+    log.info(`  platform:    ${process.platform}`);
+    log.info(
       `  run user:    ${config.runUser.user}${!IS_WINDOWS ? ` (uid ${config.runUser.uid})` : ""}`,
     );
     if (!IS_WINDOWS) {
-      console.log(`  cgroup root: ${config.cgroupRoot}`);
+      log.info(`  cgroup root: ${config.cgroupRoot}`);
     }
   });
 
@@ -286,7 +285,7 @@ const SHOULD_AUTO_START = !process.env.VITEST && process.env.NODE_ENV !== "test"
 
 if (SHOULD_AUTO_START) {
   start().catch((err) => {
-    console.error("[startup] fatal error:", err);
+    log.error("[startup] fatal error:", err);
     process.exit(1);
   });
 }

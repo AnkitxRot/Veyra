@@ -3,6 +3,7 @@ import type { AppConfig } from "../config.js";
 import { workspacePath } from "../projects/service.js";
 import { getLspLanguage } from "./languages.js";
 import { languageServers } from "./manager.js";
+import { log } from "../logger.js";
 
 const WS_OPEN = 1;
 
@@ -82,7 +83,7 @@ export async function handleLspConnection(
   };
   ws.on("close", drop);
   ws.on("error", (err) => {
-    console.error("[ws] lsp socket error:", err);
+    log.error("[ws] lsp socket error:", err);
     drop();
   });
 }

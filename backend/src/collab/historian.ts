@@ -24,6 +24,7 @@ import {
   type ClosedBurst,
   type CloseReason,
 } from "./changeAttribution.js";
+import { log } from "../logger.js";
 
 /** The shape broadcast over MESSAGE_CUSTOM `collab_change` and echoed by REST. */
 export interface CollabChangeWire {
@@ -319,7 +320,7 @@ export class CollaborationHistorian {
       } catch {
         /* original error is what matters */
       }
-      console.error("[CollabHistorian] flush failed:", err);
+      log.error("[CollabHistorian] flush failed:", err);
     }
     this.enforceCaps();
   }
@@ -338,7 +339,7 @@ export class CollaborationHistorian {
           )
           .run(pid, pid, cap);
       } catch (err) {
-        console.warn("[CollabHistorian] cap enforcement warning:", err);
+        log.warn("[CollabHistorian] cap enforcement warning:", err);
       }
     }
     this.touchedProjects.clear();
@@ -355,7 +356,7 @@ export class CollaborationHistorian {
         )
         .run();
     } catch (err) {
-      console.warn("[CollabHistorian] purge warning:", err);
+      log.warn("[CollabHistorian] purge warning:", err);
     }
     this.enforceCaps();
   }

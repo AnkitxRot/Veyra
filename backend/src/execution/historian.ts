@@ -2,6 +2,7 @@ import type { Db } from "../db.js";
 import { DEFAULT_LIMITS, type AppConfig } from "../config.js";
 import { type ContainerStats, SandboxManager } from "./sandbox.js";
 import { randomUUID } from "node:crypto";
+import { log } from "../logger.js";
 
 export interface TelemetryRecord {
   id?: number;
@@ -271,7 +272,7 @@ export class TelemetryHistorian {
       try {
         this.db.exec("ROLLBACK;");
       } catch {}
-      console.error("[TelemetryHistorian] Error flushing batched telemetry:", err.message);
+      log.error("[TelemetryHistorian] Error flushing batched telemetry:", err.message);
     }
   }
 
@@ -778,7 +779,7 @@ export class TelemetryHistorian {
         )
         .run();
     } catch (err: any) {
-      console.warn("[TelemetryHistorian] Cleanup warning:", err.message);
+      log.warn("[TelemetryHistorian] Cleanup warning:", err.message);
     }
   }
 

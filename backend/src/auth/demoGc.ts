@@ -7,6 +7,7 @@ import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
 import { invalidateCachedSessionsForUser } from "./sessionCache.js";
 import { recordAuditLog } from "../audit.js";
 import { removeUserMediaDir } from "../profile/media.js";
+import { log } from "../logger.js";
 
 export interface DemoGcResult {
   cleanedUsers: number;
@@ -90,7 +91,7 @@ async function executeDemoGc(cfg: AppConfig, db: Db, now: number): Promise<DemoG
           await deleteProject(cfg, db, user.id, p.id);
           cleanedProjects++;
         } catch (err) {
-          console.error(
+          log.error(
             `[demo-gc] failed to delete project ${p.id} for demo user ${user.username}:`,
             err,
           );
@@ -141,7 +142,7 @@ async function executeDemoGc(cfg: AppConfig, db: Db, now: number): Promise<DemoG
 
       cleanedUsers++;
     } catch (err) {
-      console.error(`[demo-gc] failed to purge demo user ${user.username} (${user.id}):`, err);
+      log.error(`[demo-gc] failed to purge demo user ${user.username} (${user.id}):`, err);
     }
   }
 

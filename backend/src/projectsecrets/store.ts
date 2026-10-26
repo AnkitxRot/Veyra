@@ -11,6 +11,7 @@ import {
   SecretsDecryptError,
   type SecretIdentity,
 } from "./crypto.js";
+import { log } from "../logger.js";
 
 /**
  * M47 — per-project secret store.
@@ -453,7 +454,7 @@ export function verifySecretsKeyOnStartup(cfg: AppConfig, db: Db): void {
   try {
     resolveMasterKey(cfg.secretsMasterKey);
   } catch {
-    console.error(
+    log.error(
       "[secrets] Encrypted project secrets exist but SECRETS_MASTER_KEY is missing or " +
         "invalid. Secret CRUD and run/terminal secret injection will fail until a valid " +
         "32-byte key (base64 or 64 hex chars) is configured. See deploy/README.md.",

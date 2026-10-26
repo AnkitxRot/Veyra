@@ -16,6 +16,7 @@ import {
   writeContainerSecretsFile,
   type ContainerSecretsFile,
 } from "../projectsecrets/inject.js";
+import { log } from "../logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -822,7 +823,7 @@ export class SandboxManager {
     this.reaperTimer = setInterval(() => {
       this.reapIdleSandboxes(config.sandboxIdleTimeoutMs, config.sandboxRoomEmptyGraceMs).catch(
         (err) => {
-          console.error("[sandbox] reaper error:", err);
+          log.error("[sandbox] reaper error:", err);
         },
       );
     }, config.sandboxReaperIntervalMs);
