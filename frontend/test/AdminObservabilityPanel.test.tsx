@@ -390,7 +390,7 @@ describe("AdminObservabilityPanel (Milestone 49)", () => {
     // Existing metrics still visible!
     expect(screen.getByText(/12 WS \/ 4 Rooms/)).toBeDefined();
     // Transient warning banner rendered
-    expect(screen.getByText(/Unable to refresh observability data/i)).toBeDefined();
+    expect(await screen.findByText(/Unable to refresh observability data/i)).toBeDefined();
   });
 
   it("14. initial load error displays understandable error state", async () => {
@@ -436,7 +436,7 @@ describe("AdminObservabilityPanel (Milestone 49)", () => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByText(/Updated 3s ago/i)).toBeDefined();
+    expect(await screen.findByText(/Updated 3s ago/i)).toBeDefined();
   });
 
   it("17. handles inactive event-loop monitor gracefully without throwing", async () => {

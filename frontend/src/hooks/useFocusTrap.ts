@@ -9,7 +9,7 @@ const FOCUSABLE =
  * overlay surface (comment popover, mention dropdown host).
  */
 export function useFocusTrap(
-  ref: RefObject<HTMLElement>,
+  ref: RefObject<HTMLElement | null>,
   onEscape?: () => void,
   active = true,
 ): void {
