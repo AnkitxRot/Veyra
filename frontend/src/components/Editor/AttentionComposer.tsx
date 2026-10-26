@@ -34,7 +34,7 @@ export default function AttentionComposer({
   const [message, setMessage] = useState("");
   const [targetUserId, setTargetUserId] = useState<number | null>(
     mode === "comeLook" && collaborators.length === 1
-      ? collaborators[0].userId
+      ? collaborators[0]!.userId
       : null,
   );
   const inputRef = useRef<HTMLInputElement | null>(null);

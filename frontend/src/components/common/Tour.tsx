@@ -50,6 +50,7 @@ export default function Tour({ isOpen, onClose }: TourProps) {
   if (!isOpen) return null;
 
   const step = TOUR_STEPS[currentStep];
+  if (!step) return null;
   const isLast = currentStep === TOUR_STEPS.length - 1;
 
   const next = () => {

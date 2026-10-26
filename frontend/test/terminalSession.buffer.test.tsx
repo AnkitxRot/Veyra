@@ -113,7 +113,7 @@ describe("M79 — XTerm buffer preservation + exactly-once replay", () => {
     act(() => sock()._open());
     act(() => sock()._message({ type: "data", seq: 1, data: "line-1\r\n" }));
     act(() => sock()._message({ type: "data", seq: 2, data: "line-2\r\n" }));
-    const term = FakeXTerm.instances[0];
+    const term = FakeXTerm.instances[0]!;
     expect(term.written.join("")).toBe("line-1\r\nline-2\r\n");
 
     act(() => sock()._drop());
@@ -137,7 +137,7 @@ describe("M79 — XTerm buffer preservation + exactly-once replay", () => {
     act(() => sock()._open());
     act(() => sock()._message({ type: "data", seq: 5, data: "A" }));
     act(() => sock()._message({ type: "data", seq: 6, data: "B" }));
-    const term = FakeXTerm.instances[0];
+    const term = FakeXTerm.instances[0]!;
     expect(term.written.join("")).toBe("AB");
 
     act(() => sock()._drop());

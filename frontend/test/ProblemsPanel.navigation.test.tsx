@@ -49,7 +49,7 @@ describe("ProblemsPanel navigation — opens a closed file before reveal", () =>
     await waitFor(() => expect(onReveal).toHaveBeenCalledTimes(1));
     expect(openFile).toHaveBeenCalledWith("src/nested/util.py");
     expect(order).toEqual(["open:src/nested/util.py", "reveal"]);
-    expect(onReveal.mock.results[0].value).toMatchObject({
+    expect(onReveal.mock.results[0]!.value).toMatchObject({
       filePath: "src/nested/util.py",
       line: 9,
       column: 4,

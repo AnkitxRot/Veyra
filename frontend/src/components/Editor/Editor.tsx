@@ -1334,7 +1334,7 @@ export default function Editor({
                   className="spatial-view"
                   onClick={() =>
                     onViewCollaborator(
-                      overlappingCollaborators[0].collaborator.userId,
+                      overlappingCollaborators[0]!.collaborator.userId,
                     )
                   }
                 >

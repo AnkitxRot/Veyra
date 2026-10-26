@@ -98,8 +98,8 @@ describe("Editor — save truthfulness (M1 regression: BUG-1) and read-only sync
     }
 
     expect(events).toHaveLength(1);
-    expect(events[0].detail.path).toBe("main.py");
-    expect(events[0].detail.content).toBe("edited-before-save");
+    expect(events[0]!.detail.path).toBe("main.py");
+    expect(events[0]!.detail.content).toBe("edited-before-save");
   });
 
   it("re-registers the Monaco save action when the save chord changes (no leak)", () => {

@@ -84,7 +84,7 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
 
     fireEvent.click(within(r).getByRole("button", { name: /apply/i }));
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0][0]).toEqual({
+    expect(onSave.mock.calls[0]![0]).toEqual({
       keymap: { "workbench.action.saveFile": "mod+alt+s" },
     });
   });
@@ -184,6 +184,6 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
-    expect(onSave.mock.calls[0][0]).not.toHaveProperty("keymap");
+    expect(onSave.mock.calls[0]![0]).not.toHaveProperty("keymap");
   });
 });

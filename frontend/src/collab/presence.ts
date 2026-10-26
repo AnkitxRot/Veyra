@@ -100,7 +100,7 @@ const USER_COLORS = [
 ];
 
 export function getUserColor(userId: number): string {
-  return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
+  return USER_COLORS[Math.abs(userId) % USER_COLORS.length]!;
 }
 
 /**

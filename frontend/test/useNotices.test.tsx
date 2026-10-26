@@ -27,7 +27,7 @@ describe("useNotices — creation & lookup", () => {
 
     expect(id).toBeTruthy();
     expect(result.current.notices).toHaveLength(1);
-    const n = result.current.notices[0];
+    const n = result.current.notices[0]!;
     expect(n.id).toBe(id);
     expect(n.text).toBe("hello");
     expect(n.kind).toBe("info");
@@ -41,7 +41,7 @@ describe("useNotices — creation & lookup", () => {
     act(() => {
       result.current.notify({ kind: "error", text: "boom" });
     });
-    expect(result.current.notices[0].role).toBe("alert");
+    expect(result.current.notices[0]!.role).toBe("alert");
   });
 
   it("hasKey reflects presence and absence of a dedupeKey", () => {
@@ -214,8 +214,8 @@ describe("useNotices — dedupe / replacement", () => {
       });
     });
     expect(result.current.notices).toHaveLength(1);
-    expect(result.current.notices[0].text).toBe("v2");
-    expect(result.current.notices[0].id).toBe(secondId);
+    expect(result.current.notices[0]!.text).toBe("v2");
+    expect(result.current.notices[0]!.id).toBe(secondId);
     expect(secondId).not.toBe(firstId);
   });
 
@@ -248,7 +248,7 @@ describe("useNotices — dedupe / replacement", () => {
     });
 
     expect(result.current.notices).toHaveLength(1);
-    expect(result.current.notices[0].text).toBe("new");
+    expect(result.current.notices[0]!.text).toBe("new");
   });
 
   it("replacing via dedupeKey does NOT invoke the old notice's onExpire", () => {
@@ -377,7 +377,7 @@ describe("useNotices — headless notices (audit)", () => {
       });
     });
     expect(result.current.hasKey("attn-rate")).toBe(true);
-    const n = result.current.notices[0];
+    const n = result.current.notices[0]!;
     expect(n.surface).toBe("headless");
     expect(n.kind).toBe("info"); // default
     expect(n.text).toBe(""); // default

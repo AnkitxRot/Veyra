@@ -1058,10 +1058,10 @@ export default function IDE({
       // Later refreshes (post create / import / fork): keep the historical
       // "auto-open the newest project only when nothing is open" behaviour.
       if (res.projects.length > 0 && !project) {
-        setProject(res.projects[0]);
-        addRecentProject(res.projects[0]);
-        setLastProjectId(res.projects[0].id);
-        onNavigateProject?.(res.projects[0].id);
+        setProject(res.projects[0]!);
+        addRecentProject(res.projects[0]!);
+        setLastProjectId(res.projects[0]!.id);
+        onNavigateProject?.(res.projects[0]!.id);
       }
     } catch {
       notify({
@@ -1282,7 +1282,7 @@ export default function IDE({
         setActiveFile(
           sess.active && valid.some((v) => v.path === sess.active)
             ? sess.active
-            : valid[valid.length - 1].path,
+            : valid[valid.length - 1]!.path,
         );
       }
     })().finally(() => {

@@ -81,7 +81,7 @@ describe("CollaborationClient — M60 collab_change", () => {
     client.on("collab_change", spy);
     feed(client, wellFormed);
     expect(spy).toHaveBeenCalledOnce();
-    expect(spy.mock.calls[0][0].actor.username).toBe("rahul");
+    expect(spy.mock.calls[0]![0].actor.username).toBe("rahul");
 
     feed(client, { type: "collab_change", actor: 123 });
     feed(client, { type: "collab_change", id: "y", actor: { userId: "no" } });
@@ -112,8 +112,8 @@ describe("CollaborationClient — M60 collab_change", () => {
     await vi.advanceTimersByTimeAsync(60_000); // let scheduleReconnect fire + reconnect
 
     expect(gap).toHaveBeenCalled();
-    expect(typeof gap.mock.calls[0][0].offlineMs).toBe("number");
-    expect(gap.mock.calls[0][0].offlineMs).toBeGreaterThanOrEqual(0);
+    expect(typeof gap.mock.calls[0]![0].offlineMs).toBe("number");
+    expect(gap.mock.calls[0]![0].offlineMs).toBeGreaterThanOrEqual(0);
     client.dispose();
     vi.useRealTimers();
   });

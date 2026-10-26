@@ -359,7 +359,7 @@ function Sidebar({
       let binary = "";
       const len = bytes.byteLength;
       for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
+        binary += String.fromCharCode(bytes[i]!);
       }
       const base64 = btoa(binary);
       const projectName = file.name.replace(/\.zip$/i, "");
@@ -400,7 +400,7 @@ function Sidebar({
       let binary = "";
       const len = bytes.byteLength;
       for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
+        binary += String.fromCharCode(bytes[i]!);
       }
       const base64 = btoa(binary);
       await api<{ ok: boolean; fileCount: number }>(

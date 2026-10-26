@@ -112,8 +112,8 @@ describe("M79 — terminal session survives bottom-panel navigation", () => {
     await flush();
     expect(FakeXTerm.instances).toHaveLength(1);
     expect(FakeWS.instances).toHaveLength(1);
-    const term = FakeXTerm.instances[0];
-    const sock = FakeWS.instances[0];
+    const term = FakeXTerm.instances[0]!;
+    const sock = FakeWS.instances[0]!;
 
     // Switch to another bottom tab: the host stays mounted, only `visible` flips.
     act(() => {
@@ -165,7 +165,7 @@ describe("M79 — terminal session survives bottom-panel navigation", () => {
       <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
     );
     await flush();
-    const firstTerm = FakeXTerm.instances[0];
+    const firstTerm = FakeXTerm.instances[0]!;
 
     act(() => {
       view.rerender(

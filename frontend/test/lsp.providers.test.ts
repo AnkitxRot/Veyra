@@ -64,7 +64,7 @@ describe("lsp monaco providers", () => {
       column: 1,
     });
     expect(request).toHaveBeenCalled();
-    expect(result.suggestions[0].label).toBe("hello");
+    expect(result.suggestions[0]!.label).toBe("hello");
     setActiveLspBridge(null);
   });
 
@@ -93,7 +93,7 @@ describe("lsp monaco providers", () => {
       column: 1,
     });
     expect(request).toHaveBeenCalled();
-    expect(result.suggestions[0].label).toBe("greet");
+    expect(result.suggestions[0]!.label).toBe("greet");
     setLspBridge("typescript", null);
   });
 

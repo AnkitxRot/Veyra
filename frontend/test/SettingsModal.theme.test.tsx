@@ -49,20 +49,20 @@ describe("SettingsModal — theme selector (M69)", () => {
       target: { value: "light" },
     });
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
-    expect(onSave.mock.calls[0][0]).toMatchObject({ theme: "light" });
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ theme: "light" });
   });
 
   it("Reset Defaults returns the theme to system", () => {
     const { onSave } = renderModal("dark");
     fireEvent.click(screen.getByRole("button", { name: /reset defaults/i }));
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
-    expect(onSave.mock.calls[0][0]).toMatchObject({ theme: "system" });
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ theme: "system" });
   });
 
   it("the Save payload still omits the layout keys", () => {
     const { onSave } = renderModal();
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
-    const payload = onSave.mock.calls[0][0];
+    const payload = onSave.mock.calls[0]![0];
     for (const k of ["sidebarWidth", "bottomHeight", "sidebarHidden", "bottomCollapsed"]) {
       expect(payload).not.toHaveProperty(k);
     }

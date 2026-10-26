@@ -161,11 +161,11 @@ export function useNotices(): UseNotices {
           );
           if (oldestTransient >= 0) {
             // normal case: shed the oldest transient
-            clearTimer(next[oldestTransient].id);
+            clearTimer(next[oldestTransient]!.id);
             next = next.filter((_, i) => i !== oldestTransient);
           } else if (next.length > MAX_NOTICES_CEILING) {
             // all-persistent overflow past the hard ceiling — shed the oldest
-            clearTimer(next[0].id);
+            clearTimer(next[0]!.id);
             next = next.slice(1);
           }
         }

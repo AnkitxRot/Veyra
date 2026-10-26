@@ -60,7 +60,7 @@ export default function TimeSeriesChart({
   const values = data.map((d) => d.value);
   const maxVal = maxValue !== undefined ? maxValue : Math.max(...values, 1);
   const avgVal = values.reduce((a, b) => a + b, 0) / values.length;
-  const currentVal = values[values.length - 1];
+  const currentVal = values[values.length - 1]!;
 
   // SVG Geometry Dimensions
   const paddingX = 10;
@@ -79,7 +79,7 @@ export default function TimeSeriesChart({
     return i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
   }, '');
 
-  const areaD = `${pathD} L ${points[points.length - 1].x} ${chartHeight - paddingY} L ${points[0].x} ${chartHeight - paddingY} Z`;
+  const areaD = `${pathD} L ${points[points.length - 1]!.x} ${chartHeight - paddingY} L ${points[0]!.x} ${chartHeight - paddingY} Z`;
 
   const gradientId = `grad-${title.replace(/[^a-zA-Z0-9]/g, '')}-${color.replace(/[^a-zA-Z0-9]/g, '')}`;
 

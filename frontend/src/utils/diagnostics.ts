@@ -57,17 +57,17 @@ export function parseDiagnostics(
   const nodeStackRegex = /^\s*at\s+(?:(.+?)\s+\()?(?:file:\/\/\/?)?(.+?):(\d+):(\d+)\)?$/i;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const line = lines[i]!.trim();
 
     // Check GCC / Clang
     const gccMatch = line.match(gccRegex);
     if (gccMatch) {
-      const filePath = cleanFilePath(gccMatch[1]);
-      const lineNum = parseInt(gccMatch[2], 10);
+      const filePath = cleanFilePath(gccMatch[1]!);
+      const lineNum = parseInt(gccMatch[2]!, 10);
       const colNum = gccMatch[3] ? parseInt(gccMatch[3], 10) : 1;
-      const typeStr = gccMatch[4].toLowerCase();
+      const typeStr = gccMatch[4]!.toLowerCase();
       const severity: DiagnosticSeverity = typeStr.includes('error') ? 'error' : typeStr.includes('warning') ? 'warning' : 'info';
-      const message = gccMatch[5].trim();
+      const message = gccMatch[5]!.trim();
 
       diagnostics.push({
         id: `diag-gcc-${++idCounter}`,
@@ -85,13 +85,13 @@ export function parseDiagnostics(
     // Check TypeScript
     const tsMatch = line.match(tsRegex);
     if (tsMatch) {
-      const filePath = cleanFilePath(tsMatch[1]);
-      const lineNum = parseInt(tsMatch[2], 10);
-      const colNum = parseInt(tsMatch[3], 10);
-      const typeStr = tsMatch[4].toLowerCase();
+      const filePath = cleanFilePath(tsMatch[1]!);
+      const lineNum = parseInt(tsMatch[2]!, 10);
+      const colNum = parseInt(tsMatch[3]!, 10);
+      const typeStr = tsMatch[4]!.toLowerCase();
       const severity: DiagnosticSeverity = typeStr === 'error' ? 'error' : typeStr === 'warning' ? 'warning' : 'info';
       const code = tsMatch[5];
-      const message = tsMatch[6].trim();
+      const message = tsMatch[6]!.trim();
 
       diagnostics.push({
         id: `diag-ts-${++idCounter}`,
@@ -110,10 +110,10 @@ export function parseDiagnostics(
     // Check Java
     const javacMatch = line.match(javacRegex);
     if (javacMatch) {
-      const filePath = cleanFilePath(javacMatch[1]);
-      const lineNum = parseInt(javacMatch[2], 10);
-      const severity: DiagnosticSeverity = javacMatch[3].toLowerCase() === 'error' ? 'error' : 'warning';
-      const message = javacMatch[4].trim();
+      const filePath = cleanFilePath(javacMatch[1]!);
+      const lineNum = parseInt(javacMatch[2]!, 10);
+      const severity: DiagnosticSeverity = javacMatch[3]!.toLowerCase() === 'error' ? 'error' : 'warning';
+      const message = javacMatch[4]!.trim();
 
       diagnostics.push({
         id: `diag-java-${++idCounter}`,
@@ -131,13 +131,13 @@ export function parseDiagnostics(
     // Check Python File line
     const pyFileMatch = line.match(pyFileRegex);
     if (pyFileMatch) {
-      const pyFilePath = cleanFilePath(pyFileMatch[1]);
-      const pyLine = parseInt(pyFileMatch[2], 10);
+      const pyFilePath = cleanFilePath(pyFileMatch[1]!);
+      const pyLine = parseInt(pyFileMatch[2]!, 10);
 
       // Look ahead for error message
       let pyMessage = 'Runtime Error';
       for (let j = i + 1; j < Math.min(lines.length, i + 6); j++) {
-        const nextLine = lines[j].trim();
+        const nextLine = lines[j]!.trim();
         const errMatch = nextLine.match(pyErrorNameRegex);
         if (errMatch) {
           pyMessage = nextLine;
@@ -161,14 +161,14 @@ export function parseDiagnostics(
     // Check Node.js stack trace
     const nodeMatch = line.match(nodeStackRegex);
     if (nodeMatch) {
-      const filePath = cleanFilePath(nodeMatch[2]);
-      const lineNum = parseInt(nodeMatch[3], 10);
-      const colNum = parseInt(nodeMatch[4], 10);
+      const filePath = cleanFilePath(nodeMatch[2]!);
+      const lineNum = parseInt(nodeMatch[3]!, 10);
+      const colNum = parseInt(nodeMatch[4]!, 10);
 
       // Find leading error message if at start of stack trace
       let errorMsg = 'JavaScript Runtime Exception';
       for (let k = i - 1; k >= Math.max(0, i - 4); k--) {
-        const prevLine = lines[k].trim();
+        const prevLine = lines[k]!.trim();
         if (prevLine.includes('Error:') || prevLine.includes('Exception:')) {
           errorMsg = prevLine;
           break;

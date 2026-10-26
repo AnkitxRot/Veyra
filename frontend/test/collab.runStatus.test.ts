@@ -61,7 +61,7 @@ describe("CollaborationClient — M54 run-status (receive-only)", () => {
     FakeWebSocket.instances = [];
     vi.stubGlobal("WebSocket", FakeWebSocket);
     client = new CollaborationClient("proj-1", USER);
-    ws = FakeWebSocket.instances[0];
+    ws = FakeWebSocket.instances[0]!;
   });
 
   afterEach(() => {

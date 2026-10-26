@@ -117,7 +117,7 @@ class FakeWebSocket {
   }
 
   static latest(): FakeWebSocket {
-    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
   }
 }
 
@@ -198,7 +198,7 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
     expect(ws2).not.toBe(ws1);
     ws2.simulateOpen();
 
-    const syncStep1 = ws2.sent[0];
+    const syncStep1 = ws2.sent[0]!;
     const serverDoc = new Y.Doc();
     serverDoc.getText("main.py").insert(0, "NEW CONTENT FROM SERVER");
     const step2Reply = serverReplyToSyncStep1(serverDoc, syncStep1);
@@ -238,7 +238,7 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
     serverDoc
       .getText("app.js")
       .insert(0, 'print("AFTER IMPORT FROM IMPORT")\n');
-    const reply = serverReplyToSyncStep1(serverDoc, ws2.sent[0]);
+    const reply = serverReplyToSyncStep1(serverDoc, ws2.sent[0]!);
     ws2.simulateMessage(reply);
 
     const finalText = client.doc.getText("app.js").toString();
@@ -269,7 +269,7 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
 
     const serverDoc = new Y.Doc();
     serverDoc.getText("data.txt").insert(0, "IMPORTED DATA");
-    const reply = serverReplyToSyncStep1(serverDoc, ws2.sent[0]);
+    const reply = serverReplyToSyncStep1(serverDoc, ws2.sent[0]!);
     ws2.simulateMessage(reply);
 
     // Replay every message the client sent after reconnecting into a fresh
@@ -349,7 +349,7 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
 
     const restoredServerDoc = new Y.Doc();
     restoredServerDoc.getText("config.json").insert(0, '{ "restored": true }');
-    const reply = serverReplyToSyncStep1(restoredServerDoc, ws2.sent[0]);
+    const reply = serverReplyToSyncStep1(restoredServerDoc, ws2.sent[0]!);
     ws2.simulateMessage(reply);
 
     expect(client.doc.getText("config.json").toString()).toBe(

@@ -186,8 +186,8 @@ describe("M79 — terminal session lifecycle edges", () => {
   it("F20 / Scenario I: unmount during a pending reconnect leaves no socket or timer", () => {
     const h = renderHook(() => useTerminalSession("p1", "dark"));
     act(() => h.result.current.ensureStarted());
-    act(() => FakeWS.instances[0]._open());
-    act(() => FakeWS.instances[0]._drop()); // → reconnecting, timer armed
+    act(() => FakeWS.instances[0]!._open());
+    act(() => FakeWS.instances[0]!._drop()); // → reconnecting, timer armed
     expect(vi.getTimerCount()).toBe(1);
 
     act(() => h.unmount());
@@ -202,7 +202,7 @@ describe("M79 — terminal session lifecycle edges", () => {
       <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
     );
     await flushMicro();
-    act(() => FakeWS.instances[0]._open());
+    act(() => FakeWS.instances[0]!._open());
 
     for (let i = 0; i < 10; i++) {
       act(() => {

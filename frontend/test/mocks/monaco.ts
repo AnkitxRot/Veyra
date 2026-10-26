@@ -67,7 +67,7 @@ export class FakeModel {
     _cb: unknown,
   ) {
     if (ops.length > 0) {
-      this.value = ops[0].text;
+      this.value = ops[0]!.text;
     }
     return null;
   }

@@ -40,12 +40,12 @@ export function detectMissingDependency(
 
   const pythonMatch = output.match(PYTHON_MODULE_NOT_FOUND);
   if (pythonMatch) {
-    return { kind: "python", moduleName: pythonMatch[1] };
+    return { kind: "python", moduleName: pythonMatch[1]! };
   }
 
   const nodeMatch = output.match(NODE_CANNOT_FIND_MODULE);
   if (nodeMatch) {
-    return { kind: "node", moduleName: nodeMatch[1] };
+    return { kind: "node", moduleName: nodeMatch[1]! };
   }
 
   return null;

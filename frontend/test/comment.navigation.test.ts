@@ -49,8 +49,8 @@ describe("M61-A comment navigation helpers", () => {
     const nav = navigableThreads(threads);
     expect(nav.map((x) => x.id)).toEqual(["e", "a"]); // 7 then 10? Wait e is 7, a is 10, sorted ascending => e then a
     // Actually a is 10, e is 7 => order e (7), a (10)
-    expect(nav[0].id).toBe("e");
-    expect(nav[1].id).toBe("a");
+    expect(nav[0]!.id).toBe("e");
+    expect(nav[1]!.id).toBe("a");
   });
 
   it("nextInFile cycles and previousInFile wraps", () => {

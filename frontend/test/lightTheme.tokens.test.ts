@@ -38,7 +38,7 @@ function blockBody(css: string, selector: string): string {
 
 // Custom-property names declared in the base :root block.
 function declaredVars(body: string): string[] {
-  return [...body.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gim)].map((m) => m[1]);
+  return [...body.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gim)].map((m) => m[1]!);
 }
 
 // Tokens that are intentionally theme-invariant (geometry, timing, type).

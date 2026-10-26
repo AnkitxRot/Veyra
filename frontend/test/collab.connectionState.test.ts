@@ -64,7 +64,7 @@ class FakeWebSocket {
   }
 
   static latest(): FakeWebSocket {
-    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
   }
 }
 
@@ -131,7 +131,7 @@ describe("CollaborationClient — M63 resynchronizing state", () => {
 
     const serverDoc = new Y.Doc();
     serverDoc.getText("main.py").insert(0, "server content");
-    ws2.simulateMessage(serverReplyToSyncStep1(serverDoc, ws2.sent[0]));
+    ws2.simulateMessage(serverReplyToSyncStep1(serverDoc, ws2.sent[0]!));
 
     expect(client.status).toBe("connected");
     client.dispose();
@@ -151,7 +151,7 @@ describe("CollaborationClient — M63 resynchronizing state", () => {
     const seen: string[] = [];
     client.on("connection_change", (s: string) => seen.push(s));
     const ws2 = reconnectLatest();
-    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]));
+    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]!));
     expect(seen).toContain("resynchronizing");
     expect(seen.indexOf("resynchronizing")).toBeLessThan(
       seen.lastIndexOf("connected"),
@@ -203,7 +203,7 @@ describe("CollaborationClient — M63 pending local update accounting", () => {
 
     const serverDoc = new Y.Doc();
     serverDoc.getText("main.py").insert(0, "remote peer content");
-    ws1.simulateMessage(serverReplyToSyncStep1(serverDoc, ws1.sent[0]));
+    ws1.simulateMessage(serverReplyToSyncStep1(serverDoc, ws1.sent[0]!));
 
     expect(client.doc.getText("main.py").toString()).toBe("remote peer content");
     expect(client.pendingLocalUpdates).toBe(0);
@@ -240,7 +240,7 @@ describe("CollaborationClient — M63 pending local update accounting", () => {
     const ws2 = FakeWebSocket.latest();
     ws2.simulateOpen();
     expect(client.pendingLocalUpdates).toBe(2); // still pending during resync
-    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]));
+    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]!));
 
     expect(client.status).toBe("connected");
     expect(client.pendingLocalUpdates).toBe(0);
@@ -260,7 +260,7 @@ describe("CollaborationClient — M63 pending local update accounting", () => {
     vi.advanceTimersByTime(2000);
     const ws2 = FakeWebSocket.latest();
     ws2.simulateOpen();
-    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]));
+    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]!));
     expect(client.status).toBe("connected");
     ws2.simulateClose(1001); // explicit server disposal
 

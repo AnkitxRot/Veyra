@@ -132,7 +132,7 @@ export function groupWhileAway(events: TimelineEvent[]): Array<{
     const sorted = [...g.events].sort((a, b) => (a.at < b.at ? 1 : -1));
     const lines: string[] = [];
     for (let i = 0; i < sorted.length; i++) {
-      const ev = sorted[i];
+      const ev = sorted[i]!;
       // fail → pass collapse: ev is a passing run, and the NEXT (older) event
       // is a failing run for the same file.
       const next = sorted[i + 1];

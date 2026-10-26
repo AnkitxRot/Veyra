@@ -153,8 +153,8 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
 
     const diffs = screen.getAllByTestId("replace-diff");
     expect(diffs.length).toBe(3);
-    expect(diffs[0].textContent).toContain("- print('hello world')");
-    expect(diffs[0].textContent).toContain("+ print('hi world')");
+    expect(diffs[0]!.textContent).toContain("- print('hello world')");
+    expect(diffs[0]!.textContent).toContain("+ print('hi world')");
   });
 
   it("collapses / expands a file's diff", async () => {

@@ -61,7 +61,7 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(o) });
   }
   static latest() {
-    return this.instances[this.instances.length - 1];
+    return this.instances[this.instances.length - 1]!;
   }
 }
 

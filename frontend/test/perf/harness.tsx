@@ -118,9 +118,9 @@ export function summarize(runs: number[]): Stat {
   const mid = Math.floor(sorted.length / 2);
   const median =
     sorted.length % 2 === 0
-      ? (sorted[mid - 1] + sorted[mid]) / 2
-      : sorted[mid];
-  return { min: sorted[0], median, max: sorted[sorted.length - 1], runs };
+      ? (sorted[mid - 1]! + sorted[mid]!) / 2
+      : sorted[mid]!;
+  return { min: sorted[0]!, median, max: sorted[sorted.length - 1]!, runs };
 }
 
 /** Run `scenario` `repeats` times, collecting one number per run. */

@@ -61,7 +61,7 @@ class FakeWebSocket {
   }
 
   static latest(): FakeWebSocket {
-    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
   }
 }
 
@@ -101,7 +101,7 @@ describe("CollaborationClient — M63 transient-blip grace", () => {
     vi.advanceTimersByTime(2000); // reconnect attempt (first backoff ~1500ms)
     const ws2 = FakeWebSocket.latest();
     ws2.simulateOpen();
-    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]));
+    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]!));
 
     expect(seen).not.toContain("disconnected");
     expect(seen).toContain("resynchronizing");
@@ -138,7 +138,7 @@ describe("CollaborationClient — M63 transient-blip grace", () => {
     vi.advanceTimersByTime(2000);
     const ws2 = FakeWebSocket.latest();
     ws2.simulateOpen();
-    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]));
+    ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]!));
     expect(client.status).toBe("connected");
 
     const seen: string[] = [];
@@ -223,7 +223,7 @@ describe("CollaborationClient — M63 bounded reconnect + manual retry", () => {
     client.retry();
     const ws = FakeWebSocket.latest();
     ws.simulateOpen();
-    ws.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws.sent[0]));
+    ws.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws.sent[0]!));
     expect(client.reconnectExhausted).toBe(false);
     expect(client.status).toBe("connected");
     client.dispose();

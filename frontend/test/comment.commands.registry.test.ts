@@ -30,7 +30,7 @@ describe("M61-A Comments command registry navigation", () => {
     ]);
     // Palette is keyboard accessible: search via fuzzyFilter covers title
     const next = registry.search("Next in File");
-    expect(next[0].id).toBe("comments.action.nextInFile");
+    expect(next[0]!.id).toBe("comments.action.nextInFile");
   });
 
   it("Next in File handler uses canonical state, skips stale/deleted, and navigates via openAndRevealLocation", async () => {

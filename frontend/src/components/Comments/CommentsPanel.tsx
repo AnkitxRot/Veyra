@@ -33,7 +33,7 @@ function ThreadRow({
           {relFile(thread.filePath)} L{thread.anchor.startLine}
         </span>
         <span className="comments-panel-preview">
-          {(thread.root.body || "(comment)").split("\n")[0].slice(0, 80)}
+          {(thread.root.body || "(comment)").split("\n")[0]!.slice(0, 80)}
         </span>
         <span className="comments-panel-meta">
           {replies > 0 ? `${replies} repl${replies === 1 ? "y" : "ies"}` : ""}

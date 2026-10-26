@@ -171,7 +171,7 @@ export function parseProjectRoute(pathname: string): string | null {
   const m = /^\/p\/([^/?#]+)\/?$/.exec(pathname || "");
   if (!m) return null;
   try {
-    return decodeURIComponent(m[1]) || null;
+    return decodeURIComponent(m[1]!) || null;
   } catch {
     return m[1] || null;
   }

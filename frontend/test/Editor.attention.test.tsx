@@ -61,10 +61,10 @@ function renderEditor(attention: AttentionEvent[]) {
 describe("M58 — Editor attention decorations", () => {
   it("renders a point decoration for the author's line", () => {
     const { editor } = renderEditor([evt({ kind: "point", file: "src/a.ts" })]);
-    const coll = editor.decorationCollections[0];
+    const coll = editor.decorationCollections[0]!;
     expect(coll).toBeTruthy();
     expect(coll.decorations.length).toBe(1);
-    const d = coll.decorations[0] as {
+    const d = coll.decorations[0]! as {
       options: { className?: string; overviewRuler?: unknown };
     };
     expect(
@@ -98,7 +98,7 @@ describe("M58 — Editor attention decorations", () => {
     expect(document.querySelector(".attention-callout-bubble")).not.toBeNull();
     rerender(editorEl([]));
     expect(document.querySelector(".attention-callout-bubble")).toBeNull();
-    expect(editor.decorationCollections[0].decorations.length).toBe(0);
+    expect(editor.decorationCollections[0]!.decorations.length).toBe(0);
   });
 
   it("does not mutate the Monaco model", () => {

@@ -203,8 +203,8 @@ describe("M71 BASELINE A — collaborator-awareness tick", () => {
         });
 
         for (const id of Object.keys(perComponent)) {
-          perComponent[id].push(recorder.count(id));
-          durByComponent[id].push(
+          perComponent[id]!.push(recorder.count(id));
+          durByComponent[id]!.push(
             Math.round(recorder.totalDuration(id) * 100) / 100,
           );
         }

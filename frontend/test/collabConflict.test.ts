@@ -52,7 +52,7 @@ describe("collabConflict — handleSaveError routing", () => {
     );
     expect(onFailure).not.toHaveBeenCalled();
     expect(onCollabConflict).toHaveBeenCalledTimes(1);
-    const msg = onCollabConflict.mock.calls[0][0];
+    const msg = onCollabConflict.mock.calls[0]![0];
     expect(msg).toContain("x.ts");
     expect(msg.toLowerCase()).not.toContain("merge");
   });

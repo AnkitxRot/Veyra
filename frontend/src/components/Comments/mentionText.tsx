@@ -17,7 +17,7 @@ export function mentionText(
   let key = 0;
   while ((m = re.exec(body)) !== null) {
     if (m.index > last) out.push(body.slice(last, m.index));
-    const name = m[1];
+    const name = m[1]!;
     if (knownUsernames.has(name)) {
       out.push(
         <span className="mention" key={`m${key++}`}>

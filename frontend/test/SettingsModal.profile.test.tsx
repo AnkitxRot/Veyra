@@ -168,7 +168,7 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "  Ada L.  " } });
     fireEvent.click(screen.getByText("Save Profile"));
     await waitFor(() => expect(updateProfileMock).toHaveBeenCalledTimes(1));
-    expect(updateProfileMock.mock.calls[0][0]).toEqual({
+    expect(updateProfileMock.mock.calls[0]![0]).toEqual({
       displayName: "Ada L.",
       pronouns: null,
       bio: null,
@@ -230,7 +230,7 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     const { onSave, onClose } = renderModal();
     fireEvent.click(screen.getByText("Save Preferences"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0][0]).toMatchObject({
+    expect(onSave.mock.calls[0]![0]).toMatchObject({
       fontSize: DEFAULT_PREFERENCES.fontSize,
       tabSize: DEFAULT_PREFERENCES.tabSize,
     });

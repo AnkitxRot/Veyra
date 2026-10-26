@@ -91,7 +91,7 @@ describe("M61-A keepCalloutAsComment", () => {
       message: "original message",
     });
     await keepCalloutAsComment({ callout, doc, projectId: "p" }, deduper);
-    const arg = vi.mocked(api.createThread).mock.calls[0][1] as any;
+    const arg = vi.mocked(api.createThread).mock.calls[0]![1] as any;
     expect(arg.filePath).toBe("src/a.ts");
     expect(arg.anchor.startLine).toBe(3);
     expect(arg.body).toBe("original message");

@@ -146,7 +146,7 @@ function SessionIDE({
     setActive(
       sess.active && wanted.includes(sess.active)
         ? sess.active
-        : wanted[wanted.length - 1],
+        : wanted[wanted.length - 1]!,
     );
   }, [project?.id, fileTreePaths, openTabs, treeTick]);
 
@@ -178,7 +178,7 @@ function SessionIDE({
     setOpenTabs((prev) => {
       const next = prev.filter((p) => p !== path);
       setActive((a) =>
-        a === path ? (next.length ? next[next.length - 1] : null) : a,
+        a === path ? (next.length ? next[next.length - 1]! : null) : a,
       );
       return next;
     });

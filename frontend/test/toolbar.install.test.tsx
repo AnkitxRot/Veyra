@@ -153,7 +153,7 @@ describe("Toolbar — Milestone 43 Install action", () => {
     fireEvent.click(getByText("Run Python"));
 
     expect(listener).toHaveBeenCalledTimes(1);
-    const detail = listener.mock.calls[0][0].detail;
+    const detail = listener.mock.calls[0]![0].detail;
     expect(detail.activeFile).toBe("main.py");
     document.removeEventListener("ide-run", listener);
   });

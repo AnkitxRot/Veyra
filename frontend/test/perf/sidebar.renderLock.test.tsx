@@ -213,7 +213,7 @@ describe("M71 — Sidebar render lock", () => {
     expect(recorder.count("sidebar")).toBe(1);
 
     const moved = [
-      roster[0],
+      roster[0]!,
       makePresence({
         userId: 3,
         name: "carol",

@@ -87,7 +87,7 @@ describe("frontend timeline helpers", () => {
       }),
     ];
     const g = groupWhileAway(events);
-    expect(g[0].username).toBe("rahul"); // most recent event overall
+    expect(g[0]!.username).toBe("rahul"); // most recent event overall
     const aman = g.find((x) => x.username === "aman")!;
     expect(aman.lines.some((l) => /failed → passed/.test(l))).toBe(true);
     expect(aman.lines.length).toBe(1); // the two runs collapsed

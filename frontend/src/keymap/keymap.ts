@@ -135,9 +135,9 @@ const PUNCT_BY_CODE: Record<string, string> = {
 /** Physical key from `e.code` (layout / shift stable). */
 function keyFromCode(code: string): string | null {
   const m = /^Key([A-Z])$/.exec(code);
-  if (m) return m[1].toLowerCase();
+  if (m) return m[1]!.toLowerCase();
   const d = /^Digit([0-9])$/.exec(code);
-  if (d) return d[1];
+  if (d) return d[1]!;
   if (/^F([1-9]|1[0-2])$/.test(code)) return code.toLowerCase();
   return PUNCT_BY_CODE[code] ?? null;
 }

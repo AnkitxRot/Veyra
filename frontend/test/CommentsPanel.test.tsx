@@ -57,7 +57,7 @@ describe("M61-A CommentsPanel", () => {
       } as never),
     );
     expect(screen.getByText("2 unresolved")).toBeTruthy();
-    fireEvent.click(screen.getAllByText(/look here/)[0].closest("button")!);
+    fireEvent.click(screen.getAllByText(/look here/)[0]!.closest("button")!);
     expect(onNavigate).toHaveBeenCalledWith(active);
   });
 

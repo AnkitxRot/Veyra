@@ -120,12 +120,12 @@ describe("M79 — XTerm mounts once the host gains a box", () => {
 
     act(() => h.result.current.bindContainer(el));
     act(() => h.result.current.ensureStarted());
-    act(() => FakeWS.instances[0]._open());
+    act(() => FakeWS.instances[0]!._open());
 
     // one XTerm created, but NOT opened yet — host has no box
     expect(FakeXTerm.instances).toHaveLength(1);
     act(() => flushFrame());
-    expect(FakeXTerm.instances[0].element).toBeNull();
+    expect(FakeXTerm.instances[0]!.element).toBeNull();
 
     // panel becomes visible: host gains a box
     Object.defineProperty(el, "clientHeight", { value: 400, configurable: true });
@@ -133,7 +133,7 @@ describe("M79 — XTerm mounts once the host gains a box", () => {
 
     // the bounded poll's next frame opens it
     act(() => flushFrame());
-    expect(FakeXTerm.instances[0].element).toBe(el);
+    expect(FakeXTerm.instances[0]!.element).toBe(el);
     expect(FakeXTerm.instances).toHaveLength(1);
   });
 
@@ -143,7 +143,7 @@ describe("M79 — XTerm mounts once the host gains a box", () => {
     act(() => h.result.current.bindContainer(el));
     act(() => h.result.current.ensureStarted());
     act(() => flushFrame());
-    expect(FakeXTerm.instances[0].element).toBe(el);
+    expect(FakeXTerm.instances[0]!.element).toBe(el);
   });
 
   it("gives up after a bounded number of frames if the host never appears", () => {
@@ -154,14 +154,14 @@ describe("M79 — XTerm mounts once the host gains a box", () => {
     // drain far more frames than the budget
     for (let i = 0; i < 200; i++) act(() => flushFrame());
     expect(rafQueue).toHaveLength(0); // poll stopped, no runaway rAF loop
-    expect(FakeXTerm.instances[0].element).toBeNull();
+    expect(FakeXTerm.instances[0]!.element).toBeNull();
 
     // a later fit() (panel finally shown) re-arms the poll
     Object.defineProperty(el, "clientHeight", { value: 400, configurable: true });
     Object.defineProperty(el, "clientWidth", { value: 800, configurable: true });
     act(() => h.result.current.fit());
     act(() => flushFrame());
-    expect(FakeXTerm.instances[0].element).toBe(el);
+    expect(FakeXTerm.instances[0]!.element).toBe(el);
   });
 
   it("buffered writes are preserved — open() flushes them (xterm buffers pre-open)", () => {
@@ -169,18 +169,18 @@ describe("M79 — XTerm mounts once the host gains a box", () => {
     const h = renderHook(() => useTerminalSession("p1", "dark"));
     act(() => h.result.current.bindContainer(el));
     act(() => h.result.current.ensureStarted());
-    act(() => FakeWS.instances[0]._open());
+    act(() => FakeWS.instances[0]!._open());
     act(() =>
-      FakeWS.instances[0].onmessage?.({
+      FakeWS.instances[0]!.onmessage?.({
         data: JSON.stringify({ type: "data", seq: 1, data: "prompt$ " }),
       } as MessageEvent),
     );
     // write went to the (not-yet-open) xterm; it is retained
-    expect(FakeXTerm.instances[0].written).toContain("prompt$ ");
+    expect(FakeXTerm.instances[0]!.written).toContain("prompt$ ");
     Object.defineProperty(el, "clientHeight", { value: 400, configurable: true });
     Object.defineProperty(el, "clientWidth", { value: 800, configurable: true });
     act(() => flushFrame());
-    expect(FakeXTerm.instances[0].element).toBe(el);
-    expect(FakeXTerm.instances[0].written).toContain("prompt$ ");
+    expect(FakeXTerm.instances[0]!.element).toBe(el);
+    expect(FakeXTerm.instances[0]!.written).toContain("prompt$ ");
   });
 });

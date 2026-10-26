@@ -39,7 +39,7 @@ class FakeWebSocket {
     this.onclose?.({ code } as any);
   }
   static latest() {
-    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
   }
 }
 

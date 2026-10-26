@@ -60,7 +60,7 @@ describe("useKeyboardShortcuts — canonical save path (M1)", () => {
     stop();
 
     expect(events).toHaveLength(1);
-    expect(events[0].detail.path).toBe("src/app.py");
+    expect(events[0]!.detail.path).toBe("src/app.py");
     // Load-bearing: stopPropagation on this capture-phase listener is what
     // keeps Monaco's own internal Ctrl+S keybinding (Editor.tsx) from firing
     // a second ide-save dispatch for the same keystroke.
@@ -140,7 +140,7 @@ describe("useKeyboardShortcuts — canonical save path (M1)", () => {
     stop();
 
     expect(events).toHaveLength(1);
-    expect(events[0].detail.path).toBeNull();
+    expect(events[0]!.detail.path).toBeNull();
   });
 });
 

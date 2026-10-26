@@ -17,8 +17,8 @@ export function nextInFile(
   const nav = navigableThreads(threadsForFile);
   if (nav.length === 0) return null;
   const idx = currentId ? nav.findIndex((t) => t.id === currentId) : -1;
-  if (idx === -1) return nav[0];
-  return nav[(idx + 1) % nav.length];
+  if (idx === -1) return nav[0]!;
+  return nav[(idx + 1) % nav.length]!;
 }
 
 export function previousInFile(
@@ -28,8 +28,8 @@ export function previousInFile(
   const nav = navigableThreads(threadsForFile);
   if (nav.length === 0) return null;
   const idx = currentId ? nav.findIndex((t) => t.id === currentId) : -1;
-  if (idx === -1) return nav[nav.length - 1];
-  return nav[(idx - 1 + nav.length) % nav.length];
+  if (idx === -1) return nav[nav.length - 1]!;
+  return nav[(idx - 1 + nav.length) % nav.length]!;
 }
 
 export function nextUnresolved(
@@ -39,8 +39,8 @@ export function nextUnresolved(
   const nav = unresolved.filter((t) => t.anchorStatus !== "stale" && t.root.deletedAt == null);
   if (nav.length === 0) return null;
   const idx = currentId ? nav.findIndex((t) => t.id === currentId) : -1;
-  if (idx === -1) return nav[0];
-  return nav[(idx + 1) % nav.length];
+  if (idx === -1) return nav[0]!;
+  return nav[(idx + 1) % nav.length]!;
 }
 
 /**

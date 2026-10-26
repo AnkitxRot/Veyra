@@ -72,7 +72,7 @@ export default function CommentComposer({
     let m: RegExpExecArray | null;
     while ((m = re.exec(body)) !== null) {
       const found = members.find(
-        (mem) => mem.username.toLowerCase() === m![1].toLowerCase(),
+        (mem) => mem.username.toLowerCase() === m![1]!.toLowerCase(),
       );
       if (found) ids.add(found.userId);
     }
@@ -100,7 +100,8 @@ export default function CommentComposer({
       }
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        pick(suggestions[menuIndex]);
+        const picked = suggestions[menuIndex];
+        if (picked) pick(picked);
         return;
       }
     }

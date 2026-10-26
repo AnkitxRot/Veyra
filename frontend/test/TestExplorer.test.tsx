@@ -77,7 +77,7 @@ describe("TestExplorer", () => {
     const onReveal = (e: Event) => opened.push((e as CustomEvent).detail);
     document.addEventListener("ide-open-and-reveal", onReveal);
     const { getAllByTestId } = render(<TestExplorer projectRole="owner" />);
-    fireEvent.click(getAllByTestId("workflow-result-loc")[1]);
+    fireEvent.click(getAllByTestId("workflow-result-loc")[1]!);
     expect(opened).toEqual([
       { filePath: "tests/add.test.js", line: 8, column: 1 },
     ]);

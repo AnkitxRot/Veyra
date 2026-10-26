@@ -141,7 +141,7 @@ describe("ProjectSecretsModal", () => {
     const { getAllByText, getByLabelText, getByText, findByText } =
       renderModal();
     await findByText("API_KEY");
-    fireEvent.click(getAllByText("Update")[0]);
+    fireEvent.click(getAllByText("Update")[0]!);
     fireEvent.change(getByLabelText("New value for API_KEY"), {
       target: { value: "rotated" },
     });
@@ -157,7 +157,7 @@ describe("ProjectSecretsModal", () => {
   it("confirms before deleting and calls DELETE", async () => {
     const { getAllByLabelText, findByText } = renderModal();
     await findByText("API_KEY");
-    fireEvent.click(getAllByLabelText(/^Delete /)[0]);
+    fireEvent.click(getAllByLabelText(/^Delete /)[0]!);
     await waitFor(() => {
       expect(window.confirm).toHaveBeenCalled();
       const del = fetchMock.mock.calls.find((c) => c[1]?.method === "DELETE");

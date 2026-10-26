@@ -71,8 +71,8 @@ describe("M59 — Editor model-safe view state", () => {
     const saved = viewRef.current!.save()!;
     expect(viewRef.current!.restore("a.ts", saved.viewState)).toBe(true);
     expect(editor.restoreCalls.length).toBe(1);
-    expect(editor.restoreCalls[0].modelPath).toBe("a.ts");
-    expect(editor.restoreCalls[0].vs).toBe(saved.viewState);
+    expect(editor.restoreCalls[0]!.modelPath).toBe("a.ts");
+    expect(editor.restoreCalls[0]!.vs).toBe(saved.viewState);
   });
 
   it("ide-restore-view-state defers until the correct model is active, then restores once", () => {
@@ -96,8 +96,8 @@ describe("M59 — Editor model-safe view state", () => {
 
     rerender(el("a.ts", FILES, viewRef));
     expect(editor.restoreCalls.length).toBe(1);
-    expect(editor.restoreCalls[0].modelPath).toBe("a.ts");
-    expect(editor.restoreCalls[0].vs).toBe(saved.viewState);
+    expect(editor.restoreCalls[0]!.modelPath).toBe("a.ts");
+    expect(editor.restoreCalls[0]!.vs).toBe(saved.viewState);
   });
 
   it("restores immediately when the file is already active", () => {

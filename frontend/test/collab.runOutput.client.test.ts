@@ -58,7 +58,7 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
     FakeWebSocket.instances = [];
     vi.stubGlobal("WebSocket", FakeWebSocket);
     client = new CollaborationClient("proj-1", USER);
-    ws = FakeWebSocket.instances[0];
+    ws = FakeWebSocket.instances[0]!;
   });
 
   afterEach(() => {
@@ -78,8 +78,8 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
 
     const outs = client.getRunOutputs();
     expect(outs).toHaveLength(1);
-    expect(outs[0].executionId).toBe("e1");
-    expect(outs[0].chunks).toEqual([
+    expect(outs[0]!.executionId).toBe("e1");
+    expect(outs[0]!.chunks).toEqual([
       { stream: "stdout", data: "a" },
       { stream: "stderr", data: "b" },
     ]);
@@ -97,7 +97,7 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
       }),
     );
 
-    const out = client.getRunOutputs()[0];
+    const out = client.getRunOutputs()[0]!;
     expect(out.chunks).toEqual([{ stream: "stdout", data: "REPLAYED\n" }]);
     expect(out.truncated).toBe(true);
   });
@@ -119,7 +119,7 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
     // a genuinely newer batch still lands
     feed(outputFrame({ seq: 5, chunks: [{ stream: "stdout", data: "3\n" }] }));
 
-    const out = client.getRunOutputs()[0];
+    const out = client.getRunOutputs()[0]!;
     expect(out.chunks.map((c) => c.data).join("")).toBe("1\n2\n3\n");
   });
 
@@ -128,7 +128,7 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
     for (let i = 0; i < 8; i++) {
       feed(outputFrame({ seq: i + 1, chunks: [{ stream: "stdout", data: big }] }));
     }
-    const out = client.getRunOutputs()[0];
+    const out = client.getRunOutputs()[0]!;
     expect(out.truncated).toBe(true);
     const bytes = out.chunks.reduce((n, c) => n + c.data.length, 0);
     expect(bytes).toBeLessThanOrEqual(256 * 1024);

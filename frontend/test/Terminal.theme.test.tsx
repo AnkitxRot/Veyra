@@ -84,13 +84,13 @@ describe("M69 → M79 — terminal theme sync (in place, session-preserving)", (
     render(<Terminal projectId="p1" resolvedTheme="dark" visible />);
     expect(FakeXTerm.instances).toHaveLength(1);
     expect(
-      (FakeXTerm.instances[0].options.theme as any).background,
+      (FakeXTerm.instances[0]!.options.theme as any).background,
     ).toBe(TERMINAL_THEMES.dark.background);
   });
 
   it("opens the terminal with the light palette when resolvedTheme is light", () => {
     render(<Terminal projectId="p1" resolvedTheme="light" visible />);
-    expect((FakeXTerm.instances[0].options.theme as any).background).toBe(
+    expect((FakeXTerm.instances[0]!.options.theme as any).background).toBe(
       TERMINAL_THEMES.light.background,
     );
   });
@@ -99,7 +99,7 @@ describe("M69 → M79 — terminal theme sync (in place, session-preserving)", (
     const view = render(
       <Terminal projectId="p1" resolvedTheme="dark" visible />,
     );
-    const term = FakeXTerm.instances[0];
+    const term = FakeXTerm.instances[0]!;
     expect(FakeWS.instances).toHaveLength(1);
 
     act(() => {
@@ -110,7 +110,7 @@ describe("M69 → M79 — terminal theme sync (in place, session-preserving)", (
     expect(FakeXTerm.instances[0]).toBe(term);
     expect(term.disposed).toBe(false);
     expect(FakeWS.instances).toHaveLength(1);
-    expect(FakeWS.instances[0].closed).toBe(false);
+    expect(FakeWS.instances[0]!.closed).toBe(false);
     expect((term.options.theme as any).background).toBe(
       TERMINAL_THEMES.light.background,
     );

@@ -56,7 +56,7 @@ describe("SettingsModal — layout keys are never in the save payload", () => {
   it("a plain Save omits every layout key", () => {
     const { onSave } = renderModal();
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
-    const payload = onSave.mock.calls[0][0];
+    const payload = onSave.mock.calls[0]![0];
     for (const k of LAYOUT_KEYS) {
       expect(payload).not.toHaveProperty(k);
     }
@@ -67,7 +67,7 @@ describe("SettingsModal — layout keys are never in the save payload", () => {
     const { onSave } = renderModal();
     fireEvent.click(screen.getByRole("button", { name: /reset defaults/i }));
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
-    const payload = onSave.mock.calls[0][0];
+    const payload = onSave.mock.calls[0]![0];
     for (const k of LAYOUT_KEYS) {
       expect(payload).not.toHaveProperty(k);
     }
