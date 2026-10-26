@@ -13,75 +13,85 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Lint, typecheck, tests, build
+  static:
+    name: Lint, typecheck, audit
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Provision sandbox execution user (mirrors scripts/setup.sh for a real deployment host)
-        run: sudo useradd -o -r -m -s /bin/bash -u 1000 ide
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
+      - run: npm ci
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
-
       - name: Whitespace check
         run: git diff --check
+      - run: npm run lint -w @cloud-ide/backend
+      - run: npm run lint -w @cloud-ide/frontend
+      - run: npm run typecheck -w @cloud-ide/backend
 
-      - name: Backend lint
-        run: npm run lint -w @cloud-ide/backend
-
-      - name: Frontend lint
-        run: npm run lint -w @cloud-ide/frontend
-
-      - name: Backend typecheck
-        run: npm run typecheck -w @cloud-ide/backend
-
+  frontend:
+    name: Frontend build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       # The frontend bundles the full monaco-editor package (see
-      # frontend/vite.config.ts), which makes both `tsc --noEmit` and the
-      # Rollup/esbuild transform pass in `vite build` genuinely memory-heavy —
-      # measured locally at ~2.9GB peak Node working set for a normal
-      # successful build. V8's default old-space ceiling (~2GB) is lower than
-      # that on this runner, so the build was hitting a V8-internal limit, not
-      # the runner's actual RAM. This runner (private-repo ubuntu-latest) has
-      # 2 vCPU / 7GB RAM total; 4096MB leaves ~1GB of headroom above the
-      # measured natural peak while using at most ~58% of total runner RAM.
-      # Scoped to this step only so local `npm run build` behavior for
-      # developers is unaffected.
-      - name: Frontend typecheck + build
+      # frontend/vite.config.ts); tsc + vite build peak at ~2.9GB of Node
+      # working set, above V8's default ~2GB old-space ceiling. 4096MB leaves
+      # headroom on the 7GB runner. Scoped to this step only.
+      - name: Typecheck + build
         run: npm run build -w @cloud-ide/frontend
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-
-      - name: Frontend tests
+      - name: Tests
         run: npm test -w @cloud-ide/frontend
         env:
           CI: "true"
 
+  backend:
+    name: Backend tests (Docker, browser E2E)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provision sandbox execution user (mirrors scripts/setup.sh for a real deployment host)
+        run: sudo useradd -o -r -m -s /bin/bash -u 1000 ide
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       # The runner image is required for the Docker-dependent backend tests.
       - name: Build sandbox runner image
         run: docker build -t cloudeeeide-runner:latest -f docker/Dockerfile.runner .
-
       # Chromium is required for M82/M83 real-browser E2E (LSP + debugger).
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
-
-      - name: Backend tests (includes Docker execution/lifecycle tests)
+      - name: Tests
         run: npm test -w @cloud-ide/backend
         env:
           CI: "true"
 
-      # Gate on the production application image building cleanly.
+  image:
+    name: Application image build and scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
       - name: Build application image
         run: docker build -t cloudeeeide-app:ci -f docker/Dockerfile.app .
+      - name: Scan image for HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: cloudeeeide-app:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
