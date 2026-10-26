@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-09-14.
+Last updated: 2026-10-26. Latest milestone: M94 (see "Milestones M87–M94" at the end of this file).
 
 ## Current state
 
@@ -104,7 +104,7 @@ collab_flush_failed` + `force` escape); one bounded `activeFileDirty`
       after creation; `validateTemplates()` module-load fail-fast.
   - Milestone 80 (HTTPS Git remotes) and M80 stabilization — see those
     sections. HEAD before this work: `e9a5350`.
-- **Current work (this commit):** M86 Workspace Read-Your-Writes. Run,
+- **M86 (historical; superseded by M87–M94 below):** M86 Workspace Read-Your-Writes. Run,
   Test/Build, Debug launch, install, and Git stage now see the editor's
   latest collaborative edits instead of the debounced disk copy; viewers can
   no longer write through Yjs SyncStep2; `.git` is unreachable through
@@ -9940,3 +9940,27 @@ per-file (instead of project-wide) refusal.
 - **CI history for this branch (PR #12), reported in full:** `c13db87` failed `workflow-browser › stops a hanging task` — a real Stop race, fixed below. `a90fada` failed `debug-browser › TypeScript` at the *page load* step (file tree not visible in 60s) and `9c351ec` failed `workflow-browser › …runs build` twice (build never reported `Exited (0)`); neither reproduced locally (full suite and the browser files repeatedly), and a re-run of `main@434afa4` on the same runners passed, so the failures could not be pinned on either side with the evidence available. Diagnostics were added to the workflow e2e (page errors, console errors, `/ws/execute` frames, UI state on timeout) and the final head is **green on two consecutive CI runs**. Note for the next milestone: heavy browser E2E on the 2-vCPU CI runner is the least stable part of the suite — if it recurs, the new diagnostics will show whether a `start` frame was ever sent.
 - **First CI run (PR #12, `c13db87`) failed** `workflow-browser › stops a hanging task` (Stop clicked right as Test Explorer showed Running; the task ran to its timeout). Root cause (pre-existing, timing-dependent on CI runners): the client dropped a stop sent while the execution socket was still connecting, and the server cancelled a not-yet-spawned process only on disconnect. Fixed in `fix(execution): honor Stop pressed before the process starts` with deterministic tests on both sides (RED before the fix); browser journeys re-run 3× locally, frontend **1067 passed**.
 - **Final verification on the branch head `ea585dc`:** backend **1493 passed / 9 skipped / 0 failed** (135 files), frontend **1067 passed** (145 files), Playwright 10/10, lint/typecheck/build clean, `git diff --check` clean.
+
+## Milestones M87–M94 (summary added 2026-10-26)
+
+Full detail for M89–M91 is in `docs/reports/`. Test counts are as reported in
+the commit messages and reports, not re-run for this summary.
+
+| # | Milestone | Commit | Summary |
+| --- | --- | --- | --- |
+| M87 | Project Git in the sandbox | `e635004` | Project Git execution moved from the host into the project sandbox. |
+| M88 | Terminal reload persistence | `83b0c9b` | Terminal session survives same-tab remount/reload. |
+| M89 | Read-your-writes test repair | `6f24154` | `testWriteHook` + confined-write mock migration fixing M4/M56 suites. 3 M86 server-integration tests need Docker (fail on Docker-less Windows). Report: `docs/reports/M89_REPORT.md`. |
+| M90 | Post-M89 audit | — | Baseline verification and milestone definition. Report: `docs/reports/m90-report.md`. |
+| M91 | Deterministic idle-disposal retry | `639908c` | `VirtualClock`-driven retry lifecycle; 9 tests. Reports: `docs/reports/M91_FINAL_REPORT.md`, `m91-report.md`. |
+| M92 | Audit event coverage | `bfacd66` | Audit events across auth, collab, execution, sandbox, terminals, Git, projects. Discovery found the originally proposed M92 (snapshot restore) already existed (M20/M31/M32). Report: `docs/reports/M92_DISCOVERY_REPORT.md`. |
+| M93 | Audit failure monitoring | `58eed79` | Failure counter with categories, `GET /api/admin/audit-integrity`, admin WS `audit_integrity` telemetry, retention GC (startup/periodic/shutdown). Reported 1545 backend + 1067 frontend passing. |
+| M94 | LSP and DAP audit trail | `b9eb7b6` | `LSP_SESSION_*` and `DEBUG_SESSION_{STARTED,FAILED,TIMEOUT,STOPPED}` events; fail-soft; 16 new tests (PR #18). |
+
+### Known gaps after M94
+- README/STATUS were stale at M85/M86 until this update.
+- Duplicate M92/M93 commits in history (`affe895`/`bfacd66`, `52f3c60`/`58eed79`).
+- Docker-dependent tests cannot run on Docker-less Windows; CI is the gate.
+- Browser E2E on the 2-vCPU CI runner is the least stable suite.
+- No LICENSE file; load-test result dumps are committed.
+- Next work: see `docs/ROADMAP.md`.

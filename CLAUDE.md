@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CloudeeeIDE is a cloud-based integrated development environment (IDE) built as a monorepo with a TypeScript backend and a React frontend. It provides a full IDE experience including a Monaco-based code editor, terminal, file explorer, language execution, and web preview — all running inside Docker containers.
+Veyra (internal package `@cloud-ide`, formerly CloudeeeIDE) is a cloud-based integrated development environment (IDE) built as a monorepo with a TypeScript backend and a React frontend. It provides a full IDE experience including a Monaco-based code editor, terminal, file explorer, language execution, and web preview — all running inside Docker containers.
 
 ## Tech Stack
 
@@ -185,3 +185,10 @@ Environment variables:
 - `frontend/src/monacoSetup.ts` — Monaco worker routing (required for syntax highlighting)
 - `frontend/src/styles.css` — Catppuccin Mocha CSS variables, layout classes
 - `backend/scratch-test.js` — standalone e2e test for auth + WS execution flow
+
+## Current milestone & planning
+
+Latest shipped milestone: **M94**. `STATUS.md` is the milestone ledger
+(M87–M94 summarized at the end); `docs/ROADMAP.md` is the forward plan;
+per-milestone engineering reports live in `docs/reports/`. Update
+`STATUS.md` and the README status line with every milestone.
