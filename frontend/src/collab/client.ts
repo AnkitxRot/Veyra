@@ -6,10 +6,10 @@ import * as decoding from "lib0/decoding";
 import { MonacoBinding } from "y-monaco";
 import { monaco } from "../monacoSetup";
 import {
-  User,
-  RunStatusEntry,
-  RunOutputChunk,
-  SharedRunOutput,
+  type User,
+  type RunStatusEntry,
+  type RunOutputChunk,
+  type SharedRunOutput,
 } from "../types";
 import {
   getUserColor,
@@ -1447,7 +1447,7 @@ export class CollaborationClient {
   private send(data: Uint8Array): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        this.ws.send(data);
+        this.ws.send(data as Uint8Array<ArrayBuffer>);
       } catch {}
     }
   }

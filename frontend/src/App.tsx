@@ -6,7 +6,7 @@ const AdminDashboard = React.lazy(
 );
 import AdminLogin from './components/Admin/AdminLogin';
 import { api } from './api';
-import { User } from './types';
+import { type User } from './types';
 import { IconAlertTriangle } from './components/common/Icons';
 import { parseProjectRoute, projectPath } from './utils/sessionStore';
 

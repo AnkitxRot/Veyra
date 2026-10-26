@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { User, Project, TreeNode, RunStatusEntry } from "../../types";
+import { type User, type Project, type TreeNode, type RunStatusEntry } from "../../types";
 import { api } from "../../api";
 import {
   IconFolder,

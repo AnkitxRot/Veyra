@@ -15,7 +15,7 @@ import {
 } from "../api";
 import {
   detectMissingDependency,
-  MissingDependencyMatch,
+  type MissingDependencyMatch,
 } from "../utils/missingDependency";
 
 export type LogLine = {

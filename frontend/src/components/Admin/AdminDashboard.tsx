@@ -7,16 +7,16 @@ import React, {
 } from "react";
 import { api } from "../../api";
 import {
-  User,
-  AdminOverviewData,
-  AdminSandboxData,
-  AdminExecutionMetrics,
-  AdminUserData,
-  AdminProjectData,
-  AdminAuditRecord,
-  AdminUserDetails,
-  RunRecord,
-  AdminBackupHealth,
+  type User,
+  type AdminOverviewData,
+  type AdminSandboxData,
+  type AdminExecutionMetrics,
+  type AdminUserData,
+  type AdminProjectData,
+  type AdminAuditRecord,
+  type AdminUserDetails,
+  type RunRecord,
+  type AdminBackupHealth,
 } from "../../types";
 import {
   IconShield,

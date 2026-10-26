@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
-import { AdminProjectData } from "../../types";
+import { type AdminProjectData } from "../../types";
 import {
   IconDatabase,
   IconDownload,

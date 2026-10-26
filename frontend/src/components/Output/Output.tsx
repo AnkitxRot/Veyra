@@ -15,10 +15,10 @@ import {
 } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import {
-  RunRecord,
-  RunStatusEntry,
-  SharedRunOutput,
-  SnapshotRecord,
+  type RunRecord,
+  type RunStatusEntry,
+  type SharedRunOutput,
+  type SnapshotRecord,
 } from "../../types";
 import { PromptModal, ConfirmModal } from "../common/Modal";
 import { useExecutionSession } from "../../hooks/useExecutionSession";

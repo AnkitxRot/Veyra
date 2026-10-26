@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Command, CommandCategory } from '../../utils/commands';
-import { IndexedFile, searchFileIndex } from '../../utils/fileIndex';
+import { type Command, type CommandCategory } from '../../utils/commands';
+import { type IndexedFile, searchFileIndex } from '../../utils/fileIndex';
 import { IS_MAC } from '../../hooks/useKeyboardShortcuts';
 import type { WorkspaceSymbolHit } from '../../lsp/workspaceSymbols';
 import {

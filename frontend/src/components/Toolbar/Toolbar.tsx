@@ -11,7 +11,7 @@ import {
   IconDownload,
 } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
-import { Project, ContainerStats, User, RunStatusEntry } from "../../types";
+import { type Project, type ContainerStats, type User, type RunStatusEntry } from "../../types";
 import CollaboratorAvatarStack from "../Collab/CollaboratorAvatarStack";
 import type {
   CollaboratorPresence,

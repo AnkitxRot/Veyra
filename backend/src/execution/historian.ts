@@ -1,6 +1,6 @@
 import type { Db } from "../db.js";
 import { DEFAULT_LIMITS, type AppConfig } from "../config.js";
-import { ContainerStats, SandboxManager } from "./sandbox.js";
+import { type ContainerStats, SandboxManager } from "./sandbox.js";
 import { randomUUID } from "node:crypto";
 
 export interface TelemetryRecord {

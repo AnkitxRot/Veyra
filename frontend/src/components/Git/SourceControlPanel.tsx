@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import {
-  Project,
-  GitStatus,
-  GitFileEntry,
-  GitFileDiff,
-  GitCommit,
-  GitBranch,
+  type Project,
+  type GitStatus,
+  type GitFileEntry,
+  type GitFileDiff,
+  type GitCommit,
+  type GitBranch,
 } from "../../types";
 import { ConfirmModal } from "../common/Modal";
 import {

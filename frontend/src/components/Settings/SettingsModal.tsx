@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  UserPreferences,
-  UserProfile,
-  ProfileDraft,
+  type UserPreferences,
+  type UserProfile,
+  type ProfileDraft,
   EDITOR_PREFERENCE_KEYS,
 } from '../../types';
 import {

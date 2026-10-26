@@ -1,4 +1,4 @@
-import { TreeNode } from '../types';
+import { type TreeNode } from '../types';
 import { scoreFuzzyMatch } from './fuzzySearch';
 
 export const MAX_QUICK_OPEN_RESULTS = 80;

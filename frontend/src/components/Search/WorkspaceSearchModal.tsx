@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../../api";
-import { Project } from "../../types";
+import { type Project } from "../../types";
 import { ConfirmModal } from "../common/Modal";
 import {
   IconSearch,

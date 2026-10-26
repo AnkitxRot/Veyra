@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { runProject, RunResult } from "../execution/pipeline.js";
+import { runProject, type RunResult } from "../execution/pipeline.js";
 import { runGate } from "../execution/runGate.js";
 import { workspacePath } from "../projects/service.js";
 

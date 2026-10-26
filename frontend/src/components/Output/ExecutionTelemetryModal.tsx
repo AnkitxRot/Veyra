@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
-import { RunRecord } from '../../types';
+import { type RunRecord } from '../../types';
 import TimeSeriesChart from '../common/TimeSeriesChart';
 import { IconClose } from '../common/Icons';
 

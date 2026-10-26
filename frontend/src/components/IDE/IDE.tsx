@@ -8,13 +8,13 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 import {
-  User,
-  Project,
-  TreeNode,
-  ContainerStats,
-  UserPreferences,
-  RunStatusEntry,
-  SharedRunOutput,
+  type User,
+  type Project,
+  type TreeNode,
+  type ContainerStats,
+  type UserPreferences,
+  type RunStatusEntry,
+  type SharedRunOutput,
 } from "../../types";
 import {
   api,
@@ -22,7 +22,7 @@ import {
   triggerAIAction,
   applyAIPatch,
   verifyAIPatch,
-  AIVerificationRecord,
+  type AIVerificationRecord,
   fetchCollabTimeline,
   fetchWhileAway,
   ackWhileAway,
@@ -106,15 +106,15 @@ import type {
 } from "../../collab/client";
 import ProjectSharingModal from "../Collab/ProjectSharingModal";
 import ProjectSecretsModal from "../ProjectSecrets/ProjectSecretsModal";
-import { CommandRegistry, Command } from "../../utils/commands";
-import { buildFileIndex, IndexedFile } from "../../utils/fileIndex";
+import { CommandRegistry, type Command } from "../../utils/commands";
+import { buildFileIndex, type IndexedFile } from "../../utils/fileIndex";
 import { searchWorkspaceSymbols } from "../../lsp/workspaceSymbols";
 import {
   getRecentFiles,
   addRecentFile,
   addRecentProject,
 } from "../../utils/recentStore";
-import { Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
+import { type Diagnostic, parseDiagnostics } from "../../utils/diagnostics";
 import { workflowResultsToDiagnostics } from "../../utils/workflowDiagnostics";
 import { useKeyboardShortcuts, IS_MAC } from "../../hooks/useKeyboardShortcuts";
 import {

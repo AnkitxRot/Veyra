@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Diagnostic, groupDiagnosticsByFile } from "../../utils/diagnostics";
+import { type Diagnostic, groupDiagnosticsByFile } from "../../utils/diagnostics";
 import { detectMissingDependency } from "../../utils/missingDependency";
 import {
   IconAlertTriangle,

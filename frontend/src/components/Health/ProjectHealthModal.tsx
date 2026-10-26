@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api';
-import { Project } from '../../types';
+import { type Project } from '../../types';
 import {
   IconCheck,
   IconAlertTriangle,

@@ -14,13 +14,13 @@ export class ErrorBoundary extends React.Component<
   ErrorBoundaryProps,
   ErrorBoundaryState
 > {
-  state: ErrorBoundaryState = { error: null };
+  override state: ErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  override componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error(
       `[ErrorBoundary:${this.props.label}]`,
       error,
@@ -28,7 +28,7 @@ export class ErrorBoundary extends React.Component<
     );
   }
 
-  render() {
+  override render() {
     const { error } = this.state;
     const { label, children } = this.props;
 

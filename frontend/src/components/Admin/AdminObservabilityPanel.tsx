@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
-import { AdminObservabilityData } from "../../types";
+import { type AdminObservabilityData } from "../../types";
 import {
   IconActivity,
   IconCpu,

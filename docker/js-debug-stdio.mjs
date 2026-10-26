@@ -354,11 +354,22 @@ export function compileTypeScriptProgram(program, opts = {}) {
   const tsc = resolveTsc(opts.tscPath);
   if (!tsc) throw new Error("typescript compiler is not installed in the sandbox");
 
+  // tsc >= 6 refuses explicit files next to a tsconfig.json unless told to ignore it.
+  let tscMajor = 0;
+  try {
+    tscMajor = Number(
+      JSON.parse(readFileSync(join(dirname(tsc), "..", "package.json"), "utf8")).version.split(".")[0],
+    );
+  } catch {
+    /* unknown version: assume legacy */
+  }
+
   const result = spawnSync(
     opts.execPath || process.execPath,
     [
       tsc,
       program,
+      ...(tscMajor >= 6 ? ["--ignoreConfig"] : []),
       "--outDir",
       outRoot,
       "--rootDir",

@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useCallback } from "react";
 import { monaco } from "../../monacoSetup";
 import { chordToMonacoKeybinding } from "../../keymap/keymap";
 import { getLanguageInfo } from "../../utils/language";
-import { Diagnostic } from "../../utils/diagnostics";
+import { type Diagnostic } from "../../utils/diagnostics";
 import { IconClose, IconCode } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import { useLanguageIntelligence } from "../../hooks/useLanguageIntelligence";
