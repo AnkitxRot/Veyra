@@ -50,7 +50,11 @@ the Veyra source repository. Do not confuse the two.
 Not in this tree: SSH Git, GitHub OAuth, pull-request UI, merge/rebase UI,
 force-push, LFS, submodules, billing, analytics, Java/C++ language
 servers or debuggers, rename/refactor, expression evaluation / watches,
-collaborative debugger control, profiler, AI coding assistants.
+collaborative debugger control, profiler, LLM-backed AI assistants.
+
+There is a small rule-based "AI" action/verify subsystem (`backend/src/ai/`,
+`/api/projects/:id/ai/*`): deterministic regex/static rewrites with a
+sandbox verification journal. It makes no network calls and uses no model.
 
 ## Architecture
 
@@ -225,7 +229,7 @@ If Docker, the runner image, or an adapter is missing, the editor still
 works; Debug stays disabled / the panel shows **Unavailable**.
 
 Rename, workspace-wide refactor, Java/C++ language servers, debugger, and
-AI coding assistants are out of scope.
+LLM-backed AI assistants are out of scope.
 
 ## Testing, tasks, and builds (M84)
 

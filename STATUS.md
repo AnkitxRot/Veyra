@@ -28,6 +28,14 @@ the commit messages and reports, not re-run for this summary.
 | M93 | Audit failure monitoring | `58eed79` | Failure counter with categories, `GET /api/admin/audit-integrity`, admin WS `audit_integrity` telemetry, retention GC (startup/periodic/shutdown). Reported 1545 backend + 1067 frontend passing. |
 | M94 | LSP and DAP audit trail | `b9eb7b6` | `LSP_SESSION_*` and `DEBUG_SESSION_{STARTED,FAILED,TIMEOUT,STOPPED}` events; fail-soft; 16 new tests (PR #18). |
 
+| M95 | Repo hygiene | — | STATUS history and load-test results archived under `docs/archive/`; STATUS.md is now a short ledger. |
+| M97 | Audit + security pass | branch `docs/m94-status-roadmap` | `COLLABORATOR_*` audit events; ratchet test for unaudited mutating routes; prod `npm audit` 6→0; AI subsystem fixes (ReDoS that blocked the event loop, `/ai/verify` field bounds, viewers no longer see run output in the AI journal); CI permissions/concurrency/audit gate. |
+
+### Security review follow-ups (not yet fixed)
+- UNCONFIRMED race: `moveFile`/`deleteFile` in `files/service.ts` rely on an advisory containment check (symlink swap between check and rename/rm).
+- UNCONFIRMED: no `Origin` check on WS upgrade; previews are served same-origin (consider a separate origin or `Content-Security-Policy: sandbox`).
+- NOT reviewed: `auth/routes.ts`, projects zip import/upload/move/preview proxy, `git/*`, `ws/terminal.ts`, `ws/execution.ts`.
+
 ### Known gaps after M94
 - README/STATUS were stale at M85/M86 until this update.
 - Duplicate M92/M93 commits in history (`affe895`/`bfacd66`, `52f3c60`/`58eed79`).

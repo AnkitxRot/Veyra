@@ -13,6 +13,11 @@ Check for already-shipped work before starting (see M92 discovery).
 | M96 | CI stability | Use the M85 diagnostics to find root causes of flaky Playwright runs (workflow-browser, debug-browser); add retries only with evidence; split Docker/E2E jobs; document the Docker-less Windows test story. | 20 consecutive green runs on main. |
 | M97 | Audit completeness check | Test that enumerates mutating routes/WS handlers and asserts each emits an audit event; admin UI for `audit-integrity`; export of audit log. | Coverage test fails when a new mutating route has no audit event. |
 
+### Phase 1b — security follow-ups (from the M97 review)
+- Confirm/fix the move/delete symlink race; add WS `Origin` allowlist; sandbox or separate-origin previews.
+- Review the files not yet covered: auth routes, zip import/upload/move/proxy, git, terminal and execution WS.
+- Extend the audit ratchet to WS handlers and burn down its `KNOWN_UNAUDITED` list.
+
 ## Phase 2 — Developer experience (highest user value)
 | # | Milestone | Scope |
 | --- | --- | --- |
