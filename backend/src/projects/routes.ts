@@ -3,6 +3,8 @@ import type { Request, Response } from "express";
 import type { Db } from "../db.js";
 import { type AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
+import { z } from "zod";
+import { checkedString, parseInput } from "../validate.js";
 import {
   createProject,
   deleteProject,
@@ -78,10 +80,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/", async (req, res, next) => {
     try {
-      const { name, language } = req.body ?? {};
-      if (typeof name !== "string" || name.trim().length === 0) {
-        throw new ApiError(400, "name is required", "invalid_name");
-      }
+      const { language } = req.body ?? {};
+      const { name } = parseInput(
+        z.object({
+          name: checkedString("name is required", "invalid_name", (n) => n.trim().length > 0),
+        }),
+        req.body ?? {},
+      );
       const project = await createProject(cfg, db, userOf(req).id, {
         name,
         language,
@@ -123,9 +128,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     try {
       const user = userOf(req);
       const body = req.body ?? {};
-      if (typeof body.name !== "string" || body.name.trim().length === 0) {
-        throw new ApiError(400, "name is required", "invalid_name");
-      }
+      parseInput(
+        z.object({
+          name: checkedString("name is required", "invalid_name", (n) => n.trim().length > 0),
+        }),
+        body,
+      );
       const url = validateHttpsGitRemoteUrl(body.url);
 
       const hasToken = typeof body.token === "string" && body.token.length > 0;
@@ -261,10 +269,17 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   router.post("/:id/collaborators", (req, res, next) => {
     try {
       requireProjectAccess(db, userOf(req).id, req.params.id, "owner");
-      const { username, role } = req.body ?? {};
-      if (typeof username !== "string" || !username.trim()) {
-        throw new ApiError(400, "username is required", "invalid_username");
-      }
+      const { role } = req.body ?? {};
+      const { username } = parseInput(
+        z.object({
+          username: checkedString(
+            "username is required",
+            "invalid_username",
+            (u) => u.trim().length > 0,
+          ),
+        }),
+        req.body ?? {},
+      );
 
       const targetUser = db
         .prepare("SELECT id, username FROM users WHERE username = ?")
@@ -326,10 +341,17 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireProjectAccess(db, userOf(req).id, req.params.id, "owner");
       const targetUserId = parseInt(req.params.userId, 10);
+      parseInput(
+        z.object({
+          role: checkedString(
+            "role must be editor or viewer",
+            "invalid_role",
+            (r) => r === "editor" || r === "viewer",
+          ),
+        }),
+        req.body ?? {},
+      );
       const { role } = req.body ?? {};
-      if (role !== "editor" && role !== "viewer") {
-        throw new ApiError(400, "role must be editor or viewer", "invalid_role");
-      }
 
       addProjectCollaborator(db, req.params.id, targetUserId, role);
       collaborationManager.updateUserRole(req.params.id, targetUserId, role);
@@ -732,10 +754,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id as string,
         "editor",
       );
-      const { path, content } = req.body ?? {};
-      if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
-      if (typeof content !== "string")
-        throw new ApiError(400, "content is required", "invalid_content");
+      const { path, content } = parseInput(
+        z.object({
+          path: checkedString("path is required", "invalid_path"),
+          content: checkedString("content is required", "invalid_content"),
+        }),
+        req.body ?? {},
+      );
       const cwd = await workspacePath(cfg, project.id);
       await writeProjectFile(cwd, path, content);
       if (db) {
@@ -856,10 +881,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id as string,
         "editor",
       );
-      const { from, to } = req.body ?? {};
-      if (typeof from !== "string" || typeof to !== "string") {
-        throw new ApiError(400, "from and to are required", "invalid_path");
-      }
+      const { from, to } = parseInput(
+        z.object({
+          from: checkedString("from and to are required", "invalid_path"),
+          to: checkedString("from and to are required", "invalid_path"),
+        }),
+        req.body ?? {},
+      );
       const cwd = await workspacePath(cfg, project.id);
       // Moving a file (or a whole directory) can relocate multiple paths an
       // active collaboration room is tracking. Snapshot the affected old
@@ -892,8 +920,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id as string,
         "editor",
       );
-      const { path } = req.body ?? {};
-      if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
+      const { path } = parseInput(
+        z.object({ path: checkedString("path is required", "invalid_path") }),
+        req.body ?? {},
+      );
       const cwd = await workspacePath(cfg, project.id);
       // Deleting a file (or a whole directory) can remove multiple paths an
       // active collaboration room is tracking. Snapshot which tracked files
@@ -1259,10 +1289,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id as string,
         "editor",
       );
-      const { path, content } = req.body ?? {};
-      if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
-      if (typeof content !== "string")
-        throw new ApiError(400, "content is required", "invalid_content");
+      const { path, content } = parseInput(
+        z.object({
+          path: checkedString("path is required", "invalid_path"),
+          content: checkedString("content is required", "invalid_content"),
+        }),
+        req.body ?? {},
+      );
       const cwd = await workspacePath(cfg, project.id);
       const result = await formatProjectFile(cwd, path, content);
       res.json(result);
@@ -1279,13 +1312,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.id as string,
         "editor",
       );
-      const { language, stdin } = req.body ?? {};
-      if (language !== undefined && typeof language !== "string") {
-        throw new ApiError(400, "language must be a string", "invalid_language");
-      }
-      if (stdin !== undefined && typeof stdin !== "string") {
-        throw new ApiError(400, "stdin must be a string", "invalid_stdin");
-      }
+      const { language, stdin } = parseInput(
+        z.object({
+          language: checkedString("language must be a string", "invalid_language").optional(),
+          stdin: checkedString("stdin must be a string", "invalid_stdin").optional(),
+        }),
+        req.body ?? {},
+      );
       const userId = userOf(req).id;
       if (!runGate.acquire(userId, cfg.maxConcurrentRuns)) {
         throw new ApiError(429, "concurrent execution limit reached", "too_many_runs");

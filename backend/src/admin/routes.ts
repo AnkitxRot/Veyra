@@ -5,6 +5,8 @@ import { join } from "node:path";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
+import { z } from "zod";
+import { checkedString, parseInput } from "../validate.js";
 import {
   createDatabaseBackup,
   listDatabaseBackups,
@@ -33,6 +35,14 @@ import { invalidateCachedSessionsForUser } from "../auth/sessionCache.js";
 import { getObservabilitySnapshot } from "../observability.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
+
+const optionalUsernameBody = z.object({
+  username: checkedString(
+    "username must be 3-32 alphanumeric characters [a-zA-Z0-9_]",
+    "invalid_username",
+    (u) => USERNAME_RE.test(u),
+  ).optional(),
+});
 
 export function adminRoutes(cfg: AppConfig, db: Db): Router {
   const router = Router();
@@ -538,19 +548,13 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
 
       if (!existing) throw new ApiError(404, "user not found", "user_not_found");
 
-      const { username, role } = req.body ?? {};
+      const { username } = parseInput(optionalUsernameBody, req.body ?? {});
+      const { role } = req.body ?? {};
 
       let newUsername = existing.username;
       let newRole = existing.role;
 
       if (username !== undefined) {
-        if (typeof username !== "string" || !USERNAME_RE.test(username)) {
-          throw new ApiError(
-            400,
-            "username must be 3-32 alphanumeric characters [a-zA-Z0-9_]",
-            "invalid_username",
-          );
-        }
         if (username !== existing.username) {
           const taken = db
             .prepare("SELECT id FROM users WHERE username = ? AND id != ?")
@@ -561,9 +565,16 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
       }
 
       if (role !== undefined) {
-        if (role !== "user" && role !== "admin") {
-          throw new ApiError(400, "role must be user or admin", "invalid_role");
-        }
+        parseInput(
+          z.object({
+            role: checkedString(
+              "role must be user or admin",
+              "invalid_role",
+              (r) => r === "user" || r === "admin",
+            ),
+          }),
+          req.body ?? {},
+        );
 
         // Last Admin Demotion Safeguard
         if (existing.role === "admin" && role === "user") {
@@ -625,14 +636,16 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
           { id: number; username: string } | undefined;
         if (!existing) throw new ApiError(404, "user not found", "user_not_found");
 
-        const { newPassword } = req.body ?? {};
-        if (typeof newPassword !== "string" || newPassword.length < cfg.minPasswordLength) {
-          throw new ApiError(
-            400,
-            `password must be at least ${cfg.minPasswordLength} characters`,
-            "invalid_password",
-          );
-        }
+        const { newPassword } = parseInput(
+          z.object({
+            newPassword: checkedString(
+              `password must be at least ${cfg.minPasswordLength} characters`,
+              "invalid_password",
+              (p) => p.length >= cfg.minPasswordLength,
+            ),
+          }),
+          req.body ?? {},
+        );
 
         const hash = await hashPassword(newPassword);
         db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, userId);

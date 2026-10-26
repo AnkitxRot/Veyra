@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
+import { z } from "zod";
+import { checkedString, parseInput } from "../validate.js";
 import { requireProjectAccess, workspacePath } from "../projects/service.js";
 import { writeProjectFile, readProjectFile } from "../files/service.js";
 import { createSnapshot } from "../projects/snapshots.js";
@@ -51,22 +53,18 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
   router.post("/:id/ai/action", async (req, res, next) => {
     try {
       const { project } = requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
-      const {
-        action,
-        activeFilePath,
-        selectedCode,
-        selectionRange,
-        diagnostics,
-        searchQuery,
-        providerId,
-      } = req.body ?? {};
-
-      if (!action || typeof action !== "string") {
-        throw new ApiError(400, "action is required", "invalid_action");
-      }
-      if (!activeFilePath || typeof activeFilePath !== "string") {
-        throw new ApiError(400, "activeFilePath is required", "invalid_path");
-      }
+      const { selectedCode, selectionRange, diagnostics, searchQuery, providerId } = req.body ?? {};
+      const { action, activeFilePath } = parseInput(
+        z.object({
+          action: checkedString("action is required", "invalid_action", (a) => a.length > 0),
+          activeFilePath: checkedString(
+            "activeFilePath is required",
+            "invalid_path",
+            (p) => p.length > 0,
+          ),
+        }),
+        req.body ?? {},
+      );
 
       // Assemble bounded context
       const context = await buildAIContext(cfg, db, project.id, userOf(req).id, {
@@ -97,17 +95,23 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
   router.post("/:id/ai/apply-patch", async (req, res, next) => {
     try {
       const { project } = requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
-      const { filePath, content, createSafetySnapshot, explanation, baseRevision } = req.body ?? {};
-
-      if (typeof filePath !== "string" || !filePath.trim()) {
-        throw new ApiError(400, "filePath is required", "invalid_path");
-      }
-      if (typeof content !== "string") {
-        throw new ApiError(400, "content is required", "invalid_content");
-      }
-      if (typeof baseRevision !== "string" || !baseRevision) {
-        throw new ApiError(400, "baseRevision is required", "invalid_base_revision");
-      }
+      const { createSafetySnapshot, explanation } = req.body ?? {};
+      const { filePath, content, baseRevision } = parseInput(
+        z.object({
+          filePath: checkedString(
+            "filePath is required",
+            "invalid_path",
+            (p) => p.trim().length > 0,
+          ),
+          content: checkedString("content is required", "invalid_content"),
+          baseRevision: checkedString(
+            "baseRevision is required",
+            "invalid_base_revision",
+            (b) => b.length > 0,
+          ),
+        }),
+        req.body ?? {},
+      );
 
       // Security: Path containment validation
       if (filePath.includes("..") || filePath.startsWith("/") || filePath.startsWith("\\")) {
