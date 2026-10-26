@@ -403,8 +403,8 @@ export async function getStatus(
   for (let i = 0; i < tokens.length; i++) {
     const rec = tokens[i];
     if (!rec) continue;
-    const index = rec[0];
-    const worktree = rec[1];
+    const index = rec[0]!;
+    const worktree = rec[1]!;
     let path = rec.slice(3);
     let origPath: string | undefined;
     if (
@@ -467,10 +467,10 @@ export async function getDiffStat(
   const parts = res.stdout.split("\0").filter(Boolean);
   const out: GitDiffStatEntry[] = [];
   for (let i = 0; i < parts.length; i++) {
-    const line = parts[i];
+    const line = parts[i]!;
     const m = line.match(/^(\S+)\t(\S+)\t(.*)$/);
     if (!m) continue;
-    let path = m[3];
+    let path = m[3]!;
     // `--numstat -z` emits `\t` between counts and, for renames, the path
     // field is empty followed by two NUL tokens (old, new).
     if (path === "") {
@@ -481,8 +481,8 @@ export async function getDiffStat(
     }
     out.push({
       path: path.replace(/\\/g, "/"),
-      additions: m[1] === "-" ? 0 : parseInt(m[1], 10) || 0,
-      deletions: m[2] === "-" ? 0 : parseInt(m[2], 10) || 0,
+      additions: m[1] === "-" ? 0 : parseInt(m[1]!, 10) || 0,
+      deletions: m[2] === "-" ? 0 : parseInt(m[2]!, 10) || 0,
       binary: m[1] === "-" && m[2] === "-",
     });
   }
@@ -576,8 +576,8 @@ function parseUnifiedDiff(
     }
     if (line.startsWith("@@")) {
       const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      oldLn = m ? parseInt(m[1], 10) : 0;
-      newLn = m ? parseInt(m[2], 10) : 0;
+      oldLn = m ? parseInt(m[1]!, 10) : 0;
+      newLn = m ? parseInt(m[2]!, 10) : 0;
       current = { header: line, lines: [] };
       hunks.push(current);
       continue;
@@ -733,7 +733,7 @@ export async function commit(
   return {
     hash: hashRes.stdout.trim(),
     shortHash: shortRes.stdout.trim(),
-    subject: message.split("\n")[0].slice(0, 200),
+    subject: message.split("\n")[0]!.slice(0, 200),
   };
 }
 
@@ -805,16 +805,16 @@ export async function getCommitFiles(
   const parts = res.stdout.split("\0").filter(Boolean);
   const out: Array<{ status: string; path: string }> = [];
   for (let i = 0; i < parts.length; i++) {
-    const status = parts[i];
+    const status = parts[i]!;
     if (status.startsWith("R") || status.startsWith("C")) {
       out.push({
-        status: status[0],
+        status: status[0]!,
         path: (parts[i + 2] ?? "").replace(/\\/g, "/"),
       });
       i += 2;
     } else {
       out.push({
-        status: status[0],
+        status: status[0]!,
         path: (parts[i + 1] ?? "").replace(/\\/g, "/"),
       });
       i += 1;
@@ -840,7 +840,7 @@ export async function listBranches(
     .split("\n")
     .filter(Boolean)
     .map((rec) => {
-      const [name, short] = rec.split(US);
+      const [name, short] = rec.split(US) as [string, string | undefined];
       return {
         name,
         current: name === current,

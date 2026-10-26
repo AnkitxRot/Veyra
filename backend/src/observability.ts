@@ -127,10 +127,10 @@ export function labelForSql(sql: string): string {
     /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|BEGIN|COMMIT|ROLLBACK)\b/i.exec(
       sql,
     );
-  const verb = verbMatch ? verbMatch[1].toUpperCase() : "OTHER";
+  const verb = verbMatch ? verbMatch[1]!.toUpperCase() : "OTHER";
   const tableMatch =
     /\b(?:FROM|INTO|UPDATE|TABLE)\s+([a-zA-Z_][a-zA-Z0-9_]*)/i.exec(sql);
-  const table = tableMatch ? tableMatch[1].toLowerCase() : "";
+  const table = tableMatch ? tableMatch[1]!.toLowerCase() : "";
   return table ? `${verb} ${table}` : verb;
 }
 

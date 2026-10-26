@@ -164,7 +164,7 @@ export async function getWorkspaceBackupHealth(
     const backups = await listWorkspaceBackups(cfg, projectId); // newest-first
     if (backups.length === 0) continue;
     coveredProjects++;
-    const ageMs = now - new Date(backups[0].createdAt).getTime();
+    const ageMs = now - new Date(backups[0]!.createdAt).getTime();
     if (oldestLatestBackupAgeMs === null || ageMs > oldestLatestBackupAgeMs) {
       oldestLatestBackupAgeMs = ageMs;
       oldestLatestBackupProjectId = projectId;

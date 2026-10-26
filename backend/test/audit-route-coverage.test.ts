@@ -71,7 +71,7 @@ function scan(): { audited: string[]; unaudited: string[] } {
     for (let m; (m = mutating.exec(src)); ) {
       const next = starts.find((i) => i > m!.index) ?? src.length;
       const body = src.slice(m.index, next);
-      const key = `${dir} ${m[1].toUpperCase()} ${m[2]}`;
+      const key = `${dir} ${m[1]!.toUpperCase()} ${m[2]}`;
       (/record\w*Audit|recordAudit|audit/i.test(body) ? audited : unaudited).push(key);
     }
   }

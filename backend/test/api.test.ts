@@ -356,7 +356,7 @@ describe.skipIf(!isDockerRunning())("execution via API", () => {
 describe("dependency installation command selection", () => {
   function getCommand(text: string): string | null {
     const match = text.match(/^Running\s+(\S+)/m);
-    return match ? match[1] : null;
+    return match ? match[1]! : null;
   }
 
   it("case 1: package.json only → npm install", async () => {

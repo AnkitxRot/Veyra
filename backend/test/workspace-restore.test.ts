@@ -649,7 +649,7 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
       )
       .all(projectId) as { details: string }[];
     expect(failRows.length).toBeGreaterThan(0);
-    const failDetails = JSON.parse(failRows[0].details);
+    const failDetails = JSON.parse(failRows[0]!.details);
     expect(failDetails.failed).toBe(true);
     expect(JSON.stringify(failDetails)).not.toContain("do-not-log-me");
   });

@@ -514,7 +514,7 @@ describe("M58 — attention through the real room pipeline", () => {
       file: "auth/session.ts",
       author: { userId: 1, username: "alice" },
     });
-    expect(toB[0].id).toMatch(/^[0-9a-f]{16}$/);
+    expect(toB[0]!.id).toMatch(/^[0-9a-f]{16}$/);
     expect(attnEvents(wsA)).toHaveLength(0);
   });
 
@@ -535,9 +535,9 @@ describe("M58 — attention through the real room pipeline", () => {
       }),
     );
     const ev = attnEvents(wsB)[0];
-    expect(ev.message).toBe("the race is here");
-    expect((ev.expiresAt as number) - (ev.createdAt as number)).toBe(90_000);
-    expect(ev.createdAt as number).toBeGreaterThanOrEqual(t0);
+    expect(ev!.message).toBe("the race is here");
+    expect((ev!.expiresAt as number) - (ev!.createdAt as number)).toBe(90_000);
+    expect(ev!.createdAt as number).toBeGreaterThanOrEqual(t0);
   });
 
   it("forces author identity — a spoofed author/userId/id in the payload is ignored", async () => {
@@ -558,12 +558,12 @@ describe("M58 — attention through the real room pipeline", () => {
       }),
     );
     const ev = attnEvents(wsB)[0];
-    expect(ev.author).toEqual({
+    expect(ev!.author).toEqual({
       userId: 1,
       username: "alice",
       color: expect.any(String),
     });
-    expect(ev.id).not.toBe("cafebabecafebabe");
+    expect(ev!.id).not.toBe("cafebabecafebabe");
   });
 
   it("drops malformed attention frames without throwing or broadcasting", async () => {
@@ -639,7 +639,7 @@ describe("M58 — attention through the real room pipeline", () => {
       message: "I think the race is here.",
     });
     expect(toA).toHaveLength(1);
-    expect(toA[0].id).toBe(toB[0].id);
+    expect(toA[0]!.id).toBe(toB[0]!.id);
     expect(attnEvents(wsC)).toHaveLength(0);
   });
 
@@ -706,7 +706,7 @@ describe("M58 — attention through the real room pipeline", () => {
       (m) => m.type === "attention_rate_limited",
     );
     expect(limited).toHaveLength(1);
-    expect(limited[0].scope).toBe("outstanding_requests");
+    expect(limited[0]!.scope).toBe("outstanding_requests");
   });
 
   // --- Task 8: dismiss / acted authorization + expiry -------------------
@@ -727,7 +727,7 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "x",
       }),
     );
-    const id = attnEvents(wsB)[0].id as string;
+    const id = attnEvents!(wsB)[0]!.id as string;
     room.handleMessage(wsB, customFrame({ type: "attention_dismiss", id }));
     expect(attnCleared(wsB).at(-1)).toMatchObject({ id, reason: "dismissed" });
     expect(attnCleared(wsA).at(-1)).toMatchObject({ id, reason: "dismissed" });
@@ -750,7 +750,7 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "x",
       }),
     );
-    const id = attnEvents(wsB)[0].id as string;
+    const id = attnEvents!(wsB)[0]!.id as string;
     room.handleMessage(
       wsB,
       customFrame({ type: "attention_dismiss", id, acted: true }),
@@ -776,7 +776,7 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "x",
       }),
     );
-    const id = attnEvents(wsB)[0].id as string;
+    const id = attnEvents!(wsB)[0]!.id as string;
     room.handleMessage(wsC, customFrame({ type: "attention_dismiss", id }));
     room.handleMessage(wsA, customFrame({ type: "attention_dismiss", id }));
     room.handleMessage(
@@ -808,7 +808,7 @@ describe("M58 — attention through the real room pipeline", () => {
           message: "x",
         }),
       );
-      const id = attnEvents(wsB)[0].id as string;
+      const id = attnEvents!(wsB)[0]!.id as string;
       vi.advanceTimersByTime(120_000 - 1);
       expect(attnCleared(wsB)).toHaveLength(0);
       vi.advanceTimersByTime(2);
@@ -882,12 +882,12 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "look",
       }),
     );
-    const id = attnEvents(wsB)[0].id as string;
+    const id = attnEvents!(wsB)[0]!.id as string;
     const wsB2 = makeWs();
     await room.addClient(wsB2, { userId: 2, username: "bob", role: "editor" });
     const snap = attnEvents(wsB2);
     expect(snap).toHaveLength(1);
-    expect(snap[0].id).toBe(id);
+    expect(snap[0]!.id).toBe(id);
   });
 
   it("does not replay an expired request on reconnect", async () => {
@@ -965,7 +965,7 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "x",
       }),
     );
-    const id = attnEvents(wsB)[0].id as string;
+    const id = attnEvents!(wsB)[0]!.id as string;
     room.dispose();
     expect(room.hasAttentionRequest(id)).toBe(false);
   });
@@ -1059,8 +1059,8 @@ describe("M58 — attention through the real room pipeline", () => {
       }),
     );
     const ev = attnEvents(wsB)[0];
-    expect(ev.id).not.toBe("1111111111111111");
-    expect(ev.id).toMatch(/^[0-9a-f]{16}$/);
+    expect(ev!.id).not.toBe("1111111111111111");
+    expect(ev!.id).toMatch(/^[0-9a-f]{16}$/);
   });
 
   it("caps an oversized message at 280 in the delivered event", async () => {
@@ -1078,7 +1078,7 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "x".repeat(100_000),
       }),
     );
-    expect((attnEvents(wsB)[0].message as string).length).toBe(280);
+    expect((attnEvents!(wsB)[0]!.message as string).length).toBe(280);
   });
 
   it("strips control chars from the delivered message", async () => {
@@ -1096,7 +1096,7 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "a\u0000\u0007b\tc",
       }),
     );
-    expect(attnEvents(wsB)[0].message).toBe("a b c");
+    expect(attnEvents!(wsB)[0]!.message).toBe("a b c");
   });
 
   it("rejects a variety of invalid file paths", async () => {

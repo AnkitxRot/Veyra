@@ -227,7 +227,7 @@ export class RateLimiter {
 
   tryConsume(now: number): boolean {
     const cutoff = now - this.windowMs;
-    while (this.hits.length > 0 && this.hits[0] <= cutoff) this.hits.shift();
+    while (this.hits.length > 0 && this.hits[0]! <= cutoff) this.hits.shift();
     if (this.hits.length >= this.max) return false;
     this.hits.push(now);
     return true;
@@ -351,5 +351,5 @@ const USER_COLORS = [
 ];
 
 export function fallbackUserColor(userId: number): string {
-  return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
+  return USER_COLORS[Math.abs(userId) % USER_COLORS.length]!;
 }

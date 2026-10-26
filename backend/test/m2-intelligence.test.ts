@@ -87,8 +87,8 @@ describe("M2 Code Intelligence: Workspace Content Search", () => {
       isRegex: true,
     });
     expect(regexRes.totalMatches).toBe(1);
-    expect(regexRes.groups[0].filePath).toBe("main.py");
-    expect(regexRes.groups[0].matches[0].lineContent).toContain("x = 42");
+    expect(regexRes!.groups[0]!.filePath).toBe("main.py");
+    expect(regexRes!.groups[0]!.matches[0]!.lineContent).toContain("x = 42");
   });
 
   it("ignores binary files automatically", async () => {

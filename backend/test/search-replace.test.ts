@@ -54,7 +54,7 @@ describe("Milestone 26 — Workspace-wide Search & Replace: engine", () => {
     expect(aGroup.newContent).toBe(
       "goodbye world\ngoodbye again\ngoodbye caps\n",
     );
-    expect(aGroup.matches[0].replacedLineContent).toBe("goodbye world");
+    expect(aGroup!.matches[0]!.replacedLineContent).toBe("goodbye world");
 
     // Pure computation — never writes.
     expect(readFileSync(join(tempDir, "a.txt"), "utf8")).toBe(before);
@@ -538,8 +538,8 @@ describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection
 
     const snaps = listSnapshots(c.db, c.ownerId, c.projectId);
     expect(snaps).toHaveLength(1);
-    expect(snaps[0].id).toBe(res.data.snapshotId);
-    expect(snaps[0].name).toContain("Before Replace All");
+    expect(snaps[0]!.id).toBe(res.data.snapshotId);
+    expect(snaps[0]!.name).toContain("Before Replace All");
 
     // disk really changed
     expect((await readProjectFile(c.cwd, "app.py")).content).toBe(

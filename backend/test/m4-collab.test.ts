@@ -1347,10 +1347,10 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // 1/2 handshake + subsequent broadcasts) before connecting, exactly like
     // a real client attaches its message handler before the socket opens.
     for (let i = 0; i < names.length; i++) {
-      wireClientToRoom(room, wsList[i], clientDocs[i]);
+      wireClientToRoom(room, wsList[i], clientDocs[i]!);
       await room.addClient(wsList[i], {
         userId: i + 1,
-        username: names[i],
+        username: names[i]!,
         role: "editor",
       });
     }
@@ -1380,11 +1380,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
         "# Carol's contribution\n",
       ];
       for (let i = 0; i < names.length; i++) {
-        const clientText = clientDocs[i].getText(filePath);
+        const clientText = clientDocs[i]!.getText(filePath);
         room.handleMessage(
           wsList[i],
-          buildSyncUpdateFrame(clientDocs[i], () =>
-            clientText.insert(0, edits[i]),
+          buildSyncUpdateFrame(clientDocs[i]!, () =>
+            clientText.insert(0, edits[i]!),
           ),
         );
       }
@@ -1399,25 +1399,25 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       // same final text: proves broadcasts actually reached every peer, not
       // just that the room's own doc integrated all three updates.
       for (let i = 0; i < names.length; i++) {
-        expect(clientDocs[i].getText(filePath).toString()).toBe(roomContent);
+        expect(clientDocs[i]!.getText(filePath).toString()).toBe(roomContent);
       }
 
       // Bob disconnects; Alice and Carol remain and must stay correct and
       // still receive each other's subsequent edits.
       room.removeClient(wsList[1]);
-      const aliceText = clientDocs[0].getText(filePath);
+      const aliceText = clientDocs[0]!.getText(filePath);
       room.handleMessage(
         wsList[0],
-        buildSyncUpdateFrame(clientDocs[0], () =>
+        buildSyncUpdateFrame(clientDocs[0]!, () =>
           aliceText.insert(aliceText.length, "# Alice again\n"),
         ),
       );
       await vi.advanceTimersByTimeAsync(DEFAULT_YJS_COALESCE_MS);
 
-      expect(clientDocs[2].getText(filePath).toString()).toBe(
+      expect(clientDocs[2]!.getText(filePath).toString()).toBe(
         room.doc.getText(filePath).toString(),
       );
-      expect(clientDocs[2].getText(filePath).toString()).toContain(
+      expect(clientDocs[2]!.getText(filePath).toString()).toContain(
         "Alice again",
       );
     } finally {
@@ -1573,7 +1573,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // silently dropped at scale.
     for (let i = 0; i < ROOM_COUNT; i++) {
       const content = await fs.readFile(
-        join(projectDir(cfg, projectIds[i]), "f.txt"),
+        join(projectDir(cfg, projectIds[i]!), "f.txt"),
         "utf-8",
       );
       expect(content).toBe(`room ${i}`);

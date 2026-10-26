@@ -187,7 +187,7 @@ describe("lsp security envelope", () => {
     );
     const envFlags: string[] = [];
     for (let i = 0; i < argv.length; i++) {
-      if (argv[i] === "-e" && argv[i + 1]) envFlags.push(argv[i + 1]);
+      if (argv[i] === "-e" && argv[i + 1]) envFlags.push(argv[i + 1]!);
     }
     expect(
       envFlags.every((e) => !/SECRET|TOKEN|PASSWORD|DATABASE/i.test(e)),
@@ -234,7 +234,7 @@ describe("lsp security envelope", () => {
     );
     const envFlags: string[] = [];
     for (let i = 0; i < argv.length; i++) {
-      if (argv[i] === "-e" && argv[i + 1]) envFlags.push(argv[i + 1]);
+      if (argv[i] === "-e" && argv[i + 1]) envFlags.push(argv[i + 1]!);
     }
     expect(envFlags.some((e) => e.startsWith("PYTHON"))).toBe(false);
     expect(

@@ -208,7 +208,7 @@ describe("M65 — shared run output (server-authoritative, ephemeral)", () => {
     expect(snap!.bytes).toBeLessThanOrEqual(RUN_OUTPUT_MAX_BYTES);
     expect(snap!.truncated).toBe(true);
     // newest chunk retained
-    expect(snap!.chunks[snap!.chunks.length - 1].data).toBe(chunk);
+    expect(snap!.chunks[snap!.chunks.length - 1]!.data).toBe(chunk);
   });
 
   it("truncates the head of a single oversized chunk rather than dropping it whole", async () => {

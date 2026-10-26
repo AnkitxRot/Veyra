@@ -170,7 +170,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       // Exactly one physical send delivered all 8 keystrokes' operations.
       expect(observerWs.send).toHaveBeenCalledTimes(1);
       applyServerMessage(
-        observerWs.send.mock.calls[0][0] as Uint8Array,
+        observerWs!.send.mock.calls[0]![0] as Uint8Array,
         observerDoc,
       );
       expect(observerDoc.getText(filePath).toString()).toBe("print(1)");
@@ -226,7 +226,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
 
       expect(observerWs.send).toHaveBeenCalledTimes(1);
       applyServerMessage(
-        observerWs.send.mock.calls[0][0] as Uint8Array,
+        observerWs!.send.mock.calls[0]![0] as Uint8Array,
         observerDoc,
       );
       // Independently reproduce the same three edits against a fresh doc,
@@ -288,7 +288,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       expect(observerWs.send).toHaveBeenCalledTimes(1);
       const observerAwareness = new awarenessProtocol.Awareness(new Y.Doc());
       applyServerMessage(
-        observerWs.send.mock.calls[0][0] as Uint8Array,
+        observerWs!.send.mock.calls[0]![0] as Uint8Array,
         new Y.Doc(),
         observerAwareness,
       );
@@ -473,12 +473,12 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       // peers connected).
       expect(slowWs.send).toHaveBeenCalledTimes(2);
       const decoder = decoding.createDecoder(
-        slowWs.send.mock.calls[0][0] as Uint8Array,
+        slowWs!.send.mock.calls[0]![0] as Uint8Array,
       );
       expect(decoding.readVarUint(decoder)).toBe(MESSAGE_SYNC);
       const recoveredDoc = new Y.Doc();
       applyServerMessage(
-        slowWs.send.mock.calls[0][0] as Uint8Array,
+        slowWs!.send.mock.calls[0]![0] as Uint8Array,
         recoveredDoc,
       );
       // The catch-up carried the FULL document, not just what was missed
@@ -572,7 +572,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       // handshake sends, neither routed through the coalescer/backpressure.
       expect(overloadedWs.send).toHaveBeenCalledTimes(2);
       const decoder = decoding.createDecoder(
-        overloadedWs.send.mock.calls[0][0] as Uint8Array,
+        overloadedWs!.send.mock.calls[0]![0] as Uint8Array,
       );
       expect(decoding.readVarUint(decoder)).toBe(MESSAGE_SYNC);
 

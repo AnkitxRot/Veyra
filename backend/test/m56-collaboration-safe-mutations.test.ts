@@ -643,8 +643,8 @@ describe("M56 — collaboration-safe destructive operations", () => {
         },
       ]);
       const st = room.getCollaboratorFileState(["src/a.ts"]);
-      expect(st[0].editing).toBe(true);
-      expect(st[0].dirty).toBe("unknown");
+      expect(st[0]!.editing).toBe(true);
+      expect(st[0]!.dirty).toBe("unknown");
     });
 
     it("18. an explicitly-dirty collaborator reports dirty:true", async () => {
@@ -661,7 +661,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
         },
       ]);
       const st = room.getCollaboratorFileState(["src/a.ts"]);
-      expect(st[0].dirty).toBe(true);
+      expect(st[0]!.dirty).toBe(true);
     });
 
     it("19. excludeUserId filters the initiator out", async () => {
@@ -712,7 +712,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
           clientId: 20,
         },
       ]);
-      expect(room.getCollaboratorFileState(["src/a.ts"])[0].role).toBe(
+      expect(room!.getCollaboratorFileState(["src/a.ts"])[0]!.role).toBe(
         "viewer",
       );
     });

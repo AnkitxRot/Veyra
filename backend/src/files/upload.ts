@@ -86,14 +86,14 @@ export function parseMultipartFormData(
     const dispositionMatch = headersStr.match(/Content-Disposition:\s*form-data;\s*([^;\r\n]+(?:;[^\r\n]+)*)/i);
     if (!dispositionMatch) continue;
 
-    const dispositionParams = dispositionMatch[1];
+    const dispositionParams = dispositionMatch[1]!;
     const nameMatch = dispositionParams.match(/name="([^"]+)"/i);
     const fieldName = nameMatch ? nameMatch[1] : '';
 
     const filenameMatch = dispositionParams.match(/filename="([^"]+)"/i) || dispositionParams.match(/filename\*=utf-8''([^;\r\n]+)/i);
 
     if (filenameMatch) {
-      let rawFilename = filenameMatch[1];
+      let rawFilename = filenameMatch[1]!;
       try {
         rawFilename = decodeURIComponent(rawFilename);
       } catch {}

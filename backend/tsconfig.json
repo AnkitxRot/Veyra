@@ -2,7 +2,8 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    "allowJs": true
+    "allowJs": true,
+    "noUncheckedIndexedAccess": true
   },
   "include": ["src", "test", "load-test"]
 }

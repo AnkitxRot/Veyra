@@ -139,9 +139,9 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
 
     const scratch = await extractToScratch(result.filePath);
     const extractedSnapshotBody = readFileSync(
-      join(scratch, "snapshots", snapFiles[0]),
+      join(scratch, "snapshots", snapFiles[0]!),
     );
-    const originalSnapshotBody = readFileSync(join(snapDir, snapFiles[0]));
+    const originalSnapshotBody = readFileSync(join(snapDir, snapFiles[0]!));
     expect(Buffer.compare(extractedSnapshotBody, originalSnapshotBody)).toBe(0);
 
     // Milestone 32: the v2 manifest carries the matching DB row metadata
@@ -151,7 +151,7 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     );
     expect(manifest.version).toBe(2);
     expect(manifest.snapshots.length).toBe(1);
-    expect(manifest.snapshots[0].id).toBe(snapFiles[0].replace(/\.gz$/, ""));
+    expect(manifest.snapshots[0].id).toBe(snapFiles[0]!.replace(/\.gz$/, ""));
     expect(manifest.snapshots[0].name).toBe("My Snapshot");
     expect(manifest.snapshots[0].userId).toBe(ownerId);
     void cwd;

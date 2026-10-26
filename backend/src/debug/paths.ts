@@ -69,7 +69,7 @@ export function basenameOf(relPath: string): string {
 /** Drop `.git/` internals even when the path is otherwise workspace-legal. */
 export function isForbiddenRelPath(rel: string): boolean {
   if (rel.length > MAX_PATH) return true;
-  const first = rel.split("/")[0];
+  const first = rel.split("/")[0]!;
   return first === ".git" || first.startsWith(".cloudide-build-");
 }
 

@@ -190,9 +190,9 @@ describe("CollaborationHistorian", () => {
     h.recordEdit(edit({ at: 10_000_000 }));
     h.closeProjectBursts("p", "flush");
     expect(bc).toHaveBeenCalledTimes(1);
-    expect(bc.mock.calls[0][0]).toBe("p");
+    expect(bc!.mock.calls[0]![0]).toBe("p");
     expect(
-      (bc.mock.calls[0][1] as { actor: { userId: number } }).actor.userId,
+      (bc!.mock.calls[0]![1] as { actor: { userId: number } }).actor.userId,
     ).toBe(7);
   });
 

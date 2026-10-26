@@ -54,10 +54,10 @@ function parsePytest(text: string): TestCaseResult[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     out.push({
-      name: m[3] ?? m[1],
-      file: m[1],
+      name: m[3] ?? m[1]!,
+      file: m[1]!,
       line: m[2] ? Number(m[2]) : undefined,
-      status: statusOf(m[4]),
+      status: statusOf(m[4]!),
     });
   }
   return out;
@@ -70,7 +70,7 @@ function parseVitestJest(text: string): TestCaseResult[] {
   let m: RegExpExecArray | null;
   while ((m = lineRe.exec(text))) {
     const mark = m[1];
-    const name = m[2].trim();
+    const name = m[2]!.trim();
     if (!name || name.startsWith("Tests ") || name.startsWith("Test Files")) continue;
     out.push({
       name,
@@ -88,14 +88,14 @@ function parseVitestJest(text: string): TestCaseResult[] {
   let loc: RegExpExecArray | null;
   const files: { file: string; line: number }[] = [];
   while ((loc = locRe.exec(text))) {
-    files.push({ file: loc[1], line: Number(loc[2]) });
+    files.push({ file: loc[1]!, line: Number(loc[2]) });
   }
   if (files.length && out.length) {
     let i = 0;
     for (const c of out) {
       if (c.status === "failed" && files[i]) {
-        c.file = files[i].file;
-        c.line = files[i].line;
+        c.file = files[i]!.file;
+        c.line = files[i]!.line;
         i += 1;
       }
     }
@@ -109,7 +109,7 @@ function parseTap(text: string): TestCaseResult[] {
     const row = /^(ok|not ok)\s+\d+\s+-?\s*(.*)$/.exec(line);
     if (row) {
       out.push({
-        name: row[2].trim() || row[1],
+        name: row[2]!.trim() || row[1]!,
         status: row[1] === "ok" ? "passed" : "failed",
       });
       continue;

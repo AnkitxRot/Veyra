@@ -839,7 +839,7 @@ function calculateSummary(records: TelemetryRecord[]): TelemetrySummary {
   let maxTx = 0;
   let maxRead = 0;
   let maxWrite = 0;
-  const memLimit = records[0].memoryLimitBytes || 536870912;
+  const memLimit = records[0]!.memoryLimitBytes || 536870912;
 
   for (const r of records) {
     totalCpu += r.cpuPercent;
@@ -885,12 +885,12 @@ function downsampleRecords(
 
   for (let i = 0; i < maxPoints; i++) {
     const idx = Math.min(Math.floor(i * step), records.length - 1);
-    result.push(records[idx]);
+    result.push(records[idx]!);
   }
 
   // Always include the latest sample
   if (result[result.length - 1] !== records[records.length - 1]) {
-    result[result.length - 1] = records[records.length - 1];
+    result[result.length - 1] = records[records.length - 1]!;
   }
 
   return result;
@@ -921,7 +921,7 @@ function parseBlockIO(blockIOStr = ""): {
 function parseByteUnits(str = ""): number {
   const match = str.match(/^([\d.]+)\s*([A-Za-z]+)?$/);
   if (!match) return 0;
-  const val = parseFloat(match[1]);
+  const val = parseFloat(match[1]!);
   const unit = (match[2] || "B").toUpperCase();
 
   switch (unit) {

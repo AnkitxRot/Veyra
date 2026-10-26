@@ -119,7 +119,7 @@ export class TerminalRingBuffer {
    */
   since(lastSeq: number): { data: string; truncated: boolean } {
     const kept = this.chunks.filter((c) => c.seq > lastSeq);
-    const oldest = this.chunks.length > 0 ? this.chunks[0].seq : Infinity;
+    const oldest = this.chunks.length > 0 ? this.chunks[0]!.seq : Infinity;
     const truncated = this.evicted && oldest > lastSeq + 1;
     const body = kept.map((c) => c.data).join("");
     return {

@@ -265,7 +265,7 @@ export async function startTestGitHttpsRemote(opts: {
         const headerPart = buf.subarray(0, sep).toString("utf8");
         const rest = buf.subarray(sep + sepLen);
         const statusMatch = headerPart.match(/^Status:\s*(\d+)/im);
-        res.statusCode = statusMatch ? parseInt(statusMatch[1], 10) : 200;
+        res.statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : 200;
         for (const line of headerPart.split(/\r?\n/)) {
           const c = line.indexOf(":");
           if (c > 0 && !/^Status:/i.test(line)) {

@@ -32,7 +32,7 @@ describe("M12 Optimizations: Tree Single-Flight Caching & Invalidation", () => {
 
     expect(results).toHaveLength(25);
     const baseline = results[0];
-    expect(baseline.map((n) => n.name)).toEqual(["src", "README.md"]);
+    expect(baseline!.map((n) => n.name)).toEqual(["src", "README.md"]);
     for (const r of results) {
       expect(r).toEqual(baseline);
     }

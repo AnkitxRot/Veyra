@@ -52,7 +52,7 @@ describe('Starter template catalog invariants', () => {
   });
 
   it('Python is first so it is the modal default', () => {
-    expect(STARTER_TEMPLATES[0].id).toBe('python');
+    expect(STARTER_TEMPLATES[0]!.id).toBe('python');
   });
 
   it('every template has valid metadata and a real entry file', () => {

@@ -18,7 +18,7 @@ mkdirSync(RESULTS_DIR, { recursive: true });
 function percentile(sortedArr: number[], p: number): number {
   if (sortedArr.length === 0) return 0;
   const idx = Math.min(sortedArr.length - 1, Math.max(0, Math.floor(sortedArr.length * p)));
-  return sortedArr[idx];
+  return sortedArr[idx]!;
 }
 
 interface PhaseTimings {
@@ -151,7 +151,7 @@ async function runExecutionBenchmarks() {
       concurrencyResults[c] = {
         p50Ms: percentile(latencies, 0.5),
         p95Ms: percentile(latencies, 0.95),
-        maxMs: latencies[latencies.length - 1],
+        maxMs: latencies[latencies.length - 1]!,
         totalWallMs: wallEnd - wallStart,
       };
     }
@@ -342,7 +342,7 @@ async function runFilesystemBenchmarks() {
       concurrencyFsResults[c] = {
         p50Ms: percentile(latencies, 0.5),
         p95Ms: percentile(latencies, 0.95),
-        maxMs: latencies[latencies.length - 1],
+        maxMs: latencies[latencies.length - 1]!,
         totalWallMs: wallEnd - wallStart,
       };
     }
@@ -374,17 +374,17 @@ async function runFilesystemBenchmarks() {
 
 | Project Size | Files | M10 Baseline (ms) | M12 Optimized (ms) | Improvement vs M10 |
 |---|---|---|---|---|
-| Tiny | 5 | 9.24 ms | ${results.tiny.treeMs.toFixed(2)} ms | ${(((9.24 - results.tiny.treeMs) / 9.24) * 100).toFixed(1)}% |
-| Medium | 50 | 9.16 ms | ${results.medium.treeMs.toFixed(2)} ms | ${(((9.16 - results.medium.treeMs) / 9.16) * 100).toFixed(1)}% |
-| Large | 300 | 20.70 ms | ${results.large.treeMs.toFixed(2)} ms | ${(((20.70 - results.large.treeMs) / 20.70) * 100).toFixed(1)}% |
+| Tiny | 5 | 9.24 ms | ${results.tiny!.treeMs.toFixed(2)} ms | ${(((9.24 - results.tiny!.treeMs) / 9.24) * 100).toFixed(1)}% |
+| Medium | 50 | 9.16 ms | ${results.medium!.treeMs.toFixed(2)} ms | ${(((9.16 - results.medium!.treeMs) / 9.16) * 100).toFixed(1)}% |
+| Large | 300 | 20.70 ms | ${results.large!.treeMs.toFixed(2)} ms | ${(((20.70 - results.large!.treeMs) / 20.70) * 100).toFixed(1)}% |
 
 ## Concurrent Tree Requests (Medium 50-file Project with Single-Flight Caching)
 
 | Concurrency | M10 Baseline p50 (ms) | M12 Optimized p50 (ms) | M10 Baseline p95 (ms) | M12 Optimized p95 (ms) | Improvement (p95) |
 |---|---|---|---|---|---|
-| 10 callers | 14.6 ms | ${concurrencyFsResults[10].p50Ms.toFixed(2)} ms | 14.7 ms | ${concurrencyFsResults[10].p95Ms.toFixed(2)} ms | ${(((14.7 - concurrencyFsResults[10].p95Ms) / 14.7) * 100).toFixed(1)}% |
-| 50 callers | 54.1 ms | ${concurrencyFsResults[50].p50Ms.toFixed(2)} ms | 54.2 ms | ${concurrencyFsResults[50].p95Ms.toFixed(2)} ms | ${(((54.2 - concurrencyFsResults[50].p95Ms) / 54.2) * 100).toFixed(1)}% |
-| 100 callers | 109.5 ms | ${concurrencyFsResults[100].p50Ms.toFixed(2)} ms | 109.6 ms | ${concurrencyFsResults[100].p95Ms.toFixed(2)} ms | ${(((109.6 - concurrencyFsResults[100].p95Ms) / 109.6) * 100).toFixed(1)}% |
+| 10 callers | 14.6 ms | ${concurrencyFsResults[10]!.p50Ms.toFixed(2)} ms | 14.7 ms | ${concurrencyFsResults[10]!.p95Ms.toFixed(2)} ms | ${(((14.7 - concurrencyFsResults[10]!.p95Ms) / 14.7) * 100).toFixed(1)}% |
+| 50 callers | 54.1 ms | ${concurrencyFsResults[50]!.p50Ms.toFixed(2)} ms | 54.2 ms | ${concurrencyFsResults[50]!.p95Ms.toFixed(2)} ms | ${(((54.2 - concurrencyFsResults[50]!.p95Ms) / 54.2) * 100).toFixed(1)}% |
+| 100 callers | 109.5 ms | ${concurrencyFsResults[100]!.p50Ms.toFixed(2)} ms | 109.6 ms | ${concurrencyFsResults[100]!.p95Ms.toFixed(2)} ms | ${(((109.6 - concurrencyFsResults[100]!.p95Ms) / 109.6) * 100).toFixed(1)}% |
 
 ## Inactive /stats Telemetry Latency
 

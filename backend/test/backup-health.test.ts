@@ -67,7 +67,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
   // actual source of truth, not the creation call's return value.
   async function latestListedCreatedAtMs(): Promise<number> {
     const backups = await listDatabaseBackups(cfg);
-    return new Date(backups[0].createdAt).getTime();
+    return new Date(backups[0]!.createdAt).getTime();
   }
 
   describe("Database backup health", () => {
@@ -133,7 +133,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
 
       const health = await getDatabaseBackupHealth(cfg);
       expect(health.backupCount).toBe(2); // honest total file count
-      expect(health.latestBackupCreatedAt).toBe(olderListed.createdAt); // valid one wins
+      expect(health.latestBackupCreatedAt).toBe(olderListed!.createdAt); // valid one wins
     });
   });
 
@@ -193,7 +193,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
       projectId: string,
     ): Promise<number> {
       const backups = await listWorkspaceBackups(cfg, projectId);
-      return new Date(backups[0].createdAt).getTime();
+      return new Date(backups[0]!.createdAt).getTime();
     }
 
     it("11. stale oldest covered project (no uncovered projects)", async () => {

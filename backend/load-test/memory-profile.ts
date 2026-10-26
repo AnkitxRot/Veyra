@@ -66,16 +66,16 @@ function buildWeightedPattern(
     let bestIdx = 0;
     let bestDeficit = -Infinity;
     for (let i = 0; i < weights.length; i++) {
-      const weight = weights[i][1];
+      const weight = weights[i]![1]!;
       const target = (weight / total) * slot;
-      const deficit = target - assigned[i];
+      const deficit = target - assigned[i]!;
       if (deficit > bestDeficit) {
         bestDeficit = deficit;
         bestIdx = i;
       }
     }
-    assigned[bestIdx]++;
-    pattern.push(weights[bestIdx][0]);
+    assigned[bestIdx]!++;
+    pattern.push(weights[bestIdx]![0]!);
   }
   return pattern;
 }
@@ -106,7 +106,7 @@ function parseArgs(argv: string[]): Args {
     steadySec: Number(get("--steady", "90")),
     rampdownSec: Number(get("--rampdown", "20")),
     observeSec: Number(get("--observe", "90")),
-    label: get("--label", workload),
+    label: get("--label", workload)!,
   };
 }
 
@@ -229,9 +229,9 @@ async function main(): Promise<void> {
       behavior = "rapid_typing";
       presetToken = seedToken;
     } else if (args.workload === "non-collab") {
-      behavior = NON_COLLAB_PATTERN[i % NON_COLLAB_PATTERN.length];
+      behavior = NON_COLLAB_PATTERN[i % NON_COLLAB_PATTERN.length]!;
     } else {
-      behavior = NORMAL_PATTERN[i % NORMAL_PATTERN.length];
+      behavior = NORMAL_PATTERN[i % NORMAL_PATTERN.length]!;
     }
     const ctx: VirtualUserContext = {
       baseUrl: server.baseUrl,

@@ -120,7 +120,7 @@ describe("handleTerminalConnection disconnect-during-sandbox-startup", () => {
     await handleTerminalConnection(ws as any, "proj-1", cfg, 1, undefined, "t-1");
 
     expect(spawn).toHaveBeenCalledTimes(1);
-    expect(spawn.mock.calls[0][0]).toBe("docker");
+    expect(spawn!.mock.calls[0]![0]).toBe("docker");
 
     // M79: a client disconnect no longer kills the shell — it detaches.
     ws.emit("close");

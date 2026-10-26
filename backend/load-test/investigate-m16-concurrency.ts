@@ -16,7 +16,7 @@ mkdirSync(RESULTS_DIR, { recursive: true });
 function percentile(sortedArr: number[], p: number): number {
   if (sortedArr.length === 0) return 0;
   const idx = Math.min(sortedArr.length - 1, Math.max(0, Math.floor(sortedArr.length * p)));
-  return sortedArr[idx];
+  return sortedArr[idx]!;
 }
 
 interface PhaseTimings {

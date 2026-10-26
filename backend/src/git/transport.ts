@@ -405,7 +405,7 @@ export async function mirrorFetch(
     if (opts.readHead) {
       const ls = await net(["ls-remote", "--symref", "--", url, "HEAD"]);
       const m = ls.stdout.match(/^ref: refs\/heads\/(\S+)\tHEAD$/m);
-      headBranch = m ? m[1] : null;
+      headBranch = m ? m[1]! : null;
     }
     return { headBranch };
   });
@@ -526,7 +526,7 @@ function parseBatchCheck(stdout: string, asked: string[]): Set<string> {
   const have = new Set<string>();
   for (const line of stdout.split("\n")) {
     const m = line.match(/^([0-9a-f]{40}|[0-9a-f]{64}) (commit|tree|blob|tag) \d+$/);
-    if (m && wanted.has(m[1])) have.add(m[1]);
+    if (m && wanted.has(m[1]!)) have.add(m[1]!);
   }
   return have;
 }

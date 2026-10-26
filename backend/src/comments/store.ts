@@ -472,8 +472,8 @@ export function listUnresolved(
   const nextBefore =
     mapped.length > lim && page.length > 0
       ? encodeCursor(
-          page[page.length - 1].updated_at,
-          page[page.length - 1].id,
+          page[page.length - 1]!.updated_at,
+          page[page.length - 1]!.id,
         )
       : null;
   return { threads: assemble(db, page), nextBefore };

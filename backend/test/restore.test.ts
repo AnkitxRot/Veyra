@@ -227,14 +227,14 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
     expect(newer.filename).not.toBe(older.filename);
 
     const backups = listBackupFilesSync(backupDir);
-    expect(backups[0].filename).toBe(newer.filename);
+    expect(backups[0]!.filename).toBe(newer.filename);
 
     seedUser(dbPath, "post_backups_mutation_user");
 
     const result = restoreDatabaseFromBackup({
       dbPath,
       backupDir,
-      filename: backups[0].filename,
+      filename: backups[0]!.filename,
     });
     expect(result.restoredFrom).toBe(newer.filename);
     // The newer backup contains both seeded users at the time it was taken.

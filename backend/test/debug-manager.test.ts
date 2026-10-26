@@ -349,7 +349,7 @@ describe("debug session lifecycle (fake adapter)", () => {
     const stopped = sock.ofType("stopped").at(-1);
     expect(stopped).toBeTruthy();
     const vars = Object.values(stopped.variables).flat() as { value: string }[];
-    expect(vars[0].value.length).toBeLessThan(600);
+    expect(vars[0]!.value.length).toBeLessThan(600);
   });
 
   it("disposes the session on project deletion", async () => {

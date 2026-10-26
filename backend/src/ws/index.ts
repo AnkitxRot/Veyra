@@ -208,7 +208,7 @@ export function setupWebSocketServer(
         const match = req.headers.cookie.match(
           /(?:^|;\s*)session_token=([^;]+)/,
         );
-        if (match) token = match[1];
+        if (match) token = match[1]!;
       }
 
       if (!token) {
@@ -281,8 +281,8 @@ export function setupWebSocketServer(
           const { entry } = await resolveProxyEntry(
             db,
             row.id,
-            proxyProjectId,
-            proxyPortRaw,
+            proxyProjectId!,
+            proxyPortRaw!,
             cfg,
           );
           registerProxySocket(row.id, socket);

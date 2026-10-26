@@ -289,7 +289,7 @@ export function queryTimeline(
   const page = filtered.slice(0, limit);
   const nextBefore =
     filtered.length > limit && page.length > 0
-      ? encodeCursor(page[page.length - 1].at, page[page.length - 1].id)
+      ? encodeCursor(page[page.length - 1]!.at, page[page.length - 1]!.id)
       : null;
   return { events: page, nextBefore };
 }

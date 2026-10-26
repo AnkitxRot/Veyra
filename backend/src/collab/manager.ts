@@ -789,7 +789,7 @@ export class CollaborationRoom {
     // just reduces how many physical WS frames are needed to deliver them.
     const merged =
       this.pendingYjsUpdates.length === 1
-        ? this.pendingYjsUpdates[0]
+        ? this.pendingYjsUpdates[0]!
         : Y.mergeUpdates(this.pendingYjsUpdates);
     // A single shared origin across the whole window (the common case: one
     // person typing) is excluded from the broadcast, exactly matching the
@@ -1220,7 +1220,7 @@ export class CollaborationRoom {
       entry.truncated = true;
     }
     if (entry.bytes > RUN_OUTPUT_MAX_BYTES && entry.chunks.length === 1) {
-      const only = entry.chunks[0];
+      const only = entry.chunks[0]!;
       const buf = Buffer.from(only.data, "utf8");
       const tail = buf
         .subarray(buf.length - RUN_OUTPUT_MAX_BYTES)

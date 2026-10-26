@@ -64,7 +64,7 @@ describe("secrets crypto", () => {
 
   it("detects tampering (auth tag)", () => {
     const enc = encryptSecret("secret", KEY_B64, ID);
-    enc.ciphertext[0] ^= 0xff;
+    enc!.ciphertext[0]! ^= 0xff;
     expect(() => decryptSecret(enc, KEY_B64, ID)).toThrow(SecretsDecryptError);
   });
 
@@ -155,8 +155,8 @@ describe("secrets schema", () => {
       dflt_value: string | null;
     }>;
     const byName = Object.fromEntries(cols.map((c) => [c.name, c]));
-    expect(byName.is_secret.dflt_value).toBe("1");
-    expect(byName.key_version.dflt_value).toBe("1");
+    expect(byName.is_secret!.dflt_value).toBe("1");
+    expect(byName.key_version!.dflt_value).toBe("1");
     expect(byName.environment).toBeDefined();
     const ver = db
       .prepare("SELECT MAX(version) AS v FROM schema_migrations")

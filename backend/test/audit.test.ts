@@ -179,7 +179,7 @@ describe("Milestone 33 — Audit Trail Coverage & Deletion Integrity", () => {
       projectId: project.id,
       eventType: "ADMIN_ACTION",
     });
-    const details = logs[0].details as Record<string, any>;
+    const details = logs[0]!.details as Record<string, any>;
     expect(details.password).toBe("[REDACTED]");
     expect(details.password_hash).toBe("[REDACTED]");
     expect(details.token).toBe("[REDACTED]");
@@ -218,7 +218,7 @@ describe("Milestone 33 — Audit Trail Coverage & Deletion Integrity", () => {
     const page2 = queryAuditLogs(db, { limit: 1, offset: 1 });
     expect(page1.logs.length).toBe(1);
     expect(page2.logs.length).toBe(1);
-    expect(page1.logs[0].id).not.toBe(page2.logs[0].id);
+    expect(page1!.logs[0]!.id).not.toBe(page2!.logs[0]!.id);
   });
 
   it("N. querying audit logs by a since-deleted project's id returns nothing new (rows are unlinked, not orphan-queryable by that id) without erroring", async () => {
@@ -300,7 +300,7 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
 
     const after = getAuditFailureSnapshot();
     expect(after.totalFailures - before.totalFailures).toBe(1);
-    expect(after.byCategory.db_error - (before.byCategory.db_error ?? 0)).toBe(1);
+    expect(after.byCategory.db_error! - (before.byCategory.db_error ?? 0)).toBe(1);
     expect(after.lastFailureAt).not.toBeNull();
     expect(after.lastFailureMessage).toContain("SQLITE_FULL");
   });
@@ -312,7 +312,7 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
 
     const after = getAuditFailureSnapshot();
     expect(after.totalFailures - before.totalFailures).toBe(1);
-    expect(after.byCategory.integrity_error - (before.byCategory.integrity_error ?? 0)).toBe(1);
+    expect(after.byCategory.integrity_error! - (before.byCategory.integrity_error ?? 0)).toBe(1);
   });
 
   it("recordAuditFailure increments the unknown category for unrecognized errors", async () => {
@@ -322,7 +322,7 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
 
     const after = getAuditFailureSnapshot();
     expect(after.totalFailures - before.totalFailures).toBe(1);
-    expect(after.byCategory.unknown - (before.byCategory.unknown ?? 0)).toBe(1);
+    expect(after.byCategory.unknown! - (before.byCategory.unknown ?? 0)).toBe(1);
   });
 
   it("multiple failures accumulate correctly across categories", async () => {
@@ -334,9 +334,9 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
 
     const after = getAuditFailureSnapshot();
     expect(after.totalFailures - before.totalFailures).toBe(3);
-    expect(after.byCategory.db_error - (before.byCategory.db_error ?? 0)).toBe(1);
-    expect(after.byCategory.integrity_error - (before.byCategory.integrity_error ?? 0)).toBe(1);
-    expect(after.byCategory.unknown - (before.byCategory.unknown ?? 0)).toBe(1);
+    expect(after.byCategory.db_error! - (before.byCategory.db_error ?? 0)).toBe(1);
+    expect(after.byCategory.integrity_error! - (before.byCategory.integrity_error ?? 0)).toBe(1);
+    expect(after.byCategory.unknown! - (before.byCategory.unknown ?? 0)).toBe(1);
   });
 
   it("failure messages are truncated to 200 chars max", async () => {

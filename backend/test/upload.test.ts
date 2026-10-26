@@ -67,7 +67,7 @@ describe("Milestone 24 — Direct Workspace File & Folder Upload", () => {
     // Audit log verification
     const logs = queryAuditLogs(db, { projectId, eventType: "PROJECT_FILES_UPLOADED" });
     expect(logs.total).toBe(1);
-    expect(logs.logs[0].details.fileCount).toBe(1);
+    expect(logs!.logs[0]!.details.fileCount).toBe(1);
   });
 
   it("2. non-owner is denied upload with 403 forbidden", async () => {
@@ -341,8 +341,8 @@ describe("Milestone 24 — Direct Workspace File & Folder Upload", () => {
     expect(parsed.fields.targetDir).toBe("src/sub");
     expect(parsed.fields.overwrite).toBe("true");
     expect(parsed.files.length).toBe(1);
-    expect(parsed.files[0].path).toBe("nested/app.py");
-    expect(parsed.files[0].buffer.toString("utf8")).toBe("print('hello world')");
+    expect(parsed!.files[0]!.path).toBe("nested/app.py");
+    expect(parsed!.files[0]!.buffer.toString("utf8")).toBe("print('hello world')");
   });
 
   it("19. HTTP POST /:id/upload endpoint accepts JSON payload and updates workspace", async () => {

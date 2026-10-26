@@ -57,7 +57,7 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
 
     const list = listSnapshots(db, userId, project.id);
     expect(list).toHaveLength(1);
-    expect(list[0].id).toBe(snap.id);
+    expect(list[0]!.id).toBe(snap.id);
 
     const archivePath = join(cfg.dataDir, "snapshots", project.id, `${snap.id}.gz`);
     expect(existsSync(archivePath)).toBe(true);

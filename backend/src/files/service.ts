@@ -188,7 +188,7 @@ async function mapConcurrent<T, R>(
   async function worker() {
     while (nextIdx < items.length) {
       const idx = nextIdx++;
-      results[idx] = await fn(items[idx]);
+      results[idx] = await fn(items[idx]!);
     }
   }
 

@@ -196,7 +196,7 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
     const { manager } = await loadManagerWithFakeDocker(async (args) => {
       if (args[0] === "run") {
         const nameIdx = args.indexOf("--name");
-        started.push(args[nameIdx + 1]);
+        started.push(args[nameIdx + 1]!);
         if (started.length === 2) release?.();
         // resolves only once both projects are mid-creation: a shared lock
         // would deadlock here instead of completing
@@ -636,7 +636,7 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
     ) as PromiseRejectedResult[];
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
-    expect(rejected[0].reason.message).toMatch(/sandbox limit reached/);
+    expect(rejected[0]!.reason.message).toMatch(/sandbox limit reached/);
 
     const active = await manager.getAllActiveSandboxes();
     expect(active.length).toBeLessThanOrEqual(1);
@@ -686,7 +686,7 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
       (s) => s.status === "rejected",
     ) as PromiseRejectedResult[];
     expect(rejections).toHaveLength(1);
-    expect(rejections[0].reason.message).toMatch(/sandbox limit reached/);
+    expect(rejections[0]!.reason.message).toMatch(/sandbox limit reached/);
 
     const active = await manager.getAllActiveSandboxes();
     expect(active.length).toBe(N - 1);

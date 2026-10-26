@@ -13,7 +13,7 @@ describe("lsp jsonrpc framing", () => {
     const msg = { jsonrpc: "2.0", id: 1, method: "initialize", params: {} };
     const frames = parser.push(encodeLspFrame(msg));
     expect(frames).toEqual([msg]);
-    expect(isJsonRpcRequest(frames[0])).toBe(true);
+    expect(isJsonRpcRequest(frames[0]!)).toBe(true);
   });
 
   it("assembles a message split across chunks", () => {
@@ -22,7 +22,7 @@ describe("lsp jsonrpc framing", () => {
     expect(parser.push(buf.subarray(0, 8))).toEqual([]);
     const rest = parser.push(buf.subarray(8));
     expect(rest).toHaveLength(1);
-    expect(isJsonRpcNotification(rest[0])).toBe(true);
+    expect(isJsonRpcNotification(rest[0]!)).toBe(true);
   });
 
   it("rejects an oversized content-length", () => {
@@ -57,8 +57,8 @@ describe("lsp jsonrpc framing", () => {
     const b = encodeLspFrame({ jsonrpc: "2.0", method: "b" });
     const frames = parser.push(Buffer.concat([a, b]));
     expect(frames).toHaveLength(2);
-    expect(frames[0].method).toBe("a");
-    expect(frames[1].method).toBe("b");
+    expect(frames[0]!.method).toBe("a");
+    expect(frames[1]!.method).toBe("b");
   });
 
   it("rejects a header without Content-Length", () => {

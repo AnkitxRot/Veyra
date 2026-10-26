@@ -30,7 +30,7 @@ function percentile(sortedArr: number[], p: number): number {
     sortedArr.length - 1,
     Math.max(0, Math.floor(sortedArr.length * p)),
   );
-  return sortedArr[idx];
+  return sortedArr[idx]!;
 }
 
 function percentiles(values: number[]): {
@@ -317,12 +317,12 @@ async function measureSteadyUserImpact(
 
     try {
       const res = await fetch(
-        `${server.baseUrl}/api/projects/${u.projectId}/run`,
+        `${server.baseUrl}/api/projects/${u!.projectId}/run`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${u.token}`,
+            Authorization: `Bearer ${u!.token}`,
           },
           body: JSON.stringify({ path: "main.py" }),
         },

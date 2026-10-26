@@ -48,12 +48,12 @@ export class LatencyRecorder {
     const sum = sorted.reduce((a, b) => a + b, 0);
     return {
       count: n,
-      minMs: sorted[0],
-      maxMs: sorted[n - 1],
+      minMs: sorted[0]!,
+      maxMs: sorted[n - 1]!,
       meanMs: sum / n,
-      p50Ms: pct(50),
-      p95Ms: pct(95),
-      p99Ms: pct(99),
+      p50Ms: pct(50)!,
+      p95Ms: pct(95)!,
+      p99Ms: pct(99)!,
     };
   }
 }

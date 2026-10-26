@@ -194,8 +194,8 @@ export function closeBurst(b: OpenBurst, reason: CloseReason): ClosedBurst {
     linesRemoved: b.linesRemoved,
     rangeContaminated: b.rangeContaminated,
     observerMissed: b.observerMissed,
-    startLine: rangeOk ? b.intervals[0][0] : null,
-    endLine: rangeOk ? b.intervals[0][1] : null,
+    startLine: rangeOk ? b.intervals[0]![0] : null,
+    endLine: rangeOk ? b.intervals[0]![1] : null,
     closeReason: reason,
   };
 }

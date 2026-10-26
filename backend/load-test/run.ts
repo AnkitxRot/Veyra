@@ -78,16 +78,16 @@ function buildWeightedPattern(
     let bestIdx = 0;
     let bestDeficit = -Infinity;
     for (let i = 0; i < weights.length; i++) {
-      const weight = weights[i][1];
+      const weight = weights[i]![1]!;
       const target = (weight / total) * slot;
-      const deficit = target - assigned[i];
+      const deficit = target - assigned[i]!;
       if (deficit > bestDeficit) {
         bestDeficit = deficit;
         bestIdx = i;
       }
     }
-    assigned[bestIdx]++;
-    pattern.push(weights[bestIdx][0]);
+    assigned[bestIdx]!++;
+    pattern.push(weights[bestIdx]![0]!);
   }
   return pattern;
 }
@@ -101,7 +101,7 @@ function pickBehavior(
 ): BehaviorName {
   if (collabOnly) return "rapid_typing";
   const pattern = contention ? CONTENTION_PATTERN : WEIGHTED_PATTERN;
-  return pattern[vuIndex % pattern.length];
+  return pattern[vuIndex % pattern.length]!;
 }
 
 interface Args {
@@ -154,7 +154,7 @@ function parseArgs(argv: string[]): Args {
     return i >= 0 && argv[i + 1] ? argv[i + 1] : def;
   };
   return {
-    level: get("--level", "1"),
+    level: get("--level", "1")!,
     users: Number(get("--users", "1")),
     rampSec: Number(get("--ramp", "30")),
     steadySec: Number(get("--steady", "60")),

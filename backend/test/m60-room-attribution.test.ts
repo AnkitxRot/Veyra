@@ -259,7 +259,7 @@ describe("M60 room attribution", () => {
       .prepare("SELECT * FROM collaboration_changes")
       .all() as Array<{ author_user_id: number }>;
     expect(rows.length).toBe(1);
-    expect(rows[0].author_user_id).toBe(7);
+    expect(rows[0]!.author_user_id).toBe(7);
   });
 
   it("removeClient closes that author's bursts; dispose closes all", async () => {

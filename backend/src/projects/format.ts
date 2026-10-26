@@ -179,7 +179,7 @@ function formatGenericCode(content: string, _defaultIndentSize = 2): string {
   const cleanedLines: string[] = [];
 
   for (let i = 0; i < rawLines.length; i++) {
-    cleanedLines.push(rawLines[i].trimEnd());
+    cleanedLines.push(rawLines[i]!.trimEnd());
   }
 
   // Remove excessive trailing blank lines at end of file

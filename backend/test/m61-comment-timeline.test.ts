@@ -90,6 +90,6 @@ describe("M61-A comment timeline source", () => {
     const away = queryWhileAway(db, "p", 1, past, 50);
     const comments = away.events.filter((e) => e.kind === "comment");
     expect(comments.length).toBe(1);
-    expect(comments[0].actor.userId).toBe(2);
+    expect(comments[0]!.actor.userId).toBe(2);
   });
 });

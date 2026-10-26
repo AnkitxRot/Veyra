@@ -34,5 +34,5 @@ export function resolveMainFile(lang: LanguageRuntime, files: string[], activeFi
     if (files.includes(main)) return main;
   }
   const candidates = files.filter((f) => lang.extensions.includes(extname(f).slice(1)));
-  return candidates.length === 1 ? candidates[0] : null;
+  return candidates.length === 1 ? candidates[0]! : null;
 }

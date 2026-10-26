@@ -16,7 +16,7 @@ mkdirSync(RESULTS_DIR, { recursive: true });
 function percentile(sortedArr: number[], p: number): number {
   if (sortedArr.length === 0) return 0;
   const idx = Math.min(sortedArr.length - 1, Math.max(0, Math.floor(sortedArr.length * p)));
-  return sortedArr[idx];
+  return sortedArr[idx]!;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ async function runExecutionDecomposition() {
     concurrencyResults[c] = {
       p50Ms: percentile(latencies, 0.5),
       p95Ms: percentile(latencies, 0.95),
-      maxMs: latencies[latencies.length - 1],
+      maxMs: latencies[latencies.length - 1]!,
       totalWallMs: wallEnd - wallStart,
     };
   }
@@ -222,9 +222,9 @@ async function runExecutionDecomposition() {
 
 | Concurrency | Wall Time (s) | p50 per Container (ms) | p95 per Container (ms) | Max (ms) |
 |---|---|---|---|---|
-| 1 | ${(concurrencyResults[1].totalWallMs / 1000).toFixed(2)} | ${concurrencyResults[1].p50Ms.toFixed(1)} | ${concurrencyResults[1].p95Ms.toFixed(1)} | ${concurrencyResults[1].maxMs.toFixed(1)} |
-| 5 | ${(concurrencyResults[5].totalWallMs / 1000).toFixed(2)} | ${concurrencyResults[5].p50Ms.toFixed(1)} | ${concurrencyResults[5].p95Ms.toFixed(1)} | ${concurrencyResults[5].maxMs.toFixed(1)} |
-| 20 | ${(concurrencyResults[20].totalWallMs / 1000).toFixed(2)} | ${concurrencyResults[20].p50Ms.toFixed(1)} | ${concurrencyResults[20].p95Ms.toFixed(1)} | ${concurrencyResults[20].maxMs.toFixed(1)} |
+| 1 | ${(concurrencyResults[1]!.totalWallMs / 1000).toFixed(2)} | ${concurrencyResults[1]!.p50Ms.toFixed(1)} | ${concurrencyResults[1]!.p95Ms.toFixed(1)} | ${concurrencyResults[1]!.maxMs.toFixed(1)} |
+| 5 | ${(concurrencyResults[5]!.totalWallMs / 1000).toFixed(2)} | ${concurrencyResults[5]!.p50Ms.toFixed(1)} | ${concurrencyResults[5]!.p95Ms.toFixed(1)} | ${concurrencyResults[5]!.maxMs.toFixed(1)} |
+| 20 | ${(concurrencyResults[20]!.totalWallMs / 1000).toFixed(2)} | ${concurrencyResults[20]!.p50Ms.toFixed(1)} | ${concurrencyResults[20]!.p95Ms.toFixed(1)} | ${concurrencyResults[20]!.maxMs.toFixed(1)} |
 `;
     writeFileSync(mdPath, md);
     console.log(`[M10] Wrote ${jsonPath} and ${mdPath}`);
@@ -347,7 +347,7 @@ async function runExecutionBurstCrossCheck() {
 | p50 | ${report.allLatencies.p50Ms.toFixed(1)} | ${report.successLatencies?.p50Ms.toFixed(1) ?? "N/A"} |
 | p95 | ${report.allLatencies.p95Ms.toFixed(1)} | ${report.successLatencies?.p95Ms.toFixed(1) ?? "N/A"} |
 | p99 | ${report.allLatencies.p99Ms.toFixed(1)} | ${report.successLatencies?.p99Ms.toFixed(1) ?? "N/A"} |
-| Max | ${report.allLatencies.maxMs.toFixed(1)} | ${report.successLatencies?.maxMs.toFixed(1) ?? "N/A"} |
+| Max | ${report.allLatencies.maxMs.toFixed(1)} | ${report.successLatencies?.maxMs!.toFixed(1) ?? "N/A"} |
 
 ## Root-Cause Attribution
 
@@ -433,14 +433,14 @@ async function runFilesystemDecomposition() {
 
 | Project Size | Files | Depth | \`tree()\` Latency (ms) | \`listFiles()\` Latency (ms) | Sequential \`stat\` Operations |
 |---|---|---|---|---|---|
-| Tiny | 5 | 1 | ${results.tiny.treeMs.toFixed(2)} ms | ${results.tiny.listFilesMs.toFixed(2)} ms | 5 |
-| Medium | 50 | 3 | ${results.medium.treeMs.toFixed(2)} ms | ${results.medium.listFilesMs.toFixed(2)} ms | 50 |
-| Large | 300 | 5 | ${results.large.treeMs.toFixed(2)} ms | ${results.large.listFilesMs.toFixed(2)} ms | 300 |
+| Tiny | 5 | 1 | ${results.tiny!.treeMs.toFixed(2)} ms | ${results.tiny!.listFilesMs.toFixed(2)} ms | 5 |
+| Medium | 50 | 3 | ${results.medium!.treeMs.toFixed(2)} ms | ${results.medium!.listFilesMs.toFixed(2)} ms | 50 |
+| Large | 300 | 5 | ${results.large!.treeMs.toFixed(2)} ms | ${results.large!.listFilesMs.toFixed(2)} ms | 300 |
 
 ## Observations
 
 - \`tree()\` latency scales linearly with file count due to sequential \`await fs.stat()\` inside recursive directory traversal.
-- \`listFiles()\` (which only reads directory entries with \`withFileTypes: true\` without separate per-file \`fs.stat()\` calls) runs ~${(results.large.treeMs / Math.max(0.1, results.large.listFilesMs)).toFixed(1)}x faster on large projects.
+- \`listFiles()\` (which only reads directory entries with \`withFileTypes: true\` without separate per-file \`fs.stat()\` calls) runs ~${(results.large!.treeMs / Math.max(0.1, results.large!.listFilesMs)).toFixed(1)}x faster on large projects.
 `;
     writeFileSync(mdDecompPath, mdDecomp);
     console.log(`[M10] Wrote ${jsonDecompPath} and ${mdDecompPath}`);
@@ -464,7 +464,7 @@ async function runFilesystemDecomposition() {
       concurrencyFsResults[c] = {
         p50Ms: percentile(latencies, 0.5),
         p95Ms: percentile(latencies, 0.95),
-        maxMs: latencies[latencies.length - 1],
+        maxMs: latencies[latencies.length - 1]!,
         totalWallMs: wallEnd - wallStart,
       };
     }
@@ -488,9 +488,9 @@ async function runFilesystemDecomposition() {
 
 | Concurrency | Wall Time (ms) | p50 Latency (ms) | p95 Latency (ms) | Max Latency (ms) |
 |---|---|---|---|---|
-| 10 callers | ${concurrencyFsResults[10].totalWallMs.toFixed(1)} ms | ${concurrencyFsResults[10].p50Ms.toFixed(1)} ms | ${concurrencyFsResults[10].p95Ms.toFixed(1)} ms | ${concurrencyFsResults[10].maxMs.toFixed(1)} ms |
-| 50 callers | ${concurrencyFsResults[50].totalWallMs.toFixed(1)} ms | ${concurrencyFsResults[50].p50Ms.toFixed(1)} ms | ${concurrencyFsResults[50].p95Ms.toFixed(1)} ms | ${concurrencyFsResults[50].maxMs.toFixed(1)} ms |
-| 100 callers | ${concurrencyFsResults[100].totalWallMs.toFixed(1)} ms | ${concurrencyFsResults[100].p50Ms.toFixed(1)} ms | ${concurrencyFsResults[100].p95Ms.toFixed(1)} ms | ${concurrencyFsResults[100].maxMs.toFixed(1)} ms |
+| 10 callers | ${concurrencyFsResults[10]!.totalWallMs.toFixed(1)} ms | ${concurrencyFsResults[10]!.p50Ms.toFixed(1)} ms | ${concurrencyFsResults[10]!.p95Ms.toFixed(1)} ms | ${concurrencyFsResults[10]!.maxMs.toFixed(1)} ms |
+| 50 callers | ${concurrencyFsResults[50]!.totalWallMs.toFixed(1)} ms | ${concurrencyFsResults[50]!.p50Ms.toFixed(1)} ms | ${concurrencyFsResults[50]!.p95Ms.toFixed(1)} ms | ${concurrencyFsResults[50]!.maxMs.toFixed(1)} ms |
+| 100 callers | ${concurrencyFsResults[100]!.totalWallMs.toFixed(1)} ms | ${concurrencyFsResults[100]!.p50Ms.toFixed(1)} ms | ${concurrencyFsResults[100]!.p95Ms.toFixed(1)} ms | ${concurrencyFsResults[100]!.maxMs.toFixed(1)} ms |
 
 ## Findings & Root Cause
 

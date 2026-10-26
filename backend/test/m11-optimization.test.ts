@@ -109,7 +109,7 @@ describe("M11 Optimizations: Filesystem Tree Bounded Concurrency", () => {
 
     const t = await tree(root);
     expect(t).toHaveLength(1);
-    expect(t[0].name).toBe("valid-dir");
+    expect(t[0]!.name).toBe("valid-dir");
   });
 });
 

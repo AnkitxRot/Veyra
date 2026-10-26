@@ -88,7 +88,7 @@ function parseByteUnits(str: string): number {
   if (!str) return 0;
   const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)?$/);
   if (!match) return 0;
-  const num = parseFloat(match[1]);
+  const num = parseFloat(match[1]!);
   const unit = (match[2] || "B").toLowerCase();
   if (unit.startsWith("k") || unit.startsWith("kib"))
     return Math.round(num * 1024);
@@ -929,7 +929,7 @@ export class SandboxManager {
           });
           return fallback;
         }
-        const parsed = JSON.parse(stdout.trim().split("\n")[0]);
+        const parsed = JSON.parse(stdout.trim().split("\n")[0]!);
         const cpu = parseFloat((parsed.CPUPerc || "0%").replace("%", "")) || 0;
         const memPerc =
           parseFloat((parsed.MemPerc || "0%").replace("%", "")) || 0;
@@ -992,7 +992,7 @@ export class SandboxManager {
         const { stdout } = await execFileAsync("docker", ["port", containerId]);
         for (const line of stdout.split("\n")) {
           const match = line.match(/^(\d+)\/tcp\s+->\s+.*:(\d+)$/);
-          if (match) mapping[parseInt(match[1], 10)] = parseInt(match[2], 10);
+          if (match) mapping[parseInt(match[1]!, 10)] = parseInt(match[2]!, 10);
         }
         if (Object.keys(mapping).length > 0) return mapping;
       } catch {}

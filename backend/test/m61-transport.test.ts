@@ -44,7 +44,7 @@ function customFrames(ws: { sent: Uint8Array[] }): Record<string, unknown>[] {
 
 function lastCustom(ws: { sent: Uint8Array[] }): Record<string, unknown> {
   const frames = customFrames(ws);
-  return frames[frames.length - 1];
+  return frames[frames.length - 1]!;
 }
 
 function customFrame(obj: unknown): Uint8Array {

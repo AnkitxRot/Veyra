@@ -267,7 +267,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const access = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "viewer",
       );
       res.json({ project: access.project, role: access.role });
@@ -404,7 +404,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "viewer",
       );
       const stats = await sandboxManager.getContainerStats(project.id);
@@ -578,7 +578,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const groupedByAuthor = [...byAuthor.entries()]
         .map(([userId, evs]) => ({
           userId,
-          username: evs[0].actor.username,
+          username: evs[0]!.actor.username,
           events: evs,
         }))
         .sort((a, b) =>
@@ -680,7 +680,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         cfg,
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
       );
       const safeFilename =
         projectName.replace(/[^a-zA-Z0-9._-]/g, "_") || "project";
@@ -714,7 +714,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         cfg,
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         zipBuffer,
         { replace, force, actorUsername: userOf(req).username },
       );
@@ -749,7 +749,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "viewer",
       );
       const cwd = await workspacePath(cfg, project.id);
@@ -764,7 +764,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "viewer",
       );
       const cwd = await workspacePath(cfg, project.id);
@@ -784,7 +784,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "viewer",
       );
       const path = req.query.path;
@@ -806,7 +806,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "editor",
       );
       const { path, content } = req.body ?? {};
@@ -930,7 +930,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         cfg,
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         {
           targetDir,
           overwrite,
@@ -949,7 +949,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "editor",
       );
       const { from, to } = req.body ?? {};
@@ -996,7 +996,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "editor",
       );
       const { path } = req.body ?? {};
@@ -1033,7 +1033,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "viewer",
       );
       // Every search spawns a worker thread that can live for the full
@@ -1068,7 +1068,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "viewer",
       );
       const userId = userOf(req).id;
@@ -1118,7 +1118,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project, role } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "editor",
       );
 
@@ -1399,7 +1399,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "editor",
       );
       const { path, content } = req.body ?? {};
@@ -1420,7 +1420,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { project } = requireProjectAccess(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         "editor",
       );
       const { language, stdin } = req.body ?? {};
@@ -1543,7 +1543,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { entry } = await resolveProxyEntry(
         db,
         userOf(req).id,
-        req.params.id,
+        req.params.id!,
         req.params.port,
         cfg,
       );

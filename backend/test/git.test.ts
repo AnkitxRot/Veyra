@@ -130,10 +130,10 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await fs.writeFile(join(cwd, "a.py"), "print('ONE')\n", "utf8");
     const fd = await git.getFileDiff(cfg, projectId, "a.py", false);
     expect(fd.hunks.length).toBeGreaterThan(0);
-    const kinds = fd.hunks[0].lines.map((l) => l.type);
+    const kinds = fd!.hunks[0]!.lines.map((l) => l.type);
     expect(kinds).toContain("add");
     expect(kinds).toContain("del");
-    const added = fd.hunks[0].lines.find((l) => l.type === "add")!;
+    const added = fd!.hunks[0]!.lines.find((l) => l.type === "add")!;
     expect(added.content).toBe("print('ONE')");
   });
 
@@ -201,7 +201,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.commit(cfg, projectId, "c2", user);
     const log = await git.getLog(cfg, projectId, 10);
     expect(log.map((c) => c.subject)).toEqual(["c2", "c1"]);
-    expect(log[0].author).toBe("gituser");
+    expect(log[0]!.author).toBe("gituser");
   });
 
   it("15. branch list includes the current branch", async () => {
@@ -793,7 +793,7 @@ describe.skipIf(!HAS_GIT)(
         await import("../src/backup/workspaceBackup.js");
       await createWorkspaceBackup(cfg, db, projectId);
       const [backup] = await listWorkspaceBackups(cfg, projectId);
-      const buf = await fs.readFile(backup.filePath);
+      const buf = await fs.readFile(backup!.filePath);
       expect(buf.includes(Buffer.from("workspace/.git/"))).toBe(false);
       expect(buf.includes(Buffer.from("keep.py"))).toBe(true);
     });

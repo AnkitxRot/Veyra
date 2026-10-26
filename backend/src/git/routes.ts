@@ -54,9 +54,9 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
   });
 
   const requireRead = (req: Request) =>
-    requireProjectAccess(db, userOf(req).id, req.params.id, "viewer");
+    requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
   const requireWrite = (req: Request) =>
-    requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
+    requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
 
   const locked = <T>(projectId: string, fn: () => Promise<T>) =>
     withProjectSnapshotLock(projectId, fn);

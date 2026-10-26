@@ -295,7 +295,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
 
       const list = await listDatabaseBackups(cfg);
       expect(list.length).toBe(1);
-      expect(list[0].filename).toBe(b2.filename);
+      expect(list[0]!.filename).toBe(b2.filename);
     } finally {
       db.close();
     }
@@ -431,17 +431,17 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       // Default listing must not silently claim verification that never happened.
       const unverifiedList = await listDatabaseBackups(cfg);
       expect(unverifiedList.length).toBe(1);
-      expect(unverifiedList[0].integrity).toBe("unverified");
+      expect(unverifiedList[0]!.integrity).toBe("unverified");
 
       // Explicit re-verification of a healthy backup reports 'ok'.
       const verifiedList = await listDatabaseBackups(cfg, { verify: true });
-      expect(verifiedList[0].integrity).toBe("ok");
+      expect(verifiedList[0]!.integrity).toBe("ok");
 
       // A backup corrupted after creation must be reported 'failed' when re-verified,
       // never silently reported as still 'ok'.
       writeFileSync(backup.filePath, Buffer.from("not a sqlite file"));
       const corruptedList = await listDatabaseBackups(cfg, { verify: true });
-      expect(corruptedList[0].integrity).toBe("failed");
+      expect(corruptedList[0]!.integrity).toBe("failed");
     } finally {
       db.close();
     }

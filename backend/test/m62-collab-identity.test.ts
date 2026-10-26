@@ -365,12 +365,12 @@ describe("M62-3 — effective display identity through collaboration", () => {
     const roster = listProjectCollaborators(db, "proj");
     const byName = Object.fromEntries(roster.map((c) => [c.username, c]));
 
-    expect(byName.bob.displayName).toBe("bob"); // no profile row
-    expect(byName.carol.displayName).toBe("Carol Danvers"); // explicit
-    expect(byName.dave.displayName).toBe("dave"); // cleared -> username
+    expect(byName.bob!.displayName).toBe("bob"); // no profile row
+    expect(byName.carol!.displayName).toBe("Carol Danvers"); // explicit
+    expect(byName.dave!.displayName).toBe("dave"); // cleared -> username
 
     // technical identity intact, no dormant profile columns leaked
-    expect(Object.keys(byName.carol).sort()).toEqual(
+    expect(Object.keys(byName.carol!).sort()).toEqual(
       [
         "avatarVersion",
         "createdAt",
@@ -380,6 +380,6 @@ describe("M62-3 — effective display identity through collaboration", () => {
         "username",
       ].sort(),
     );
-    expect(byName.carol.avatarVersion).toBe(0);
+    expect(byName.carol!.avatarVersion).toBe(0);
   });
 });
