@@ -1,4 +1,6 @@
 import { Router, raw } from "express";
+import { z } from "zod";
+import { checkedString, parseInput } from "../validate.js";
 import type { Request } from "express";
 import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -21,6 +23,20 @@ import { parseMultipartFormData } from "../files/upload.js";
 import { collaborationManager } from "../collab/manager.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
+
+const usernameBody = z.object({
+  username: checkedString(
+    "username must be 3-32 characters of [a-zA-Z0-9_]",
+    "invalid_username",
+    (u) => USERNAME_RE.test(u),
+  ),
+});
+
+// Login-style bodies: both fields must be strings; the specific rules live in the handlers.
+const credentialsBody = z.object({
+  username: checkedString("username and password are required", "invalid_credentials"),
+  password: checkedString("username and password are required", "invalid_credentials"),
+});
 
 const DEMO_FILES = [
   {
@@ -203,24 +219,20 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
   router.post("/register", async (req, res, next) => {
     try {
       checkRateLimit(req);
-      const { username, password } = req.body ?? {};
-      if (typeof username !== "string" || !USERNAME_RE.test(username)) {
-        throw new ApiError(
-          400,
-          "username must be 3-32 characters of [a-zA-Z0-9_]",
-          "invalid_username",
-        );
-      }
+      const { username } = parseInput(usernameBody, req.body ?? {});
       if (username === cfg.adminUsername || username.startsWith("evaluator_")) {
         throw new ApiError(409, "username already taken", "username_taken");
       }
-      if (typeof password !== "string" || password.length < cfg.minPasswordLength) {
-        throw new ApiError(
-          400,
-          `password must be at least ${cfg.minPasswordLength} characters`,
-          "invalid_password",
-        );
-      }
+      const { password } = parseInput(
+        z.object({
+          password: checkedString(
+            `password must be at least ${cfg.minPasswordLength} characters`,
+            "invalid_password",
+            (p) => p.length >= cfg.minPasswordLength,
+          ),
+        }),
+        req.body ?? {},
+      );
       const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
       if (exists) throw new ApiError(409, "username already taken", "username_taken");
       const hash = await hashPassword(password);
@@ -247,10 +259,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
   router.post("/login", async (req, res, next) => {
     try {
       checkRateLimit(req);
-      const { username, password } = req.body ?? {};
-      if (typeof username !== "string" || typeof password !== "string") {
-        throw new ApiError(400, "username and password are required", "invalid_credentials");
-      }
+      const { username, password } = parseInput(credentialsBody, req.body ?? {});
       const row = db
         .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
         .get(username) as
@@ -295,10 +304,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
   router.post("/admin-login", async (req, res, next) => {
     try {
       checkRateLimit(req);
-      const { username, password } = req.body ?? {};
-      if (typeof username !== "string" || typeof password !== "string") {
-        throw new ApiError(400, "username and password are required", "invalid_credentials");
-      }
+      const { username, password } = parseInput(credentialsBody, req.body ?? {});
       const row = db
         .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
         .get(username) as
