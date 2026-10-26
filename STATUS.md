@@ -31,7 +31,14 @@ the commit messages and reports, not re-run for this summary.
 | M95 | Repo hygiene | — | STATUS history and load-test results archived under `docs/archive/`; STATUS.md is now a short ledger. |
 | M97 | Audit + security pass | branch `docs/m94-status-roadmap` | `COLLABORATOR_*` audit events; ratchet test for unaudited mutating routes; prod `npm audit` 6→0; AI subsystem fixes (ReDoS that blocked the event loop, `/ai/verify` field bounds, viewers no longer see run output in the AI journal); CI permissions/concurrency/audit gate. |
 
+### Security review (M97)
+Fixed: zip-bomb DoS in `projects/zip.ts` (inflate now bounded by the declared size; reachable via POST /import and restore); dangling-symlink write escape in `assertInsideWorkspace` (`files/service.ts`; the regression test is skipped on hosts that cannot create symlinks, so Linux CI is what exercises it).
+Cleared (not exploitable): WS preview proxy auth, zip symlink zip-slip, terminal secrets path, execution `language`, search/replace, POST /import authz.
+
 ### Security review follow-ups (not yet fixed)
+- Hardening: zip `.git` skip-list matches the raw name, so `./.git/...` entries are written (no code-exec path found); normalize before the check.
+- Hardening: import quota is checked once, parallel imports may exceed it.
+- Not reviewed: env-file escaping, `resolveMainFile`, workspace bind-mount mode.
 - UNCONFIRMED race: `moveFile`/`deleteFile` in `files/service.ts` rely on an advisory containment check (symlink swap between check and rename/rm).
 - UNCONFIRMED: no `Origin` check on WS upgrade; previews are served same-origin (consider a separate origin or `Content-Security-Policy: sandbox`).
 - NOT reviewed: `auth/routes.ts`, projects zip import/upload/move/preview proxy, `git/*`, `ws/terminal.ts`, `ws/execution.ts`.

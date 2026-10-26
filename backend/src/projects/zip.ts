@@ -356,8 +356,19 @@ export async function extractZipArchive(
     } else if (entry.compressionMethod === 8) {
       // Deflate
       try {
-        uncompressedData = inflateRawSync(compressedSlice);
+        // Bound the output by the declared size: the declared size was already
+        // checked against the archive limits, the real one must not exceed it.
+        uncompressedData = inflateRawSync(compressedSlice, {
+          maxOutputLength: Math.max(1, entry.uncompressedSize),
+        });
       } catch (err: any) {
+        if (err?.code === "ERR_BUFFER_TOO_LARGE") {
+          throw new ApiError(
+            400,
+            `Entry ${entry.relPath} decompresses beyond its declared size`,
+            "invalid_archive",
+          );
+        }
         throw new ApiError(400, `Corrupted ZIP data for ${entry.relPath}: ${err.message}`, "invalid_archive");
       }
     } else {
