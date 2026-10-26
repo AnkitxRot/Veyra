@@ -1,7 +1,11 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { gzip, gunzip } from "node:zlib";
+import { promisify } from "node:util";
+
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
@@ -107,7 +111,7 @@ export async function createSnapshot(
     };
 
     const jsonStr = JSON.stringify(payload);
-    const compressed = gzipSync(Buffer.from(jsonStr, "utf8"));
+    const compressed = await gzipAsync(Buffer.from(jsonStr, "utf8"));
     const newSizeBytes = compressed.byteLength;
 
     const maxSnapshotSize = cfg.maxSnapshotSizeBytes ?? 5 * 1024 * 1024;
@@ -244,7 +248,7 @@ export async function restoreSnapshot(
       throw new ApiError(404, "snapshot archive file missing on disk", "not_found");
     }
 
-    const decompressed = gunzipSync(compressed);
+    const decompressed = await gunzipAsync(compressed);
     const payload: SnapshotPayload = JSON.parse(decompressed.toString("utf8"));
 
     const cwd = await workspacePath(cfg, project.id);

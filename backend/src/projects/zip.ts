@@ -1,4 +1,5 @@
-import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { deflateRaw, deflateRawSync, inflateRaw } from "node:zlib";
+import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { ApiError } from "../errors.js";
@@ -22,6 +23,9 @@ export function crc32(buf: Buffer): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
+const deflateRawAsync = promisify(deflateRaw);
+const inflateRawAsync = promisify(inflateRaw);
+
 export interface ZipFileEntry {
   path: string;
   rawPath?: string;
@@ -33,12 +37,26 @@ export interface ZipFileEntry {
  * Creates a standard PKZIP 2.0 Deflate archive buffer from a list of files.
  */
 export function createZipArchive(files: ZipFileEntry[]): Buffer {
+  return assembleZip(
+    files,
+    files.map((f) => deflateRawSync(f.content)),
+  );
+}
+
+/** Same archive as createZipArchive, but deflates off the event loop (use on request paths). */
+export async function createZipArchiveAsync(files: ZipFileEntry[]): Promise<Buffer> {
+  const deflated: Buffer[] = [];
+  for (const f of files) deflated.push(await deflateRawAsync(f.content));
+  return assembleZip(files, deflated);
+}
+
+function assembleZip(files: ZipFileEntry[], deflated: Buffer[]): Buffer {
   const localChunks: Buffer[] = [];
   const centralChunks: Buffer[] = [];
 
   let currentOffset = 0;
 
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
     // Preserve rawPath if provided (for testing traversal attacks), otherwise normalize
     const entryPath = file.rawPath ?? file.path.replace(/\\/g, "/").replace(/^\/+/, "");
     const nameBuf = Buffer.from(entryPath, "utf8");
@@ -48,7 +66,7 @@ export function createZipArchive(files: ZipFileEntry[]): Buffer {
     const fileCrc = crc32(rawContent);
 
     // Deflate compression
-    const compressedData = deflateRawSync(rawContent);
+    const compressedData = deflated[index]!;
     const compressedSize = compressedData.length;
     const compressionMethod = 8; // Deflate
 
@@ -382,7 +400,7 @@ export async function extractZipArchive(
       try {
         // Bound the output by the declared size: the declared size was already
         // checked against the archive limits, the real one must not exceed it.
-        uncompressedData = inflateRawSync(compressedSlice, {
+        uncompressedData = await inflateRawAsync(compressedSlice, {
           maxOutputLength: Math.max(1, entry.uncompressedSize),
         });
       } catch (err: any) {

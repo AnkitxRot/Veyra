@@ -13,7 +13,7 @@ import {
 } from "./service.js";
 import { listFiles, invalidateTreeCache } from "../files/service.js";
 import { readConfinedBytes } from "../files/confined.js";
-import { createZipArchive, extractZipArchive, type ZipFileEntry } from "./zip.js";
+import { createZipArchiveAsync, extractZipArchive, type ZipFileEntry } from "./zip.js";
 import { withProjectSnapshotLock } from "./snapshots.js";
 import { collaborationManager } from "../collab/manager.js";
 import { sandboxManager } from "../execution/sandbox.js";
@@ -48,7 +48,7 @@ export async function exportProjectZip(
       entries.push({ path: fp, content });
     }
 
-    const zipBuffer = createZipArchive(entries);
+    const zipBuffer = await createZipArchiveAsync(entries);
 
     try {
       recordAuditLog(db, {

@@ -9,7 +9,7 @@ import { getProject, workspacePath } from "../projects/service.js";
 import { listFiles } from "../files/service.js";
 import { readConfinedBytes } from "../files/confined.js";
 import { withProjectSnapshotLock, snapshotDir } from "../projects/snapshots.js";
-import { createZipArchive, extractZipArchive, type ZipFileEntry } from "../projects/zip.js";
+import { createZipArchiveAsync, extractZipArchive, type ZipFileEntry } from "../projects/zip.js";
 import { ensureBackupDir, secureBackupFilePermissions } from "./shared.js";
 
 /**
@@ -374,7 +374,7 @@ export async function createWorkspaceBackup(
       content: Buffer.from(JSON.stringify(manifest, null, 2), "utf8"),
     });
 
-    const zipBuffer = createZipArchive(entries);
+    const zipBuffer = await createZipArchiveAsync(entries);
 
     const extractedCount = await verifyArchiveExtractable(zipBuffer, cfg);
     if (extractedCount !== entries.length) {
