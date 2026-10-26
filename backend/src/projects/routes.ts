@@ -309,6 +309,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
       const collabRole = role === "viewer" ? "viewer" : "editor";
       addProjectCollaborator(db, req.params.id, targetUser.id, collabRole);
+      recordAuditLog(db, {
+        userId: userOf(req).id,
+        projectId: req.params.id,
+        eventType: "COLLABORATOR_ADDED",
+        details: { targetUserId: targetUser.id, role: collabRole },
+        ipAddress: req.ip,
+      });
 
       res.status(201).json({
         ok: true,
@@ -335,6 +342,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       // M79: a removed collaborator loses terminal access immediately — kill
       // any attached or detached PTY they hold in this project.
       terminalSessions.reapUserProject(targetUserId, req.params.id);
+      recordAuditLog(db, {
+        userId: userOf(req).id,
+        projectId: req.params.id,
+        eventType: "COLLABORATOR_REMOVED",
+        details: { targetUserId },
+        ipAddress: req.ip,
+      });
 
       res.json({ ok: true });
     } catch (err) {
@@ -362,6 +376,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       if (role === "viewer") {
         terminalSessions.reapUserProject(targetUserId, req.params.id);
       }
+      recordAuditLog(db, {
+        userId: userOf(req).id,
+        projectId: req.params.id,
+        eventType: "COLLABORATOR_ROLE_CHANGED",
+        details: { targetUserId, role },
+        ipAddress: req.ip,
+      });
       res.json({ ok: true });
     } catch (err) {
       next(err);
