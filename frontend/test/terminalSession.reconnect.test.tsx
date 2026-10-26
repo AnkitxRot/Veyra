@@ -171,7 +171,7 @@ describe("M79 — terminal reconnect state machine", () => {
     act(() => sock()._open());
     act(() => sock()._drop());
     for (let i = 0; i < RECONNECT_MAX_ATTEMPTS; i++) {
-      act(() => vi.advanceTimersByTime(20_000));
+      void act(() => vi.advanceTimersByTime(20_000));
       act(() => sock()._drop());
     }
     expect(h.result.current.state).toBe(TERMINAL_STATES.reconnect_exhausted);
@@ -187,7 +187,7 @@ describe("M79 — terminal reconnect state machine", () => {
     act(() => sock()._message({ type: "data", seq: 7, data: "hello" }));
     act(() => sock()._message({ type: "data", seq: 12, data: "world" }));
     act(() => sock()._drop());
-    act(() => vi.advanceTimersByTime(2000));
+    void act(() => vi.advanceTimersByTime(2000));
     expect(sock().url).toContain("lastSeq=12");
     expect(sock().url).toContain("terminalId=tid-fixed");
   });

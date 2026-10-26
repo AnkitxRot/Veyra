@@ -117,7 +117,7 @@ describe("M79 — XTerm buffer preservation + exactly-once replay", () => {
     expect(term.written.join("")).toBe("line-1\r\nline-2\r\n");
 
     act(() => sock()._drop());
-    act(() => vi.advanceTimersByTime(2000));
+    void act(() => vi.advanceTimersByTime(2000));
     act(() => sock()._open());
 
     // same instance, buffer untouched
@@ -141,7 +141,7 @@ describe("M79 — XTerm buffer preservation + exactly-once replay", () => {
     expect(term.written.join("")).toBe("AB");
 
     act(() => sock()._drop());
-    act(() => vi.advanceTimersByTime(2000));
+    void act(() => vi.advanceTimersByTime(2000));
     act(() => sock()._open());
     // buggy server re-sends 6 then a real 7
     act(() => sock()._message({ type: "data", seq: 6, data: "B" }));
@@ -155,7 +155,7 @@ describe("M79 — XTerm buffer preservation + exactly-once replay", () => {
     act(() => sock()._open());
     act(() => sock()._message({ type: "data", seq: 41, data: "x" }));
     act(() => sock()._drop());
-    act(() => vi.advanceTimersByTime(2000));
+    void act(() => vi.advanceTimersByTime(2000));
     expect(sock().url).toContain("lastSeq=41");
     act(() => sock()._open());
     expect(h.result.current.state).toBe(TERMINAL_STATES.connected);

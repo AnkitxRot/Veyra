@@ -108,14 +108,14 @@ export function useLayoutPreferences(
     if (!hydratedRef.current) return;
     const clamped = clampSidebarWidth(sidebarWidthRef.current);
     if (clamped !== sidebarWidthRef.current) setSidebarWidthState(clamped);
-    persistRef.current({ sidebarWidth: clamped });
+    void persistRef.current({ sidebarWidth: clamped });
   }, []);
 
   const persistBottomHeight = useCallback(() => {
     if (!hydratedRef.current) return;
     const clamped = clampBottomHeight(bottomHeightRef.current);
     if (clamped !== bottomHeightRef.current) setBottomHeightState(clamped);
-    persistRef.current({ bottomHeight: clamped });
+    void persistRef.current({ bottomHeight: clamped });
   }, []);
 
   const setIsSidebarHidden = useCallback((v: SetBool) => {
@@ -123,7 +123,7 @@ export function useLayoutPreferences(
     const next = typeof v === "function" ? v(prev) : v;
     setSidebarHiddenState(next);
     if (next !== prev && hydratedRef.current) {
-      persistRef.current({ sidebarHidden: next });
+      void persistRef.current({ sidebarHidden: next });
     }
   }, []);
 
@@ -132,7 +132,7 @@ export function useLayoutPreferences(
     const next = typeof v === "function" ? v(prev) : v;
     setBottomCollapsedState(next);
     if (next !== prev && hydratedRef.current) {
-      persistRef.current({ bottomCollapsed: next });
+      void persistRef.current({ bottomCollapsed: next });
     }
   }, []);
 

@@ -634,7 +634,7 @@ export function ExecutionSessionProvider({
   useEffect(() => {
     const onWorkflowAll = () => {
       const task = workflowTasks.find((t) => t.kind === "test");
-      if (task) runWorkflow({ taskId: task.id });
+      if (task) void runWorkflow({ taskId: task.id });
     };
     document.addEventListener("ide-workflow-run-all", onWorkflowAll);
     return () => document.removeEventListener("ide-workflow-run-all", onWorkflowAll);

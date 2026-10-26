@@ -70,7 +70,7 @@ export default function ProjectSecretsModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetchSecrets();
+      void fetchSecrets();
       setSuccessMsg(null);
       setError(null);
       setNewName("");
@@ -115,7 +115,7 @@ export default function ProjectSecretsModal({
       setNewValue("");
       setNewEnv("");
       setNewIsSecret(true);
-      fetchSecrets();
+      void fetchSecrets();
     } catch (err: any) {
       setError(err.message || "Failed to create secret");
     } finally {
@@ -152,7 +152,7 @@ export default function ProjectSecretsModal({
       setSuccessMsg(`Updated ${s.name}`);
       setEditingKey(null);
       setEditValue("");
-      fetchSecrets();
+      void fetchSecrets();
     } catch (err: any) {
       setError(err.message || "Failed to update secret");
     } finally {
@@ -180,7 +180,7 @@ export default function ProjectSecretsModal({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(errMsg(data, "Failed to delete secret"));
       setSuccessMsg(`Deleted ${s.name}`);
-      fetchSecrets();
+      void fetchSecrets();
     } catch (err: any) {
       setError(err.message || "Failed to delete secret");
     } finally {

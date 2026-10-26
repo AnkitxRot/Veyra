@@ -668,7 +668,7 @@ export default function IDE({
       typeof throttleLatest<AttentionEvent[]>
     > | null = null;
 
-    (async () => {
+    void (async () => {
       const { CollaborationClient } = await import("../../collab/client");
       if (cancelled) return;
 
@@ -1260,7 +1260,7 @@ export default function IDE({
 
     restoreInFlightRef.current = pid;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       const loaded = await Promise.all(
         wanted.map(async (p) => {
           try {
@@ -1331,13 +1331,13 @@ export default function IDE({
         setStats(res.stats);
       } catch {}
     };
-    fetchStats();
+    void fetchStats();
     const timer = setInterval(fetchStats, 2500);
     return () => clearInterval(timer);
   }, [project?.id]);
 
   useEffect(() => {
-    loadProjects();
+    void loadProjects();
     getCapabilities()
       .then(setCapabilities)
       .catch(() => {});
@@ -1345,7 +1345,7 @@ export default function IDE({
 
   useEffect(() => {
     if (project) {
-      loadTree();
+      void loadTree();
     }
   }, [project, loadTree]);
 
@@ -2954,7 +2954,7 @@ export default function IDE({
       );
 
       setAiPatchState((prev) => ({ ...prev, isOpen: false }));
-      loadTree();
+      void loadTree();
 
       // Execute Sandbox Verification Pipeline
       const verifRes = await verifyAIPatch(project.id, {
@@ -2986,7 +2986,7 @@ export default function IDE({
     const handleAIEvent = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.action) {
-        handleTriggerAIAction(detail.action, detail);
+        void handleTriggerAIAction(detail.action, detail);
       }
     };
     document.addEventListener("ide-ai-action", handleAIEvent);
@@ -3450,7 +3450,7 @@ export default function IDE({
       if (e.shiftKey && e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
-        handleFormatDocument();
+        void handleFormatDocument();
         return;
       }
     };
@@ -4008,13 +4008,13 @@ export default function IDE({
                       setLspDiagnostics([]);
                     }}
                     onExplainDiagnostic={(diag) => {
-                      handleTriggerAIAction("explain", {
+                      void handleTriggerAIAction("explain", {
                         path: diag.filePath,
                         diagnostics: [diag],
                       });
                     }}
                     onFixDiagnostic={(diag) => {
-                      handleTriggerAIAction("fix_error", {
+                      void handleTriggerAIAction("fix_error", {
                         path: diag.filePath,
                         diagnostics: [diag],
                       });
@@ -4200,7 +4200,7 @@ export default function IDE({
         onOpenFile={handleOpenFile}
         commands={registeredCommands}
         onExecuteCommand={(id) => {
-          CommandRegistry.getInstance().execute(id);
+          void CommandRegistry.getInstance().execute(id);
         }}
         searchSymbols={searchWorkspaceSymbols}
         onOpenSymbol={(hit) => {
@@ -4291,7 +4291,7 @@ export default function IDE({
               setAiExplainState((prev) => ({ ...prev, isOpen: false }))
             }
             onProposeFix={() => {
-              handleTriggerAIAction("fix_error", {
+              void handleTriggerAIAction("fix_error", {
                 path: aiExplainState.activeFilePath,
                 diagnostics: aiExplainState.diagnostics,
               });

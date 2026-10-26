@@ -1317,7 +1317,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         req.params.port,
         cfg,
       );
-      entry.proxy(req as any, res as any, next);
+      void entry.proxy(req as any, res as any, next);
     } catch (err) {
       next(err);
     }

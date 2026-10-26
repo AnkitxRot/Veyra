@@ -226,10 +226,10 @@ export default function AdminDashboard({
             }
           } else if (packet.type === "platform_event") {
             // Immediately invalidate relevant data
-            fetchTenants();
-            fetchExecutions();
-            fetchAudit();
-            fetchOverviewFallback();
+            void fetchTenants();
+            void fetchExecutions();
+            void fetchAudit();
+            void fetchOverviewFallback();
           }
         } catch {}
       };
@@ -265,13 +265,13 @@ export default function AdminDashboard({
 
   // Initial load
   useEffect(() => {
-    refreshAll();
+    void refreshAll();
   }, [refreshAll]);
 
   useEffect(() => {
-    if (activeTab === "executions") fetchExecutions();
-    if (activeTab === "tenants") fetchTenants();
-    if (activeTab === "audit") fetchAudit();
+    if (activeTab === "executions") void fetchExecutions();
+    if (activeTab === "tenants") void fetchTenants();
+    if (activeTab === "audit") void fetchAudit();
   }, [activeTab, fetchExecutions, fetchTenants, fetchAudit]);
 
   // User Actions: Inspect

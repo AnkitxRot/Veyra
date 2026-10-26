@@ -54,7 +54,7 @@ export default function ProjectHealthModal({ isOpen, onClose, project }: Project
 
   useEffect(() => {
     if (isOpen && project) {
-      fetchHealth();
+      void fetchHealth();
     }
   }, [isOpen, project, fetchHealth]);
 

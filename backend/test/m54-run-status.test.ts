@@ -367,12 +367,12 @@ describe("M54 — collaborative run awareness (server-authoritative)", () => {
     const room = makeRoom("p1");
     const attacker = makeCapturingWs();
     const victim = makeCapturingWs();
-    room.addClient(attacker.ws, {
+    void room.addClient(attacker.ws, {
       userId: 5,
       username: "mallory",
       role: "editor",
     });
-    room.addClient(victim.ws, {
+    void room.addClient(victim.ws, {
       userId: 6,
       username: "victim",
       role: "editor",

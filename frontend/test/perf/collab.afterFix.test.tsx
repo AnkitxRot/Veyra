@@ -114,15 +114,15 @@ function runChurn(tree: TreeNode[], stabilize: boolean) {
   act(() => {
     view = render(<Host recorder={recorder} tree={tree} stabilize={stabilize} />);
   });
-  act(() => vi.advanceTimersByTime(1));
+  void act(() => vi.advanceTimersByTime(1));
   // prime with the first real roster
   act(() => emit!(roster));
-  act(() => vi.advanceTimersByTime(220));
+  void act(() => vi.advanceTimersByTime(220));
   recorder.reset();
 
   for (let t = 0; t < TICKS; t++) {
     act(() => emit!(reproject(roster, { cursorLine: t + 5, lastActive: (t + 1) * 1000 })));
-    act(() => vi.advanceTimersByTime(220));
+    void act(() => vi.advanceTimersByTime(220));
   }
 
   const out = {

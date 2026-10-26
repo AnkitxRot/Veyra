@@ -141,7 +141,7 @@ export default function AdminBackupsPanel({ projects }: { projects: AdminProject
   }, []);
 
   useEffect(() => {
-    loadDbBackups();
+    void loadDbBackups();
   }, [loadDbBackups]);
 
   const handleCreateDbBackup = async () => {
@@ -196,7 +196,7 @@ export default function AdminBackupsPanel({ projects }: { projects: AdminProject
   }, []);
 
   useEffect(() => {
-    loadWorkspaceBackups(selectedProjectId);
+    void loadWorkspaceBackups(selectedProjectId);
   }, [selectedProjectId, loadWorkspaceBackups]);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);

@@ -81,7 +81,7 @@ export function bindDebugEditor(
 
   const mouse = editor.onMouseDown((ev) => {
     const t = ev.target;
-    if (!t || t.type !== MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+    if (!t || (t.type as number) !== MouseTargetType.GUTTER_GLYPH_MARGIN) return;
     const line = t.position?.lineNumber;
     const path = getActiveFile();
     if (!line || !path) return;

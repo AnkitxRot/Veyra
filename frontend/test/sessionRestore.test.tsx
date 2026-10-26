@@ -111,7 +111,7 @@ function SessionIDE({
     if (!project) return;
     const pid = project.id;
     let done = false;
-    Promise.resolve().then(() => {
+    void Promise.resolve().then(() => {
       if (done) return;
       treeLoadedForRef.current = pid;
       setTreeTick((t) => t + 1);

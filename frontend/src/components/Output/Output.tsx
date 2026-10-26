@@ -114,8 +114,8 @@ export default function Output({
   }, [project]);
 
   useEffect(() => {
-    if (activeTab === "history") loadRuns();
-    if (activeTab === "snapshots") loadSnapshots();
+    if (activeTab === "history") void loadRuns();
+    if (activeTab === "snapshots") void loadSnapshots();
   }, [activeTab, project, loadRuns, loadSnapshots]);
 
   // A finished run records a new row in history — refresh the History tab if
@@ -123,7 +123,7 @@ export default function Output({
   // execution session; this component just reacts to its completion event.)
   useEffect(() => {
     const onRunStopped = () => {
-      if (activeTab === "history") loadRuns();
+      if (activeTab === "history") void loadRuns();
     };
     document.addEventListener("run-stopped", onRunStopped);
     return () => document.removeEventListener("run-stopped", onRunStopped);
@@ -152,7 +152,7 @@ export default function Output({
         method: "POST",
         body: JSON.stringify({ name }),
       });
-      loadSnapshots();
+      void loadSnapshots();
       emitNotice({ kind: "success", text: "Snapshot created", ttl: 3000 });
     } catch (err: any) {
       emitErrorNotice(`Could not create snapshot: ${err.message}`);
@@ -190,7 +190,7 @@ export default function Output({
       await api(`/api/projects/${project.id}/snapshots/${modalState.snapshot.id}`, {
         method: "DELETE",
       });
-      loadSnapshots();
+      void loadSnapshots();
       emitNotice({ kind: "success", text: "Snapshot deleted", ttl: 3000 });
     } catch (err: any) {
       emitErrorNotice(`Could not delete snapshot: ${err.message}`);

@@ -1075,7 +1075,7 @@ export default function SourceControlPanel({
                       status.staged.length > 0
                     ) {
                       e.preventDefault();
-                      doCommit();
+                      void doCommit();
                     }
                   }}
                   placeholder={
@@ -1252,7 +1252,7 @@ export default function SourceControlPanel({
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (newBranchName.trim()) createBranch(newBranchName.trim());
+                      if (newBranchName.trim()) void createBranch(newBranchName.trim());
                     }}
                     style={{ display: "flex", gap: 5, marginTop: 6 }}
                   >

@@ -88,7 +88,7 @@ export default function AdminObservabilityPanel() {
   // Initial load
   useEffect(() => {
     isMountedRef.current = true;
-    fetchObservability();
+    void fetchObservability();
 
     return () => {
       isMountedRef.current = false;
@@ -101,7 +101,7 @@ export default function AdminObservabilityPanel() {
 
     const interval = setInterval(() => {
       if (!document.hidden && isMountedRef.current) {
-        fetchObservability();
+        void fetchObservability();
       }
     }, POLL_INTERVAL_MS);
 
@@ -116,7 +116,7 @@ export default function AdminObservabilityPanel() {
       const hidden = document.hidden;
       setIsHidden(hidden);
       if (!hidden && isMountedRef.current) {
-        fetchObservability();
+        void fetchObservability();
       }
     };
 
@@ -141,7 +141,7 @@ export default function AdminObservabilityPanel() {
   }, [lastUpdated]);
 
   const handleManualRefresh = () => {
-    fetchObservability(true);
+    void fetchObservability(true);
   };
 
   if (loading && !data) {

@@ -49,7 +49,7 @@ export default function AdminResourceAnalytics() {
   }, [range]);
 
   useEffect(() => {
-    fetchAnalytics();
+    void fetchAnalytics();
     if (!autoRefresh) return;
     const interval = setInterval(fetchAnalytics, 3000);
     return () => clearInterval(interval);

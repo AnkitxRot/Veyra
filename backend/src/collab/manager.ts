@@ -363,7 +363,7 @@ export class VirtualClock implements IClock {
           t.fireAt = this.virtualTime + t.intervalMs!;
           this.timers.push(t);
         }
-        await t.fn();
+        await Promise.resolve(t.fn());
       }
     }
   }
@@ -398,6 +398,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
       },
       (err) => {
         clearTimeout(timer);
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- forwards the original rejection reason unchanged
         reject(err);
       },
     );
@@ -2421,13 +2422,13 @@ export class CollaborationRoom {
 
     // Schedule 2s debounce
     this.debounceTimer = this.clock.setTimeout(() => {
-      this.flushToDisk();
+      void this.flushToDisk();
     }, 2000);
 
     // Schedule max 10s delay if not already active
     if (!this.maxFlushTimer) {
       this.maxFlushTimer = this.clock.setTimeout(() => {
-        this.flushToDisk();
+        void this.flushToDisk();
       }, 10000);
     }
   }

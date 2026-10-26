@@ -51,7 +51,7 @@ export default function ProjectSharingModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetchCollaborators();
+      void fetchCollaborators();
       setSuccessMsg(null);
       setError(null);
     }
@@ -83,7 +83,7 @@ export default function ProjectSharingModal({
 
       setSuccessMsg(`Invited "${inviteUsername}" as ${inviteRole.toUpperCase()}`);
       setInviteUsername("");
-      fetchCollaborators();
+      void fetchCollaborators();
     } catch (err: any) {
       setError(err.message || "Failed to invite collaborator");
     } finally {
@@ -101,7 +101,7 @@ export default function ProjectSharingModal({
       });
       if (!res.ok) throw new Error("Failed to revoke collaborator");
       setSuccessMsg(`Revoked access for ${username}`);
-      fetchCollaborators();
+      void fetchCollaborators();
     } catch (err: any) {
       setError(err.message || "Failed to revoke collaborator");
     }
@@ -116,7 +116,7 @@ export default function ProjectSharingModal({
         body: JSON.stringify({ role: newRole }),
       });
       if (!res.ok) throw new Error("Failed to update collaborator role");
-      fetchCollaborators();
+      void fetchCollaborators();
     } catch (err: any) {
       setError(err.message || "Failed to update role");
     }

@@ -77,7 +77,7 @@ export default function ResourcesView({ project }: ResourcesViewProps) {
   }, [project, range]);
 
   useEffect(() => {
-    fetchTelemetry();
+    void fetchTelemetry();
     if (!autoRefresh) return;
     const interval = setInterval(fetchTelemetry, 2500);
     return () => clearInterval(interval);

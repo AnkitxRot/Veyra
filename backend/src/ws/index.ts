@@ -315,7 +315,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
           userId: String(row.id),
         });
         registerConnection(row.id, ws);
-        room.addClient(ws, {
+        void room.addClient(ws, {
           userId: row.id,
           username: row.username,
           role: accessRole,

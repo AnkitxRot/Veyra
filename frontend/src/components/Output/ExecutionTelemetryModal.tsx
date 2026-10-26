@@ -39,7 +39,7 @@ export default function ExecutionTelemetryModal({
       }
     };
 
-    fetchRunTelemetry();
+    void fetchRunTelemetry();
   }, [isOpen, run, projectId]);
 
   if (!isOpen || !run) return null;

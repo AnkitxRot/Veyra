@@ -205,7 +205,7 @@ export default function WorkspaceSearchModal({
     }
 
     searchTimeoutRef.current = setTimeout(() => {
-      executeSearch(query);
+      void executeSearch(query);
     }, 250);
 
     return () => {
