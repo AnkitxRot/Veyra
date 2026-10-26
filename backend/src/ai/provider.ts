@@ -121,7 +121,7 @@ export class DeterministicEngineeringProvider implements AIProvider {
           );
           if (modified === ctx.fileContent) {
             modified = ctx.fileContent.replace(
-              /([a-zA-Z0-9_]+)\s*\/\s*([a-zA-Z0-9_]+)/g,
+              /([a-zA-Z0-9_]{1,64})\s{0,8}\/\s{0,8}([a-zA-Z0-9_]{1,64})/g,
               "($1 / $2 if $2 != 0 else 0)",
             );
           }
