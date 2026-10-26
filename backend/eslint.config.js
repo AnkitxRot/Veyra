@@ -46,6 +46,7 @@ export default tseslint.config(
       "@typescript-eslint/no-misused-spread": "warn",
       "@typescript-eslint/no-useless-constructor": "warn",
       "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/no-meaningless-void-operator": "off",
       "@typescript-eslint/no-unnecessary-condition": "off",
       "@typescript-eslint/restrict-template-expressions": "off",
       "@typescript-eslint/no-confusing-void-expression": "off",

@@ -26,6 +26,12 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // React Compiler-era rules (v7): adopt incrementally; existing patterns are behavior-bearing.
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/immutability": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": [
         "warn",
