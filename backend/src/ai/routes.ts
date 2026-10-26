@@ -251,6 +251,28 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
         skipVerification,
       } = req.body ?? {};
 
+      // Journal fields are caller-supplied and persisted: require short strings
+      // so the skip path cannot be used to fill the database (M97).
+      const bounded: Array<[string, unknown, number]> = [
+        ["action", action, 64],
+        ["providerType", providerType, 64],
+        ["modelName", modelName, 128],
+        ["filePath", filePath, 1024],
+        ["explanation", explanation, 4096],
+        ["diffSummary", diffSummary, 4096],
+        ["snapshotId", snapshotId, 128],
+      ];
+      for (const [field, value, max] of bounded) {
+        if (value === undefined || value === null) continue;
+        if (typeof value !== "string" || value.length > max) {
+          throw new ApiError(
+            400,
+            `${field} must be a string of at most ${max} characters`,
+            "invalid_verification_field",
+          );
+        }
+      }
+
       const result = await runAIVerification(cfg, db, {
         projectId: project.id,
         userId: userOf(req).id,
@@ -273,20 +295,27 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
   // 4. Project AI Verification History Journal
   router.get("/:id/ai/verifications", (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
+      const { project, role } = requireProjectAccess(
         db,
         userOf(req).id,
         req.params.id,
         "viewer",
       );
-      const verifications = db
+      const rows = db
         .prepare(
           `SELECT * FROM ai_verifications
            WHERE project_id = ?
            ORDER BY created_at DESC
            LIMIT 50`,
         )
-        .all(project.id);
+        .all(project.id) as Array<Record<string, unknown>>;
+
+      // Run output is never shown to viewers (M65); the journal stores
+      // stdout/stderr summaries, so strip them for the viewer role.
+      const verifications =
+        role === "viewer"
+          ? rows.map(({ stdout_summary: _out, stderr_summary: _err, ...rest }) => rest)
+          : rows;
 
       res.json({ verifications });
     } catch (err) {
