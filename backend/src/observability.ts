@@ -11,14 +11,13 @@ import {
   createHistogram,
   PerformanceObserver,
   constants as perfConstants,
-  type IntervalHistogram,
   type RecordableHistogram,
 } from "node:perf_hooks";
 import type { Db } from "./db.js";
 
 // --- Event-loop lag ---------------------------------------------------
 
-let eventLoopMonitor: IntervalHistogram | null = null;
+let eventLoopMonitor: ReturnType<typeof monitorEventLoopDelay> | null = null;
 
 /** Idempotent: safe to call more than once (e.g. across test setup). */
 export function startEventLoopMonitor(): void {
