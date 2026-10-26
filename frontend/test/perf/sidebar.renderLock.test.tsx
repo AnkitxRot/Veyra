@@ -79,7 +79,7 @@ function Host({ recorder, initialTree }: { recorder: RenderRecorder; initialTree
   const collaboratorsForTree = useStableCollaborators(collaborators, user.id);
 
   // `bump` is read here (like IDE reads `stats`) but is NOT a Sidebar prop.
-  void bump;
+  bump;
 
   return (
     <ProfiledSidebar
