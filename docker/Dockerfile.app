@@ -8,7 +8,7 @@
 # and does NOT expose the daemon.
 
 # ---------- Stage 1: build frontend + backend ----------
-FROM node:22-bookworm AS build
+FROM node:24-bookworm AS build
 
 # node-pty is a native module and needs a toolchain to compile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -40,7 +40,7 @@ RUN npm run build -w @cloud-ide/frontend \
 RUN npm prune --omit=dev
 
 # ---------- Stage 2: runtime ----------
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 # Must match the host docker socket group for non-root socket access on a VPS.
 ARG DOCKER_GID=999

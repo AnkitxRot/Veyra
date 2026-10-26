@@ -309,7 +309,7 @@ control.
 
 ## Development
 
-Requires Node 22, npm, and (for execution tests) Docker. Git is required
+Requires Node 24, npm, and (for execution tests) Docker. Git is required
 for M80 remote tests.
 
 ```bash
@@ -420,7 +420,7 @@ Health:
 - **Frontend:** Vitest + Testing Library (jsdom). Editor, Source Control,
   collab UI, settings.
 - **CI:** `.github/workflows/ci.yml` — lint, typecheck, frontend build,
-  frontend tests, runner image, backend tests, app image. Node 22.
+  frontend tests, runner image, backend tests, app image. Node 24.
 
 ## License
 
