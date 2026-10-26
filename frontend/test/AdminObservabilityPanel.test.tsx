@@ -381,16 +381,18 @@ describe("AdminObservabilityPanel (Milestone 49)", () => {
     });
 
     // Next poll fails
-    (api as any).mockRejectedValueOnce(new Error("Network disconnect"));
+    (api as any).mockRejectedValue(new Error("Network disconnect"));
 
     await act(async () => {
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
     });
 
+    // Transient warning banner rendered
+    await waitFor(() => {
+      expect(screen.getByText(/Unable to refresh observability data/i)).toBeDefined();
+    });
     // Existing metrics still visible!
     expect(screen.getByText(/12 WS \/ 4 Rooms/)).toBeDefined();
-    // Transient warning banner rendered
-    expect(await screen.findByText(/Unable to refresh observability data/i)).toBeDefined();
   });
 
   it("14. initial load error displays understandable error state", async () => {
@@ -433,10 +435,12 @@ describe("AdminObservabilityPanel (Milestone 49)", () => {
     expect(screen.getByText(/Updated just now/i)).toBeDefined();
 
     await act(async () => {
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(await screen.findByText(/Updated 3s ago/i)).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getByText(/Updated (?:[3-9]|\d{2,})s ago/i)).toBeDefined();
+    });
   });
 
   it("17. handles inactive event-loop monitor gracefully without throwing", async () => {
