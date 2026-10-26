@@ -140,7 +140,8 @@ export async function buildAIContext(
       const end = Math.min(lines.length, opts.selectionRange.endLine + 20);
       fileContent =
         `// [Truncated context: lines ${start + 1} - ${end}]\n` +
-        lines.slice(start, end).join("\n");
+        // A single huge line survives line-windowing; cap the characters too.
+        lines.slice(start, end).join("\n").slice(0, maxChars);
     } else {
       fileContent =
         fileContent.slice(0, maxChars) +

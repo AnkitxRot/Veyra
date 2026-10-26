@@ -5,11 +5,14 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M85 Workspace Intelligence & IDE Reliability is implemented on
-top of M84 Test Explorer, M83 sandboxed debugging, M82/M81 language
-intelligence, and M80 HTTPS Git remotes. This is a working single-node
-product, not a hosted SaaS. See [`STATUS.md`](STATUS.md) for the
-milestone history.
+**Status:** M94 (audit trail coverage for LSP and debugger sessions) is
+the latest milestone. It builds on M93 audit-failure monitoring, M92 audit
+coverage, M91 deterministic idle-disposal, M88 terminal reload persistence,
+M87 sandboxed project Git, M86 read-your-writes, M85 workspace
+intelligence, M84 Test Explorer, M83 sandboxed debugging, M81/M82 language
+intelligence and M80 HTTPS Git remotes. This is a working single-node
+product, not a hosted SaaS. See [`STATUS.md`](STATUS.md) for the milestone
+history and [`docs/ROADMAP.md`](docs/ROADMAP.md) for what comes next.
 
 ## What it is
 
@@ -39,13 +42,19 @@ the Veyra source repository. Do not confuse the two.
 | Secrets | Encrypted per-project secrets (M47); write-only values |
 | Git (local) | Init, status, stage, commit, branches, checkout (M51) |
 | Git (HTTPS) | Clone, origin, fetch, fast-forward-only pull, push (M80) |
-| Admin | Users, backups, observability |
+| Admin | Users, backups, observability, audit-integrity telemetry (M93) |
+| Audit | Audit log covering auth, projects, Git, execution, terminals, collab, LSP and debug sessions (M92/M94); fail-soft writes, failure counters, retention GC (M93) |
+| Git execution | Project Git runs inside the project sandbox (M87) |
 | Auth | Cookie sessions (httpOnly, signed) + optional Bearer token |
 
 Not in this tree: SSH Git, GitHub OAuth, pull-request UI, merge/rebase UI,
 force-push, LFS, submodules, billing, analytics, Java/C++ language
 servers or debuggers, rename/refactor, expression evaluation / watches,
-collaborative debugger control, profiler, AI coding assistants.
+collaborative debugger control, profiler, LLM-backed AI assistants.
+
+There is a small rule-based "AI" action/verify subsystem (`backend/src/ai/`,
+`/api/projects/:id/ai/*`): deterministic regex/static rewrites with a
+sandbox verification journal. It makes no network calls and uses no model.
 
 ## Architecture
 
@@ -220,7 +229,7 @@ If Docker, the runner image, or an adapter is missing, the editor still
 works; Debug stays disabled / the panel shows **Unavailable**.
 
 Rename, workspace-wide refactor, Java/C++ language servers, debugger, and
-AI coding assistants are out of scope.
+LLM-backed AI assistants are out of scope.
 
 ## Testing, tasks, and builds (M84)
 

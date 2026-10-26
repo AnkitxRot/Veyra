@@ -9,7 +9,7 @@ import { detectLanguage, resolveMainFile } from "./detect.js";
 import { getLang } from "./languages.js";
 import { sandboxRun, type SandboxController } from "./sandbox.js";
 import { isDockerRunningAsync, isRunnerImageAvailableAsync } from "../tools.js";
-import { recordAuditLog, type AuditEventType } from "../audit.js";
+import { recordAuditLog } from "../audit.js";
 
 export type RunOutcome =
   | "success"

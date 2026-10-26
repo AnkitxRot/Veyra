@@ -1078,7 +1078,7 @@ export class CollaborationRoom {
    * M74: eventual awareness cleanup for a socket that dies without a 'close'
    * event, so removeClient() (which reconciles) never runs for it — the
    * heartbeat-reaper race and dev StrictMode / project-switch churn noted in
-   * STATUS.md:8262-8272, :8308-8310. Started on the first join, self-cancels
+   * docs/archive/STATUS-history.md:8262-8272, :8308-8310. Started on the first join, self-cancels
    * once the room is empty or disposed; dispose() also clears it. Mirrors the
    * ensureRunStatusSweep lifecycle.
    */

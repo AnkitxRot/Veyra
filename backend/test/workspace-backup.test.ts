@@ -468,7 +468,7 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     // Verifies the documented scope decision rather than testing behavior
     // that does not exist: workspace backups are never created except via
     // an explicit createWorkspaceBackup call (admin API), never by a timer.
-    // See workspaceBackup.ts / STATUS.md for the reasoning.
+    // See workspaceBackup.ts / docs/archive/STATUS-history.md for the reasoning.
     expect(true).toBe(true);
   });
 

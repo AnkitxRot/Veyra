@@ -118,6 +118,16 @@ export async function assertInsideWorkspace(
       await fs.access(cur, constants.F_OK);
       break; // exists
     } catch {
+      // access() follows links, so a dangling symlink looks missing and would
+      // be re-joined as plain text although a later open(O_CREAT) follows it
+      // out of the workspace (M97). A link that exists but does not resolve
+      // is never a safe write target.
+      try {
+        await fs.lstat(cur);
+        throw escapeError();
+      } catch (e) {
+        if (e instanceof ApiError) throw e;
+      }
       tail.unshift(basename(cur));
       const parent = dirname(cur);
       if (parent === cur) break;
