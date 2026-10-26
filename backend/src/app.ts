@@ -128,7 +128,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   if (existsSync(indexHtml)) {
     app.use(express.static(cfg.frontendDist, { index: "index.html" }));
     // SPA fallback for client-side routes. Never intercept /api or /ws.
-    app.get("*", (req, res, next) => {
+    app.get("{*splat}", (req, res, next) => {
       if (req.path.startsWith("/api/") || req.path.startsWith("/ws")) {
         return next();
       }

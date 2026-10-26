@@ -447,6 +447,7 @@ async function runContentWorker<
     });
 
     worker.once("error", (err) => {
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- worker error is forwarded unchanged
       finish(() => reject(err));
     });
   });

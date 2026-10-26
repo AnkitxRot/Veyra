@@ -240,7 +240,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id", (req, res, next) => {
     try {
-      const access = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
+      const access = requireProjectAccess(db, userOf(req).id, req.params.id as string, "viewer");
       res.json({ project: access.project, role: access.role });
     } catch (err) {
       next(err);
@@ -363,7 +363,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // Live Container Resource Telemetry
   router.get("/:id/stats", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "viewer",
+      );
       const stats = await sandboxManager.getContainerStats(project.id);
       res.json({ stats });
     } catch (err) {
@@ -606,7 +611,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         cfg,
         db,
         userOf(req).id,
-        req.params.id!,
+        req.params.id as string,
       );
       const safeFilename = projectName.replace(/[^a-zA-Z0-9._-]/g, "_") || "project";
       res.setHeader("Content-Type", "application/zip");
@@ -628,11 +633,18 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       // be flushed within the safety window.
       const force =
         req.query.force === "true" || req.query.force === "1" || req.body?.force === true;
-      const result = await importProjectZip(cfg, db, userOf(req).id, req.params.id!, zipBuffer, {
-        replace,
-        force,
-        actorUsername: userOf(req).username,
-      });
+      const result = await importProjectZip(
+        cfg,
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        zipBuffer,
+        {
+          replace,
+          force,
+          actorUsername: userOf(req).username,
+        },
+      );
       res.json(result);
     } catch (err) {
       next(err);
@@ -661,7 +673,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/workflow", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "viewer",
+      );
       const cwd = await workspacePath(cfg, project.id);
       res.json(await discoverWorkflow(cwd));
     } catch (err) {
@@ -671,7 +688,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/tree", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "viewer",
+      );
       const cwd = await workspacePath(cfg, project.id);
       const listing = await treeListing(cwd);
       res.json({
@@ -686,7 +708,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/file", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "viewer",
+      );
       const path = req.query.path;
       if (typeof path !== "string")
         throw new ApiError(400, "path query parameter is required", "invalid_path");
@@ -699,7 +726,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/file", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "editor",
+      );
       const { path, content } = req.body ?? {};
       if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
       if (typeof content !== "string")
@@ -804,7 +836,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         );
       }
 
-      const result = await uploadProjectFiles(cfg, db, userOf(req).id, req.params.id!, {
+      const result = await uploadProjectFiles(cfg, db, userOf(req).id, req.params.id as string, {
         targetDir,
         overwrite,
         files,
@@ -818,7 +850,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/move", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "editor",
+      );
       const { from, to } = req.body ?? {};
       if (typeof from !== "string" || typeof to !== "string") {
         throw new ApiError(400, "from and to are required", "invalid_path");
@@ -849,7 +886,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/delete", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "editor",
+      );
       const { path } = req.body ?? {};
       if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
       const cwd = await workspacePath(cfg, project.id);
@@ -874,7 +916,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // Full Workspace Text Search
   router.post("/:id/search", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "viewer",
+      );
       // Every search spawns a worker thread that can live for the full
       // worker hard timeout, so cap how many a single user can have in
       // flight at once (own budget, separate from run/install).
@@ -896,7 +943,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/search", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "viewer",
+      );
       const userId = userOf(req).id;
       if (!searchGate.acquire(userId, cfg.maxConcurrentRuns)) {
         throw new ApiError(429, "too many concurrent searches", "too_many_searches");
@@ -937,7 +989,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // never mutates the workspace by default.
   router.post("/:id/search/replace", async (req, res, next) => {
     try {
-      const { project, role } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
+      const { project, role } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "editor",
+      );
 
       const body = req.body ?? {};
       const {
@@ -1196,7 +1253,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // Safe Code Auto-Formatting
   router.post("/:id/format", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "editor",
+      );
       const { path, content } = req.body ?? {};
       if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
       if (typeof content !== "string")
@@ -1211,7 +1273,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/run", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
+      const { project } = requireProjectAccess(
+        db,
+        userOf(req).id,
+        req.params.id as string,
+        "editor",
+      );
       const { language, stdin } = req.body ?? {};
       if (language !== undefined && typeof language !== "string") {
         throw new ApiError(400, "language must be a string", "invalid_language");
@@ -1313,7 +1380,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const { entry } = await resolveProxyEntry(
         db,
         userOf(req).id,
-        req.params.id!,
+        req.params.id as string,
         req.params.port,
         cfg,
       );

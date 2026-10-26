@@ -614,7 +614,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
 
   router.get("/profile/:id/avatar", requireAuth(db), (req, res, next) => {
     try {
-      sendAvatarFile(req, res, parseAvatarTargetId(req.params.id!));
+      sendAvatarFile(req, res, parseAvatarTargetId(req.params.id as string));
     } catch (err) {
       next(err);
     }

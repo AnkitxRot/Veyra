@@ -274,7 +274,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         checkLimit(req, terminateLimiter);
-        const { containerId } = req.params;
+        const { containerId } = req.params as Record<string, string>;
 
         if (!containerId || !/^ide-sandbox-[a-zA-Z0-9_-]+$/.test(containerId)) {
           throw new ApiError(
@@ -439,7 +439,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/users/:id", async (req: Request, res: Response, next: NextFunction) => {
     try {
       checkLimit(req);
-      const userId = parseInt(req.params.id!, 10);
+      const userId = parseInt(req.params.id as string, 10);
       if (isNaN(userId)) throw new ApiError(400, "invalid user id", "invalid_id");
 
       const userRow = db
@@ -525,7 +525,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
   router.patch("/users/:id", async (req: Request, res: Response, next: NextFunction) => {
     try {
       checkLimit(req);
-      const userId = parseInt(req.params.id!, 10);
+      const userId = parseInt(req.params.id as string, 10);
       if (isNaN(userId)) throw new ApiError(400, "invalid user id", "invalid_id");
 
       const existing = db
@@ -618,7 +618,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         checkLimit(req);
-        const userId = parseInt(req.params.id!, 10);
+        const userId = parseInt(req.params.id as string, 10);
         if (isNaN(userId)) throw new ApiError(400, "invalid user id", "invalid_id");
 
         const existing = db.prepare("SELECT id, username FROM users WHERE id = ?").get(userId) as
@@ -673,7 +673,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
   router.delete("/users/:id", async (req: Request, res: Response, next: NextFunction) => {
     try {
       checkLimit(req);
-      const userId = parseInt(req.params.id!, 10);
+      const userId = parseInt(req.params.id as string, 10);
       if (isNaN(userId)) throw new ApiError(400, "invalid user id", "invalid_id");
 
       // Safeguard 1: Self-Deletion Protection
@@ -923,7 +923,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/backups/:filename", async (req: Request, res: Response, next: NextFunction) => {
     try {
       checkLimit(req);
-      const filename = req.params.filename!;
+      const filename = req.params.filename as string;
       if (
         !BACKUP_FILENAME_RE.test(filename) ||
         filename.includes("..") ||
@@ -961,7 +961,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     try {
       checkLimit(req);
       const actorUserId = (req as any).user?.id;
-      const filename = req.params.filename!;
+      const filename = req.params.filename as string;
       await deleteDatabaseBackup(db, cfg, filename, {
         actorUserId,
         ipAddress: req.ip,
@@ -984,7 +984,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         checkLimit(req);
-        const projectId = req.params.projectId!;
+        const projectId = req.params.projectId as string;
         assertValidProjectId(projectId);
         const actorUserId = (req as any).user?.id;
         const backup = await createWorkspaceBackup(cfg, db, projectId, {
@@ -1014,7 +1014,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         checkLimit(req);
-        const projectId = req.params.projectId!;
+        const projectId = req.params.projectId as string;
         assertValidProjectId(projectId);
         const backups = await listWorkspaceBackups(cfg, projectId);
         res.json({
@@ -1036,8 +1036,8 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         checkLimit(req);
-        const projectId = req.params.projectId!;
-        const filename = req.params.filename!;
+        const projectId = req.params.projectId as string;
+        const filename = req.params.filename as string;
         assertValidProjectId(projectId);
         const backups = await listWorkspaceBackups(cfg, projectId);
         const match = backups.find((b) => b.filename === filename);
@@ -1072,8 +1072,8 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         checkLimit(req);
-        const projectId = req.params.projectId!;
-        const filename = req.params.filename!;
+        const projectId = req.params.projectId as string;
+        const filename = req.params.filename as string;
         const actorUserId = (req as any).user?.id;
         await deleteWorkspaceBackup(cfg, db, projectId, filename, {
           actorUserId,
@@ -1095,8 +1095,8 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         checkLimit(req);
-        const projectId = req.params.projectId!;
-        const filename = req.params.filename!;
+        const projectId = req.params.projectId as string;
+        const filename = req.params.filename as string;
         const actorUserId = (req as any).user?.id;
         const actorUsername = (req as any).user?.username;
         const result = await restoreWorkspaceBackup(cfg, db, projectId, filename, {
