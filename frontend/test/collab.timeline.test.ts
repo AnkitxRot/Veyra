@@ -36,18 +36,11 @@ describe("frontend timeline helpers", () => {
     const many = Array.from({ length: 5 }, (_, i) =>
       ev({ id: `e${i}`, at: `2026-08-31T1${i}:00:00.000Z` }),
     );
-    expect(mergeTimeline([], many, 3).map((e) => e.id)).toEqual([
-      "e4",
-      "e3",
-      "e2",
-    ]);
+    expect(mergeTimeline([], many, 3).map((e) => e.id)).toEqual(["e4", "e3", "e2"]);
   });
 
   it("formatTimelineEvent produces relative time + safe text", () => {
-    const f = formatTimelineEvent(
-      ev(),
-      Date.parse("2026-08-31T10:00:30.000Z"),
-    );
+    const f = formatTimelineEvent(ev(), Date.parse("2026-08-31T10:00:30.000Z"));
     expect(f.actor).toBe("rahul");
     expect(f.text).toContain("changed lines 40");
     expect(f.time).toMatch(/30s|just now/);
@@ -94,12 +87,8 @@ describe("frontend timeline helpers", () => {
   });
 
   it("whileAwayLine phrases each kind", () => {
-    expect(whileAwayLine(ev({ kind: "edit_burst", filePath: "a.ts" }))).toBe(
-      "edited a.ts",
-    );
-    expect(
-      whileAwayLine(ev({ kind: "callout", filePath: "a.ts" })),
-    ).toContain("callout on a.ts");
+    expect(whileAwayLine(ev({ kind: "edit_burst", filePath: "a.ts" }))).toBe("edited a.ts");
+    expect(whileAwayLine(ev({ kind: "callout", filePath: "a.ts" }))).toContain("callout on a.ts");
   });
 
   it("wireToTimelineEvent maps a wire frame", () => {

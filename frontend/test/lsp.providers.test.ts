@@ -27,11 +27,7 @@ describe("lsp monaco providers", () => {
         position: { lineNumber: number; column: number },
       ) => Promise<{ suggestions: unknown[] }>;
     };
-    const model = monaco.editor.createModel(
-      "print(1)\n",
-      "python",
-      monaco.Uri.file("main.py"),
-    );
+    const model = monaco.editor.createModel("print(1)\n", "python", monaco.Uri.file("main.py"));
     const result = await provider.provideCompletionItems(model, {
       lineNumber: 1,
       column: 1,
@@ -54,11 +50,7 @@ describe("lsp monaco providers", () => {
         position: { lineNumber: number; column: number },
       ) => Promise<{ suggestions: { label: string }[] }>;
     };
-    const model = monaco.editor.createModel(
-      "print(1)\n",
-      "python",
-      monaco.Uri.file("main.py"),
-    );
+    const model = monaco.editor.createModel("print(1)\n", "python", monaco.Uri.file("main.py"));
     const result = await provider.provideCompletionItems(model, {
       lineNumber: 1,
       column: 1,

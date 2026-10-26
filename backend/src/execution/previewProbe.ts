@@ -40,10 +40,7 @@ const cache = new Map<string, CacheEntry>();
  * back. Connection refused / DNS failure / reset-before-headers / timeout
  * all mean "not listening". The body is never buffered.
  */
-export async function probeHttp(
-  url: string,
-  timeoutMs = PROBE_TIMEOUT_MS,
-): Promise<boolean> {
+export async function probeHttp(url: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
   try {
     const res = await fetch(url, {
       method: "GET",
@@ -86,8 +83,7 @@ export async function detectPreviewPorts(
 
   const resolveTarget =
     opts.resolveTarget ??
-    ((port: number) =>
-      sandboxManager.getProxyTarget(projectId, port, cfg.containerized));
+    ((port: number) => sandboxManager.getProxyTarget(projectId, port, cfg.containerized));
   const probe = opts.probe ?? probeHttp;
 
   const perPort = await Promise.all(

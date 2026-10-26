@@ -19,10 +19,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { makeTestConfig, makeWorkspace } from "./helpers.js";
-import {
-  languageServers,
-  resetLanguageServersForTests,
-} from "../src/lsp/manager.js";
+import { languageServers, resetLanguageServersForTests } from "../src/lsp/manager.js";
 import type { LspClientSocket } from "../src/lsp/session.js";
 import { sandboxManager } from "../src/execution/sandbox.js";
 import { runWorkflowTask } from "../src/workflow/run.js";
@@ -109,10 +106,7 @@ describe.skipIf(!dockerOk)("M86 sandbox thread headroom (Docker)", () => {
     });
     expect(session).not.toBeNull();
     await waitFor(
-      () =>
-        [...sock.messages]
-          .reverse()
-          .find((m) => m.type === "status")?.state === "ready",
+      () => [...sock.messages].reverse().find((m) => m.type === "status")?.state === "ready",
       30_000,
       "typescript language server ready",
     );

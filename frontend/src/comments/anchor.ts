@@ -41,10 +41,7 @@ export interface ResolvedAnchor {
 /** SHA-256, first 16 hex chars, of the whitespace-collapsed ≤256-char text. */
 export async function fingerprint(text: string): Promise<string> {
   const norm = text.replace(/\s+/g, " ").trim().slice(0, MAX_SLICE);
-  const buf = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(norm),
-  );
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(norm));
   return [...new Uint8Array(buf)]
     .slice(0, 8)
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -89,8 +86,7 @@ export async function encodeAnchor(
   const relE = Y.createRelativePositionFromTypeIndex(yText, endOffset);
   const text = yText.toString();
   const slice = (
-    text.slice(startOffset, endOffset) ||
-    text.slice(startOffset, startOffset + MAX_SLICE)
+    text.slice(startOffset, endOffset) || text.slice(startOffset, startOffset + MAX_SLICE)
   ).slice(0, MAX_SLICE);
   return {
     relStart: b64(Y.encodeRelativePosition(relS)),

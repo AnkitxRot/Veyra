@@ -113,10 +113,9 @@ describe("M86 .git internals cannot be written through workspace paths", () => {
   });
 
   it("a collaborative key using a bypass form is never persisted", async () => {
-    const ws = new WebSocket(
-      `${base.replace(/^http/, "ws")}/ws/collab?projectId=${projectId}`,
-      { headers: { Cookie: `session_token=${token}` } },
-    );
+    const ws = new WebSocket(`${base.replace(/^http/, "ws")}/ws/collab?projectId=${projectId}`, {
+      headers: { Cookie: `session_token=${token}` },
+    });
     const step1 = new Promise<void>((r) => ws.once("message", () => r()));
     await new Promise<void>((r, e) => {
       ws.once("open", () => r());
@@ -140,8 +139,7 @@ describe("M86 .git internals cannot be written through workspace paths", () => {
 
       const start = Date.now();
       while (
-        collaborationManager.getRoom(projectId)?.doc.getText("visible.txt").toString() !==
-        "ok\n"
+        collaborationManager.getRoom(projectId)?.doc.getText("visible.txt").toString() !== "ok\n"
       ) {
         if (Date.now() - start > 5000) throw new Error("edit never arrived");
         await new Promise((r) => setTimeout(r, 10));

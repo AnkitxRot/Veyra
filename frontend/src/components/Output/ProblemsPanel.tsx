@@ -89,9 +89,7 @@ export default function ProblemsPanel({
             fontSize: "12px",
           }}
         >
-          <span style={{ fontWeight: 600, color: "var(--fg-primary)" }}>
-            Problems
-          </span>
+          <span style={{ fontWeight: 600, color: "var(--fg-primary)" }}>Problems</span>
           <div style={{ display: "flex", gap: "6px" }}>
             <span
               className="glass-badge glass-badge-error"
@@ -116,10 +114,7 @@ export default function ProblemsPanel({
               <IconAlertTriangle size={10} /> {totalWarnings}
             </span>
             {totalInfo > 0 && (
-              <span
-                className="glass-badge glass-badge-info"
-                style={{ fontSize: "11px" }}
-              >
+              <span className="glass-badge glass-badge-info" style={{ fontSize: "11px" }}>
                 ℹ {totalInfo}
               </span>
             )}
@@ -206,11 +201,7 @@ export default function ProblemsPanel({
                       gap: "6px",
                     }}
                   >
-                    {isCollapsed ? (
-                      <IconChevronRight size={12} />
-                    ) : (
-                      <IconChevronDown size={12} />
-                    )}
+                    {isCollapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
                     <IconCode size={13} color="var(--accent)" />
                     <span>{group.filePath}</span>
                   </div>
@@ -240,13 +231,7 @@ export default function ProblemsPanel({
                       >
                         <button
                           type="button"
-                          onClick={() =>
-                            onSelectDiagnostic(
-                              diag.filePath,
-                              diag.line,
-                              diag.column,
-                            )
-                          }
+                          onClick={() => onSelectDiagnostic(diag.filePath, diag.line, diag.column)}
                           style={{
                             display: "flex",
                             alignItems: "flex-start",
@@ -352,25 +337,24 @@ export default function ProblemsPanel({
                               Fix
                             </button>
                           )}
-                          {onInstallDependency &&
-                            detectMissingDependency(diag.message) && (
-                              <button
-                                type="button"
-                                onClick={() => onInstallDependency(diag)}
-                                className="glass-btn glass-btn-primary"
-                                style={{
-                                  padding: "2px 6px",
-                                  fontSize: "10px",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "3px",
-                                }}
-                                title="Install project dependencies to resolve this"
-                              >
-                                <IconDownload size={10} />
-                                Install Dependencies
-                              </button>
-                            )}
+                          {onInstallDependency && detectMissingDependency(diag.message) && (
+                            <button
+                              type="button"
+                              onClick={() => onInstallDependency(diag)}
+                              className="glass-btn glass-btn-primary"
+                              style={{
+                                padding: "2px 6px",
+                                fontSize: "10px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "3px",
+                              }}
+                              title="Install project dependencies to resolve this"
+                            >
+                              <IconDownload size={10} />
+                              Install Dependencies
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}

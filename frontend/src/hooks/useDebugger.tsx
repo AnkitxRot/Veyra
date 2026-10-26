@@ -57,12 +57,7 @@ export interface DebugSessionValue {
 const DebugSessionContext = createContext<DebugSessionValue | null>(null);
 
 const LIVE = new Set<DebugSessionState>(["starting", "running", "paused"]);
-const ACTIVE = new Set<DebugSessionState>([
-  "starting",
-  "running",
-  "paused",
-  "stopping",
-]);
+const ACTIVE = new Set<DebugSessionState>(["starting", "running", "paused", "stopping"]);
 
 function emitBreakpoints(
   path: string,
@@ -70,9 +65,7 @@ function emitBreakpoints(
   verified: { line: number; verified: boolean }[] | undefined,
 ): void {
   const bps =
-    verified && verified.length
-      ? verified
-      : lines.map((line) => ({ line, verified: false }));
+    verified && verified.length ? verified : lines.map((line) => ({ line, verified: false }));
   document.dispatchEvent(
     new CustomEvent(DEBUG_BREAKPOINTS_EVENT, {
       detail: { path, breakpoints: bps },
@@ -106,16 +99,12 @@ export function DebugSessionProvider({
   const [language, setLanguage] = useState<string | null>(null);
   const [frames, setFrames] = useState<DebugFrame[]>([]);
   const [scopes, setScopes] = useState<DebugScope[]>([]);
-  const [variables, setVariables] = useState<Record<number, DebugVariable[]>>(
+  const [variables, setVariables] = useState<Record<number, DebugVariable[]>>({});
+  const [output, setOutput] = useState<{ category: string; text: string }[]>([]);
+  const [breakpoints, setBreakpoints] = useState<BreakpointMap>({});
+  const [verified, setVerified] = useState<Record<string, { line: number; verified: boolean }[]>>(
     {},
   );
-  const [output, setOutput] = useState<{ category: string; text: string }[]>(
-    [],
-  );
-  const [breakpoints, setBreakpoints] = useState<BreakpointMap>({});
-  const [verified, setVerified] = useState<
-    Record<string, { line: number; verified: boolean }[]>
-  >({});
   const [pausedPath, setPausedPath] = useState<string | null>(null);
   const [pausedLine, setPausedLine] = useState<number | null>(null);
 
@@ -189,17 +178,11 @@ export function DebugSessionProvider({
       stateRef.current = next;
       setMessage(typeof msg.message === "string" ? msg.message : undefined);
       setLanguage(typeof msg.language === "string" ? msg.language : null);
-      document.dispatchEvent(
-        new CustomEvent(DEBUG_STATUS_EVENT, { detail: msg }),
-      );
+      document.dispatchEvent(new CustomEvent(DEBUG_STATUS_EVENT, { detail: msg }));
       if (LIVE.has(next)) {
         document.dispatchEvent(new Event(DEBUG_STARTED_EVENT));
       }
-      if (
-        next === "terminated" ||
-        next === "failed" ||
-        next === "unavailable"
-      ) {
+      if (next === "terminated" || next === "failed" || next === "unavailable") {
         setPausedPath(null);
         setPausedLine(null);
         document.dispatchEvent(
@@ -212,15 +195,11 @@ export function DebugSessionProvider({
       return;
     }
     if (msg.type === "stopped") {
-      const nextFrames: DebugFrame[] = Array.isArray(msg.frames)
-        ? msg.frames
-        : [];
+      const nextFrames: DebugFrame[] = Array.isArray(msg.frames) ? msg.frames : [];
       expectContinueRef.current = false;
       setFrames(nextFrames);
       setScopes(Array.isArray(msg.scopes) ? msg.scopes : []);
-      setVariables(
-        msg.variables && typeof msg.variables === "object" ? msg.variables : {},
-      );
+      setVariables(msg.variables && typeof msg.variables === "object" ? msg.variables : {});
       setState("paused");
       stateRef.current = "paused";
       const top = nextFrames[0];
@@ -261,9 +240,7 @@ export function DebugSessionProvider({
     if (msg.type === "variables" && typeof msg.variablesReference === "number") {
       setVariables((prev) => ({
         ...prev,
-        [msg.variablesReference]: Array.isArray(msg.variables)
-          ? msg.variables
-          : [],
+        [msg.variablesReference]: Array.isArray(msg.variables) ? msg.variables : [],
       }));
       return;
     }
@@ -274,10 +251,7 @@ export function DebugSessionProvider({
     }
     if (msg.type === "output" && typeof msg.text === "string") {
       setOutput((prev) => {
-        const next = [
-          ...prev,
-          { category: String(msg.category ?? "stdout"), text: msg.text },
-        ];
+        const next = [...prev, { category: String(msg.category ?? "stdout"), text: msg.text }];
         return next.length > 200 ? next.slice(next.length - 200) : next;
       });
       return;
@@ -379,8 +353,7 @@ export function DebugSessionProvider({
       start(file);
     };
     document.addEventListener("ide-debug-confirmed", onConfirmed);
-    return () =>
-      document.removeEventListener("ide-debug-confirmed", onConfirmed);
+    return () => document.removeEventListener("ide-debug-confirmed", onConfirmed);
   }, [start]);
 
   const continueRun = useCallback(() => {
@@ -455,7 +428,10 @@ export function DebugSessionProvider({
       message,
       language,
       frames: frames.map((f) => ({ path: f.path, line: f.line, name: f.name })),
-      output: output.slice(-12).map((o) => o.text).join(""),
+      output: output
+        .slice(-12)
+        .map((o) => o.text)
+        .join(""),
     };
     (globalThis as any).__VEYRA_DEBUG_PAUSE__ = pause;
   }, [state, message, language, frames, output, pause]);
@@ -485,11 +461,7 @@ export function DebugSessionProvider({
     selectFrame,
   };
 
-  return (
-    <DebugSessionContext.Provider value={value}>
-      {children}
-    </DebugSessionContext.Provider>
-  );
+  return <DebugSessionContext.Provider value={value}>{children}</DebugSessionContext.Provider>;
 }
 
 export function useDebugSession(): DebugSessionValue {

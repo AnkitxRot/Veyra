@@ -31,13 +31,7 @@ const output = (over: Partial<SharedRunOutput> = {}): SharedRunOutput => ({
 
 describe("SharedRunOutputPanel", () => {
   it("names the collaborator running and the file, and shows the output", () => {
-    render(
-      <SharedRunOutputPanel
-        output={output()}
-        status={status()}
-        connected
-      />,
-    );
+    render(<SharedRunOutputPanel output={output()} status={status()} connected />);
     expect(screen.getByText(/Bob/)).toBeTruthy();
     expect(screen.getByText(/src\/app\.py/)).toBeTruthy();
     expect(screen.getByText(/compiling\.\.\./)).toBeTruthy();
@@ -57,9 +51,7 @@ describe("SharedRunOutputPanel", () => {
         connected
       />,
     );
-    expect(
-      screen.getAllByText(/completed|success|exited/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/completed|success|exited/i).length).toBeGreaterThan(0);
 
     rerender(
       <SharedRunOutputPanel
@@ -73,30 +65,18 @@ describe("SharedRunOutputPanel", () => {
 
   it("shows a truncation marker when output was dropped", () => {
     render(
-      <SharedRunOutputPanel
-        output={output({ truncated: true })}
-        status={status()}
-        connected
-      />,
+      <SharedRunOutputPanel output={output({ truncated: true })} status={status()} connected />,
     );
     expect(screen.getByText(/earlier output.*truncated|truncated/i)).toBeTruthy();
   });
 
   it("shows an unavailable notice when the collaboration link is down", () => {
-    render(
-      <SharedRunOutputPanel
-        output={output()}
-        status={status()}
-        connected={false}
-      />,
-    );
+    render(<SharedRunOutputPanel output={output()} status={status()} connected={false} />);
     expect(screen.getByText(/unavailable|reconnect/i)).toBeTruthy();
   });
 
   it("is read-only: no stdin field and no stop control", () => {
-    render(
-      <SharedRunOutputPanel output={output()} status={status()} connected />,
-    );
+    render(<SharedRunOutputPanel output={output()} status={status()} connected />);
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /stop|kill|send/i })).toBeNull();
   });
@@ -111,9 +91,7 @@ describe("SharedRunOutputPanel", () => {
       />,
     );
     expect(screen.getByText(/Bob R\./)).toBeTruthy();
-    const img = document.querySelector(
-      "img.shared-run-output-avatar",
-    ) as HTMLImageElement;
+    const img = document.querySelector("img.shared-run-output-avatar") as HTMLImageElement;
     expect(img.getAttribute("src")).toBe("/api/auth/profile/2/avatar?v=7");
   });
 
@@ -129,13 +107,7 @@ describe("SharedRunOutputPanel", () => {
   });
 
   it("still renders output with no matching status entry (status lingered out)", () => {
-    render(
-      <SharedRunOutputPanel
-        output={output()}
-        status={undefined}
-        connected
-      />,
-    );
+    render(<SharedRunOutputPanel output={output()} status={undefined} connected />);
     expect(screen.getByText(/compiling\.\.\./)).toBeTruthy();
   });
 });

@@ -7,11 +7,7 @@ import {
   spawnSandboxLsp,
   type LspSpawnFn,
 } from "./process.js";
-import {
-  LspSession,
-  type LspClientSocket,
-  type LspSessionLimits,
-} from "./session.js";
+import { LspSession, type LspClientSocket, type LspSessionLimits } from "./session.js";
 
 export interface AttachLspOpts {
   projectId: string;
@@ -33,10 +29,7 @@ export interface AttachLspOpts {
   documentSource?: LspDocumentSource | null;
 }
 
-function limitsFromConfig(
-  cfg: AppConfig,
-  spec: LspLanguageSpec,
-): LspSessionLimits {
+function limitsFromConfig(cfg: AppConfig, spec: LspLanguageSpec): LspSessionLimits {
   return {
     startupTimeoutMs: spec.startupTimeoutMs ?? cfg.lspStartupTimeoutMs,
     idleTimeoutMs: cfg.lspIdleTimeoutMs,
@@ -202,8 +195,7 @@ export class LanguageServerManager {
   private async ensureContainer(opts: AttachLspOpts): Promise<string | null> {
     try {
       const { sandboxManager } = await import("../execution/sandbox.js");
-      const { isDockerRunningAsync, isRunnerImageAvailableAsync } =
-        await import("../tools.js");
+      const { isDockerRunningAsync, isRunnerImageAvailableAsync } = await import("../tools.js");
       if (!(await isDockerRunningAsync())) return null;
       if (!(await isRunnerImageAvailableAsync())) return null;
       const id = await sandboxManager.ensureProjectSandbox(

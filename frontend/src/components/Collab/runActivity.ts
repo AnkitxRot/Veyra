@@ -6,17 +6,12 @@ import type { RunStatusEntry } from "../../types";
 
 /** A collaborator's most relevant run: an active run wins over a lingering
  *  terminal one; among terminal ones, the most recent. */
-export function pickRunForUser(
-  entries: RunStatusEntry[],
-  userId: number,
-): RunStatusEntry | null {
+export function pickRunForUser(entries: RunStatusEntry[], userId: number): RunStatusEntry | null {
   const mine = entries.filter((e) => e.userId === userId);
   if (mine.length === 0) return null;
   const running = mine.find((e) => e.state === "running");
   if (running) return running;
-  return mine.reduce((a, b) =>
-    (b.endedAt ?? b.startedAt) > (a.endedAt ?? a.startedAt) ? b : a,
-  );
+  return mine.reduce((a, b) => ((b.endedAt ?? b.startedAt) > (a.endedAt ?? a.startedAt) ? b : a));
 }
 
 export function formatElapsed(ms: number): string {

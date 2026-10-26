@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
-import {
-  useNotices,
-  MAX_NOTICES,
-  MAX_NOTICES_CEILING,
-} from "../src/hooks/useNotices";
+import { useNotices, MAX_NOTICES, MAX_NOTICES_CEILING } from "../src/hooks/useNotices";
 
 // M64 — unified notice lifecycle. Behaviour tests for the queue hook that
 // owns stable IDs, TTL expiry, explicit dismissal, dedupe/replacement, a
@@ -176,10 +172,7 @@ describe("useNotices — coexistence & ordering", () => {
       result.current.notify({ kind: "info", text: "first" });
       result.current.notify({ kind: "info", text: "second" });
     });
-    expect(result.current.notices.map((n) => n.text)).toEqual([
-      "first",
-      "second",
-    ]);
+    expect(result.current.notices.map((n) => n.text)).toEqual(["first", "second"]);
   });
 
   it("a new notice never overwrites an unrelated existing one", () => {
@@ -318,9 +311,7 @@ describe("useNotices — bounded queue", () => {
     // persistent survived; oldest transient (t0) was evicted
     expect(result.current.notices.map((n) => n.text)).toContain("persistent");
     expect(result.current.notices.map((n) => n.text)).not.toContain("t0");
-    expect(result.current.notices.map((n) => n.text)).toContain(
-      `t${MAX_NOTICES - 1}`,
-    );
+    expect(result.current.notices.map((n) => n.text)).toContain(`t${MAX_NOTICES - 1}`);
   });
 
   it("eviction never drops a persistent notice ahead of a transient one", () => {

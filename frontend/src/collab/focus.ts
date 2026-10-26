@@ -28,10 +28,7 @@ export function deriveFocusState(
   if (isFollowing) return "following";
   if (attention) return "focused";
   const a = user.activity?.type;
-  if (
-    user.status === "online" &&
-    (a === "viewing" || a === "editing" || a === "navigating")
-  ) {
+  if (user.status === "online" && (a === "viewing" || a === "editing" || a === "navigating")) {
     return "viewing";
   }
   return "idle";
@@ -61,11 +58,7 @@ export function buildFocusContext(
   currentUserId: number,
   followedUserId: number | null,
 ): FocusContext {
-  const attention = latestAttentionFrom(
-    allAttention,
-    user.userId,
-    currentUserId,
-  );
+  const attention = latestAttentionFrom(allAttention, user.userId, currentUserId);
   const isFollowing = followedUserId === user.userId;
   return {
     user,

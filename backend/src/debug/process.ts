@@ -7,9 +7,7 @@ export interface DebugSpawnRequest {
   containerId: string;
 }
 
-export type DebugSpawnFn = (
-  req: DebugSpawnRequest,
-) => ChildProcessWithoutNullStreams;
+export type DebugSpawnFn = (req: DebugSpawnRequest) => ChildProcessWithoutNullStreams;
 
 /**
  * Host-side env for the `docker` CLI only. The adapter and debuggee run
@@ -87,9 +85,7 @@ export function sandboxDebugArgv(req: DebugSpawnRequest): string[] {
  * the allowlist (`spec`), never from the client. Container env is explicit
  * and minimal — no secrets file, no `-e` passthrough of backend env.
  */
-export function spawnSandboxDebug(
-  req: DebugSpawnRequest,
-): ChildProcessWithoutNullStreams {
+export function spawnSandboxDebug(req: DebugSpawnRequest): ChildProcessWithoutNullStreams {
   const child = spawn("docker", sandboxDebugArgv(req), {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,

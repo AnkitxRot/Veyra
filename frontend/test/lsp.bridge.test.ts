@@ -35,17 +35,13 @@ describe("LspBridge", () => {
     const bridge = new LspBridge(t);
     const pending = bridge.request("textDocument/hover", { n: 1 });
     expect(t.sent).toHaveLength(0);
-    t.handlers.forEach((cb) =>
-      cb({ type: "status", state: "ready", language: "python" }),
-    );
+    t.handlers.forEach((cb) => cb({ type: "status", state: "ready", language: "python" }));
     const pending2 = bridge.request("textDocument/hover", {
       textDocument: { uri: "file:///workspace/main.py" },
     });
     expect(t.sent).toHaveLength(1);
     const req = t.sent[0] as { id: number };
-    t.handlers.forEach((cb) =>
-      cb({ jsonrpc: "2.0", id: req.id, result: { contents: "hi" } }),
-    );
+    t.handlers.forEach((cb) => cb({ jsonrpc: "2.0", id: req.id, result: { contents: "hi" } }));
     expect(await pending).toBeNull();
     expect(await pending2).toEqual({ contents: "hi" });
     bridge.dispose();
@@ -63,7 +59,12 @@ describe("LspBridge", () => {
         method: "textDocument/publishDiagnostics",
         params: {
           uri: "file:///workspace/main.py",
-          diagnostics: [{ message: "x", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+          diagnostics: [
+            {
+              message: "x",
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+            },
+          ],
         },
       }),
     );
@@ -83,9 +84,7 @@ describe("didOpen uses workspace uris", () => {
   it("never sends a client-supplied executable", () => {
     const t = mockTransport();
     const bridge = new LspBridge(t);
-    t.handlers.forEach((cb) =>
-      cb({ type: "status", state: "ready", language: "python" }),
-    );
+    t.handlers.forEach((cb) => cb({ type: "status", state: "ready", language: "python" }));
     bridge.didOpen("main.py", "print(1)\n", "python");
     expect(t.sent[0]).toMatchObject({
       method: "textDocument/didOpen",

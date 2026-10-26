@@ -9,10 +9,7 @@ export interface FollowAnchor {
   capturedAt: number;
 }
 
-export function anchorFilePresent(
-  anchor: FollowAnchor,
-  knownPaths: Iterable<string>,
-): boolean {
+export function anchorFilePresent(anchor: FollowAnchor, knownPaths: Iterable<string>): boolean {
   for (const p of knownPaths) if (p === anchor.filePath) return true;
   return false;
 }

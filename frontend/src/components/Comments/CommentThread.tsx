@@ -61,10 +61,8 @@ export default function CommentThread({
   // M62: username stays the mention token + stable identity; displayName is
   // presentation only. The @username suffix shows only when it differs.
   const memberOf = (userId: number) => members.find((m) => m.userId === userId);
-  const usernameOf = (userId: number) =>
-    memberOf(userId)?.username ?? `user ${userId}`;
-  const avatarVersionOf = (userId: number) =>
-    memberOf(userId)?.avatarVersion ?? 0;
+  const usernameOf = (userId: number) => memberOf(userId)?.username ?? `user ${userId}`;
+  const avatarVersionOf = (userId: number) => memberOf(userId)?.avatarVersion ?? 0;
   const labelOf = (userId: number) => {
     const d = memberOf(userId)?.displayName;
     return typeof d === "string" && d.trim().length > 0 ? d : usernameOf(userId);
@@ -80,8 +78,7 @@ export default function CommentThread({
     const showAuthorHandle = authorLabel !== authorUsername;
     const canEdit = c.authorId === currentUserId && c.deletedAt == null;
     const canDelete =
-      c.deletedAt == null &&
-      (c.authorId === currentUserId || currentUserId === projectOwnerId);
+      c.deletedAt == null && (c.authorId === currentUserId || currentUserId === projectOwnerId);
     if (editingId === c.id) {
       return (
         <li key={c.id} className="comment-row is-editing">
@@ -116,9 +113,7 @@ export default function CommentThread({
             className="c-avatar"
           />
           <span className="comment-author">{authorLabel}</span>
-          {showAuthorHandle && (
-            <span className="comment-author-handle">@{authorUsername}</span>
-          )}
+          {showAuthorHandle && <span className="comment-author-handle">@{authorUsername}</span>}
           <span className="comment-time">{relTime(c.createdAt)}</span>
           {c.editedAt && <span className="comment-flag">edited</span>}
           {c.deletedAt && <span className="comment-flag">deleted</span>}
@@ -138,14 +133,8 @@ export default function CommentThread({
                 <button
                   key={r.emoji}
                   type="button"
-                  className={
-                    mine ? "reaction-chip is-mine" : "reaction-chip"
-                  }
-                  onClick={() =>
-                    mine
-                      ? onUnreact(c.id, r.emoji)
-                      : onReact(c.id, r.emoji)
-                  }
+                  className={mine ? "reaction-chip is-mine" : "reaction-chip"}
+                  onClick={() => (mine ? onUnreact(c.id, r.emoji) : onReact(c.id, r.emoji))}
                 >
                   {r.emoji} {r.userIds.length}
                 </button>
@@ -155,9 +144,7 @@ export default function CommentThread({
               type="button"
               className="reaction-add"
               aria-label="Add reaction"
-              onClick={() =>
-                setPickerFor(pickerFor === c.id ? null : c.id)
-              }
+              onClick={() => setPickerFor(pickerFor === c.id ? null : c.id)}
             >
               +
             </button>
@@ -222,19 +209,11 @@ export default function CommentThread({
         <span>{resolved ? "Resolved thread" : "Comment thread"}</span>
         <div>
           {resolved ? (
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost"
-              onClick={onReopen}
-            >
+            <button type="button" className="glass-btn glass-btn-ghost" onClick={onReopen}>
               Reopen
             </button>
           ) : (
-            <button
-              type="button"
-              className="glass-btn glass-btn-ghost"
-              onClick={onResolve}
-            >
+            <button type="button" className="glass-btn glass-btn-ghost" onClick={onResolve}>
               Resolve
             </button>
           )}
@@ -249,9 +228,7 @@ export default function CommentThread({
         </div>
       </div>
 
-      <ul className="comment-thread-list">
-        {rows.map((c, i) => renderComment(c, i === 0))}
-      </ul>
+      <ul className="comment-thread-list">{rows.map((c, i) => renderComment(c, i === 0))}</ul>
 
       {!resolved && (
         <CommentComposer

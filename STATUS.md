@@ -17,25 +17,27 @@ status line; long write-ups go in `docs/reports/`, not here.
 Full detail for M89–M91 is in `docs/reports/`. Test counts are as reported in
 the commit messages and reports, not re-run for this summary.
 
-| # | Milestone | Commit | Summary |
-| --- | --- | --- | --- |
-| M87 | Project Git in the sandbox | `e635004` | Project Git execution moved from the host into the project sandbox. |
-| M88 | Terminal reload persistence | `83b0c9b` | Terminal session survives same-tab remount/reload. |
-| M89 | Read-your-writes test repair | `6f24154` | `testWriteHook` + confined-write mock migration fixing M4/M56 suites. 3 M86 server-integration tests need Docker (fail on Docker-less Windows). Report: `docs/reports/M89_REPORT.md`. |
-| M90 | Post-M89 audit | — | Baseline verification and milestone definition. Report: `docs/reports/m90-report.md`. |
-| M91 | Deterministic idle-disposal retry | `639908c` | `VirtualClock`-driven retry lifecycle; 9 tests. Reports: `docs/reports/M91_FINAL_REPORT.md`, `m91-report.md`. |
-| M92 | Audit event coverage | `bfacd66` | Audit events across auth, collab, execution, sandbox, terminals, Git, projects. Discovery found the originally proposed M92 (snapshot restore) already existed (M20/M31/M32). Report: `docs/reports/M92_DISCOVERY_REPORT.md`. |
-| M93 | Audit failure monitoring | `58eed79` | Failure counter with categories, `GET /api/admin/audit-integrity`, admin WS `audit_integrity` telemetry, retention GC (startup/periodic/shutdown). Reported 1545 backend + 1067 frontend passing. |
-| M94 | LSP and DAP audit trail | `b9eb7b6` | `LSP_SESSION_*` and `DEBUG_SESSION_{STARTED,FAILED,TIMEOUT,STOPPED}` events; fail-soft; 16 new tests (PR #18). |
+| #   | Milestone                         | Commit    | Summary                                                                                                                                                                                                                       |
+| --- | --------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M87 | Project Git in the sandbox        | `e635004` | Project Git execution moved from the host into the project sandbox.                                                                                                                                                           |
+| M88 | Terminal reload persistence       | `83b0c9b` | Terminal session survives same-tab remount/reload.                                                                                                                                                                            |
+| M89 | Read-your-writes test repair      | `6f24154` | `testWriteHook` + confined-write mock migration fixing M4/M56 suites. 3 M86 server-integration tests need Docker (fail on Docker-less Windows). Report: `docs/reports/M89_REPORT.md`.                                         |
+| M90 | Post-M89 audit                    | —         | Baseline verification and milestone definition. Report: `docs/reports/m90-report.md`.                                                                                                                                         |
+| M91 | Deterministic idle-disposal retry | `639908c` | `VirtualClock`-driven retry lifecycle; 9 tests. Reports: `docs/reports/M91_FINAL_REPORT.md`, `m91-report.md`.                                                                                                                 |
+| M92 | Audit event coverage              | `bfacd66` | Audit events across auth, collab, execution, sandbox, terminals, Git, projects. Discovery found the originally proposed M92 (snapshot restore) already existed (M20/M31/M32). Report: `docs/reports/M92_DISCOVERY_REPORT.md`. |
+| M93 | Audit failure monitoring          | `58eed79` | Failure counter with categories, `GET /api/admin/audit-integrity`, admin WS `audit_integrity` telemetry, retention GC (startup/periodic/shutdown). Reported 1545 backend + 1067 frontend passing.                             |
+| M94 | LSP and DAP audit trail           | `b9eb7b6` | `LSP_SESSION_*` and `DEBUG_SESSION_{STARTED,FAILED,TIMEOUT,STOPPED}` events; fail-soft; 16 new tests (PR #18).                                                                                                                |
 
 | M95 | Repo hygiene | — | STATUS history and load-test results archived under `docs/archive/`; STATUS.md is now a short ledger. |
 | M97 | Audit + security pass | branch `docs/m94-status-roadmap` | `COLLABORATOR_*` audit events; ratchet test for unaudited mutating routes; prod `npm audit` 6→0; AI subsystem fixes (ReDoS that blocked the event loop, `/ai/verify` field bounds, viewers no longer see run output in the AI journal); CI permissions/concurrency/audit gate. |
 
 ### Security review (M97)
+
 Fixed: zip-bomb DoS in `projects/zip.ts` (inflate now bounded by the declared size; reachable via POST /import and restore); dangling-symlink write escape in `assertInsideWorkspace` (`files/service.ts`; the regression test is skipped on hosts that cannot create symlinks, so Linux CI is what exercises it).
 Cleared (not exploitable): WS preview proxy auth, zip symlink zip-slip, terminal secrets path, execution `language`, search/replace, POST /import authz.
 
 ### Security review follow-ups (not yet fixed)
+
 - Hardening: zip `.git` skip-list matches the raw name, so `./.git/...` entries are written (no code-exec path found); normalize before the check.
 - Hardening: import quota is checked once, parallel imports may exceed it.
 - Not reviewed: env-file escaping, `resolveMainFile`, workspace bind-mount mode.
@@ -44,6 +46,7 @@ Cleared (not exploitable): WS preview proxy auth, zip symlink zip-slip, terminal
 - NOT reviewed: `auth/routes.ts`, projects zip import/upload/move/preview proxy, `git/*`, `ws/terminal.ts`, `ws/execution.ts`.
 
 ### Known gaps after M94
+
 - README/STATUS were stale at M85/M86 until this update.
 - Duplicate M92/M93 commits in history (`affe895`/`bfacd66`, `52f3c60`/`58eed79`).
 - Docker-dependent tests cannot run on Docker-less Windows; CI is the gate.

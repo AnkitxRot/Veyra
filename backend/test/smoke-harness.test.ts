@@ -10,20 +10,14 @@ const smokeScriptPath = join(__dirname, "..", "..", "scripts", "smoke-test.js");
 
 describe("Milestone 23 — Smoke Test Harness Helper Unit Tests", () => {
   it("displays help message on --help or -h and exits with code 0", async () => {
-    const { stdout } = await execFileAsync(process.execPath, [
-      smokeScriptPath,
-      "--help",
-    ]);
+    const { stdout } = await execFileAsync(process.execPath, [smokeScriptPath, "--help"]);
     expect(stdout).toContain("Veyra Production Deployment Smoke & Readiness Verification Harness");
     expect(stdout).toContain("--url=<url>");
   });
 
   it("rejects invalid target URLs with non-zero exit code and fatal error", async () => {
     try {
-      await execFileAsync(process.execPath, [
-        smokeScriptPath,
-        "--url=not_a_valid_url",
-      ]);
+      await execFileAsync(process.execPath, [smokeScriptPath, "--url=not_a_valid_url"]);
       expect.fail("Should have thrown error on invalid URL");
     } catch (err: any) {
       expect(err.code).toBe(1);
@@ -33,10 +27,7 @@ describe("Milestone 23 — Smoke Test Harness Helper Unit Tests", () => {
 
   it("rejects unsupported protocols (e.g. ftp:// or file://)", async () => {
     try {
-      await execFileAsync(process.execPath, [
-        smokeScriptPath,
-        "--url=ftp://example.com",
-      ]);
+      await execFileAsync(process.execPath, [smokeScriptPath, "--url=ftp://example.com"]);
       expect.fail("Should have thrown on non-http protocol");
     } catch (err: any) {
       expect(err.code).toBe(1);
@@ -59,10 +50,7 @@ describe("Milestone 23 — Smoke Test Harness Helper Unit Tests", () => {
 
   it("fails with clear diagnostic output when target host is down/unreachable", async () => {
     try {
-      await execFileAsync(process.execPath, [
-        smokeScriptPath,
-        "--url=http://127.0.0.1:59999",
-      ]);
+      await execFileAsync(process.execPath, [smokeScriptPath, "--url=http://127.0.0.1:59999"]);
       expect.fail("Should have failed against unreachable target");
     } catch (err: any) {
       expect(err.code).toBe(1);

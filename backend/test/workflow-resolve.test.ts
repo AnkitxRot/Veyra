@@ -68,10 +68,7 @@ describe("workflow resolve", () => {
   it("refuses path-escaping targets", async () => {
     const cfg = makeTestConfig();
     const ws = makeWorkspace(cfg);
-    writeFileSync(
-      join(ws, "package.json"),
-      JSON.stringify({ scripts: { test: "node --test" } }),
-    );
+    writeFileSync(join(ws, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
     expect(sanitizeWorkflowTarget("../etc/passwd")).toBeNull();
     expect(sanitizeWorkflowTarget("/etc/passwd")).toBeNull();
     expect(sanitizeWorkflowTarget(".git/config")).toBeNull();
@@ -86,20 +83,14 @@ describe("workflow resolve", () => {
       ok: true,
       taskId: "npm:test",
     });
-    expect(
-      parseWorkflowRequest({ taskId: "npm:test", targetPath: "a.test.js" }),
-    ).toEqual({ ok: true, taskId: "npm:test", targetPath: "a.test.js" });
-    expect(parseWorkflowRequest({ taskId: "npm:test", command: "sh" }).ok).toBe(
-      false,
-    );
-    expect(parseWorkflowRequest({ taskId: "npm:test", env: { A: "1" } }).ok).toBe(
-      false,
-    );
-    expect(
-      parseWorkflowRequest({ taskId: "npm:test", cwd: "/tmp" }).ok,
-    ).toBe(false);
-    expect(
-      parseWorkflowRequest({ taskId: "npm:test", targetPath: "../x" }).ok,
-    ).toBe(false);
+    expect(parseWorkflowRequest({ taskId: "npm:test", targetPath: "a.test.js" })).toEqual({
+      ok: true,
+      taskId: "npm:test",
+      targetPath: "a.test.js",
+    });
+    expect(parseWorkflowRequest({ taskId: "npm:test", command: "sh" }).ok).toBe(false);
+    expect(parseWorkflowRequest({ taskId: "npm:test", env: { A: "1" } }).ok).toBe(false);
+    expect(parseWorkflowRequest({ taskId: "npm:test", cwd: "/tmp" }).ok).toBe(false);
+    expect(parseWorkflowRequest({ taskId: "npm:test", targetPath: "../x" }).ok).toBe(false);
   });
 });

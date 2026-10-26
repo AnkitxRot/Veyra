@@ -45,9 +45,8 @@ export async function resolveWorkflowTask(
   const task = manifest.tasks.find((t) => t.id === taskId);
   if (!task) return { ok: false, error: "unknown or disallowed task" };
 
-  const target = targetPath === undefined || targetPath === null
-    ? null
-    : sanitizeWorkflowTarget(targetPath);
+  const target =
+    targetPath === undefined || targetPath === null ? null : sanitizeWorkflowTarget(targetPath);
   if (targetPath != null && target === null) {
     return { ok: false, error: "invalid target path" };
   }
@@ -88,9 +87,7 @@ export async function resolveWorkflowTask(
 /** Client may send only `{ taskId, targetPath? }`. Anything else is rejected. */
 export function parseWorkflowRequest(
   value: unknown,
-):
-  | { ok: true; taskId: string; targetPath?: string }
-  | { ok: false; error: string } {
+): { ok: true; taskId: string; targetPath?: string } | { ok: false; error: string } {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, error: "invalid workflow" };
   }

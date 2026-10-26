@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(
-  join(here, "../src/components/IDE/IDE.tsx"),
-  "utf-8",
-);
+const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
 
 /**
  * M62-5 — IDE wiring for `profile_event`. Source-string guards (rendering the
@@ -48,9 +45,7 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
 
   it("does the initial roster load and fetches /collaborators", () => {
     expect(src).toContain("const loadCommentRoster = () => {");
-    expect(src).toContain(
-      "`/api/projects/${project.id}/collaborators`",
-    );
+    expect(src).toContain("`/api/projects/${project.id}/collaborators`");
     // called once outside the event handler for the initial populate
     const loadDef = src.indexOf("const loadCommentRoster = () => {");
     // window widened in M68: the fn body gained a notifying `.catch`
@@ -59,9 +54,7 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
   });
 
   it("treats the event as invalidation-only — the handler ignores the payload", () => {
-    expect(src).toMatch(
-      /"profile_event",\s*\r?\n\s*\(ev: ProfileEventWire\) =>/,
-    );
+    expect(src).toMatch(/"profile_event",\s*\r?\n\s*\(ev: ProfileEventWire\) =>/);
     // the handler may key off ev.userId (self-detection, M73) but never reads
     // a name / displayName / pronouns / profile bundle off the wire event
     const at = src.indexOf('"profile_event",');
@@ -75,9 +68,7 @@ describe("M62-5 — IDE.tsx profile_event wiring", () => {
       src.indexOf("cancelled = true;") + 2200,
     );
     expect(teardown).toContain("unsubProfileEvent?.();");
-    expect(teardown).toContain(
-      "window.clearTimeout(profileEventTimerRef.current)",
-    );
+    expect(teardown).toContain("window.clearTimeout(profileEventTimerRef.current)");
     expect(teardown).toContain("setCommentRoster(new Map())");
   });
 

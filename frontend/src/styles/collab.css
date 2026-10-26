@@ -141,7 +141,10 @@
   color: var(--fg-muted, #a6adc8);
   margin-bottom: 8px;
 }
-.team-count { opacity: 0.7; font-weight: 600; }
+.team-count {
+  opacity: 0.7;
+  font-weight: 600;
+}
 /* M73: roster-staleness caveat shown while the collab link is not live. */
 .team-stale-note {
   font-size: 10.5px;
@@ -168,9 +171,18 @@
   padding: 8px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
-.team-row-self { border-top: none; }
-.team-row-main { min-width: 0; flex: 1; }
-.team-row-top { display: flex; align-items: center; gap: 6px; }
+.team-row-self {
+  border-top: none;
+}
+.team-row-main {
+  min-width: 0;
+  flex: 1;
+}
+.team-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .team-dot {
   width: 10px;
   height: 10px;
@@ -189,13 +201,30 @@
   flex-shrink: 0;
   margin-top: 5px;
 }
-.team-avail-online { background: #a6e3a1; }
-.team-avail-idle { background: #fab387; }
-.team-avail-away { background: #f9e2af; }
-.team-avail-dnd { background: #cba6f7; }
-.team-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-avail-online {
+  background: #a6e3a1;
+}
+.team-avail-idle {
+  background: #fab387;
+}
+.team-avail-away {
+  background: #f9e2af;
+}
+.team-avail-dnd {
+  background: #cba6f7;
+}
+.team-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* M62: @username disambiguation shown next to a differing display name. */
-.team-handle { font-size: 10px; color: var(--fg-muted, #a6adc8); white-space: nowrap; }
+.team-handle {
+  font-size: 10px;
+  color: var(--fg-muted, #a6adc8);
+  white-space: nowrap;
+}
 .team-role {
   font-size: 9px;
   text-transform: uppercase;
@@ -205,9 +234,18 @@
   color: var(--fg-muted, #a6adc8);
   font-weight: 600;
 }
-.team-time { margin-left: auto; font-size: 10px; color: var(--fg-muted, #a6adc8); white-space: nowrap; }
-.team-activity { margin-top: 2px; }
-.team-file, .team-folder, .team-intent {
+.team-time {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--fg-muted, #a6adc8);
+  white-space: nowrap;
+}
+.team-activity {
+  margin-top: 2px;
+}
+.team-file,
+.team-folder,
+.team-intent {
   font-size: 10.5px;
   color: var(--fg-muted, #a6adc8);
   margin-top: 2px;
@@ -215,8 +253,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.team-intent { color: var(--fg-primary, #cdd6f4); }
-.team-actions { display: flex; gap: 6px; margin-top: 6px; }
+.team-intent {
+  color: var(--fg-primary, #cdd6f4);
+}
+.team-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
 .team-actions button {
   flex: 1;
   padding: 4px;
@@ -237,8 +281,17 @@
   color: var(--fg-muted, #a6adc8);
   cursor: pointer;
 }
-.team-dnd.on { color: #cba6f7; border-color: rgba(203, 166, 247, 0.4); background: rgba(203, 166, 247, 0.12); }
-.team-intent-edit { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
+.team-dnd.on {
+  color: #cba6f7;
+  border-color: rgba(203, 166, 247, 0.4);
+  background: rgba(203, 166, 247, 0.12);
+}
+.team-intent-edit {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+}
 .team-intent-edit input {
   flex: 1;
   min-width: 0;
@@ -249,16 +302,33 @@
   background: rgba(0, 0, 0, 0.25);
   color: var(--fg-primary, #cdd6f4);
 }
-.team-empty, .team-folders-title {
+.team-empty,
+.team-folders-title {
   font-size: 10px;
   color: var(--fg-muted, #a6adc8);
   padding: 8px 0 4px;
   letter-spacing: 0.06em;
 }
-.team-folders { border-top: 1px solid rgba(255, 255, 255, 0.06); margin-top: 4px; }
-.team-folder-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; padding: 2px 0; }
-.team-folder-name { color: var(--fg-muted, #a6adc8); }
-.team-folder-people { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-folders {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 4px;
+}
+.team-folder-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  padding: 2px 0;
+}
+.team-folder-name {
+  color: var(--fg-muted, #a6adc8);
+}
+.team-folder-people {
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* M57: header collaborator count chip */
 .collab-count {
@@ -286,13 +356,33 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--fg-muted, #a6adc8);
 }
-.editor-samefile-strip .samefile-chip { display: flex; align-items: center; gap: 5px; }
-.editor-samefile-strip .samefile-dot { width: 7px; height: 7px; border-radius: 50%; }
+.editor-samefile-strip .samefile-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.editor-samefile-strip .samefile-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
 
 /* M57: folder-row collaborator dots in the explorer */
-.tree-folder-collab { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
-.tree-folder-collab .tree-collab-dot { width: 6px; height: 6px; border-radius: 50%; }
-.team-panel-anchor { position: relative; z-index: 60; }
+.tree-folder-collab {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+.tree-folder-collab .tree-collab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.team-panel-anchor {
+  position: relative;
+  z-index: 60;
+}
 
 /* ==========================================================================
    M58 — Live Attention, Callouts & Spatial Collaboration
@@ -316,8 +406,13 @@
   animation: attention-fade 6s ease-in forwards;
 }
 @keyframes attention-fade {
-  0%, 70% { opacity: 0.75; }
-  100% { opacity: 0; }
+  0%,
+  70% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 /* --- incoming callout (editor decoration + content widget) --- */
@@ -345,7 +440,10 @@
   border-radius: 50%;
   flex: 0 0 auto;
 }
-.attention-callout-who { font-weight: 600; white-space: nowrap; }
+.attention-callout-who {
+  font-weight: 600;
+  white-space: nowrap;
+}
 .attention-callout-msg {
   flex: 1 1 auto;
   word-break: break-word;
@@ -361,7 +459,9 @@
   line-height: 1;
   padding: 0 2px;
 }
-.attention-callout-x:hover { color: var(--fg-primary, #cdd6f4); }
+.attention-callout-x:hover {
+  color: var(--fg-primary, #cdd6f4);
+}
 
 /* --- attention message composer --- */
 .attention-composer {
@@ -380,8 +480,13 @@
   align-items: center;
   gap: 6px;
 }
-.attention-composer-picker { flex-wrap: wrap; }
-.attention-composer-label { font-size: 11px; color: var(--fg-muted, #7f849c); }
+.attention-composer-picker {
+  flex-wrap: wrap;
+}
+.attention-composer-label {
+  font-size: 11px;
+  color: var(--fg-muted, #7f849c);
+}
 .attention-composer input {
   width: 240px;
   padding: 4px 6px;
@@ -418,17 +523,25 @@
   border-radius: 999px;
   font-size: 11px;
 }
-.spatial-dot { width: 6px; height: 6px; border-radius: 50%; }
+.spatial-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
 .spatial-nearby {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--fg-secondary, #bac2de);
 }
-.spatial-nearby .spatial-dot { background: var(--accent); }
+.spatial-nearby .spatial-dot {
+  background: var(--accent);
+}
 .spatial-overlap {
   background: var(--warning-subtle, rgba(249, 226, 175, 0.15));
   color: var(--warning, #f9e2af);
 }
-.spatial-overlap .spatial-dot { background: var(--warning, #f9e2af); }
+.spatial-overlap .spatial-dot {
+  background: var(--warning, #f9e2af);
+}
 .spatial-view {
   background: none;
   border: 1px solid currentColor;
@@ -463,9 +576,19 @@
   font-size: 12px;
   color: var(--fg-primary, #cdd6f4);
 }
-.attention-tray-head { display: flex; align-items: center; gap: 6px; }
-.attention-tray-dot { width: 8px; height: 8px; border-radius: 50%; }
-.attention-tray-title { font-weight: 600; }
+.attention-tray-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.attention-tray-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.attention-tray-title {
+  font-weight: 600;
+}
 .attention-tray-loc {
   margin-top: 3px;
   font-size: 11px;
@@ -476,7 +599,11 @@
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-.attention-tray-actions { display: flex; gap: 6px; margin-top: 4px; }
+.attention-tray-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
 .attention-tray-actions button {
   padding: 3px 10px;
   font-size: 11px;

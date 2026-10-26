@@ -27,10 +27,7 @@ const MESSAGE_CUSTOM = 3;
 function fileReadyMessage(path: string): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
-  encoding.writeVarString(
-    encoder,
-    JSON.stringify({ type: "file_ready", path }),
-  );
+  encoding.writeVarString(encoder, JSON.stringify({ type: "file_ready", path }));
   return encoding.toUint8Array(encoder);
 }
 
@@ -68,9 +65,7 @@ describe("CollaborationClient — disposed client cannot rebind (Y.Doc write-aft
       getValue: () => "content left over from project A",
     } as any;
 
-    expect(() =>
-      client.bindMonacoModel("main.py", staleModel, {} as any),
-    ).not.toThrow();
+    expect(() => client.bindMonacoModel("main.py", staleModel, {} as any)).not.toThrow();
 
     expect(bindingCtor).not.toHaveBeenCalled();
   });

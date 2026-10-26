@@ -7,9 +7,7 @@ vi.mock("../src/api", () => ({
   updateProfile: () => Promise.resolve({}),
 }));
 
-import SettingsModal, {
-  DEFAULT_PREFERENCES,
-} from "../src/components/Settings/SettingsModal";
+import SettingsModal, { DEFAULT_PREFERENCES } from "../src/components/Settings/SettingsModal";
 
 afterEach(cleanup);
 
@@ -17,12 +15,7 @@ afterEach(cleanup);
 // settings modal. The modal must not carry the layout keys in its save
 // payload, so "Reset Defaults" there can never rewrite a user's panel layout.
 
-const LAYOUT_KEYS = [
-  "sidebarWidth",
-  "bottomHeight",
-  "sidebarHidden",
-  "bottomCollapsed",
-] as const;
+const LAYOUT_KEYS = ["sidebarWidth", "bottomHeight", "sidebarHidden", "bottomCollapsed"] as const;
 
 function renderModal() {
   const onSave = vi.fn().mockResolvedValue(undefined);
@@ -36,9 +29,7 @@ function renderModal() {
         sidebarHidden: true,
         bottomCollapsed: true,
       }}
-      onSave={
-        onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]
-      }
+      onSave={onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]}
       onClose={vi.fn()}
       username="ada99"
     />,

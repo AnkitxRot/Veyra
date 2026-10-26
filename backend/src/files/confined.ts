@@ -73,9 +73,7 @@ export function setConfinedPortableCheckForTests(on: boolean): void {
  * a resolved promise for normal writes, a rejected promise to simulate a
  * write failure, or a hanging promise to stall the write.
  */
-let testWriteHook:
-  | ((abs: string, data: string) => Promise<void>)
-  | null = null;
+let testWriteHook: ((abs: string, data: string) => Promise<void>) | null = null;
 export function setConfinedWriteForTests(
   hook: ((abs: string, data: string) => Promise<void>) | null,
 ): void {
@@ -170,11 +168,7 @@ export async function readConfinedBytes(
  * Replace (or create) the regular file at `abs` only if the opened file is
  * inside `root`. Nothing is truncated or written before the check passes.
  */
-export async function writeConfinedFile(
-  root: string,
-  abs: string,
-  content: string,
-): Promise<void> {
+export async function writeConfinedFile(root: string, abs: string, content: string): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
     let fh: FileHandle;
     try {
@@ -185,11 +179,7 @@ export async function writeConfinedFile(
         // O_EXCL never follows a final-component symlink, dangling or not.
         fh = await fs.open(
           abs,
-          constants.O_WRONLY |
-            constants.O_CREAT |
-            constants.O_EXCL |
-            O_NOFOLLOW |
-            O_NONBLOCK,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_NOFOLLOW | O_NONBLOCK,
           0o666,
         );
       } catch (err2) {

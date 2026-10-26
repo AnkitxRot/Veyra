@@ -84,10 +84,7 @@ describe("workflow discovery", () => {
     const cfg = makeTestConfig();
     const ws = makeWorkspace(cfg);
     mkdirSync(join(ws, "tests", "unit"), { recursive: true });
-    writeFileSync(
-      join(ws, "tests", "unit", "test_nested.py"),
-      "def test_ok():\n  assert 1\n",
-    );
+    writeFileSync(join(ws, "tests", "unit", "test_nested.py"), "def test_ok():\n  assert 1\n");
     const manifest = await discoverWorkflow(ws);
     expect(manifest.tasks.some((t) => t.id === "pytest:all")).toBe(true);
   });

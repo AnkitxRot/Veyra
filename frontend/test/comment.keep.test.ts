@@ -5,7 +5,12 @@ import type { AttentionEvent } from "../src/collab/attention";
 
 vi.mock("../src/comments/api", () => ({
   createThread: vi.fn(async (_pid: string, input: any) => ({
-    thread: { id: "new-thread", filePath: input.filePath, anchor: input.anchor, root: { body: input.body } },
+    thread: {
+      id: "new-thread",
+      filePath: input.filePath,
+      anchor: input.anchor,
+      root: { body: input.body },
+    },
   })),
 }));
 

@@ -46,11 +46,7 @@ export async function cleanupExpiredDemoAccounts(
   return inFlightGc;
 }
 
-async function executeDemoGc(
-  cfg: AppConfig,
-  db: Db,
-  now: number,
-): Promise<DemoGcResult> {
+async function executeDemoGc(cfg: AppConfig, db: Db, now: number): Promise<DemoGcResult> {
   const ttlMs = cfg.demoAccountTtlMs ?? 2 * 3600 * 1000;
   const cutoffIso = new Date(now - ttlMs).toISOString();
   const nowIso = new Date(now).toISOString();
@@ -145,10 +141,7 @@ async function executeDemoGc(
 
       cleanedUsers++;
     } catch (err) {
-      console.error(
-        `[demo-gc] failed to purge demo user ${user.username} (${user.id}):`,
-        err,
-      );
+      console.error(`[demo-gc] failed to purge demo user ${user.username} (${user.id}):`, err);
     }
   }
 

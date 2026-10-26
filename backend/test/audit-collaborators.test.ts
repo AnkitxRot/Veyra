@@ -32,18 +32,15 @@ describe("M97 — collaborator membership changes are audited", () => {
 
   function events(type: string): any[] {
     return api.db
-      .prepare(
-        "SELECT * FROM audit_logs WHERE project_id = ? AND event_type = ? ORDER BY id ASC",
-      )
+      .prepare("SELECT * FROM audit_logs WHERE project_id = ? AND event_type = ? ORDER BY id ASC")
       .all(projectId, type) as any[];
   }
 
   it("records COLLABORATOR_ADDED with actor, target and role", async () => {
-    const res = await api.request(
-      "POST",
-      `/api/projects/${projectId}/collaborators`,
-      { token: ownerToken, body: { username: "m97_guest", role: "viewer" } },
-    );
+    const res = await api.request("POST", `/api/projects/${projectId}/collaborators`, {
+      token: ownerToken,
+      body: { username: "m97_guest", role: "viewer" },
+    });
     expect(res.status).toBe(201);
     const rows = events("COLLABORATOR_ADDED");
     expect(rows).toHaveLength(1);
@@ -59,11 +56,10 @@ describe("M97 — collaborator membership changes are audited", () => {
       token: ownerToken,
       body: { username: "m97_guest", role: "editor" },
     });
-    const res = await api.request(
-      "PATCH",
-      `/api/projects/${projectId}/collaborators/${guestId}`,
-      { token: ownerToken, body: { role: "viewer" } },
-    );
+    const res = await api.request("PATCH", `/api/projects/${projectId}/collaborators/${guestId}`, {
+      token: ownerToken,
+      body: { role: "viewer" },
+    });
     expect(res.status).toBe(200);
     const rows = events("COLLABORATOR_ROLE_CHANGED");
     expect(rows).toHaveLength(1);
@@ -78,11 +74,9 @@ describe("M97 — collaborator membership changes are audited", () => {
       token: ownerToken,
       body: { username: "m97_guest" },
     });
-    const res = await api.request(
-      "DELETE",
-      `/api/projects/${projectId}/collaborators/${guestId}`,
-      { token: ownerToken },
-    );
+    const res = await api.request("DELETE", `/api/projects/${projectId}/collaborators/${guestId}`, {
+      token: ownerToken,
+    });
     expect(res.status).toBe(200);
     const rows = events("COLLABORATOR_REMOVED");
     expect(rows).toHaveLength(1);
@@ -91,11 +85,10 @@ describe("M97 — collaborator membership changes are audited", () => {
   });
 
   it("records nothing when the request is rejected", async () => {
-    const res = await api.request(
-      "POST",
-      `/api/projects/${projectId}/collaborators`,
-      { token: ownerToken, body: { username: "nobody_here" } },
-    );
+    const res = await api.request("POST", `/api/projects/${projectId}/collaborators`, {
+      token: ownerToken,
+      body: { username: "nobody_here" },
+    });
     expect(res.status).toBe(404);
     expect(events("COLLABORATOR_ADDED")).toHaveLength(0);
   });

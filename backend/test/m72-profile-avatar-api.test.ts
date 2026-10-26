@@ -117,11 +117,7 @@ describe("M72 — avatar media API", () => {
     const body = Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="x"\r\n\r\nnope\r\n--${boundary}--\r\n`,
     );
-    const r = await postAvatar(
-      alice.token,
-      body,
-      `multipart/form-data; boundary=${boundary}`,
-    );
+    const r = await postAvatar(alice.token, body, `multipart/form-data; boundary=${boundary}`);
     expect(r.status).toBe(400);
   });
 
@@ -221,10 +217,7 @@ describe("M72 — avatar media API", () => {
   });
 
   it("16. a successful upload broadcasts one profile_event for the user", async () => {
-    const spy = vi.spyOn(
-      collaborationManager,
-      "broadcastProfileEventForUser",
-    );
+    const spy = vi.spyOn(collaborationManager, "broadcastProfileEventForUser");
     const { body, contentType } = multipart("a.png", makePng(64, 64));
     await postAvatar(alice.token, body, contentType);
     expect(spy).toHaveBeenCalledWith(alice.id);

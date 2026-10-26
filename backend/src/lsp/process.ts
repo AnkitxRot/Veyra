@@ -1,8 +1,4 @@
-import {
-  execFileSync,
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { LspLanguageSpec } from "./languages.js";
 
 export interface LspSpawnRequest {
@@ -11,9 +7,7 @@ export interface LspSpawnRequest {
   containerId: string;
 }
 
-export type LspSpawnFn = (
-  req: LspSpawnRequest,
-) => ChildProcessWithoutNullStreams;
+export type LspSpawnFn = (req: LspSpawnRequest) => ChildProcessWithoutNullStreams;
 
 /**
  * Host-side env for the `docker` CLI only. The language server itself runs
@@ -107,23 +101,17 @@ const TSSERVER_REAPER = [
  * wrapper is killed. js-debug cannot bind TypeScript source maps while
  * those workers still hold the workspace.
  */
-export function killTypeScriptLanguageServersInContainer(
-  containerId: string,
-): void {
+export function killTypeScriptLanguageServersInContainer(containerId: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(containerId)) {
     throw new Error("invalid_container_id");
   }
   try {
-    execFileSync(
-      "docker",
-      ["exec", "-u", "ide", containerId, "node", "-e", TSSERVER_REAPER],
-      {
-        timeout: 4_000,
-        stdio: "ignore",
-        windowsHide: true,
-        env: lspHostDockerEnv(),
-      },
-    );
+    execFileSync("docker", ["exec", "-u", "ide", containerId, "node", "-e", TSSERVER_REAPER], {
+      timeout: 4_000,
+      stdio: "ignore",
+      windowsHide: true,
+      env: lspHostDockerEnv(),
+    });
   } catch {
     /* container gone or no leftover servers */
   }
@@ -134,9 +122,7 @@ export function killTypeScriptLanguageServersInContainer(
  * the allowlist (`spec`), never from the client. Container env is explicit
  * and minimal — no secrets file, no `-e` passthrough of backend env.
  */
-export function spawnSandboxLsp(
-  req: LspSpawnRequest,
-): ChildProcessWithoutNullStreams {
+export function spawnSandboxLsp(req: LspSpawnRequest): ChildProcessWithoutNullStreams {
   const child = spawn("docker", sandboxLspArgv(req), {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,

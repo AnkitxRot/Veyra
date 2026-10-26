@@ -35,10 +35,7 @@ const KEY_B64 = Buffer.alloc(32, 7).toString("base64");
 const TOKEN = "m80-test-pat-SECRETVALUE-xyz";
 
 function gitAvailable(): boolean {
-  for (const dir of [
-    "C:\\Program Files\\Git\\cmd",
-    "C:\\Program Files\\Git\\usr\\bin",
-  ]) {
+  for (const dir of ["C:\\Program Files\\Git\\cmd", "C:\\Program Files\\Git\\usr\\bin"]) {
     if (existsSync(dir) && !process.env.PATH?.includes(dir)) {
       process.env.PATH = `${dir};${process.env.PATH ?? ""}`;
     }
@@ -222,9 +219,7 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
     });
     expect(JSON.stringify(list.data)).not.toContain(TOKEN);
     const names = list.data.secrets.map((s: { name: string }) => s.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["GIT_HTTPS_TOKEN", "GIT_HTTPS_USERNAME"]),
-    );
+    expect(names).toEqual(expect.arrayContaining(["GIT_HTTPS_TOKEN", "GIT_HTTPS_USERNAME"]));
     for (const s of list.data.secrets) expect(s).not.toHaveProperty("value");
 
     const row = db
@@ -237,11 +232,10 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
     expect(injected).not.toHaveProperty("GIT_HTTPS_USERNAME");
     expect(JSON.stringify(injected)).not.toContain(TOKEN);
 
-    const flip = await api.request(
-      "PUT",
-      `/api/projects/${projectId}/secrets/GIT_HTTPS_TOKEN`,
-      { token: ownerToken, body: { value: TOKEN, isSecret: false } },
-    );
+    const flip = await api.request("PUT", `/api/projects/${projectId}/secrets/GIT_HTTPS_TOKEN`, {
+      token: ownerToken,
+      body: { value: TOKEN, isSecret: false },
+    });
     expect(flip.status).toBe(400);
     expect(flip.data.error.code).toBe("reserved_secret");
     expect(JSON.stringify(flip.data)).not.toContain(TOKEN);
@@ -373,9 +367,7 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
     });
     expect(fetchRes.status).toBe(409);
     expect(fetchRes.data.error.code).toBe("invalid_remote_url");
-    expect(JSON.stringify(git._takeCapturedGitArgvForTests())).not.toContain(
-      TOKEN,
-    );
+    expect(JSON.stringify(git._takeCapturedGitArgvForTests())).not.toContain(TOKEN);
     expect(JSON.stringify(fetchRes.data)).not.toContain(TOKEN);
   });
 
@@ -405,16 +397,14 @@ describe.skipIf(!HAS_GIT)("M80 — remotes API (no network)", () => {
     expect(fork.status).toBe(201);
     const forkId = fork.data.project.id;
     const forkSecrets = (
-      db
-        .prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?")
-        .get(forkId) as { c: number }
+      db.prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?").get(forkId) as {
+        c: number;
+      }
     ).c;
     expect(forkSecrets).toBe(0);
-    const forkList = await api.request(
-      "GET",
-      `/api/projects/${forkId}/secrets`,
-      { token: ownerToken },
-    );
+    const forkList = await api.request("GET", `/api/projects/${forkId}/secrets`, {
+      token: ownerToken,
+    });
     expect(forkList.data.secrets).toEqual([]);
     expect(JSON.stringify(fork.data)).not.toContain(TOKEN);
   });
@@ -538,9 +528,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     expect(JSON.stringify(r.data)).not.toContain(TOKEN);
 
     const cwd = await workspacePath(cfg, r.data.project.id);
-    expect(await fs.readFile(join(cwd, "README.md"), "utf8")).toBe(
-      "hello remote\n",
-    );
+    expect(await fs.readFile(join(cwd, "README.md"), "utf8")).toBe("hello remote\n");
     const cfgTxt = await fs.readFile(join(cwd, ".git", "config"), "utf8");
     expect(cfgTxt).toContain(remote.url);
     expect(cfgTxt).not.toMatch(/https:\/\/[^/\s]+@/);
@@ -551,9 +539,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     expect(argv).toContain("fetch");
 
     const audit = db
-      .prepare(
-        "SELECT details FROM audit_logs WHERE event_type = 'GIT_CLONE' AND project_id = ?",
-      )
+      .prepare("SELECT details FROM audit_logs WHERE event_type = 'GIT_CLONE' AND project_id = ?")
       .get(r.data.project.id) as { details: string };
     expect(audit.details).not.toContain(TOKEN);
     expect(audit.details).toContain("127.0.0.1");
@@ -585,11 +571,9 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     expect(cfgTxt).not.toContain(TOKEN);
     const argv = git._takeCapturedGitArgvForTests().flat().join("\0");
     expect(argv).not.toContain(TOKEN);
-    const status = await api.request(
-      "GET",
-      `/api/projects/${r.data.project.id}/git/status`,
-      { token: ownerToken },
-    );
+    const status = await api.request("GET", `/api/projects/${r.data.project.id}/git/status`, {
+      token: ownerToken,
+    });
     expect(status.data.credentialsConfigured).toBe(true);
     expect(JSON.stringify(status.data)).not.toContain(TOKEN);
   });
@@ -633,9 +617,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
       token: ownerToken,
     });
     expect(r.status).toBe(200);
-    expect(await fs.readFile(join(cwd, "README.md"), "utf8")).toBe(
-      "local dirty\n",
-    );
+    expect(await fs.readFile(join(cwd, "README.md"), "utf8")).toBe("local dirty\n");
   });
 
   it("fast-forward pull succeeds when the remote is ahead and the tree is clean", async () => {
@@ -644,11 +626,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
       body: { name: "ff-pull", url: remote.url },
     });
     const id = cloned.data.project.id;
-    await pushCommitsToBare(
-      remote.bareDir,
-      { "app.py": "print('ahead')\n" },
-      "remote ahead",
-    );
+    await pushCommitsToBare(remote.bareDir, { "app.py": "print('ahead')\n" }, "remote ahead");
     const r = await api.request("POST", `/api/projects/${id}/git/pull`, {
       token: ownerToken,
       body: { dirtyOpenPaths: [] },
@@ -657,9 +635,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     expect(r.data.alreadyUpToDate).toBe(false);
     expect(r.data.changedPaths).toContain("app.py");
     const cwd = await workspacePath(cfg, id);
-    expect(await fs.readFile(join(cwd, "app.py"), "utf8")).toBe(
-      "print('ahead')\n",
-    );
+    expect(await fs.readFile(join(cwd, "app.py"), "utf8")).toBe("print('ahead')\n");
   });
 
   it("pull is already-up-to-date when remotes match", async () => {
@@ -667,11 +643,10 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
       token: ownerToken,
       body: { name: "up-to-date", url: remote.url },
     });
-    const r = await api.request(
-      "POST",
-      `/api/projects/${cloned.data.project.id}/git/pull`,
-      { token: ownerToken, body: { dirtyOpenPaths: [] } },
-    );
+    const r = await api.request("POST", `/api/projects/${cloned.data.project.id}/git/pull`, {
+      token: ownerToken,
+      body: { dirtyOpenPaths: [] },
+    });
     expect(r.status).toBe(200);
     expect(r.data.alreadyUpToDate).toBe(true);
     expect(r.data.changedPaths).toEqual([]);
@@ -693,20 +668,14 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
       token: ownerToken,
       body: { message: "local commit" },
     });
-    await pushCommitsToBare(
-      remote.bareDir,
-      { "app.py": "print('remote')\n" },
-      "remote commit",
-    );
+    await pushCommitsToBare(remote.bareDir, { "app.py": "print('remote')\n" }, "remote commit");
     const r = await api.request("POST", `/api/projects/${id}/git/pull`, {
       token: ownerToken,
       body: { dirtyOpenPaths: [] },
     });
     expect(r.status).toBe(409);
     expect(r.data.error.code).toBe("branch_diverged");
-    expect(await fs.readFile(join(cwd, "app.py"), "utf8")).toBe(
-      "print('local')\n",
-    );
+    expect(await fs.readFile(join(cwd, "app.py"), "utf8")).toBe("print('local')\n");
   });
 
   it("dirty working tree blocks pull via the existing mutation gate", async () => {
@@ -717,11 +686,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     const id = cloned.data.project.id;
     const cwd = await workspacePath(cfg, id);
     await fs.writeFile(join(cwd, "app.py"), "print('dirty')\n", "utf8");
-    await pushCommitsToBare(
-      remote.bareDir,
-      { "app.py": "print('ahead')\n" },
-      "remote ahead",
-    );
+    await pushCommitsToBare(remote.bareDir, { "app.py": "print('ahead')\n" }, "remote ahead");
     const r = await api.request("POST", `/api/projects/${id}/git/pull`, {
       token: ownerToken,
       body: { dirtyOpenPaths: ["app.py"] },
@@ -729,9 +694,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     expect(r.status).toBe(409);
     expect(r.data.error.code).toBe("dirty_worktree");
     expect(r.data.blockingPaths).toContain("app.py");
-    expect(await fs.readFile(join(cwd, "app.py"), "utf8")).toBe(
-      "print('dirty')\n",
-    );
+    expect(await fs.readFile(join(cwd, "app.py"), "utf8")).toBe("print('dirty')\n");
   });
 
   it("collaborator dirty buffers block pull (M56) unless force is set", async () => {
@@ -740,17 +703,12 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
       body: { name: "collab-pull", url: remote.url },
     });
     const id = cloned.data.project.id;
-    await pushCommitsToBare(
-      remote.bareDir,
-      { "app.py": "print('ahead')\n" },
-      "remote ahead",
-    );
+    await pushCommitsToBare(remote.bareDir, { "app.py": "print('ahead')\n" }, "remote ahead");
     const room = collaborationManager.getOrCreateRoom(id);
     // Keep the edit in the room only: sandbox Git can outlast the 2s
     // persistence debounce, which would make app.py dirty on disk.
-    (
-      room as unknown as { scheduleDebouncedPersistence: () => void }
-    ).scheduleDebouncedPersistence = () => {};
+    (room as unknown as { scheduleDebouncedPersistence: () => void }).scheduleDebouncedPersistence =
+      () => {};
     const yText = await room.ensureFileLoaded("app.py");
     room.doc.transact(() => {
       yText.insert(yText.length, "# unsaved\n");
@@ -785,11 +743,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     const room = collaborationManager.getOrCreateRoom(id);
     const yText = await room.ensureFileLoaded("app.py");
     expect(yText.toString()).toBe("print('seed')\n");
-    await pushCommitsToBare(
-      remote.bareDir,
-      { "app.py": "print('ahead')\n" },
-      "remote ahead",
-    );
+    await pushCommitsToBare(remote.bareDir, { "app.py": "print('ahead')\n" }, "remote ahead");
     try {
       const r = await api.request("POST", `/api/projects/${id}/git/pull`, {
         token: ownerToken,
@@ -828,9 +782,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     expect(r.data.branch).toBe("main");
     const argvFlat = git._takeCapturedGitArgvForTests().flat();
     expect(argvFlat).toContain("push");
-    expect(
-      argvFlat.some((a) => /^[0-9a-f]{40}:refs\/heads\/main$/.test(a)),
-    ).toBe(true);
+    expect(argvFlat.some((a) => /^[0-9a-f]{40}:refs\/heads\/main$/.test(a))).toBe(true);
     expect(argvFlat).not.toContain("--force");
     expect(argvFlat).not.toContain("-f");
     expect(argvFlat.join("\0")).not.toContain(TOKEN);
@@ -858,11 +810,7 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
       token: ownerToken,
       body: { message: "local only" },
     });
-    await pushCommitsToBare(
-      remote.bareDir,
-      { "app.py": "print('remote')\n" },
-      "remote only",
-    );
+    await pushCommitsToBare(remote.bareDir, { "app.py": "print('remote')\n" }, "remote only");
     git._takeCapturedGitArgvForTests();
     const r = await api.request("POST", `/api/projects/${id}/git/push`, {
       token: ownerToken,
@@ -895,11 +843,9 @@ describe.skipIf(!HAS_HTTPS)("M80 — HTTPS clone / fetch / pull / push", () => {
     await api.request("DELETE", `/api/projects/${cloned.data.project.id}/git/credentials`, {
       token: ownerToken,
     });
-    const r = await api.request(
-      "POST",
-      `/api/projects/${cloned.data.project.id}/git/fetch`,
-      { token: ownerToken },
-    );
+    const r = await api.request("POST", `/api/projects/${cloned.data.project.id}/git/fetch`, {
+      token: ownerToken,
+    });
     expect(r.status).toBe(401);
     expect(["auth_failed", "credentials_required"]).toContain(r.data.error.code);
     expect(JSON.stringify(r.data)).not.toContain(TOKEN);

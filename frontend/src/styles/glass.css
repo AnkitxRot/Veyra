@@ -75,12 +75,16 @@
   color: var(--fg-inverse);
   font-weight: 600;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  box-shadow: 0 2px 12px var(--accent-glow), var(--glass-specular-sharp);
+  box-shadow:
+    0 2px 12px var(--accent-glow),
+    var(--glass-specular-sharp);
 }
 
 .glass-btn-primary:hover:not(:disabled) {
   filter: brightness(1.08);
-  box-shadow: 0 4px 16px var(--accent-glow), var(--glass-specular-sharp);
+  box-shadow:
+    0 4px 16px var(--accent-glow),
+    var(--glass-specular-sharp);
 }
 
 .glass-btn-primary:active:not(:disabled) {
@@ -147,7 +151,9 @@
 .glass-input:focus {
   border-color: var(--accent);
   background: var(--input-bg-focus);
-  box-shadow: 0 0 0 3px var(--accent-glow), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 0 0 3px var(--accent-glow),
+    inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 /* Glass Badges & Pills */
@@ -251,6 +257,12 @@
 }
 
 @keyframes modalFadeIn {
-  from { opacity: 0; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

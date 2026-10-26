@@ -25,9 +25,7 @@ import type { NoticeInput } from "../hooks/useNotices";
 export const IDE_NOTICE_EVENT = "ide-notice";
 
 export function emitNotice(input: NoticeInput): void {
-  document.dispatchEvent(
-    new CustomEvent(IDE_NOTICE_EVENT, { detail: input }),
-  );
+  document.dispatchEvent(new CustomEvent(IDE_NOTICE_EVENT, { detail: input }));
 }
 
 /** Convenience for the most common case: a transient error toast. */

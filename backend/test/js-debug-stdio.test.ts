@@ -20,38 +20,23 @@ const require = createRequire(import.meta.url);
 
 describe("js-debug parent/child event routing", () => {
   it("forwards parent traffic until the child session is ready", () => {
-    expect(
-      shouldForwardParentMessage({ type: "event", event: "continued" }, false),
-    ).toBe(true);
-    expect(
-      shouldForwardParentMessage({ type: "response", command: "launch" }, false),
-    ).toBe(true);
+    expect(shouldForwardParentMessage({ type: "event", event: "continued" }, false)).toBe(true);
+    expect(shouldForwardParentMessage({ type: "response", command: "launch" }, false)).toBe(true);
   });
 
   it("drops parent events after the child owns the debuggee", () => {
-    expect(
-      shouldForwardParentMessage({ type: "event", event: "continued" }, true),
-    ).toBe(false);
-    expect(
-      shouldForwardParentMessage({ type: "event", event: "stopped" }, true),
-    ).toBe(false);
-    expect(
-      shouldForwardParentMessage({ type: "event", event: "terminated" }, true),
-    ).toBe(false);
-    expect(
-      shouldForwardParentMessage({ type: "event", event: "thread" }, true),
-    ).toBe(false);
-    expect(
-      shouldForwardParentMessage({ type: "request", command: "startDebugging" }, true),
-    ).toBe(false);
+    expect(shouldForwardParentMessage({ type: "event", event: "continued" }, true)).toBe(false);
+    expect(shouldForwardParentMessage({ type: "event", event: "stopped" }, true)).toBe(false);
+    expect(shouldForwardParentMessage({ type: "event", event: "terminated" }, true)).toBe(false);
+    expect(shouldForwardParentMessage({ type: "event", event: "thread" }, true)).toBe(false);
+    expect(shouldForwardParentMessage({ type: "request", command: "startDebugging" }, true)).toBe(
+      false,
+    );
   });
 
   it("still forwards parent responses after child attach (launch handshake)", () => {
     expect(
-      shouldForwardParentMessage(
-        { type: "response", command: "launch", request_seq: 2 },
-        true,
-      ),
+      shouldForwardParentMessage({ type: "response", command: "launch", request_seq: 2 }, true),
     ).toBe(true);
   });
 
@@ -70,9 +55,7 @@ describe("TypeScript program + source-map rewriting", () => {
     expect(normalizeWorkspaceTsProgram("file:///workspace/src/main.ts")).toBe(
       "/workspace/src/main.ts",
     );
-    expect(normalizeWorkspaceTsProgram("src/main.ts", "/workspace")).toBe(
-      "/workspace/src/main.ts",
-    );
+    expect(normalizeWorkspaceTsProgram("src/main.ts", "/workspace")).toBe("/workspace/src/main.ts");
     expect(isTypeScriptProgram("/workspace/../etc/passwd.ts")).toBe(false);
     expect(isTypeScriptProgram("/tmp/main.ts")).toBe(false);
     expect(isTypeScriptProgram("/workspace/main.js")).toBe(false);
@@ -93,9 +76,9 @@ describe("TypeScript program + source-map rewriting", () => {
 
   it("maps sources onto /workspace and rejects escapes", () => {
     expect(toWorkspaceSource("src/main.ts")).toBe("/workspace/src/main.ts");
-    expect(
-      toWorkspaceSource("src/main.ts", { sourceRoot: "/workspace/" }),
-    ).toBe("/workspace/src/main.ts");
+    expect(toWorkspaceSource("src/main.ts", { sourceRoot: "/workspace/" })).toBe(
+      "/workspace/src/main.ts",
+    );
     expect(toWorkspaceSource("/etc/passwd")).toBeNull();
     expect(toWorkspaceSource("../secret.ts")).toBeNull();
     expect(
@@ -110,9 +93,7 @@ describe("TypeScript program + source-map rewriting", () => {
         actualRoot: "/tmp/proj",
       }),
     ).toBeNull();
-    expect(toWorkspaceSource("file:///workspace/src/helper.ts")).toBe(
-      "/workspace/src/helper.ts",
-    );
+    expect(toWorkspaceSource("file:///workspace/src/helper.ts")).toBe("/workspace/src/helper.ts");
     expect(
       toWorkspaceSource("D:/tmp/proj/src/app.ts", {
         actualRoot: "D:/tmp/proj",
@@ -192,12 +173,8 @@ describe("TypeScript program + source-map rewriting", () => {
     expect(existsSync(js)).toBe(true);
     const map = JSON.parse(readFileSync(`${js}.map`, "utf8"));
     expect(map.sources).toContain("/workspace/src/main.ts");
-    expect(map.sources.every((s: string) => s.startsWith("/workspace/"))).toBe(
-      true,
-    );
-    const helperMap = JSON.parse(
-      readFileSync(join(out, "src", "helper.js.map"), "utf8"),
-    );
+    expect(map.sources.every((s: string) => s.startsWith("/workspace/"))).toBe(true);
+    const helperMap = JSON.parse(readFileSync(join(out, "src", "helper.js.map"), "utf8"));
     expect(helperMap.sources).toContain("/workspace/src/helper.ts");
   });
 

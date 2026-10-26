@@ -22,30 +22,30 @@ plus a persistent Docker sandbox. Several people can edit the same files
 through Yjs, run code, and use a shared Source Control panel against a
 per-project Git repository.
 
-The Git repository *inside* a project (`.git` under the workspace) is **not**
+The Git repository _inside_ a project (`.git` under the workspace) is **not**
 the Veyra source repository. Do not confuse the two.
 
 ## Capabilities
 
-| Area | What exists |
-| --- | --- |
-| Editing | Monaco, tabs, search/replace, comments |
+| Area                  | What exists                                                                                                                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Editing               | Monaco, tabs, search/replace, comments                                                                                                                                                                     |
 | Language intelligence | Python and TypeScript/JavaScript/TSX/JSX: live diagnostics, completion, hover, definition, references, document symbols, workspace symbols (M81–M85). Other languages: syntax + post-run diagnostics only. |
-| Debugging | Python and Node/TypeScript: breakpoints, stepping, stack, variables inside the project sandbox (M83). No evaluate/watches. |
-| Tests / builds | Allowlisted `package.json` `test`/`build` scripts and pytest discovery (including nested `tests/`); sandboxed execution via the existing Run slot (M84). |
-| Workspace | Bounded file tree and search, Quick Open, workspace symbol search (`#` in the command palette). No global filesystem watcher. |
-| Collaboration | Yjs CRDT, awareness, follow, mutation gates (M56) |
-| Execution | Docker runner (`python`, Node, C/C++, Java, TypeScript, …) |
-| Terminals | PTY in the sandbox; detach/reattach (M79) |
-| Preview | Authenticated reverse-proxy to allowlisted sandbox ports |
-| Projects | CRUD, upload, ZIP export/import, fork, snapshots, quotas |
-| Secrets | Encrypted per-project secrets (M47); write-only values |
-| Git (local) | Init, status, stage, commit, branches, checkout (M51) |
-| Git (HTTPS) | Clone, origin, fetch, fast-forward-only pull, push (M80) |
-| Admin | Users, backups, observability, audit-integrity telemetry (M93) |
-| Audit | Audit log covering auth, projects, Git, execution, terminals, collab, LSP and debug sessions (M92/M94); fail-soft writes, failure counters, retention GC (M93) |
-| Git execution | Project Git runs inside the project sandbox (M87) |
-| Auth | Cookie sessions (httpOnly, signed) + optional Bearer token |
+| Debugging             | Python and Node/TypeScript: breakpoints, stepping, stack, variables inside the project sandbox (M83). No evaluate/watches.                                                                                 |
+| Tests / builds        | Allowlisted `package.json` `test`/`build` scripts and pytest discovery (including nested `tests/`); sandboxed execution via the existing Run slot (M84).                                                   |
+| Workspace             | Bounded file tree and search, Quick Open, workspace symbol search (`#` in the command palette). No global filesystem watcher.                                                                              |
+| Collaboration         | Yjs CRDT, awareness, follow, mutation gates (M56)                                                                                                                                                          |
+| Execution             | Docker runner (`python`, Node, C/C++, Java, TypeScript, …)                                                                                                                                                 |
+| Terminals             | PTY in the sandbox; detach/reattach (M79)                                                                                                                                                                  |
+| Preview               | Authenticated reverse-proxy to allowlisted sandbox ports                                                                                                                                                   |
+| Projects              | CRUD, upload, ZIP export/import, fork, snapshots, quotas                                                                                                                                                   |
+| Secrets               | Encrypted per-project secrets (M47); write-only values                                                                                                                                                     |
+| Git (local)           | Init, status, stage, commit, branches, checkout (M51)                                                                                                                                                      |
+| Git (HTTPS)           | Clone, origin, fetch, fast-forward-only pull, push (M80)                                                                                                                                                   |
+| Admin                 | Users, backups, observability, audit-integrity telemetry (M93)                                                                                                                                             |
+| Audit                 | Audit log covering auth, projects, Git, execution, terminals, collab, LSP and debug sessions (M92/M94); fail-soft writes, failure counters, retention GC (M93)                                             |
+| Git execution         | Project Git runs inside the project sandbox (M87)                                                                                                                                                          |
+| Auth                  | Cookie sessions (httpOnly, signed) + optional Bearer token                                                                                                                                                 |
 
 Not in this tree: SSH Git, GitHub OAuth, pull-request UI, merge/rebase UI,
 force-push, LFS, submodules, billing, analytics, Java/C++ language
@@ -124,14 +124,14 @@ rewriting, and a single authoritative document stream per file (Yjs is
 canonical when a collab room holds the file). Clients cannot name an
 executable or escape `/workspace`.
 
-| Language | Syntax | Live diagnostics | Completion / hover | Navigation | Runtime |
-| --- | --- | --- | --- | --- | --- |
-| Python (`.py`, `.pyi`) | Monaco | `pylsp` (pyflakes / pycodestyle) when the runner image and sandbox are available | `pylsp` | Go to definition, references, document symbols | `python3` |
-| TypeScript (`.ts`) | Monaco | `typescript-language-server` / tsserver against the workspace `tsconfig.json` | same | Go to definition, references, document symbols | Node / tsx |
-| TSX (`.tsx`) | Monaco | same server (`typescriptreact`) | same | same | — |
-| JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) | Monaco | same TypeScript server | same | same | Node |
-| C / C++ | Monaco | Post-run gcc/g++ parser only | — | — | gcc / g++ |
-| Java | Monaco | Post-run javac parser only | — | — | JDK |
+| Language                                         | Syntax | Live diagnostics                                                                 | Completion / hover | Navigation                                     | Runtime    |
+| ------------------------------------------------ | ------ | -------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------- | ---------- |
+| Python (`.py`, `.pyi`)                           | Monaco | `pylsp` (pyflakes / pycodestyle) when the runner image and sandbox are available | `pylsp`            | Go to definition, references, document symbols | `python3`  |
+| TypeScript (`.ts`)                               | Monaco | `typescript-language-server` / tsserver against the workspace `tsconfig.json`    | same               | Go to definition, references, document symbols | Node / tsx |
+| TSX (`.tsx`)                                     | Monaco | same server (`typescriptreact`)                                                  | same               | same                                           | —          |
+| JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) | Monaco | same TypeScript server                                                           | same               | same                                           | Node       |
+| C / C++                                          | Monaco | Post-run gcc/g++ parser only                                                     | —                  | —                                              | gcc / g++  |
+| Java                                             | Monaco | Post-run javac parser only                                                       | —                  | —                                              | JDK        |
 
 Live LSP diagnostics are independent of post-run parser diagnostics
 (Problems panel owner `lsp` vs `cloudeee-problems`).
@@ -176,12 +176,12 @@ stack / variables / terminate). Raw DAP from the client is ignored.
 Expression evaluation, watches, and conditional breakpoints are **not**
 exposed.
 
-| Runtime | Launch | Breakpoints | Continue / Pause | Step | Stack | Variables | Source mapping |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Python (`.py`) | `debugpy==1.8.21` in `/opt/debug` | yes | yes | over / into / out | yes | locals / scopes | `/workspace` ↔ editor path |
-| Node (`.js` / `.mjs` / `.cjs`) | `vscode-js-debug` v1.117.0 | yes | yes | yes | yes | yes | workspace path |
-| TypeScript (`.ts`) | same adapter; isolated `tsc` emit in `.cloudide-build-debug` | yes | yes | yes | `.ts` frames | yes | source maps rewrite to `/workspace/...` |
-| TSX / JSX / Java / C / C++ | — | — | — | — | — | — | not in M83 |
+| Runtime                        | Launch                                                       | Breakpoints | Continue / Pause | Step              | Stack        | Variables       | Source mapping                          |
+| ------------------------------ | ------------------------------------------------------------ | ----------- | ---------------- | ----------------- | ------------ | --------------- | --------------------------------------- |
+| Python (`.py`)                 | `debugpy==1.8.21` in `/opt/debug`                            | yes         | yes              | over / into / out | yes          | locals / scopes | `/workspace` ↔ editor path              |
+| Node (`.js` / `.mjs` / `.cjs`) | `vscode-js-debug` v1.117.0                                   | yes         | yes              | yes               | yes          | yes             | workspace path                          |
+| TypeScript (`.ts`)             | same adapter; isolated `tsc` emit in `.cloudide-build-debug` | yes         | yes              | yes               | `.ts` frames | yes             | source maps rewrite to `/workspace/...` |
+| TSX / JSX / Java / C / C++     | —                                                            | —           | —                | —                 | —            | —               | not in M83                              |
 
 **Limitations.** TypeScript is compiled into `/workspace/.cloudide-build-debug/<pid>`
 (hidden from the file tree, zip, and backups — never into Git). Source maps
@@ -239,12 +239,12 @@ shell string, environment, container, or host path. Execution reuses
 `/ws/execute` and the same run slot, quotas, and Stop path as **Run**.
 A live debugger on the project blocks test/build start.
 
-| Kind | Discovery | Execution | Notes |
-| --- | --- | --- | --- |
-| Node / TypeScript tests | `package.json` scripts named exactly `test` or `test:*` | `npm run <name>` (argv only) | Script **bodies** are never interpolated. Prefer `node --test`. |
-| Node / TypeScript builds | scripts named `build` or `build:*` | `npm run <name>` | Same argv rule. |
-| Python tests | `pytest.ini`, `conftest.py`, `[tool.pytest` in `pyproject.toml`, `pytest` in `requirements.txt`, or `test_*.py` / `*_test.py` (including nested under `tests/`, bounded) | `python3 -m pytest -v --tb=short` | Requires pytest **in the sandbox**. The runner image does not preinstall pytest. |
-| Other `package.json` scripts (`start`, `pretest`, …) | ignored | not offered | Not an arbitrary-command UI. |
+| Kind                                                 | Discovery                                                                                                                                                                | Execution                         | Notes                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- | -------------------------------------------------------------------------------- |
+| Node / TypeScript tests                              | `package.json` scripts named exactly `test` or `test:*`                                                                                                                  | `npm run <name>` (argv only)      | Script **bodies** are never interpolated. Prefer `node --test`.                  |
+| Node / TypeScript builds                             | scripts named `build` or `build:*`                                                                                                                                       | `npm run <name>`                  | Same argv rule.                                                                  |
+| Python tests                                         | `pytest.ini`, `conftest.py`, `[tool.pytest` in `pyproject.toml`, `pytest` in `requirements.txt`, or `test_*.py` / `*_test.py` (including nested under `tests/`, bounded) | `python3 -m pytest -v --tb=short` | Requires pytest **in the sandbox**. The runner image does not preinstall pytest. |
+| Other `package.json` scripts (`start`, `pretest`, …) | ignored                                                                                                                                                                  | not offered                       | Not an arbitrary-command UI.                                                     |
 
 Results (pass / fail / skip / error) are bounded (200 cases, 64 KiB
 output). Failures with a workspace-relative file/line open that location
@@ -365,30 +365,30 @@ STATUS.md    Milestone log (historical; long)
 Copy [`.env.example`](.env.example) for Compose. The backend also reads
 process environment directly (`PORT`, `DATA_DIR`, …).
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `ADMIN_PASSWORD` | (none) | Required on first boot until an admin exists. Compose refuses to start without it. Changing it later does **not** rotate the password. |
-| `ADMIN_USERNAME` | `admin` | First-boot admin only. |
-| `PORT` / `HTTP_PORT` | `3000` | Process listen port / published host port. |
-| `DATA_DIR` | platform-specific | Workspaces + SQLite. Production: `/var/lib/cloud-ide`. |
-| `DATABASE_PATH` | `$DATA_DIR/cloudide.db` | |
-| `SECRETS_MASTER_KEY` | unset | 32-byte key, base64. Required for secrets and Git PATs. |
-| `GIT_SSL_CAINFO` | unset | CA file for HTTPS Git (tests / private CAs). |
-| `MAX_SANDBOXES` | `20` | |
-| `PROJECT_QUOTA` | `20` | |
-| `MAX_CONCURRENT_RUNS` | `3` | |
-| `SANDBOX_IDLE_TIMEOUT_MS` | `1800000` | |
-| `MAX_LSP_SERVERS` | `8` | Concurrent language-server processes (M82). |
-| `MAX_LSP_SERVERS_PER_PROJECT` | `2` | Python + TypeScript/JavaScript. |
-| `LSP_IDLE_TIMEOUT_MS` | `120000` | Reap after last client disconnects. |
-| `LSP_STARTUP_TIMEOUT_MS` | `30000` | |
-| `MAX_DEBUG_SESSIONS` | `4` | Live debug sessions (starting/running/paused). |
-| `MAX_DEBUG_SESSIONS_PER_PROJECT` | `2` | |
-| `MAX_DEBUG_SESSIONS_PER_USER` | `1` | |
-| `DEBUG_STARTUP_TIMEOUT_MS` | `30000` | Adapter initialize + launch. |
-| `COOKIE_SECURE` | production=`true` | |
-| `TRUST_PROXY` | off | Set `1` behind a reverse proxy. |
-| `APP_CONTAINERIZED` | off | Compose sets `1` so preview proxy uses sandbox networks. |
+| Variable                         | Default                 | Notes                                                                                                                                  |
+| -------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN_PASSWORD`                 | (none)                  | Required on first boot until an admin exists. Compose refuses to start without it. Changing it later does **not** rotate the password. |
+| `ADMIN_USERNAME`                 | `admin`                 | First-boot admin only.                                                                                                                 |
+| `PORT` / `HTTP_PORT`             | `3000`                  | Process listen port / published host port.                                                                                             |
+| `DATA_DIR`                       | platform-specific       | Workspaces + SQLite. Production: `/var/lib/cloud-ide`.                                                                                 |
+| `DATABASE_PATH`                  | `$DATA_DIR/cloudide.db` |                                                                                                                                        |
+| `SECRETS_MASTER_KEY`             | unset                   | 32-byte key, base64. Required for secrets and Git PATs.                                                                                |
+| `GIT_SSL_CAINFO`                 | unset                   | CA file for HTTPS Git (tests / private CAs).                                                                                           |
+| `MAX_SANDBOXES`                  | `20`                    |                                                                                                                                        |
+| `PROJECT_QUOTA`                  | `20`                    |                                                                                                                                        |
+| `MAX_CONCURRENT_RUNS`            | `3`                     |                                                                                                                                        |
+| `SANDBOX_IDLE_TIMEOUT_MS`        | `1800000`               |                                                                                                                                        |
+| `MAX_LSP_SERVERS`                | `8`                     | Concurrent language-server processes (M82).                                                                                            |
+| `MAX_LSP_SERVERS_PER_PROJECT`    | `2`                     | Python + TypeScript/JavaScript.                                                                                                        |
+| `LSP_IDLE_TIMEOUT_MS`            | `120000`                | Reap after last client disconnects.                                                                                                    |
+| `LSP_STARTUP_TIMEOUT_MS`         | `30000`                 |                                                                                                                                        |
+| `MAX_DEBUG_SESSIONS`             | `4`                     | Live debug sessions (starting/running/paused).                                                                                         |
+| `MAX_DEBUG_SESSIONS_PER_PROJECT` | `2`                     |                                                                                                                                        |
+| `MAX_DEBUG_SESSIONS_PER_USER`    | `1`                     |                                                                                                                                        |
+| `DEBUG_STARTUP_TIMEOUT_MS`       | `30000`                 | Adapter initialize + launch.                                                                                                           |
+| `COOKIE_SECURE`                  | production=`true`       |                                                                                                                                        |
+| `TRUST_PROXY`                    | off                     | Set `1` behind a reverse proxy.                                                                                                        |
+| `APP_CONTAINERIZED`              | off                     | Compose sets `1` so preview proxy uses sandbox networks.                                                                               |
 
 Never commit a real `.env` or `SECRETS_MASTER_KEY`.
 

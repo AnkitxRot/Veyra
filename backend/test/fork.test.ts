@@ -3,11 +3,7 @@ import { promises as fs, symlinkSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
-import {
-  createProject,
-  projectDir,
-  addProjectCollaborator,
-} from "../src/projects/service.js";
+import { createProject, projectDir, addProjectCollaborator } from "../src/projects/service.js";
 import { forkProject } from "../src/projects/fork.js";
 import { writeProjectFile, readProjectFile } from "../src/files/service.js";
 import { collaborationManager } from "../src/collab/manager.js";
@@ -135,20 +131,16 @@ describe("Milestone 28/29 — Project Duplication & Workspace Forking (owner-onl
     // Step 1: the bypass previously started here — fork the source at
     // collaborator level. This must now fail outright, so there is never a
     // fork to export in step 2.
-    const forkRes = await api.request(
-      "POST",
-      `/api/projects/${sourceId}/fork`,
-      { token: editorToken },
-    );
+    const forkRes = await api.request("POST", `/api/projects/${sourceId}/fork`, {
+      token: editorToken,
+    });
     expect(forkRes.status).toBe(404);
 
     // Step 2, for completeness: export of the (non-existent, un-owned)
     // source is still independently rejected too.
-    const exportRes = await api.request(
-      "GET",
-      `/api/projects/${sourceId}/export`,
-      { token: editorToken },
-    );
+    const exportRes = await api.request("GET", `/api/projects/${sourceId}/export`, {
+      token: editorToken,
+    });
     expect(exportRes.status).toBe(404);
   });
 
@@ -197,11 +189,9 @@ describe("Milestone 28/29 — Project Duplication & Workspace Forking (owner-onl
       const project = await createProject(quotaCfg, quotaApi.db, uid, {
         name: "Only Project",
       });
-      const res = await quotaApi.request(
-        "POST",
-        `/api/projects/${project.id}/fork`,
-        { token: reg.data.token },
-      );
+      const res = await quotaApi.request("POST", `/api/projects/${project.id}/fork`, {
+        token: reg.data.token,
+      });
       expect(res.status).toBe(403);
       expect(res.data.error?.code).toBe("quota_exceeded");
     } finally {
@@ -224,13 +214,13 @@ describe("Milestone 28/29 — Project Duplication & Workspace Forking (owner-onl
       await writeProjectFile(cwd, "a.txt", "a");
       await writeProjectFile(cwd, "b.txt", "b");
 
-      await expect(
-        forkProject(smallCfg, smallApi.db, uid, project.id),
-      ).rejects.toThrow(/fork limit/i);
+      await expect(forkProject(smallCfg, smallApi.db, uid, project.id)).rejects.toThrow(
+        /fork limit/i,
+      );
 
-      const countRow = smallApi.db
-        .prepare("SELECT COUNT(*) as c FROM projects")
-        .get() as { c: number };
+      const countRow = smallApi.db.prepare("SELECT COUNT(*) as c FROM projects").get() as {
+        c: number;
+      };
       expect(countRow.c).toBe(1); // only the source project — no orphan row
     } finally {
       await smallApi.close();
@@ -309,12 +299,8 @@ describe("Milestone 28/29 — Project Duplication & Workspace Forking (owner-onl
 
     const destA = projectDir(cfg, r1.project.id);
     const destB = projectDir(cfg, r2.project.id);
-    expect((await readProjectFile(destA, "main.py")).content).toBe(
-      "print('hello')\n",
-    );
-    expect((await readProjectFile(destB, "main.py")).content).toBe(
-      "print('hello')\n",
-    );
+    expect((await readProjectFile(destA, "main.py")).content).toBe("print('hello')\n");
+    expect((await readProjectFile(destB, "main.py")).content).toBe("print('hello')\n");
   });
 
   it("16. a PROJECT_FORKED audit event is recorded with source and fork identity", async () => {
@@ -350,11 +336,9 @@ describe("Milestone 28/29 — Project Duplication & Workspace Forking (owner-onl
     });
     expect(deleteRes.status).toBe(200);
 
-    const sourceRes = await api.request(
-      "GET",
-      `/api/projects/${sourceId}/file?path=main.py`,
-      { token: ownerToken },
-    );
+    const sourceRes = await api.request("GET", `/api/projects/${sourceId}/file?path=main.py`, {
+      token: ownerToken,
+    });
     expect(sourceRes.status).toBe(200);
     expect(sourceRes.data.content).toBe("print('hello')\n");
   });

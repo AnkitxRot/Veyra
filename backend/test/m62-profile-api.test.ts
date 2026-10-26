@@ -190,11 +190,11 @@ describe("M62-2 — self-service profile identity API", () => {
   it("12a. displayName C0 boundary cases are deterministic", async () => {
     const c = (n: number) => String.fromCharCode(n);
     const cases = [
-      [`a${c(0)}b`, "ab"],   // NUL
-      [`a${c(7)}b`, "ab"],   // BEL
-      [`a${c(11)}b`, "ab"],  // vertical tab
-      [`a${c(10)}b`, "ab"],  // newline
-      [`a${c(9)}b`, "ab"],   // tab
+      [`a${c(0)}b`, "ab"], // NUL
+      [`a${c(7)}b`, "ab"], // BEL
+      [`a${c(11)}b`, "ab"], // vertical tab
+      [`a${c(10)}b`, "ab"], // newline
+      [`a${c(9)}b`, "ab"], // tab
       [`a${c(127)}b`, "ab"], // DEL
       ["  Ada   L.  ", "Ada L."],
     ];

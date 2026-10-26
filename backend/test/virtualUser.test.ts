@@ -39,13 +39,8 @@ class FakeWebSocket extends EventEmitter {
 
 vi.mock("ws", () => ({ default: FakeWebSocket }));
 
-const {
-  sleep,
-  wireYjsClient,
-  waitForOpenOrAbort,
-  disposeCollabClient,
-  runCollabRoom,
-} = await import("../load-test/virtualUser.js");
+const { sleep, wireYjsClient, waitForOpenOrAbort, disposeCollabClient, runCollabRoom } =
+  await import("../load-test/virtualUser.js");
 
 function fakeMetrics() {
   return { collabEditToPeerLatency: { record: vi.fn() } } as any;

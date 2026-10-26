@@ -40,30 +40,27 @@ export function useProjectRole(projectId: string | null): UseProjectRole {
   const genRef = useRef(0);
   const inFlightRef = useRef(false);
 
-  const run = useCallback(
-    (pid: string) => {
-      if (inFlightRef.current) return;
-      const gen = ++genRef.current;
-      inFlightRef.current = true;
-      setStatus("loading");
-      setRole("viewer");
-      api<{ project?: Project; role?: unknown }>(`/api/projects/${pid}`)
-        .then((res) => {
-          if (gen !== genRef.current) return;
-          setRole(isRole(res.role) ? res.role : "viewer");
-          setStatus("ready");
-        })
-        .catch(() => {
-          if (gen !== genRef.current) return;
-          setRole("viewer");
-          setStatus("error");
-        })
-        .finally(() => {
-          if (gen === genRef.current) inFlightRef.current = false;
-        });
-    },
-    [],
-  );
+  const run = useCallback((pid: string) => {
+    if (inFlightRef.current) return;
+    const gen = ++genRef.current;
+    inFlightRef.current = true;
+    setStatus("loading");
+    setRole("viewer");
+    api<{ project?: Project; role?: unknown }>(`/api/projects/${pid}`)
+      .then((res) => {
+        if (gen !== genRef.current) return;
+        setRole(isRole(res.role) ? res.role : "viewer");
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (gen !== genRef.current) return;
+        setRole("viewer");
+        setStatus("error");
+      })
+      .finally(() => {
+        if (gen === genRef.current) inFlightRef.current = false;
+      });
+  }, []);
 
   useEffect(() => {
     if (!projectId) {

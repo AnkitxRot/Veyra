@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  validateImage,
-  extForMime,
-  type ImageLimits,
-} from "../src/profile/image.js";
+import { validateImage, extForMime, type ImageLimits } from "../src/profile/image.js";
 import { ApiError } from "../src/errors.js";
 import { makePng, makeJpeg, makeWebp, makeSvg } from "./imageFixture.js";
 
@@ -59,10 +55,7 @@ describe("M72 avatar image validation", () => {
   });
 
   it("7. rejects leading-whitespace SVG (polyglot attempt)", () => {
-    const buf = Buffer.concat([
-      Buffer.from("   \n\t "),
-      makeSvg(),
-    ]);
+    const buf = Buffer.concat([Buffer.from("   \n\t "), makeSvg()]);
     expectReject(() => validateImage(buf, LIMITS));
   });
 
@@ -98,24 +91,15 @@ describe("M72 avatar image validation", () => {
 
   it("14. rejects an image over the byte budget", () => {
     const big = makePng(700, 700);
-    expectReject(
-      () => validateImage(big, { ...LIMITS, maxBytes: 1024 }),
-      "image_too_large",
-    );
+    expectReject(() => validateImage(big, { ...LIMITS, maxBytes: 1024 }), "image_too_large");
   });
 
   it("15. rejects an image below the minimum dimension", () => {
-    expectReject(
-      () => validateImage(makePng(16, 16), LIMITS),
-      "invalid_image_dimensions",
-    );
+    expectReject(() => validateImage(makePng(16, 16), LIMITS), "invalid_image_dimensions");
   });
 
   it("16. rejects an image above the maximum dimension", () => {
-    expectReject(
-      () => validateImage(makePng(64, 2048), LIMITS),
-      "invalid_image_dimensions",
-    );
+    expectReject(() => validateImage(makePng(64, 2048), LIMITS), "invalid_image_dimensions");
   });
 
   it("17. rejects a non-buffer argument", () => {

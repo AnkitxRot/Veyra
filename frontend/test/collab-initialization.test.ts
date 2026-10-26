@@ -55,10 +55,7 @@ const MESSAGE_CUSTOM = 3;
 function fileReadyMessage(path: string): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
-  encoding.writeVarString(
-    encoder,
-    JSON.stringify({ type: "file_ready", path }),
-  );
+  encoding.writeVarString(encoder, JSON.stringify({ type: "file_ready", path }));
   return encoding.toUint8Array(encoder);
 }
 
@@ -137,10 +134,7 @@ class FakeWebSocket {
 
 // Decodes a client Sync Step 1 and replies with Sync Step 2 built from
 // `serverDoc` — the exact exchange backend/src/collab/manager.ts performs.
-function serverReplyToSyncStep1(
-  serverDoc: Y.Doc,
-  syncStep1Message: Uint8Array,
-): Uint8Array {
+function serverReplyToSyncStep1(serverDoc: Y.Doc, syncStep1Message: Uint8Array): Uint8Array {
   const decoder = decoding.createDecoder(syncStep1Message);
   decoding.readVarUint(decoder); // consume MESSAGE_SYNC envelope tag
   const encoder = encoding.createEncoder();

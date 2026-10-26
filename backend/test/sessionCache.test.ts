@@ -47,9 +47,7 @@ describe("sessionCache (M5a)", () => {
     // Session itself is valid for a full day — only the cache freshness
     // window should govern this expiry.
     setCachedSession("tok-c", alice, now + 24 * 60 * 60 * 1000, now);
-    expect(getCachedSession("tok-c", now + SESSION_CACHE_TTL_MS - 1)).toEqual(
-      alice,
-    );
+    expect(getCachedSession("tok-c", now + SESSION_CACHE_TTL_MS - 1)).toEqual(alice);
     expect(getCachedSession("tok-c", now + SESSION_CACHE_TTL_MS)).toBeNull();
     // The stale entry must actually be evicted, not just skipped.
     expect(getSessionCacheSize()).toBe(0);
@@ -97,15 +95,11 @@ describe("sessionCache (M5a)", () => {
     for (let i = 0; i < SESSION_CACHE_MAX_ENTRIES + 50; i++) {
       setCachedSession(`tok-${i}`, alice, now + 60_000, now);
     }
-    expect(getSessionCacheSize()).toBeLessThanOrEqual(
-      SESSION_CACHE_MAX_ENTRIES,
-    );
+    expect(getSessionCacheSize()).toBeLessThanOrEqual(SESSION_CACHE_MAX_ENTRIES);
     // The earliest-inserted entries were evicted first.
     expect(getCachedSession("tok-0", now)).toBeNull();
     // A recently-inserted entry survives.
-    expect(
-      getCachedSession(`tok-${SESSION_CACHE_MAX_ENTRIES + 49}`, now),
-    ).toEqual(alice);
+    expect(getCachedSession(`tok-${SESSION_CACHE_MAX_ENTRIES + 49}`, now)).toEqual(alice);
   });
 
   it("never caches a failed/missing lookup — there is no negative-cache API at all", () => {

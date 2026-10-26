@@ -156,9 +156,7 @@ export function useNotices(): UseNotices {
         }
         next = [...next, notice];
         if (next.length > MAX_NOTICES) {
-          const oldestTransient = next.findIndex(
-            (n) => n.ttl !== null && n.id !== id,
-          );
+          const oldestTransient = next.findIndex((n) => n.ttl !== null && n.id !== id);
           if (oldestTransient >= 0) {
             // normal case: shed the oldest transient
             clearTimer(next[oldestTransient]!.id);

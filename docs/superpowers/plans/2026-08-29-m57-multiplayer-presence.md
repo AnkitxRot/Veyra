@@ -29,36 +29,38 @@
 
 ## File Structure
 
-| File | Create/Modify | Responsibility |
-|---|---|---|
-| `backend/src/collab/presence.ts` | **Create** | The awareness field allowlist: enum `Set`s, coordinate/path/intent sanitizers, `buildAuthoritativeAwarenessState`. Pure, no `ws`/`Y.Doc`. |
-| `backend/src/collab/manager.ts` | Modify | Import `buildAuthoritativeAwarenessState` + enums from `presence.ts`; keep `sanitizeIncomingAwarenessUpdate` (frame decode, clientID ownership/claim). ~140 lines move out. |
-| `backend/test/m57-presence.test.ts` | **Create** | Behavioral: `workingFolder`, `intent`, `away`, `navigating`, malformed inputs, identity/ownership regression, disconnect/reconnect, room isolation, concurrent-edit convergence guard. |
-| `frontend/src/collab/presence.ts` | **Create** | `CollaboratorPresence` type, `ActivityType`/`AvailabilityStatus` unions, `readPresenceState`, `deriveWorkingFolder`, `formatRelativeTime`, `collaboratorsInFile`/`collaboratorsInFolder`/`groupCollaboratorsByFolder`. Pure. |
-| `frontend/src/collab/client.ts` | Modify | Import type + `readPresenceState` + `deriveWorkingFolder`; `getOnlineCollaborators` delegates; add `setIntent`, `recordNavigation`; derive `workingFolder` in `notifyFileOpen`; blur timer → `away`; clear new fields on reset. |
-| `frontend/src/components/Collab/TeamPanel.tsx` | **Create** | Pure roster view of `CollaboratorPresence[]` + `RunStatusEntry[]`: self row w/ intent input + DND, collaborator rows, "WORKING IN" folder groups, relative-time ticker (panel-local). |
-| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | Modify | Add count chip; clicking chip/avatar calls `onOpenTeamPanel`; remove the per-avatar quick popover (Follow/Jump/DND move to TeamPanel). |
-| `frontend/src/components/Toolbar/Toolbar.tsx` | Modify | Thread `onOpenTeamPanel` prop. |
-| `frontend/src/components/IDE/IDE.tsx` | Modify | Own `teamPanelOpen` state; render `<TeamPanel>`; pass existing follow/jump handlers + `onSetIntent` to it. |
-| `frontend/src/components/Sidebar/Sidebar.tsx` | Modify | Add `collaboratorsByFolder` to the existing `useMemo`; render the existing dot markup on directory rows. |
-| `frontend/src/components/Editor/Editor.tsx` | Modify | Same-file collaborator strip under the tab bar via `collaboratorsInFile`; `recordNavigation()` on tab switch. |
-| `frontend/test/collab.presence.test.ts` | **Create** | `presence.ts` unit tests. |
-| `frontend/test/TeamPanel.test.tsx` | **Create** | TeamPanel render/interaction. |
-| `frontend/test/collab.awareness.test.ts` | Modify | Extend: `workingFolder` derivation, `setIntent`, `recordNavigation`, `away`, reset clears new fields. |
-| `frontend/test/Sidebar.collab.test.tsx` | **Create** (or extend an existing Sidebar test if present) | Folder-row indicator. |
-| `frontend/test/Editor.sameFile.test.tsx` | **Create** | Same-file strip. |
-| `STATUS.md` | Modify | New `## Milestone 57` section (Task 11). |
+| File                                                         | Create/Modify                                              | Responsibility                                                                                                                                                                                                                  |
+| ------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/src/collab/presence.ts`                             | **Create**                                                 | The awareness field allowlist: enum `Set`s, coordinate/path/intent sanitizers, `buildAuthoritativeAwarenessState`. Pure, no `ws`/`Y.Doc`.                                                                                       |
+| `backend/src/collab/manager.ts`                              | Modify                                                     | Import `buildAuthoritativeAwarenessState` + enums from `presence.ts`; keep `sanitizeIncomingAwarenessUpdate` (frame decode, clientID ownership/claim). ~140 lines move out.                                                     |
+| `backend/test/m57-presence.test.ts`                          | **Create**                                                 | Behavioral: `workingFolder`, `intent`, `away`, `navigating`, malformed inputs, identity/ownership regression, disconnect/reconnect, room isolation, concurrent-edit convergence guard.                                          |
+| `frontend/src/collab/presence.ts`                            | **Create**                                                 | `CollaboratorPresence` type, `ActivityType`/`AvailabilityStatus` unions, `readPresenceState`, `deriveWorkingFolder`, `formatRelativeTime`, `collaboratorsInFile`/`collaboratorsInFolder`/`groupCollaboratorsByFolder`. Pure.    |
+| `frontend/src/collab/client.ts`                              | Modify                                                     | Import type + `readPresenceState` + `deriveWorkingFolder`; `getOnlineCollaborators` delegates; add `setIntent`, `recordNavigation`; derive `workingFolder` in `notifyFileOpen`; blur timer → `away`; clear new fields on reset. |
+| `frontend/src/components/Collab/TeamPanel.tsx`               | **Create**                                                 | Pure roster view of `CollaboratorPresence[]` + `RunStatusEntry[]`: self row w/ intent input + DND, collaborator rows, "WORKING IN" folder groups, relative-time ticker (panel-local).                                           |
+| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | Modify                                                     | Add count chip; clicking chip/avatar calls `onOpenTeamPanel`; remove the per-avatar quick popover (Follow/Jump/DND move to TeamPanel).                                                                                          |
+| `frontend/src/components/Toolbar/Toolbar.tsx`                | Modify                                                     | Thread `onOpenTeamPanel` prop.                                                                                                                                                                                                  |
+| `frontend/src/components/IDE/IDE.tsx`                        | Modify                                                     | Own `teamPanelOpen` state; render `<TeamPanel>`; pass existing follow/jump handlers + `onSetIntent` to it.                                                                                                                      |
+| `frontend/src/components/Sidebar/Sidebar.tsx`                | Modify                                                     | Add `collaboratorsByFolder` to the existing `useMemo`; render the existing dot markup on directory rows.                                                                                                                        |
+| `frontend/src/components/Editor/Editor.tsx`                  | Modify                                                     | Same-file collaborator strip under the tab bar via `collaboratorsInFile`; `recordNavigation()` on tab switch.                                                                                                                   |
+| `frontend/test/collab.presence.test.ts`                      | **Create**                                                 | `presence.ts` unit tests.                                                                                                                                                                                                       |
+| `frontend/test/TeamPanel.test.tsx`                           | **Create**                                                 | TeamPanel render/interaction.                                                                                                                                                                                                   |
+| `frontend/test/collab.awareness.test.ts`                     | Modify                                                     | Extend: `workingFolder` derivation, `setIntent`, `recordNavigation`, `away`, reset clears new fields.                                                                                                                           |
+| `frontend/test/Sidebar.collab.test.tsx`                      | **Create** (or extend an existing Sidebar test if present) | Folder-row indicator.                                                                                                                                                                                                           |
+| `frontend/test/Editor.sameFile.test.tsx`                     | **Create**                                                 | Same-file strip.                                                                                                                                                                                                                |
+| `STATUS.md`                                                  | Modify                                                     | New `## Milestone 57` section (Task 11).                                                                                                                                                                                        |
 
 ---
 
 ## Task 1: Extract the backend presence allowlist (mechanical, no new fields)
 
 **Files:**
+
 - Create: `backend/src/collab/presence.ts`
 - Modify: `backend/src/collab/manager.ts` (remove `buildAuthoritativeAwarenessState`, `sanitizeAwarenessFilePath`, `isAwarenessCoord`, and the `AWARENESS_STATUS_VALUES`/`AWARENESS_ACTIVITY_VALUES`/`AWARENESS_MAX_*` constants; import them instead)
 - Test: `backend/test/collab-awareness-security.test.ts` (existing — must pass unchanged)
 
 **Interfaces:**
+
 - Produces:
   - `export const AWARENESS_STATUS_VALUES: Set<string>`
   - `export const AWARENESS_ACTIVITY_VALUES: Set<string>`
@@ -107,17 +109,10 @@ export interface AwarenessClientIdentity {
 }
 
 export function isAwarenessCoord(n: unknown): n is number {
-  return (
-    typeof n === "number" &&
-    Number.isFinite(n) &&
-    n >= 0 &&
-    n <= AWARENESS_MAX_COORD
-  );
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= AWARENESS_MAX_COORD;
 }
 
-export function sanitizeAwarenessFilePath(
-  value: unknown,
-): string | null | undefined {
+export function sanitizeAwarenessFilePath(value: unknown): string | null | undefined {
   // ... EXACT current body from manager.ts ...
 }
 
@@ -179,10 +174,12 @@ git add backend/src/collab/presence.ts backend/src/collab/manager.ts
 ## Task 2: Backend — `workingFolder` + `away` + `navigating`
 
 **Files:**
+
 - Modify: `backend/src/collab/presence.ts`
 - Create: `backend/test/m57-presence.test.ts`
 
 **Interfaces:**
+
 - Consumes: `buildAuthoritativeAwarenessState` (Task 1).
 - Produces: `buildAuthoritativeAwarenessState` output may now contain `out.workingFolder` (string|null) and accept `status === "away"` / `activity.type === "navigating"`.
 
@@ -245,7 +242,13 @@ Expected: FAIL — `workingFolder` undefined, `status "away"` dropped.
 // in the enum Sets:
 export const AWARENESS_STATUS_VALUES = new Set(["online", "idle", "away", "dnd"]);
 export const AWARENESS_ACTIVITY_VALUES = new Set([
-  "viewing", "editing", "navigating", "running", "terminal", "searching", "reviewing",
+  "viewing",
+  "editing",
+  "navigating",
+  "running",
+  "terminal",
+  "searching",
+  "reviewing",
 ]);
 ```
 
@@ -277,10 +280,12 @@ git add backend/src/collab/presence.ts backend/test/m57-presence.test.ts
 ## Task 3: Backend — `intent` sanitization
 
 **Files:**
+
 - Modify: `backend/src/collab/presence.ts`
 - Modify: `backend/test/m57-presence.test.ts`
 
 **Interfaces:**
+
 - Produces: `buildAuthoritativeAwarenessState` output may contain `out.intent` (`{ text: string; updatedAt: number }` or `null`).
 - Adds `export const AWARENESS_MAX_INTENT_LEN = 120;`
 - Adds `export function sanitizeIntentText(v: unknown): string` — trims, replaces `/\s+/g` with `" "`, strips C0/DEL, slices to 120. Returns `""` when nothing survives.
@@ -330,7 +335,10 @@ it("stores an explicit intent: null as a clear", async () => {
 
 it("identity is still forced when intent is present", async () => {
   const { send, peerStates } = await twoClients();
-  send.a({ user: { id: 9999, name: "attacker", role: "owner" }, intent: { text: "x", updatedAt: 1 } });
+  send.a({
+    user: { id: 9999, name: "attacker", role: "owner" },
+    intent: { text: "x", updatedAt: 1 },
+  });
   await flush();
   expect(peerStates.b().user.id).toBe(/* session id of client A */);
   expect(peerStates.b().intent.text).toBe("x");
@@ -349,7 +357,10 @@ export const AWARENESS_MAX_INTENT_LEN = 120;
 
 export function sanitizeIntentText(v: unknown): string {
   if (typeof v !== "string") return "";
-  let s = v.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  let s = v
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (s.length > AWARENESS_MAX_INTENT_LEN) s = s.slice(0, AWARENESS_MAX_INTENT_LEN);
   return s;
 }
@@ -380,12 +391,24 @@ Expected: PASS.
 Append (these exercise Task 1's preserved behavior with the new fields in play):
 
 ```ts
-it("disconnect removes the connection's state including new fields", async () => { /* connect A+B, A sends intent+workingFolder, A ws closes -> room.removeClient -> B's awareness no longer has A */ });
-it("reconnect with the same session yields exactly one entry", async () => { /* A connects, sends state, disconnects, reconnects with same identity + new clientID -> B sees one A (old clientID removed on disconnect) */ });
-it("two tabs of one user each carry their own workingFolder", async () => { /* two connections, same identity, different clientIDs, different activeFile -> two attributed entries */ });
-it("project B never sees project A's intent", async () => { /* two rooms, A in room1 sets intent, room2 client sees nothing */ });
-it("concurrent Y.Doc edits still converge with presence traffic interleaved", async () => { /* real sync-protocol edits from two clients + awareness frames -> both docs equal */ });
-it("a 64-entry frame with a huge intent never throws and stores nothing", async () => { /* mirror collab-awareness-security 'malformed frames' test */ });
+it("disconnect removes the connection's state including new fields", async () => {
+  /* connect A+B, A sends intent+workingFolder, A ws closes -> room.removeClient -> B's awareness no longer has A */
+});
+it("reconnect with the same session yields exactly one entry", async () => {
+  /* A connects, sends state, disconnects, reconnects with same identity + new clientID -> B sees one A (old clientID removed on disconnect) */
+});
+it("two tabs of one user each carry their own workingFolder", async () => {
+  /* two connections, same identity, different clientIDs, different activeFile -> two attributed entries */
+});
+it("project B never sees project A's intent", async () => {
+  /* two rooms, A in room1 sets intent, room2 client sees nothing */
+});
+it("concurrent Y.Doc edits still converge with presence traffic interleaved", async () => {
+  /* real sync-protocol edits from two clients + awareness frames -> both docs equal */
+});
+it("a 64-entry frame with a huge intent never throws and stores nothing", async () => {
+  /* mirror collab-awareness-security 'malformed frames' test */
+});
 ```
 
 Run: `cd backend && npx vitest run test/m57-presence.test.ts`
@@ -407,11 +430,13 @@ git add backend/src/collab/presence.ts backend/test/m57-presence.test.ts
 ## Task 4: Frontend presence module
 
 **Files:**
+
 - Create: `frontend/src/collab/presence.ts`
 - Modify: `frontend/src/collab/client.ts` (move `CollaboratorPresence`/`ActivityType`/`AvailabilityStatus`/`SelectionRange`/`ActivityState` type exports to `presence.ts` and re-export; `getOnlineCollaborators` delegates to `readPresenceState`)
 - Create: `frontend/test/collab.presence.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `export type ActivityType = "editing" | "viewing" | "navigating" | "running" | "terminal" | "searching" | "reviewing";`
   - `export type AvailabilityStatus = "online" | "idle" | "away" | "dnd";`
@@ -431,13 +456,19 @@ git add backend/src/collab/presence.ts backend/test/m57-presence.test.ts
 // frontend/test/collab.presence.test.ts
 import { describe, it, expect } from "vitest";
 import {
-  readPresenceState, deriveWorkingFolder, formatRelativeTime,
-  collaboratorsInFile, collaboratorsInFolder, groupCollaboratorsByFolder,
-  getUserColor, type CollaboratorPresence,
+  readPresenceState,
+  deriveWorkingFolder,
+  formatRelativeTime,
+  collaboratorsInFile,
+  collaboratorsInFolder,
+  groupCollaboratorsByFolder,
+  getUserColor,
+  type CollaboratorPresence,
 } from "../src/collab/presence";
 
 describe("deriveWorkingFolder", () => {
-  it("returns the parent dir", () => expect(deriveWorkingFolder("src/auth/service.ts")).toBe("src/auth"));
+  it("returns the parent dir", () =>
+    expect(deriveWorkingFolder("src/auth/service.ts")).toBe("src/auth"));
   it("returns null for a root file", () => expect(deriveWorkingFolder("main.py")).toBeNull());
   it("returns null for null", () => expect(deriveWorkingFolder(null)).toBeNull());
   it("normalizes backslashes", () => expect(deriveWorkingFolder("src\\a\\b.ts")).toBe("src/a"));
@@ -468,9 +499,12 @@ describe("readPresenceState", () => {
     expect(p.workingFolder).toBe("src/auth");
     expect(p.intent?.text).toBe("JWT refresh");
   });
-  it("returns null when user is missing", () => expect(readPresenceState(1, { status: "online" })).toBeNull());
+  it("returns null when user is missing", () =>
+    expect(readPresenceState(1, { status: "online" })).toBeNull());
   it("coerces an unknown availability to online", () => {
-    expect(readPresenceState(1, { user: { id: 1, name: "x" }, status: "wat" })!.availability).toBe("online");
+    expect(readPresenceState(1, { user: { id: 1, name: "x" }, status: "wat" })!.availability).toBe(
+      "online",
+    );
   });
   it("drops a malformed intent", () => {
     const p = readPresenceState(1, { user: { id: 1, name: "x" }, intent: { text: "hi" } })!;
@@ -480,18 +514,55 @@ describe("readPresenceState", () => {
 
 describe("who's-working-here selectors", () => {
   const list: CollaboratorPresence[] = [
-    { clientId: 1, userId: 10, name: "Rahul", role: "editor", color: "#1", availability: "online", activity: { type: "editing", timestamp: 0 }, activeFile: "src/auth/service.ts", workingFolder: "src/auth", lastActive: 0 },
-    { clientId: 2, userId: 11, name: "Priya", role: "editor", color: "#2", availability: "online", activity: { type: "viewing", timestamp: 0 }, activeFile: "src/components/Login.tsx", workingFolder: "src/components", lastActive: 0 },
-    { clientId: 3, userId: 10, name: "Rahul", role: "editor", color: "#1", availability: "online", activity: { type: "editing", timestamp: 0 }, activeFile: "src/auth/session.ts", workingFolder: "src/auth", lastActive: 0 },
+    {
+      clientId: 1,
+      userId: 10,
+      name: "Rahul",
+      role: "editor",
+      color: "#1",
+      availability: "online",
+      activity: { type: "editing", timestamp: 0 },
+      activeFile: "src/auth/service.ts",
+      workingFolder: "src/auth",
+      lastActive: 0,
+    },
+    {
+      clientId: 2,
+      userId: 11,
+      name: "Priya",
+      role: "editor",
+      color: "#2",
+      availability: "online",
+      activity: { type: "viewing", timestamp: 0 },
+      activeFile: "src/components/Login.tsx",
+      workingFolder: "src/components",
+      lastActive: 0,
+    },
+    {
+      clientId: 3,
+      userId: 10,
+      name: "Rahul",
+      role: "editor",
+      color: "#1",
+      availability: "online",
+      activity: { type: "editing", timestamp: 0 },
+      activeFile: "src/auth/session.ts",
+      workingFolder: "src/auth",
+      lastActive: 0,
+    },
   ];
   it("collaboratorsInFile matches exact path", () => {
-    expect(collaboratorsInFile(list, "src/auth/service.ts").map(c => c.userId)).toEqual([10]);
+    expect(collaboratorsInFile(list, "src/auth/service.ts").map((c) => c.userId)).toEqual([10]);
   });
   it("collaboratorsInFile can exclude a user", () => {
     expect(collaboratorsInFile(list, "src/auth/service.ts", 10)).toEqual([]);
   });
   it("collaboratorsInFolder matches by prefix", () => {
-    expect(collaboratorsInFolder(list, "src/auth").map(c => c.clientId).sort()).toEqual([1, 3]);
+    expect(
+      collaboratorsInFolder(list, "src/auth")
+        .map((c) => c.clientId)
+        .sort(),
+    ).toEqual([1, 3]);
   });
   it("groupCollaboratorsByFolder groups and de-dupes clientIds", () => {
     const g = groupCollaboratorsByFolder(list);
@@ -551,14 +622,24 @@ export function formatRelativeTime(then: number, now: number): string {
   return `${Math.floor(m / 60)}h ago`;
 }
 
-export function collaboratorsInFile(list: CollaboratorPresence[], path: string, excludeUserId?: number) {
-  return list.filter(c => c.userId !== excludeUserId && c.activeFile === path);
+export function collaboratorsInFile(
+  list: CollaboratorPresence[],
+  path: string,
+  excludeUserId?: number,
+) {
+  return list.filter((c) => c.userId !== excludeUserId && c.activeFile === path);
 }
-export function collaboratorsInFolder(list: CollaboratorPresence[], folder: string, excludeUserId?: number) {
+export function collaboratorsInFolder(
+  list: CollaboratorPresence[],
+  folder: string,
+  excludeUserId?: number,
+) {
   const pre = folder.endsWith("/") ? folder : folder + "/";
-  return list.filter(c =>
-    c.userId !== excludeUserId &&
-    ((c.activeFile && c.activeFile.startsWith(pre)) || c.workingFolder === folder));
+  return list.filter(
+    (c) =>
+      c.userId !== excludeUserId &&
+      ((c.activeFile && c.activeFile.startsWith(pre)) || c.workingFolder === folder),
+  );
 }
 export function groupCollaboratorsByFolder(list: CollaboratorPresence[], excludeUserId?: number) {
   const m = new Map<string, CollaboratorPresence[]>();
@@ -567,7 +648,7 @@ export function groupCollaboratorsByFolder(list: CollaboratorPresence[], exclude
     const f = c.workingFolder ?? deriveWorkingFolder(c.activeFile ?? null);
     if (!f) continue;
     const arr = m.get(f) ?? [];
-    if (!arr.some(x => x.userId === c.userId)) arr.push(c);
+    if (!arr.some((x) => x.userId === c.userId)) arr.push(c);
     m.set(f, arr);
   }
   return m;
@@ -613,10 +694,12 @@ git add frontend/src/collab/presence.ts frontend/src/collab/client.ts frontend/t
 ## Task 5: Frontend client — `workingFolder` derivation, `away` on blur, `recordNavigation`
 
 **Files:**
+
 - Modify: `frontend/src/collab/client.ts`
 - Modify: `frontend/test/collab.awareness.test.ts`
 
 **Interfaces:**
+
 - Produces on `CollaborationClient`: `public recordNavigation(): void`. `notifyFileOpen` now also sets `workingFolder`. Blur timer sets `availability = "away"`.
 - Consumes: `deriveWorkingFolder` (Task 4).
 
@@ -714,10 +797,12 @@ git add frontend/src/collab/client.ts frontend/src/components/Editor/Editor.tsx 
 ## Task 6: Frontend client — `setIntent`
 
 **Files:**
+
 - Modify: `frontend/src/collab/client.ts`
 - Modify: `frontend/test/collab.awareness.test.ts`
 
 **Interfaces:**
+
 - Produces: `public setIntent(text: string | null): void` on `CollaborationClient`. Local awareness field `intent` = `{ text, updatedAt } | null`.
 
 - [ ] **Step 1: Write failing tests**
@@ -803,14 +888,16 @@ git add frontend/src/collab/client.ts frontend/test/collab.awareness.test.ts
 ## Task 7: TeamPanel component
 
 **Files:**
+
 - Create: `frontend/src/components/Collab/TeamPanel.tsx`
 - Create: `frontend/test/TeamPanel.test.tsx`
 
 **Interfaces:**
+
 - Produces:
   ```ts
   export interface TeamPanelProps {
-    collaborators: CollaboratorPresence[];   // ALL, including self
+    collaborators: CollaboratorPresence[]; // ALL, including self
     runStatuses: RunStatusEntry[];
     currentUserId: number;
     isDnd: boolean;
@@ -821,7 +908,7 @@ git add frontend/src/collab/client.ts frontend/test/collab.awareness.test.ts
     onFollow: (c: CollaboratorPresence) => void;
     onJump: (c: CollaboratorPresence) => void;
   }
-  export default function TeamPanel(props: TeamPanelProps): JSX.Element
+  export default function TeamPanel(props: TeamPanelProps): JSX.Element;
   ```
 - Consumes: `CollaboratorPresence` + `formatRelativeTime` + `groupCollaboratorsByFolder` from `presence.ts`; `RunStatusEntry` from `types.ts`; `pickRunForUser`/`formatRunText` (extract from `CollaboratorAvatarStack.tsx` into a shared `frontend/src/components/Collab/runActivity.ts` in this task and import from both — mechanical).
 
@@ -835,16 +922,41 @@ import TeamPanel from "../src/components/Collab/TeamPanel";
 import type { CollaboratorPresence } from "../src/collab/presence";
 
 const base = (over: Partial<CollaboratorPresence>): CollaboratorPresence => ({
-  clientId: Math.random(), userId: 1, name: "X", role: "editor", color: "#89b4fa",
-  availability: "online", activity: { type: "viewing", timestamp: 0 }, lastActive: Date.now(), ...over,
+  clientId: Math.random(),
+  userId: 1,
+  name: "X",
+  role: "editor",
+  color: "#89b4fa",
+  availability: "online",
+  activity: { type: "viewing", timestamp: 0 },
+  lastActive: Date.now(),
+  ...over,
 });
 
 const noop = () => {};
-const handlers = { onClose: noop, onSetIntent: noop, onToggleDnd: noop, onFollow: noop, onJump: noop };
+const handlers = {
+  onClose: noop,
+  onSetIntent: noop,
+  onToggleDnd: noop,
+  onFollow: noop,
+  onJump: noop,
+};
 
 it("lists every collaborator and shows the count", () => {
-  render(<TeamPanel collaborators={[base({ userId: 1, name: "Me" }), base({ userId: 2, name: "Rahul" }), base({ userId: 3, name: "Priya" })]}
-    runStatuses={[]} currentUserId={1} isDnd={false} followingUserId={null} {...handlers} />);
+  render(
+    <TeamPanel
+      collaborators={[
+        base({ userId: 1, name: "Me" }),
+        base({ userId: 2, name: "Rahul" }),
+        base({ userId: 3, name: "Priya" }),
+      ]}
+      runStatuses={[]}
+      currentUserId={1}
+      isDnd={false}
+      followingUserId={null}
+      {...handlers}
+    />,
+  );
   expect(screen.getByText(/TEAM/)).toBeTruthy();
   expect(screen.getByText("Rahul")).toBeTruthy();
   expect(screen.getByText("Priya")).toBeTruthy();
@@ -852,8 +964,17 @@ it("lists every collaborator and shows the count", () => {
 
 it("shows the self row with an editable intent input", () => {
   const onSetIntent = vi.fn();
-  render(<TeamPanel collaborators={[base({ userId: 1, name: "Me", intent: { text: "old", updatedAt: 0 } })]}
-    runStatuses={[]} currentUserId={1} isDnd={false} followingUserId={null} {...handlers} onSetIntent={onSetIntent} />);
+  render(
+    <TeamPanel
+      collaborators={[base({ userId: 1, name: "Me", intent: { text: "old", updatedAt: 0 } })]}
+      runStatuses={[]}
+      currentUserId={1}
+      isDnd={false}
+      followingUserId={null}
+      {...handlers}
+      onSetIntent={onSetIntent}
+    />,
+  );
   const input = screen.getByPlaceholderText(/what are you working on/i) as HTMLInputElement;
   fireEvent.change(input, { target: { value: "JWT refresh" } });
   fireEvent.blur(input);
@@ -861,35 +982,90 @@ it("shows the self row with an editable intent input", () => {
 });
 
 it("shows run status text over the activity for a running collaborator", () => {
-  render(<TeamPanel collaborators={[base({ userId: 2, name: "Aman" })]}
-    runStatuses={[{ executionId: "e", userId: 2, username: "Aman", state: "running", file: "backend/x.py", language: "python", startedAt: Date.now(), endedAt: null, exitCode: null }]}
-    currentUserId={1} isDnd={false} followingUserId={null} {...handlers} />);
+  render(
+    <TeamPanel
+      collaborators={[base({ userId: 2, name: "Aman" })]}
+      runStatuses={[
+        {
+          executionId: "e",
+          userId: 2,
+          username: "Aman",
+          state: "running",
+          file: "backend/x.py",
+          language: "python",
+          startedAt: Date.now(),
+          endedAt: null,
+          exitCode: null,
+        },
+      ]}
+      currentUserId={1}
+      isDnd={false}
+      followingUserId={null}
+      {...handlers}
+    />,
+  );
   expect(screen.getByText(/Running/i)).toBeTruthy();
 });
 
 it("Follow and Jump call handlers with the collaborator", () => {
-  const onFollow = vi.fn(); const onJump = vi.fn();
+  const onFollow = vi.fn();
+  const onJump = vi.fn();
   const rahul = base({ userId: 2, name: "Rahul", activeFile: "src/a.ts" });
-  render(<TeamPanel collaborators={[base({ userId: 1 }), rahul]} runStatuses={[]} currentUserId={1}
-    isDnd={false} followingUserId={null} {...handlers} onFollow={onFollow} onJump={onJump} />);
+  render(
+    <TeamPanel
+      collaborators={[base({ userId: 1 }), rahul]}
+      runStatuses={[]}
+      currentUserId={1}
+      isDnd={false}
+      followingUserId={null}
+      {...handlers}
+      onFollow={onFollow}
+      onJump={onJump}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: /follow rahul/i }));
   expect(onFollow).toHaveBeenCalledWith(expect.objectContaining({ userId: 2 }));
 });
 
 it("groups collaborators under WORKING IN by folder", () => {
-  render(<TeamPanel collaborators={[base({ userId: 1 }),
-    base({ userId: 2, name: "Rahul", activeFile: "src/auth/service.ts", workingFolder: "src/auth" }),
-    base({ userId: 3, name: "Priya", activeFile: "src/ui/Login.tsx", workingFolder: "src/ui" })]}
-    runStatuses={[]} currentUserId={1} isDnd={false} followingUserId={null} {...handlers} />);
+  render(
+    <TeamPanel
+      collaborators={[
+        base({ userId: 1 }),
+        base({
+          userId: 2,
+          name: "Rahul",
+          activeFile: "src/auth/service.ts",
+          workingFolder: "src/auth",
+        }),
+        base({ userId: 3, name: "Priya", activeFile: "src/ui/Login.tsx", workingFolder: "src/ui" }),
+      ]}
+      runStatuses={[]}
+      currentUserId={1}
+      isDnd={false}
+      followingUserId={null}
+      {...handlers}
+    />,
+  );
   expect(screen.getByText("src/auth")).toBeTruthy();
   expect(screen.getByText("src/ui")).toBeTruthy();
 });
 
 it("de-dupes the roster by userId (multi-tab)", () => {
-  render(<TeamPanel collaborators={[base({ userId: 1 }),
-    base({ clientId: 10, userId: 2, name: "Rahul", lastActive: 100 }),
-    base({ clientId: 11, userId: 2, name: "Rahul", lastActive: 200 })]}
-    runStatuses={[]} currentUserId={1} isDnd={false} followingUserId={null} {...handlers} />);
+  render(
+    <TeamPanel
+      collaborators={[
+        base({ userId: 1 }),
+        base({ clientId: 10, userId: 2, name: "Rahul", lastActive: 100 }),
+        base({ clientId: 11, userId: 2, name: "Rahul", lastActive: 200 }),
+      ]}
+      runStatuses={[]}
+      currentUserId={1}
+      isDnd={false}
+      followingUserId={null}
+      {...handlers}
+    />,
+  );
   expect(screen.getAllByText("Rahul").length).toBe(1);
 });
 ```
@@ -915,8 +1091,12 @@ import type { RunStatusEntry } from "../../types";
 import { pickRunForUser, formatRunText } from "./runActivity";
 
 const ACTIVITY_LABEL: Record<string, string> = {
-  editing: "✏️ Editing", viewing: "👀 Viewing", reviewing: "👀 Reviewing",
-  navigating: "🧭 Navigating", running: "🧪 Running", terminal: "💻 Terminal",
+  editing: "✏️ Editing",
+  viewing: "👀 Viewing",
+  reviewing: "👀 Reviewing",
+  navigating: "🧭 Navigating",
+  running: "🧪 Running",
+  terminal: "💻 Terminal",
   searching: "🔎 Searching",
 };
 
@@ -935,50 +1115,65 @@ export default function TeamPanel(props: TeamPanelProps) {
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, []);                       // ticker is LOCAL to this mounted panel only
+  }, []); // ticker is LOCAL to this mounted panel only
 
   const roster = useMemo(() => rosterByUser(collaborators), [collaborators]);
-  const self = roster.find(c => c.userId === currentUserId) ?? null;
-  const others = roster.filter(c => c.userId !== currentUserId);
+  const self = roster.find((c) => c.userId === currentUserId) ?? null;
+  const others = roster.filter((c) => c.userId !== currentUserId);
   const folders = useMemo(
     () => groupCollaboratorsByFolder(collaborators, currentUserId),
     [collaborators, currentUserId],
   );
 
   const [intentDraft, setIntentDraft] = useState(self?.intent?.text ?? "");
-  useEffect(() => { setIntentDraft(self?.intent?.text ?? ""); }, [self?.intent?.text]);
+  useEffect(() => {
+    setIntentDraft(self?.intent?.text ?? "");
+  }, [self?.intent?.text]);
 
   const activityText = (c: CollaboratorPresence): string => {
     const run = pickRunForUser(runStatuses, c.userId);
     if (run) return formatRunText(run, now);
-    if (c.availability !== "online") return c.availability === "away" ? "Away" : c.availability === "dnd" ? "Do not disturb" : "Idle";
+    if (c.availability !== "online")
+      return c.availability === "away"
+        ? "Away"
+        : c.availability === "dnd"
+          ? "Do not disturb"
+          : "Idle";
     return ACTIVITY_LABEL[c.activity?.type ?? "viewing"] ?? "Active";
   };
 
   return (
     <div className="team-panel liquid-card" role="dialog" aria-label="Team">
-      <div className="team-panel-header">TEAM <span>({roster.length})</span>
-        <button aria-label="Close team panel" onClick={props.onClose}>×</button>
+      <div className="team-panel-header">
+        TEAM <span>({roster.length})</span>
+        <button aria-label="Close team panel" onClick={props.onClose}>
+          ×
+        </button>
       </div>
 
       {self && (
         <div className="team-row team-row-self">
           <span className="team-name">You</span>
-          <label>🎯 <input
-            placeholder="What are you working on?"
-            maxLength={120}
-            value={intentDraft}
-            onChange={e => setIntentDraft(e.target.value)}
-            onBlur={() => props.onSetIntent(intentDraft.trim())}
-            onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          /></label>
+          <label>
+            🎯{" "}
+            <input
+              placeholder="What are you working on?"
+              maxLength={120}
+              value={intentDraft}
+              onChange={(e) => setIntentDraft(e.target.value)}
+              onBlur={() => props.onSetIntent(intentDraft.trim())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+            />
+          </label>
           <button aria-pressed={props.isDnd} onClick={() => props.onToggleDnd(!props.isDnd)}>
             {props.isDnd ? "DND" : "Online"}
           </button>
         </div>
       )}
 
-      {others.map(c => (
+      {others.map((c) => (
         <div className="team-row" key={c.userId}>
           <span className="team-dot" style={{ background: c.color }} />
           <span className={`team-avail team-avail-${c.availability}`} />
@@ -987,19 +1182,21 @@ export default function TeamPanel(props: TeamPanelProps) {
           <div className="team-activity">{activityText(c)}</div>
           {c.activeFile && (
             <div className="team-file">
-              {c.activeFile.split("/").pop()}{c.cursor ? ` · L${c.cursor.line}` : ""}
+              {c.activeFile.split("/").pop()}
+              {c.cursor ? ` · L${c.cursor.line}` : ""}
             </div>
           )}
           {c.workingFolder && <div className="team-folder">📁 {c.workingFolder}</div>}
           {c.intent?.text && <div className="team-intent">🎯 {c.intent.text}</div>}
           <div className="team-time">{formatRelativeTime(c.lastActive, now)}</div>
           <div className="team-actions">
-            <button aria-label={`Follow ${c.name}`}
-              onClick={() => props.onFollow(c)}>
+            <button aria-label={`Follow ${c.name}`} onClick={() => props.onFollow(c)}>
               {props.followingUserId === c.userId ? "Unfollow" : "Follow"}
             </button>
             {c.activeFile && (
-              <button aria-label={`Jump to ${c.name}`} onClick={() => props.onJump(c)}>Jump</button>
+              <button aria-label={`Jump to ${c.name}`} onClick={() => props.onJump(c)}>
+                Jump
+              </button>
             )}
           </div>
         </div>
@@ -1011,7 +1208,7 @@ export default function TeamPanel(props: TeamPanelProps) {
           {[...folders.entries()].map(([folder, people]) => (
             <div className="team-folder-row" key={folder}>
               <span className="team-folder-name">{folder}</span>
-              <span className="team-folder-people">{people.map(p => p.name).join(", ")}</span>
+              <span className="team-folder-people">{people.map((p) => p.name).join(", ")}</span>
             </div>
           ))}
         </div>
@@ -1041,12 +1238,14 @@ git add frontend/src/components/Collab/TeamPanel.tsx frontend/src/components/Col
 ## Task 8: Header wiring — count chip, open TeamPanel, retire per-avatar popover
 
 **Files:**
+
 - Modify: `frontend/src/components/Collab/CollaboratorAvatarStack.tsx`
 - Modify: `frontend/src/components/Toolbar/Toolbar.tsx`
 - Modify: `frontend/src/components/IDE/IDE.tsx`
 - Modify: `frontend/test/` — add `CollaboratorAvatarStack.test.tsx` if none exists, else extend
 
 **Interfaces:**
+
 - `CollaboratorAvatarStackProps` gains `onOpenTeamPanel: () => void`; removes `onFollowCollaborator`/`onJumpToCollaborator`/`onToggleDnd` usage inside the popover (props may remain but unused, or remove and thread through TeamPanel — remove for cleanliness).
 - `ToolbarProps` gains `onOpenTeamPanel: () => void`.
 - `IDE.tsx` owns `const [teamPanelOpen, setTeamPanelOpen] = useState(false)` and renders `<TeamPanel>` when open, passing `collaborators` (the full array — do **not** filter self), `runStatuses`, `user.id`, `collabClient?.getDnd() ?? false`, `followedUserId`, `onSetIntent={(t) => collabClientRef.current?.setIntent(t)}`, `onToggleDnd={(d) => collabClientRef.current?.setDnd(d)}`, `onFollow`/`onJump` = the existing handlers, `onClose={() => setTeamPanelOpen(false)}`.
@@ -1061,12 +1260,35 @@ import CollaboratorAvatarStack from "../src/components/Collab/CollaboratorAvatar
 
 it("shows a collaborator count and opens the team panel on click", () => {
   const onOpenTeamPanel = vi.fn();
-  render(<CollaboratorAvatarStack
-    collaborators={[
-      { clientId: 1, userId: 1, name: "Me", role: "editor", color: "#1", availability: "online", activity: { type: "viewing", timestamp: 0 }, lastActive: 0 } as any,
-      { clientId: 2, userId: 2, name: "Rahul", role: "editor", color: "#2", availability: "online", activity: { type: "editing", timestamp: 0 }, lastActive: 0 } as any,
-    ]}
-    status="connected" currentUserId={1} onOpenTeamPanel={onOpenTeamPanel} />);
+  render(
+    <CollaboratorAvatarStack
+      collaborators={[
+        {
+          clientId: 1,
+          userId: 1,
+          name: "Me",
+          role: "editor",
+          color: "#1",
+          availability: "online",
+          activity: { type: "viewing", timestamp: 0 },
+          lastActive: 0,
+        } as any,
+        {
+          clientId: 2,
+          userId: 2,
+          name: "Rahul",
+          role: "editor",
+          color: "#2",
+          availability: "online",
+          activity: { type: "editing", timestamp: 0 },
+          lastActive: 0,
+        } as any,
+      ]}
+      status="connected"
+      currentUserId={1}
+      onOpenTeamPanel={onOpenTeamPanel}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: /2 collaborators/i }));
   expect(onOpenTeamPanel).toHaveBeenCalled();
 });
@@ -1081,8 +1303,11 @@ Expected: FAIL.
 
 - In `CollaboratorAvatarStack.tsx`: add a count button after the avatars:
   ```tsx
-  <button className="collab-count" aria-label={`${collaborators.length} collaborators — open team panel`}
-    onClick={onOpenTeamPanel}>
+  <button
+    className="collab-count"
+    aria-label={`${collaborators.length} collaborators — open team panel`}
+    onClick={onOpenTeamPanel}
+  >
     {collaborators.length}
   </button>
   ```
@@ -1111,10 +1336,12 @@ git add frontend/src/components/Collab/CollaboratorAvatarStack.tsx frontend/src/
 ## Task 9: Sidebar folder-level indicators
 
 **Files:**
+
 - Modify: `frontend/src/components/Sidebar/Sidebar.tsx`
 - Create: `frontend/test/Sidebar.collab.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `collaboratorsInFolder` / `groupCollaboratorsByFolder` from `presence.ts`; the existing `collaborators` prop.
 - No prop changes — `collaboratorsByFolder` is derived internally.
 
@@ -1153,7 +1380,7 @@ const { collaboratorsByPath, collaboratorsByFolder } = React.useMemo(() => {
     for (let i = 1; i < parts.length; i++) {
       const folder = parts.slice(0, i).join("/");
       const arr = byFolder.get(folder) ?? [];
-      if (!arr.some(x => x.userId === c.userId)) arr.push(c);
+      if (!arr.some((x) => x.userId === c.userId)) arr.push(c);
       byFolder.set(folder, arr);
     }
   }
@@ -1198,10 +1425,12 @@ git add frontend/src/components/Sidebar/Sidebar.tsx frontend/test/Sidebar.collab
 ## Task 10: Editor same-file collaborator strip
 
 **Files:**
+
 - Modify: `frontend/src/components/Editor/Editor.tsx`
 - Create: `frontend/test/Editor.sameFile.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `collaboratorsInFile` from `presence.ts`; the existing `collaborators` + `activeFile` + `currentUserId` props.
 
 - [ ] **Step 1: Write failing test**
@@ -1231,16 +1460,18 @@ const sameFileCollaborators = React.useMemo(
 Render below the tab bar, above the Monaco container, only when non-empty:
 
 ```tsx
-{sameFileCollaborators.length > 0 && (
-  <div className="editor-samefile-strip" role="status">
-    {sameFileCollaborators.map(c => (
-      <span key={c.clientId} className="samefile-chip">
-        <span className="samefile-dot" style={{ background: c.color }} />
-        {c.name} · {c.activity?.type === "editing" ? "✏️ Editing" : "👀 Viewing"}
-      </span>
-    ))}
-  </div>
-)}
+{
+  sameFileCollaborators.length > 0 && (
+    <div className="editor-samefile-strip" role="status">
+      {sameFileCollaborators.map((c) => (
+        <span key={c.clientId} className="samefile-chip">
+          <span className="samefile-dot" style={{ background: c.color }} />
+          {c.name} · {c.activity?.type === "editing" ? "✏️ Editing" : "👀 Viewing"}
+        </span>
+      ))}
+    </div>
+  );
+}
 ```
 
 Keep the existing `nearbyEditingCollaborators` proximity badge untouched (different purpose).
@@ -1265,6 +1496,7 @@ git add frontend/src/components/Editor/Editor.tsx frontend/test/Editor.sameFile.
 ## Task 11: Full verification, browser acceptance, STATUS.md
 
 **Files:**
+
 - Modify: `STATUS.md`
 
 - [ ] **Step 1: Full backend suite (Docker available)**
@@ -1315,28 +1547,28 @@ git status
 
 **1. Spec coverage**
 
-| Spec section | Task(s) |
-|---|---|
-| §4 G1 workingFolder | 2 (backend), 4 (derive), 5 (client wiring) |
-| §4 G2 intent | 3 (backend), 6 (client), 7 (TeamPanel input), 8 (IDE `onSetIntent`) |
-| §4 G3 TeamPanel | 7, 8 |
-| §4 G4 header count | 8 |
-| §4 G5 folder tree indicators | 9 |
-| §4 G6 who's-here selectors | 4 |
-| §4 G7 same-file indicator | 10 |
-| §4 G8 relative time | 4 (`formatRelativeTime`), 7 (ticker) |
-| §4 G9 activity vocab (`navigating`, `away`) | 2 (backend enums), 5 (client) |
-| §4 G10 consolidation | 1 (backend), 4 (frontend) |
-| §5 state model | 1–6 |
-| §6 protocol/data model | 1–6 |
-| §7 lifecycle/reconnect | 3 (tests), 5–6 (reset clears fields) |
-| §8 security/trust | 1 (preserve M55), 2–3 (sanitize new fields), 3 (tests) |
-| §9 performance | 7 (panel-local ticker), 9 (single memo) |
-| §10 UX surfaces | 7, 8, 9, 10 |
-| §11 testing | every task's Step 1 + Task 11 |
-| §12 browser acceptance | Task 11 Step 6 |
-| §13 non-goals | enforced by scope; no task adds persistence/chat/events |
-| §16 self-review decisions | reflected in Global Constraints |
+| Spec section                                | Task(s)                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------- |
+| §4 G1 workingFolder                         | 2 (backend), 4 (derive), 5 (client wiring)                          |
+| §4 G2 intent                                | 3 (backend), 6 (client), 7 (TeamPanel input), 8 (IDE `onSetIntent`) |
+| §4 G3 TeamPanel                             | 7, 8                                                                |
+| §4 G4 header count                          | 8                                                                   |
+| §4 G5 folder tree indicators                | 9                                                                   |
+| §4 G6 who's-here selectors                  | 4                                                                   |
+| §4 G7 same-file indicator                   | 10                                                                  |
+| §4 G8 relative time                         | 4 (`formatRelativeTime`), 7 (ticker)                                |
+| §4 G9 activity vocab (`navigating`, `away`) | 2 (backend enums), 5 (client)                                       |
+| §4 G10 consolidation                        | 1 (backend), 4 (frontend)                                           |
+| §5 state model                              | 1–6                                                                 |
+| §6 protocol/data model                      | 1–6                                                                 |
+| §7 lifecycle/reconnect                      | 3 (tests), 5–6 (reset clears fields)                                |
+| §8 security/trust                           | 1 (preserve M55), 2–3 (sanitize new fields), 3 (tests)              |
+| §9 performance                              | 7 (panel-local ticker), 9 (single memo)                             |
+| §10 UX surfaces                             | 7, 8, 9, 10                                                         |
+| §11 testing                                 | every task's Step 1 + Task 11                                       |
+| §12 browser acceptance                      | Task 11 Step 6                                                      |
+| §13 non-goals                               | enforced by scope; no task adds persistence/chat/events             |
+| §16 self-review decisions                   | reflected in Global Constraints                                     |
 
 No spec requirement is left without a task.
 
@@ -1350,15 +1582,15 @@ Fixed inline: Task 4 originally left `getUserColor` in `client.ts` creating a po
 
 ## Risks / rollback points
 
-| After task | State | Rollback |
-|---|---|---|
-| 1 | Pure refactor; if the M55 suite shifts, revert `presence.ts` + `manager.ts` — no other task started. | `git checkout backend/src/collab/` |
-| 3 | Backend presence complete + fully tested independently of any UI. Safe stopping point. | revert Tasks 2–3 files |
-| 4 | Frontend presence module + parse delegation. Existing UI unchanged in behavior. | revert `presence.ts`, restore `client.ts` `getOnlineCollaborators` |
-| 6 | Client emits new fields; **no UI consumes them yet** — invisible to users, fully testable. Natural checkpoint. | revert client changes |
-| 8 | Header + TeamPanel live. If the popover removal regresses follow-mode UX, re-add the popover (its handlers still exist). | revert Task 8 files |
-| 10 | Feature-complete. | per-task revert |
-| 11 | Verification + docs. | n/a |
+| After task | State                                                                                                                    | Rollback                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| 1          | Pure refactor; if the M55 suite shifts, revert `presence.ts` + `manager.ts` — no other task started.                     | `git checkout backend/src/collab/`                                 |
+| 3          | Backend presence complete + fully tested independently of any UI. Safe stopping point.                                   | revert Tasks 2–3 files                                             |
+| 4          | Frontend presence module + parse delegation. Existing UI unchanged in behavior.                                          | revert `presence.ts`, restore `client.ts` `getOnlineCollaborators` |
+| 6          | Client emits new fields; **no UI consumes them yet** — invisible to users, fully testable. Natural checkpoint.           | revert client changes                                              |
+| 8          | Header + TeamPanel live. If the popover removal regresses follow-mode UX, re-add the popover (its handlers still exist). | revert Task 8 files                                                |
+| 10         | Feature-complete.                                                                                                        | per-task revert                                                    |
+| 11         | Verification + docs.                                                                                                     | n/a                                                                |
 
 **Highest-risk task: Task 1** (touches the security-critical sanitizer). Mitigated by: verbatim move, no rename, the 28-test M55 suite as an unchanged gate, and it being the first task (nothing else to unwind).
 

@@ -7,16 +7,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import {
-  getWebSocketUrl,
-  getWorkflow,
-  type WorkflowTask,
-  type WorkflowTestResult,
-} from "../api";
-import {
-  detectMissingDependency,
-  type MissingDependencyMatch,
-} from "../utils/missingDependency";
+import { getWebSocketUrl, getWorkflow, type WorkflowTask, type WorkflowTestResult } from "../api";
+import { detectMissingDependency, type MissingDependencyMatch } from "../utils/missingDependency";
 
 export type LogLine = {
   type: "stdout" | "stderr" | "system" | "error";
@@ -61,13 +53,10 @@ export type ExecutionSessionValue = {
   install: () => void;
 };
 
-const ExecutionSessionContext = createContext<ExecutionSessionValue | null>(
-  null,
-);
+const ExecutionSessionContext = createContext<ExecutionSessionValue | null>(null);
 
 const CAP = 2000;
-const capLogs = (next: LogLine[]) =>
-  next.length > CAP ? next.slice(next.length - CAP) : next;
+const capLogs = (next: LogLine[]) => (next.length > CAP ? next.slice(next.length - CAP) : next);
 
 /**
  * M53: owns the project-scoped `/ws/execute` run session and the dependency
@@ -97,16 +86,13 @@ export function ExecutionSessionProvider({
   const [isRunning, setIsRunning] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
   const [executionId, setExecutionId] = useState<string | null>(null);
-  const [missingDependencyHint, setMissingDependencyHint] =
-    useState<MissingDependencyMatch | null>(null);
-  const [workflowTasks, setWorkflowTasks] = useState<WorkflowTask[]>([]);
-  const [testResults, setTestResults] = useState<WorkflowTestResult[]>([]);
-  const [lastWorkflowTaskId, setLastWorkflowTaskId] = useState<string | null>(
+  const [missingDependencyHint, setMissingDependencyHint] = useState<MissingDependencyMatch | null>(
     null,
   );
-  const [lastWorkflowKind, setLastWorkflowKind] = useState<
-    "test" | "build" | null
-  >(null);
+  const [workflowTasks, setWorkflowTasks] = useState<WorkflowTask[]>([]);
+  const [testResults, setTestResults] = useState<WorkflowTestResult[]>([]);
+  const [lastWorkflowTaskId, setLastWorkflowTaskId] = useState<string | null>(null);
+  const [lastWorkflowKind, setLastWorkflowKind] = useState<"test" | "build" | null>(null);
 
   // Reset derived session state during render when the project identity
   // changes so the first paint of project B cannot show project A's logs,
@@ -132,8 +118,7 @@ export function ExecutionSessionProvider({
   const runInFlightRef = useRef(false);
 
   const installAbortRef = useRef<AbortController | null>(null);
-  const installReaderRef =
-    useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const installReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const installRafIdRef = useRef<number | null>(null);
   const installInFlightRef = useRef(false);
   const workflowGenRef = useRef(0);
@@ -337,10 +322,7 @@ export function ExecutionSessionProvider({
             appendLog({ type: "system", text: statusText });
 
             if (parsed.telemetrySummary) {
-              const peakMb = (
-                parsed.telemetrySummary.peakMemoryBytes /
-                (1024 * 1024)
-              ).toFixed(1);
+              const peakMb = (parsed.telemetrySummary.peakMemoryBytes / (1024 * 1024)).toFixed(1);
               appendLog({
                 type: "system",
                 text: `Resource Profile — Peak CPU: ${parsed.telemetrySummary.peakCpuPercent}% | Peak Memory: ${peakMb} MB | PIDs: ${parsed.telemetrySummary.peakPids || 1}`,
@@ -366,9 +348,7 @@ export function ExecutionSessionProvider({
               text: exitCode === 0 ? "Exited (0)" : `Exited (${exitCode})`,
               type: exitCode === 0 ? "success" : "error",
             });
-            setMissingDependencyHint(
-              exitCode !== 0 ? detectMissingDependency(accStderr) : null,
-            );
+            setMissingDependencyHint(exitCode !== 0 ? detectMissingDependency(accStderr) : null);
             document.dispatchEvent(new Event("run-stopped"));
 
             document.dispatchEvent(
@@ -518,8 +498,7 @@ export function ExecutionSessionProvider({
   // M43: dependency-install stream — chunked plain-text HTTP, not JSON-framed
   // WS messages, so it keeps its own request/reader/AbortController plumbing.
   const install = useCallback(async () => {
-    if (!projectId || installInFlightRef.current || isRunningRef.current)
-      return;
+    if (!projectId || installInFlightRef.current || isRunningRef.current) return;
     installInFlightRef.current = true;
 
     const controller = new AbortController();
@@ -658,8 +637,7 @@ export function ExecutionSessionProvider({
       if (task) runWorkflow({ taskId: task.id });
     };
     document.addEventListener("ide-workflow-run-all", onWorkflowAll);
-    return () =>
-      document.removeEventListener("ide-workflow-run-all", onWorkflowAll);
+    return () => document.removeEventListener("ide-workflow-run-all", onWorkflowAll);
   }, [workflowTasks, runWorkflow]);
 
   // Lifecycle teardown — on projectId change AND on provider unmount.
@@ -749,18 +727,14 @@ export function ExecutionSessionProvider({
   );
 
   return (
-    <ExecutionSessionContext.Provider value={value}>
-      {children}
-    </ExecutionSessionContext.Provider>
+    <ExecutionSessionContext.Provider value={value}>{children}</ExecutionSessionContext.Provider>
   );
 }
 
 export function useExecutionSession(): ExecutionSessionValue {
   const ctx = useContext(ExecutionSessionContext);
   if (!ctx) {
-    throw new Error(
-      "useExecutionSession must be used within an <ExecutionSessionProvider>",
-    );
+    throw new Error("useExecutionSession must be used within an <ExecutionSessionProvider>");
   }
   return ctx;
 }

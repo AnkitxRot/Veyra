@@ -45,9 +45,9 @@ const USER_ID = 1;
 
 function seedDb(): Db {
   const db = openDb(":memory:");
-  db.prepare(
-    `INSERT INTO users (id, username, password_hash) VALUES (?, 'historyuser', 'x')`,
-  ).run(USER_ID);
+  db.prepare(`INSERT INTO users (id, username, password_hash) VALUES (?, 'historyuser', 'x')`).run(
+    USER_ID,
+  );
   db.prepare(
     `INSERT INTO projects (id, owner_id, name, language) VALUES (?, ?, 'History', 'python')`,
   ).run(PROJECT_ID, USER_ID);
@@ -121,12 +121,8 @@ async function startRun(db: Db, result: Record<string, unknown>) {
 
 function lastRunRow(db: Db) {
   return db
-    .prepare(
-      `SELECT status, exit_code, signal FROM runs ORDER BY rowid DESC LIMIT 1`,
-    )
-    .get() as
-    | { status: string; exit_code: number | null; signal: string | null }
-    | undefined;
+    .prepare(`SELECT status, exit_code, signal FROM runs ORDER BY rowid DESC LIMIT 1`)
+    .get() as { status: string; exit_code: number | null; signal: string | null } | undefined;
 }
 
 describe("run history records how an execution actually ended", () => {
@@ -149,10 +145,7 @@ describe("run history records how an execution actually ended", () => {
     // and a SIGKILL'd child reports `exitCode: null`. Persisting
     // `exitCode ?? 0` would file a run the user explicitly stopped as a clean
     // `success`/`0`, indistinguishable from a genuine completion.
-    const { release } = await startRun(
-      db,
-      baseResult({ exitCode: null, signal: "SIGKILL" }),
-    );
+    const { release } = await startRun(db, baseResult({ exitCode: null, signal: "SIGKILL" }));
     release();
     await flush();
 
@@ -177,10 +170,7 @@ describe("run history records how an execution actually ended", () => {
   });
 
   it("records a run cancelled by client disconnect as cancelled", async () => {
-    const { ws, release } = await startRun(
-      db,
-      baseResult({ exitCode: null, signal: null }),
-    );
+    const { ws, release } = await startRun(db, baseResult({ exitCode: null, signal: null }));
 
     // Client goes away while the run is still in flight.
     ws.readyState = ws.CLOSED;

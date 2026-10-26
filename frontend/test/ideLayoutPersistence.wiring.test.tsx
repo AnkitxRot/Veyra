@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ide = readFileSync(
-  join(here, "../src/components/IDE/IDE.tsx"),
-  "utf-8",
-);
+const ide = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
 
 /**
  * M67 — the four user-scoped IDE layout dimensions are persisted through the
@@ -21,12 +18,8 @@ describe("M67 — IDE layout persistence wiring", () => {
     expect(ide).toContain("} = useLayoutPreferences(layoutLoaded, persistLayout);");
     expect(ide).not.toContain("const [sidebarWidth, setSidebarWidth] = useState");
     expect(ide).not.toContain("const [bottomHeight, setBottomHeight] = useState");
-    expect(ide).not.toContain(
-      "const [isSidebarHidden, setIsSidebarHidden] = useState",
-    );
-    expect(ide).not.toContain(
-      "const [isBottomCollapsed, setIsBottomCollapsed] = useState",
-    );
+    expect(ide).not.toContain("const [isSidebarHidden, setIsSidebarHidden] = useState");
+    expect(ide).not.toContain("const [isBottomCollapsed, setIsBottomCollapsed] = useState");
   });
 
   it("hydration is gated on the preferences actually having loaded", () => {

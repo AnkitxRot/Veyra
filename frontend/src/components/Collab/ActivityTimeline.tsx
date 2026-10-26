@@ -7,10 +7,7 @@ import UserAvatar from "../common/UserAvatar";
 /** M73: userId → presentation identity, so a timeline actor renders the same
  *  avatar + display name as every other collaboration surface. `username`
  *  stays the fallback and the stable attribution key. */
-export type ActorIdentityMap = Map<
-  number,
-  { displayName?: string | null; avatarVersion?: number }
->;
+export type ActorIdentityMap = Map<number, { displayName?: string | null; avatarVersion?: number }>;
 
 export interface ActivityTimelineProps {
   events: TimelineEvent[];
@@ -51,10 +48,7 @@ export default function ActivityTimeline({
         <ul className="tat-list">
           {events.map((ev) => {
             const f = formatTimelineEvent(ev, now);
-            const id =
-              ev.actor.userId != null
-                ? actorIdentity?.get(ev.actor.userId)
-                : undefined;
+            const id = ev.actor.userId != null ? actorIdentity?.get(ev.actor.userId) : undefined;
             const actorName = displayLabel({
               name: f.actor,
               displayName: id?.displayName ?? null,
@@ -97,9 +91,7 @@ export default function ActivityTimeline({
                   {ev.filePath && ev.kind !== "commit" && ev.kind !== "snapshot" && (
                     <span className="tat-file"> · {ev.filePath.split("/").pop()}</span>
                   )}
-                  {ev.subtitle && (
-                    <span className="tat-sub"> — {ev.subtitle}</span>
-                  )}
+                  {ev.subtitle && <span className="tat-sub"> — {ev.subtitle}</span>}
                 </span>
               </li>
             );
@@ -107,12 +99,7 @@ export default function ActivityTimeline({
         </ul>
       )}
       {hasMore && (
-        <button
-          type="button"
-          className="tat-more"
-          onClick={onLoadMore}
-          disabled={loadingMore}
-        >
+        <button type="button" className="tat-more" onClick={onLoadMore} disabled={loadingMore}>
           {loadingMore ? "Loading…" : "Show more"}
         </button>
       )}

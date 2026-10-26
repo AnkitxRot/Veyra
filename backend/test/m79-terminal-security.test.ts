@@ -69,35 +69,20 @@ describe("M79 — terminal reattach isolation", () => {
     const cfg = makeTestConfig();
 
     const wsA = makeFakeWs();
-    await handleTerminalConnection(
-      wsA as any,
-      "proj-1",
-      cfg,
-      1,
-      undefined,
-      "secret-terminal-id",
-    );
+    await handleTerminalConnection(wsA as any, "proj-1", cfg, 1, undefined, "secret-terminal-id");
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(terminalSessions.has(1, "proj-1", "secret-terminal-id")).toBe(true);
 
     // Attacker B knows A's terminalId + projectId (say from a shared link).
     const wsB = makeFakeWs();
-    await handleTerminalConnection(
-      wsB as any,
-      "proj-1",
-      cfg,
-      2,
-      undefined,
-      "secret-terminal-id",
-    );
+    await handleTerminalConnection(wsB as any, "proj-1", cfg, 2, undefined, "secret-terminal-id");
 
     // B did NOT attach to A's session — a brand-new PTY was spawned for B,
     // keyed under B's own userId.
     expect(spawn).toHaveBeenCalledTimes(2);
     expect(terminalSessions.has(2, "proj-1", "secret-terminal-id")).toBe(true);
     // A's session is untouched and still A's.
-    expect(terminalSessions.describe(1, "proj-1", "secret-terminal-id")?.state)
-      .toBe("attached");
+    expect(terminalSessions.describe(1, "proj-1", "secret-terminal-id")?.state).toBe("attached");
     expect(wsB.sent.some((m) => m.type === "ended")).toBe(false);
   });
 
@@ -190,21 +175,12 @@ describe("M79 — terminal reattach isolation", () => {
     }));
 
     const { handleTerminalConnection } = await import("../src/ws/terminal.js");
-    const { terminalSessions } = await import(
-      "../src/execution/terminalSessions.js"
-    );
+    const { terminalSessions } = await import("../src/execution/terminalSessions.js");
     const cfg = makeTestConfig({ terminalDetachGraceMs: 500 });
     vi.useFakeTimers();
 
     const ws = makeFakeWs();
-    await handleTerminalConnection(
-      ws as any,
-      "p",
-      cfg,
-      1,
-      {} as any,
-      "tid",
-    );
+    await handleTerminalConnection(ws as any, "p", cfg, 1, {} as any, "tid");
     ws.emit("close");
     expect(cleanup).not.toHaveBeenCalled();
     vi.advanceTimersByTime(501);

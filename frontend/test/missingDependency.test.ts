@@ -41,8 +41,7 @@ describe("detectMissingDependency — Milestone 44 pure detector", () => {
   });
 
   it("does not match a generic ImportError that isn't ModuleNotFoundError", () => {
-    const output =
-      "ImportError: cannot import name 'missing_name' from 'existing_package'";
+    const output = "ImportError: cannot import name 'missing_name' from 'existing_package'";
     expect(detectMissingDependency(output)).toBeNull();
   });
 
@@ -75,8 +74,7 @@ describe("detectMissingDependency — Milestone 44 pure detector", () => {
   });
 
   it("prefers the Python pattern when (implausibly) both could match", () => {
-    const output =
-      "ModuleNotFoundError: No module named 'six'\nCannot find module 'lodash'";
+    const output = "ModuleNotFoundError: No module named 'six'\nCannot find module 'lodash'";
     expect(detectMissingDependency(output)).toEqual({
       kind: "python",
       moduleName: "six",

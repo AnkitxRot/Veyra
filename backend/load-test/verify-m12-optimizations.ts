@@ -32,7 +32,10 @@ interface PhaseTimings {
   totalMs: number;
 }
 
-async function measureM12DockerPhases(projectId: string, workspaceDir: string): Promise<PhaseTimings> {
+async function measureM12DockerPhases(
+  projectId: string,
+  workspaceDir: string,
+): Promise<PhaseTimings> {
   const containerId = `test-opt12-${projectId}`;
   const netName = `test-net12-${projectId}`;
 
@@ -54,34 +57,58 @@ async function measureM12DockerPhases(projectId: string, workspaceDir: string): 
   // 4. Docker run (optimized: no pre-rm, no synchronous docker port)
   const hardeningArgs = [
     "--read-only",
-    "--tmpfs", "/tmp:rw,size=64m,mode=1777",
-    "--tmpfs", "/run:rw,size=16m,mode=1777",
-    "--tmpfs", "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
+    "--tmpfs",
+    "/tmp:rw,size=64m,mode=1777",
+    "--tmpfs",
+    "/run:rw,size=16m,mode=1777",
+    "--tmpfs",
+    "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
   ];
   const portArgs = [3000, 4173, 5173, 8000, 8080].flatMap((p) => ["-p", `127.0.0.1::${p}`]);
   const dockerArgs = [
-    "run", "-d",
-    "--name", containerId,
-    "--network", netName,
-    "--security-opt", "no-new-privileges",
-    "--cap-drop", "ALL",
-    "--memory", "536870912b",
-    "--cpus", "1.0",
-    "--pids-limit", "100",
+    "run",
+    "-d",
+    "--name",
+    containerId,
+    "--network",
+    netName,
+    "--security-opt",
+    "no-new-privileges",
+    "--cap-drop",
+    "ALL",
+    "--memory",
+    "536870912b",
+    "--cpus",
+    "1.0",
+    "--pids-limit",
+    "100",
     ...hardeningArgs,
     ...portArgs,
-    "-v", `${workspaceDir}:/workspace`,
-    "-w", "/workspace",
-    "--user", "ide",
+    "-v",
+    `${workspaceDir}:/workspace`,
+    "-w",
+    "/workspace",
+    "--user",
+    "ide",
     "cloudeeeide-runner:latest",
-    "sleep", "infinity",
+    "sleep",
+    "infinity",
   ];
   await execFileAsync("docker", dockerArgs);
   const t4 = performance.now();
 
   // 5 & 6. Exec startup and program execution
   let firstByteTime = 0;
-  const child = spawn("docker", ["exec", "-i", "-w", "/workspace", containerId, "python3", "-c", "import sys; sys.stdout.write('START\\n'); sys.stdout.flush(); import time; time.sleep(0.05); print('DONE')"]);
+  const child = spawn("docker", [
+    "exec",
+    "-i",
+    "-w",
+    "/workspace",
+    containerId,
+    "python3",
+    "-c",
+    "import sys; sys.stdout.write('START\\n'); sys.stdout.flush(); import time; time.sleep(0.05); print('DONE')",
+  ]);
   const execStart = performance.now();
 
   await new Promise<void>((resolve) => {
@@ -125,18 +152,44 @@ async function runExecutionBenchmarks() {
     const warmContainer = `test-warm-m12-${Date.now()}`;
     const warmNet = `test-warm-net12-${Date.now()}`;
     await execFileAsync("docker", ["network", "create", warmNet]);
-    await execFileAsync("docker", ["run", "-d", "--name", warmContainer, "--network", warmNet, "-v", `${tempDir}:/workspace`, "-w", "/workspace", "cloudeeeide-runner:latest", "sleep", "infinity"]);
+    await execFileAsync("docker", [
+      "run",
+      "-d",
+      "--name",
+      warmContainer,
+      "--network",
+      warmNet,
+      "-v",
+      `${tempDir}:/workspace`,
+      "-w",
+      "/workspace",
+      "cloudeeeide-runner:latest",
+      "sleep",
+      "infinity",
+    ]);
 
     const warmLatencies: number[] = [];
     for (let i = 0; i < 10; i++) {
       const t0 = performance.now();
-      await execFileAsync("docker", ["exec", "-i", "-w", "/workspace", warmContainer, "python3", "-c", "print('hello')"]);
+      await execFileAsync("docker", [
+        "exec",
+        "-i",
+        "-w",
+        "/workspace",
+        warmContainer,
+        "python3",
+        "-c",
+        "print('hello')",
+      ]);
       warmLatencies.push(performance.now() - t0);
     }
     warmLatencies.sort((a, b) => a - b);
 
     // 20 simultaneous cold creations
-    const concurrencyResults: Record<number, { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }> = {};
+    const concurrencyResults: Record<
+      number,
+      { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }
+    > = {};
     for (const c of [1, 5, 20]) {
       const wallStart = performance.now();
       const tasks = Array.from({ length: c }, async (_, i) => {
@@ -167,7 +220,10 @@ async function runExecutionBenchmarks() {
       const reg = (await fetch(`${server.baseUrl}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: `burst12_u_${i}_${Date.now()}`, password: "load-test-password-1234" }),
+        body: JSON.stringify({
+          username: `burst12_u_${i}_${Date.now()}`,
+          password: "load-test-password-1234",
+        }),
       }).then((r) => r.json())) as any;
 
       const proj = (await fetch(`${server.baseUrl}/api/projects`, {
@@ -327,7 +383,10 @@ async function runFilesystemBenchmarks() {
     // Concurrent callers (10, 50, 100) on medium project (cached + single-flight)
     const mediumDir = join(baseTemp, "medium");
     const concurrencyLevels = [10, 50, 100];
-    const concurrencyFsResults: Record<number, { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }> = {};
+    const concurrencyFsResults: Record<
+      number,
+      { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }
+    > = {};
 
     for (const c of concurrencyLevels) {
       const wallStart = performance.now();
@@ -376,7 +435,7 @@ async function runFilesystemBenchmarks() {
 |---|---|---|---|---|
 | Tiny | 5 | 9.24 ms | ${results.tiny!.treeMs.toFixed(2)} ms | ${(((9.24 - results.tiny!.treeMs) / 9.24) * 100).toFixed(1)}% |
 | Medium | 50 | 9.16 ms | ${results.medium!.treeMs.toFixed(2)} ms | ${(((9.16 - results.medium!.treeMs) / 9.16) * 100).toFixed(1)}% |
-| Large | 300 | 20.70 ms | ${results.large!.treeMs.toFixed(2)} ms | ${(((20.70 - results.large!.treeMs) / 20.70) * 100).toFixed(1)}% |
+| Large | 300 | 20.70 ms | ${results.large!.treeMs.toFixed(2)} ms | ${(((20.7 - results.large!.treeMs) / 20.7) * 100).toFixed(1)}% |
 
 ## Concurrent Tree Requests (Medium 50-file Project with Single-Flight Caching)
 

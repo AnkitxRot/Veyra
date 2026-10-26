@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
-import {
-  useAppearance,
-  resolveTheme,
-} from "../src/hooks/useAppearance";
+import { useAppearance, resolveTheme } from "../src/hooks/useAppearance";
 
 // M69 — one resolved-appearance source. `useAppearance(preference)` turns the
 // typed theme preference into `{ preference, resolvedTheme }`, stamps the
@@ -20,14 +17,11 @@ function installMatchMedia(initialLight: boolean) {
       return state.light;
     },
     media: "(prefers-color-scheme: light)",
-    addEventListener: (_t: string, cb: (e: MediaQueryListEvent) => void) =>
-      listeners.add(cb),
-    removeEventListener: (_t: string, cb: (e: MediaQueryListEvent) => void) =>
-      listeners.delete(cb),
+    addEventListener: (_t: string, cb: (e: MediaQueryListEvent) => void) => listeners.add(cb),
+    removeEventListener: (_t: string, cb: (e: MediaQueryListEvent) => void) => listeners.delete(cb),
     // legacy API — not used by the hook, present for completeness
     addListener: (cb: (e: MediaQueryListEvent) => void) => listeners.add(cb),
-    removeListener: (cb: (e: MediaQueryListEvent) => void) =>
-      listeners.delete(cb),
+    removeListener: (cb: (e: MediaQueryListEvent) => void) => listeners.delete(cb),
     dispatchEvent: () => true,
   };
   (window as any).matchMedia = vi.fn(() => mql);

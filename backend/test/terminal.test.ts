@@ -219,12 +219,7 @@ describe("handleTerminalConnection keeps the sandbox idle timer alive", () => {
 
     const { handleTerminalConnection } = await import("../src/ws/terminal.js");
     const ws = makeFakeWs();
-    await handleTerminalConnection(
-      ws as any,
-      projectId,
-      makeTestConfig(),
-      userId,
-    );
+    await handleTerminalConnection(ws as any, projectId, makeTestConfig(), userId);
     return { ws, touch, emitData: (data: string) => emitData(data) };
   }
 
@@ -237,18 +232,12 @@ describe("handleTerminalConnection keeps the sandbox idle timer alive", () => {
     const { ws, touch } = await connect("proj-touch");
     expect(touch).not.toHaveBeenCalled();
 
-    ws.emit(
-      "message",
-      Buffer.from(JSON.stringify({ type: "data", data: "ls\n" })),
-    );
+    ws.emit("message", Buffer.from(JSON.stringify({ type: "data", data: "ls\n" })));
     expect(touch).toHaveBeenCalledWith("proj-touch");
     expect(touch).toHaveBeenCalledTimes(1);
 
     // Each further message counts — not a one-shot.
-    ws.emit(
-      "message",
-      Buffer.from(JSON.stringify({ type: "resize", cols: 100, rows: 40 })),
-    );
+    ws.emit("message", Buffer.from(JSON.stringify({ type: "resize", cols: 100, rows: 40 })));
     expect(touch).toHaveBeenCalledTimes(2);
 
     // Even malformed traffic proves the connection is alive and in use.
@@ -302,8 +291,7 @@ describe("terminalGate — per-user concurrent terminal cap", () => {
     }));
     vi.doMock("node-pty", () => ({ spawn }));
 
-    const { handleTerminalConnection, terminalGate } =
-      await import("../src/ws/terminal.js");
+    const { handleTerminalConnection, terminalGate } = await import("../src/ws/terminal.js");
     return {
       handleTerminalConnection,
       terminalGate,
@@ -313,8 +301,7 @@ describe("terminalGate — per-user concurrent terminal cap", () => {
   }
 
   it("rejects the connection past the per-user cap without spawning a pty or touching the sandbox", async () => {
-    const { handleTerminalConnection, ensureProjectSandbox, spawn } =
-      await setup();
+    const { handleTerminalConnection, ensureProjectSandbox, spawn } = await setup();
     const cfg = makeTestConfig({ maxTerminalsPerUser: 2 });
 
     await handleTerminalConnection(makeFakeWs() as any, "proj-a", cfg, 1);
@@ -325,9 +312,7 @@ describe("terminalGate — per-user concurrent terminal cap", () => {
     await handleTerminalConnection(rejected as any, "proj-c", cfg, 1);
 
     expect(rejected.closed).toBe(true);
-    expect(
-      rejected.sent.some((s) => s.includes("too many concurrent terminals")),
-    ).toBe(true);
+    expect(rejected.sent.some((s) => s.includes("too many concurrent terminals"))).toBe(true);
     // The rejection must happen before any sandbox/docker work is attempted.
     expect(ensureProjectSandbox).toHaveBeenCalledTimes(2);
     expect(spawn).toHaveBeenCalledTimes(2);
@@ -411,8 +396,7 @@ describe("terminalGate — per-user concurrent terminal cap", () => {
     const spawn = vi.fn();
     vi.doMock("node-pty", () => ({ spawn }));
 
-    const { handleTerminalConnection, terminalGate } =
-      await import("../src/ws/terminal.js");
+    const { handleTerminalConnection, terminalGate } = await import("../src/ws/terminal.js");
     const cfg = makeTestConfig({ maxTerminalsPerUser: 1 });
 
     const ws = makeFakeWs();

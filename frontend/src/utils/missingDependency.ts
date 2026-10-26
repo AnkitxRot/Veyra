@@ -17,8 +17,7 @@ export interface MissingDependencyMatch {
 
 // Python: `ModuleNotFoundError: No module named 'requests'` (the module
 // name is always single- or double-quoted by CPython's own formatter).
-const PYTHON_MODULE_NOT_FOUND =
-  /ModuleNotFoundError:\s*No module named ['"]([^'"]+)['"]/;
+const PYTHON_MODULE_NOT_FOUND = /ModuleNotFoundError:\s*No module named ['"]([^'"]+)['"]/;
 
 // Node: `Error: Cannot find module 'express'` (Node's own require() error
 // message — distinct from npm's package-manager-level "npm ERR!" output,
@@ -33,9 +32,7 @@ const NODE_CANNOT_FIND_MODULE = /Cannot find module ['"]([^'"]+)['"]/;
  * mentions the same module name twice) — callers only need to know whether
  * to show the affordance, not enumerate every occurrence.
  */
-export function detectMissingDependency(
-  output: string,
-): MissingDependencyMatch | null {
+export function detectMissingDependency(output: string): MissingDependencyMatch | null {
   if (!output) return null;
 
   const pythonMatch = output.match(PYTHON_MODULE_NOT_FOUND);

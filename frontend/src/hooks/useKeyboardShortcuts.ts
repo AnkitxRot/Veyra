@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef } from "react";
 import {
   chordFromEvent,
   getCommand,
@@ -6,7 +6,7 @@ import {
   IS_MAC,
   type CommandId,
   type ResolvedKeymap,
-} from '../keymap/keymap';
+} from "../keymap/keymap";
 
 // Re-exported for the many call sites that import IS_MAC from this module.
 export { IS_MAC };
@@ -29,40 +29,36 @@ export interface ShortcutHandlers {
  *  IDE's save / quick-open defaults). Even when remapped away, letting the
  *  browser "save page" / "print" dialog appear on those chords is worse for an
  *  IDE than doing nothing. */
-const ALWAYS_SUPPRESS = new Set(['mod+s', 'mod+p']);
+const ALWAYS_SUPPRESS = new Set(["mod+s", "mod+p"]);
 
 const EMPTY_RESOLVED = resolveKeymap({});
 
 function isTextInput(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el) return false;
-  return (
-    el.tagName === 'INPUT' ||
-    el.tagName === 'TEXTAREA' ||
-    el.isContentEditable === true
-  );
+  return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable === true;
 }
 
 function dispatch(id: CommandId, h: ShortcutHandlers): void {
   switch (id) {
-    case 'workbench.action.showCommands':
+    case "workbench.action.showCommands":
       h.onOpenCommandPalette();
       break;
-    case 'workbench.action.quickOpen':
+    case "workbench.action.quickOpen":
       h.onOpenQuickOpen();
       break;
-    case 'workbench.action.saveFile':
+    case "workbench.action.saveFile":
       // M1 canonical save dispatch — path only; IDE re-resolves live content.
       document.dispatchEvent(
-        new CustomEvent('ide-save', {
+        new CustomEvent("ide-save", {
           detail: { path: h.getActiveFile?.() ?? null },
         }),
       );
       break;
-    case 'workbench.action.toggleSidebar':
+    case "workbench.action.toggleSidebar":
       h.onToggleSidebar?.();
       break;
-    case 'workbench.action.toggleBottomPanel':
+    case "workbench.action.toggleBottomPanel":
       h.onToggleBottomPanel?.();
       break;
   }
@@ -111,8 +107,7 @@ export function useKeyboardShortcuts(
       dispatch(id, handlersRef.current);
     };
 
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () =>
-      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [enabled]);
 }

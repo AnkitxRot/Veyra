@@ -4,14 +4,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ide = readFileSync(
-  join(here, "../src/components/IDE/IDE.tsx"),
-  "utf-8",
-);
-const output = readFileSync(
-  join(here, "../src/components/Output/Output.tsx"),
-  "utf-8",
-);
+const ide = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
+const output = readFileSync(join(here, "../src/components/Output/Output.tsx"), "utf-8");
 const client = readFileSync(join(here, "../src/collab/client.ts"), "utf-8");
 
 /**
@@ -42,9 +36,7 @@ describe("M65 — shared run output wiring", () => {
   });
 
   it("Output renders SharedRunOutputPanel only for OTHER users' runs", () => {
-    expect(output).toContain(
-      'import SharedRunOutputPanel from "./SharedRunOutputPanel"',
-    );
+    expect(output).toContain('import SharedRunOutputPanel from "./SharedRunOutputPanel"');
     expect(output).toContain("status.userId !== currentUserId");
     expect(output).toContain("<SharedRunOutputPanel");
   });

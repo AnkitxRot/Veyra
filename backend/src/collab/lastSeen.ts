@@ -5,15 +5,9 @@
 
 import type { Db } from "../db.js";
 
-export function getLastSeen(
-  db: Db,
-  projectId: string,
-  userId: number,
-): string | null {
+export function getLastSeen(db: Db, projectId: string, userId: number): string | null {
   const row = db
-    .prepare(
-      "SELECT last_seen_at FROM collab_last_seen WHERE project_id = ? AND user_id = ?",
-    )
+    .prepare("SELECT last_seen_at FROM collab_last_seen WHERE project_id = ? AND user_id = ?")
     .get(projectId, userId) as { last_seen_at: string } | undefined;
   return row?.last_seen_at ?? null;
 }
@@ -23,12 +17,7 @@ export function getLastSeen(
  * or out-of-order caller can never rewind the boundary and re-surface events the
  * user has already acknowledged.
  */
-export function touchLastSeen(
-  db: Db,
-  projectId: string,
-  userId: number,
-  atIso?: string,
-): void {
+export function touchLastSeen(db: Db, projectId: string, userId: number, atIso?: string): void {
   const at = atIso ?? new Date().toISOString();
   db.prepare(
     `INSERT INTO collab_last_seen (project_id, user_id, last_seen_at)
@@ -43,11 +32,7 @@ export function touchLastSeen(
  * Insert `now` only when no row exists — a first-time collaborator has no
  * "away" backlog. Called on collab connect; a no-op on every subsequent connect.
  */
-export function insertLastSeenIfAbsent(
-  db: Db,
-  projectId: string,
-  userId: number,
-): void {
+export function insertLastSeenIfAbsent(db: Db, projectId: string, userId: number): void {
   db.prepare(
     `INSERT INTO collab_last_seen (project_id, user_id, last_seen_at)
      VALUES (?, ?, ?)

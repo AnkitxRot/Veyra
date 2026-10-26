@@ -42,13 +42,13 @@ matches what is visible in the editor.
 **Verifies:** the core regression. Previously Ctrl+S posted file-open-time
 content and the editor visibly reverted.
 
-| Step | Action | Expected |
-|---|---|---|
-| 1.1 | Log in as A. Open any project, create/open `main.py`, note its content. | File opens normally. |
-| 1.2 | Append a distinctive line, e.g. `print("M1 truth 1727")`. Do **not** blur the editor. | Dirty dot appears on tab. |
-| 1.3 | Press `Ctrl+S` while focus is inside Monaco. | Toast "Saved main.py". Network shows POST body containing the typed line. |
-| 1.4 | Reload the page (F5), reopen `main.py`. | The typed line is present after reload. **No reversion to pre-edit text.** |
-| 1.5 | `GET /api/projects/<id>/file?path=main.py` (or check workspace file on disk). | Bytes match the editor exactly. |
+| Step | Action                                                                                | Expected                                                                   |
+| ---- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 1.1  | Log in as A. Open any project, create/open `main.py`, note its content.               | File opens normally.                                                       |
+| 1.2  | Append a distinctive line, e.g. `print("M1 truth 1727")`. Do **not** blur the editor. | Dirty dot appears on tab.                                                  |
+| 1.3  | Press `Ctrl+S` while focus is inside Monaco.                                          | Toast "Saved main.py". Network shows POST body containing the typed line.  |
+| 1.4  | Reload the page (F5), reopen `main.py`.                                               | The typed line is present after reload. **No reversion to pre-edit text.** |
+| 1.5  | `GET /api/projects/<id>/file?path=main.py` (or check workspace file on disk).         | Bytes match the editor exactly.                                            |
 
 Pass criteria: steps 1.3–1.5 all hold. Failure signature of the old bug:
 toast says "Saved" but POST payload lacks the new line and the editor reverts
@@ -62,12 +62,12 @@ within ~1 render frame.
 truth as the in-editor path, including files whose model still exists but is
 not focused, and clean-buffer no-op behavior.
 
-| Step | Action | Expected |
-|---|---|---|
-| 2.1 | With `notes.md` open and edited (dirty), click the sidebar file tree / bottom panel so Monaco loses focus. | Tab still shows dirty indicator. |
-| 2.2 | Press `Ctrl+S`. | Exactly one POST with the edited content; toast shown. |
-| 2.3 | Reload and reopen `notes.md`. | Edited content persisted. |
-| 2.4 | Press `Ctrl+S` again immediately (buffer now clean). | One idempotent POST with identical bytes; no error, no state corruption. |
+| Step | Action                                                                                                     | Expected                                                                 |
+| ---- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 2.1  | With `notes.md` open and edited (dirty), click the sidebar file tree / bottom panel so Monaco loses focus. | Tab still shows dirty indicator.                                         |
+| 2.2  | Press `Ctrl+S`.                                                                                            | Exactly one POST with the edited content; toast shown.                   |
+| 2.3  | Reload and reopen `notes.md`.                                                                              | Edited content persisted.                                                |
+| 2.4  | Press `Ctrl+S` again immediately (buffer now clean).                                                       | One idempotent POST with identical bytes; no error, no state corruption. |
 
 Pass criteria: 2.2–2.4 hold; no double-dispatch (only ONE `ide-save` handling
 per keypress — verify via Network: one POST per press).
@@ -78,13 +78,13 @@ per keypress — verify via Network: one POST per press).
 
 **Verifies:** the run pipeline executes what the user sees, not stale bytes.
 
-| Step | Action | Expected |
-|---|---|---|
-| 3.1 | Open `main.py` (Python project). Run once (`Ctrl+Enter`) to establish baseline output. | Output panel shows baseline print(s). |
-| 3.2 | Change the printed string to something unmistakable, e.g. `print("RUN-TRUTH-M1")`. Keep focus in the editor. | Tab dirty. |
-| 3.3 | Click **Run** in the toolbar without manually saving first. | Auto-save fires (one POST per dirty file), then execution starts. |
-| 3.4 | Observe Output panel. | stdout contains `RUN-TRUTH-M1` — i.e. the NEW code ran. |
-| 3.5 | After exit, reload the page and reopen `main.py`. | New code persisted; tabs show clean. |
+| Step | Action                                                                                                       | Expected                                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| 3.1  | Open `main.py` (Python project). Run once (`Ctrl+Enter`) to establish baseline output.                       | Output panel shows baseline print(s).                             |
+| 3.2  | Change the printed string to something unmistakable, e.g. `print("RUN-TRUTH-M1")`. Keep focus in the editor. | Tab dirty.                                                        |
+| 3.3  | Click **Run** in the toolbar without manually saving first.                                                  | Auto-save fires (one POST per dirty file), then execution starts. |
+| 3.4  | Observe Output panel.                                                                                        | stdout contains `RUN-TRUTH-M1` — i.e. the NEW code ran.           |
+| 3.5  | After exit, reload the page and reopen `main.py`.                                                            | New code persisted; tabs show clean.                              |
 
 Pass criteria: step 3.4 shows the new output. Old-bug failure signature: run
 executes the OLD source while the editor showed the new one.
@@ -100,13 +100,13 @@ successfully saved files are marked clean.
 **Verifies:** a peer's save can never clobber another collaborator's live
 edits (the Yjs room clobber half of BUG-1).
 
-| Step | Action | Expected |
-|---|---|---|
-| 4.1 | A shares project with B (editor role). Both open the same file `collab.py`. Both see identical content. | Avatar stack shows both users; cursors visible. |
-| 4.2 | B types continuously (several characters per second, do not stop). | Edits appear in A's editor in real time. |
-| 4.3 | While B keeps typing, A presses `Ctrl+S` twice, ~2 s apart. | Two POSTs from A. Neither triggers any visible change/revert in B's or A's editors beyond B's own typing. |
-| 4.4 | Both stop. Wait ~3 s (room flush debounce), then reload BOTH clients and reopen the file. | Both clients and disk show the union of edits — identical on both sides and on disk. No reverted/stale region from A's save. |
-| 4.5 | Reverse roles: B saves continuously while A types. Repeat 4.3–4.4. | Same non-interference result. |
+| Step | Action                                                                                                  | Expected                                                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 4.1  | A shares project with B (editor role). Both open the same file `collab.py`. Both see identical content. | Avatar stack shows both users; cursors visible.                                                                              |
+| 4.2  | B types continuously (several characters per second, do not stop).                                      | Edits appear in A's editor in real time.                                                                                     |
+| 4.3  | While B keeps typing, A presses `Ctrl+S` twice, ~2 s apart.                                             | Two POSTs from A. Neither triggers any visible change/revert in B's or A's editors beyond B's own typing.                    |
+| 4.4  | Both stop. Wait ~3 s (room flush debounce), then reload BOTH clients and reopen the file.               | Both clients and disk show the union of edits — identical on both sides and on disk. No reverted/stale region from A's save. |
+| 4.5  | Reverse roles: B saves continuously while A types. Repeat 4.3–4.4.                                      | Same non-interference result.                                                                                                |
 
 Pass criteria: no client ever displays content that undoes the other peer's
 typing as a result of a SAVE action. (Concurrent conflicting keystrokes merge
@@ -126,14 +126,14 @@ what reaches disk AND stays visible in the editor (both solo and collab).
 
 Pre-step: enable Format on Save via status bar toggle (`Format: Off → On`).
 
-| Step | Action | Expected |
-|---|---|---|
-| 5.1 | Solo mode. In `messy.js` type badly-formatted code, e.g. `const x   =   1;function f( ){return   x}` (no trailing newline). | Dirty tab. |
-| 5.2 | `Ctrl+S` inside the editor. | One format POST + one file POST. Persisted bytes are formatted (prettier/normalizer output), not the raw messy buffer. |
-| 5.3 | Observe editor after save completes (~1 render cycle). | Editor shows the FORMATTED text (external-sync effect applies it once clean). |
-| 5.4 | Reload, reopen `messy.js`. | Formatted content persists; matches step 5.3. |
-| 5.5 | Standalone Format Document (`Shift+Alt+F`) on an unformatted buffer WITHOUT saving. | Editor visibly reformats immediately (model-first apply); peers see the reformat in real time when collab-bound. |
-| 5.6 | Collab mode: repeat 5.1–5.4 with B observing A's window during 5.2–5.3. | B sees A's buffer converge to the formatted text via Yjs within ~1 s; disk matches both clients. |
+| Step | Action                                                                                                                      | Expected                                                                                                               |
+| ---- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 5.1  | Solo mode. In `messy.js` type badly-formatted code, e.g. `const x   =   1;function f( ){return   x}` (no trailing newline). | Dirty tab.                                                                                                             |
+| 5.2  | `Ctrl+S` inside the editor.                                                                                                 | One format POST + one file POST. Persisted bytes are formatted (prettier/normalizer output), not the raw messy buffer. |
+| 5.3  | Observe editor after save completes (~1 render cycle).                                                                      | Editor shows the FORMATTED text (external-sync effect applies it once clean).                                          |
+| 5.4  | Reload, reopen `messy.js`.                                                                                                  | Formatted content persists; matches step 5.3.                                                                          |
+| 5.5  | Standalone Format Document (`Shift+Alt+F`) on an unformatted buffer WITHOUT saving.                                         | Editor visibly reformats immediately (model-first apply); peers see the reformat in real time when collab-bound.       |
+| 5.6  | Collab mode: repeat 5.1–5.4 with B observing A's window during 5.2–5.3.                                                     | B sees A's buffer converge to the formatted text via Yjs within ~1 s; disk matches both clients.                       |
 
 Pass criteria: saved bytes == formatted live content == post-reload content ==
 editor display in both modes.

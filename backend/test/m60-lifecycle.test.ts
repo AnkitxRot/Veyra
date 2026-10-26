@@ -37,9 +37,7 @@ describe("M60 lifecycle", () => {
       )
       .run(p, owner.id, "2026-08-31T10:00:00.000Z", "2026-08-31T10:00:00.000Z");
     api.db
-      .prepare(
-        `INSERT INTO collab_last_seen (project_id, user_id, last_seen_at) VALUES (?, ?, ?)`,
-      )
+      .prepare(`INSERT INTO collab_last_seen (project_id, user_id, last_seen_at) VALUES (?, ?, ?)`)
       .run(p, owner.id, "2026-08-31T09:00:00.000Z");
 
     const del = await api.request("DELETE", `/api/projects/${p}`, {
@@ -50,33 +48,25 @@ describe("M60 lifecycle", () => {
     expect(
       (
         api.db
-          .prepare(
-            "SELECT COUNT(*) c FROM collaboration_changes WHERE project_id = ?",
-          )
+          .prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE project_id = ?")
           .get(p) as { c: number }
       ).c,
     ).toBe(0);
     expect(
       (
-        api.db
-          .prepare(
-            "SELECT COUNT(*) c FROM collab_last_seen WHERE project_id = ?",
-          )
-          .get(p) as { c: number }
+        api.db.prepare("SELECT COUNT(*) c FROM collab_last_seen WHERE project_id = ?").get(p) as {
+          c: number;
+        }
       ).c,
     ).toBe(0);
   });
 
   it("disposeProject drains buffered bursts synchronously (no loss)", () => {
     const uid = (
-      api.db
-        .prepare("SELECT id FROM users WHERE username='m60life1'")
-        .get() as { id: number }
+      api.db.prepare("SELECT id FROM users WHERE username='m60life1'").get() as { id: number }
     ).id;
     // a live project for this owner
-    api.db
-      .prepare("INSERT INTO projects (id, owner_id, name) VALUES ('lp2', ?, 'LP2')")
-      .run(uid);
+    api.db.prepare("INSERT INTO projects (id, owner_id, name) VALUES ('lp2', ?, 'LP2')").run(uid);
     collaborationHistorian.recordEdit({
       projectId: "lp2",
       authorUserId: uid,
@@ -92,9 +82,7 @@ describe("M60 lifecycle", () => {
     expect(
       (
         api.db
-          .prepare(
-            "SELECT COUNT(*) c FROM collaboration_changes WHERE project_id='lp2'",
-          )
+          .prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE project_id='lp2'")
           .get() as { c: number }
       ).c,
     ).toBe(1);

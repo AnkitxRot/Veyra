@@ -1,9 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import {
-  emitNotice,
-  emitErrorNotice,
-  IDE_NOTICE_EVENT,
-} from "../src/utils/notices";
+import { emitNotice, emitErrorNotice, IDE_NOTICE_EVENT } from "../src/utils/notices";
 
 /**
  * M75 — the cross-component notice bridge. `emitNotice` dispatches an

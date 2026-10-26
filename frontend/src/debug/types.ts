@@ -1,12 +1,5 @@
 export type DebugSessionState =
-  | "idle"
-  | "starting"
-  | "running"
-  | "paused"
-  | "stopping"
-  | "terminated"
-  | "failed"
-  | "unavailable";
+  "idle" | "starting" | "running" | "paused" | "stopping" | "terminated" | "failed" | "unavailable";
 
 export interface DebugStatus {
   type: "status";

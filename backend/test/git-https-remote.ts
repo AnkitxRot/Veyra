@@ -217,10 +217,9 @@ export async function startTestGitHttpsRemote(opts: {
       const hdr = req.headers.authorization ?? "";
       const expected =
         "Basic " +
-        Buffer.from(
-          `${opts.requireAuth.username}:${opts.requireAuth.password}`,
-          "utf8",
-        ).toString("base64");
+        Buffer.from(`${opts.requireAuth.username}:${opts.requireAuth.password}`, "utf8").toString(
+          "base64",
+        );
       if (hdr !== expected) {
         res.writeHead(401, { "WWW-Authenticate": 'Basic realm="git"' });
         res.end("unauthorized");

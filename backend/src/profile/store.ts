@@ -75,12 +75,8 @@ export function getProfile(db: Db, userId: number): ProfileResponse {
  */
 export function getAvatarVersion(db: Db, userId: number): number {
   const row = db
-    .prepare(
-      "SELECT avatar_media_id, version FROM user_profiles WHERE user_id = ?",
-    )
-    .get(userId) as
-    | { avatar_media_id: string | null; version: number }
-    | undefined;
+    .prepare("SELECT avatar_media_id, version FROM user_profiles WHERE user_id = ?")
+    .get(userId) as { avatar_media_id: string | null; version: number } | undefined;
   if (!row || !row.avatar_media_id) return 0;
   return row.version;
 }
@@ -92,9 +88,8 @@ export function getAvatarVersion(db: Db, userId: number): number {
  * Resolve to an effective display string via `effectiveDisplayName`.
  */
 export function getDisplayName(db: Db, userId: number): string | null {
-  const row = db
-    .prepare("SELECT display_name FROM user_profiles WHERE user_id = ?")
-    .get(userId) as { display_name: string | null } | undefined;
+  const row = db.prepare("SELECT display_name FROM user_profiles WHERE user_id = ?").get(userId) as
+    { display_name: string | null } | undefined;
   return row?.display_name ?? null;
 }
 
@@ -105,9 +100,8 @@ export function getDisplayName(db: Db, userId: number): string | null {
  * safe presentation string via `sanitizeStoredPronouns`.
  */
 export function getPronouns(db: Db, userId: number): string | null {
-  const row = db
-    .prepare("SELECT pronouns FROM user_profiles WHERE user_id = ?")
-    .get(userId) as { pronouns: string | null } | undefined;
+  const row = db.prepare("SELECT pronouns FROM user_profiles WHERE user_id = ?").get(userId) as
+    { pronouns: string | null } | undefined;
   return row?.pronouns ?? null;
 }
 
@@ -122,28 +116,18 @@ export interface ProfileUpdateResult {
  * `patch` keep their current persisted value (partial patch). `version` is
  * incremented and `updated_at` refreshed by the DB on every call.
  */
-export function updateProfile(
-  db: Db,
-  userId: number,
-  patch: ProfilePatch,
-): ProfileUpdateResult {
+export function updateProfile(db: Db, userId: number, patch: ProfilePatch): ProfileUpdateResult {
   const changedFields = Object.keys(patch) as ProfileField[];
 
   const current = db
-    .prepare(
-      "SELECT display_name, pronouns, bio FROM user_profiles WHERE user_id = ?",
-    )
+    .prepare("SELECT display_name, pronouns, bio FROM user_profiles WHERE user_id = ?")
     .get(userId) as
-    | { display_name: string | null; pronouns: string | null; bio: string | null }
-    | undefined;
+    { display_name: string | null; pronouns: string | null; bio: string | null } | undefined;
 
   const displayName =
-    "displayName" in patch
-      ? patch.displayName ?? null
-      : current?.display_name ?? null;
-  const pronouns =
-    "pronouns" in patch ? patch.pronouns ?? null : current?.pronouns ?? null;
-  const bio = "bio" in patch ? patch.bio ?? null : current?.bio ?? null;
+    "displayName" in patch ? (patch.displayName ?? null) : (current?.display_name ?? null);
+  const pronouns = "pronouns" in patch ? (patch.pronouns ?? null) : (current?.pronouns ?? null);
+  const bio = "bio" in patch ? (patch.bio ?? null) : (current?.bio ?? null);
 
   db.prepare(
     `INSERT INTO user_profiles (user_id, display_name, pronouns, bio, version, updated_at)

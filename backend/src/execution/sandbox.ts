@@ -1,17 +1,9 @@
-import {
-  spawn,
-  execFile,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
+import { spawn, execFile, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { promisify } from "node:util";
 import { hostname } from "node:os";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
-import {
-  isDockerRunning,
-  isDockerRunningAsync,
-  isRunnerImageAvailableAsync,
-} from "../tools.js";
+import { isDockerRunning, isDockerRunningAsync, isRunnerImageAvailableAsync } from "../tools.js";
 import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
 import { RunGate } from "./runGate.js";
 import { terminalSessions } from "./terminalSessions.js";
@@ -90,12 +82,9 @@ function parseByteUnits(str: string): number {
   if (!match) return 0;
   const num = parseFloat(match[1]!);
   const unit = (match[2] || "B").toLowerCase();
-  if (unit.startsWith("k") || unit.startsWith("kib"))
-    return Math.round(num * 1024);
-  if (unit.startsWith("m") || unit.startsWith("mib"))
-    return Math.round(num * 1024 * 1024);
-  if (unit.startsWith("g") || unit.startsWith("gib"))
-    return Math.round(num * 1024 * 1024 * 1024);
+  if (unit.startsWith("k") || unit.startsWith("kib")) return Math.round(num * 1024);
+  if (unit.startsWith("m") || unit.startsWith("mib")) return Math.round(num * 1024 * 1024);
+  if (unit.startsWith("g") || unit.startsWith("gib")) return Math.round(num * 1024 * 1024 * 1024);
   return Math.round(num);
 }
 
@@ -128,10 +117,7 @@ export class SandboxManager {
   /** In-flight creation sequences keyed by projectId, so concurrent callers share one `docker run`. */
   private creating = new Map<string, Promise<string>>();
   private provisionedNetworks = new Set<string>();
-  private statsCache = new Map<
-    string,
-    { stats: ContainerStats; timestamp: number }
-  >();
+  private statsCache = new Map<string, { stats: ContainerStats; timestamp: number }>();
   private inFlightStats = new Map<string, Promise<ContainerStats>>();
   /**
    * Serializes sandbox *lifecycle* operations (the create-or-reuse decision
@@ -182,8 +168,7 @@ export class SandboxManager {
    * commit; this commit only wires the seam. Null in tests / before wiring.
    */
   private roomOccupancyProvider:
-    | ((projectId: string) => { liveClients: number; distinctUsers: number })
-    | null = null;
+    ((projectId: string) => { liveClients: number; distinctUsers: number }) | null = null;
   private auditDb: Db | null = null;
 
   static getInstance(): SandboxManager {
@@ -275,10 +260,7 @@ export class SandboxManager {
   /** Runs `fn` exclusively for `projectId`: queued behind any other
    *  lifecycle operation already running for the same project, but never
    *  blocked by activity on a different project. */
-  private async withProjectLock<T>(
-    projectId: string,
-    fn: () => Promise<T>,
-  ): Promise<T> {
+  private async withProjectLock<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
     const prior = this.lifecycleTail.get(projectId) ?? Promise.resolve();
     let releaseNext!: () => void;
     const next = new Promise<void>((resolve) => {
@@ -390,10 +372,7 @@ export class SandboxManager {
     const needsGlobalSlot = !hasStaleEntry;
     if (needsGlobalSlot) {
       if (this.currentGlobalLoad() >= config.maxSandboxes) {
-        await this.reapIdleSandboxes(
-          config.sandboxIdleTimeoutMs,
-          config.sandboxRoomEmptyGraceMs,
-        );
+        await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs, config.sandboxRoomEmptyGraceMs);
       }
       // Atomic check-and-reserve: reading currentGlobalLoad() and adding to
       // reservedProjectIds happen with no `await` between them (see the
@@ -412,19 +391,13 @@ export class SandboxManager {
     // permanently consume quota of either kind.
     try {
       if (!sandboxGate.acquire(userId, config.maxSandboxesPerUser)) {
-        throw new Error(
-          `per-user sandbox limit reached (max ${config.maxSandboxesPerUser})`,
-        );
+        throw new Error(`per-user sandbox limit reached (max ${config.maxSandboxesPerUser})`);
       }
 
       let containerId: string;
       let portMapping: Record<number, number>;
       try {
-        const provisioned = await this.provisionContainer(
-          projectId,
-          config,
-          workspaceDir,
-        );
+        const provisioned = await this.provisionContainer(projectId, config, workspaceDir);
         containerId = provisioned.containerId;
         portMapping = provisioned.portMapping;
       } catch (err) {
@@ -469,8 +442,7 @@ export class SandboxManager {
       this.ensureProjectNetwork(projectId),
     ]);
     if (!dockerRunning) throw new Error("Docker daemon is not running");
-    if (!runnerAvailable)
-      throw new Error("cloudeeeide-runner:latest is not available");
+    if (!runnerAvailable) throw new Error("cloudeeeide-runner:latest is not available");
 
     const containerId = `ide-sandbox-${projectId}`;
 
@@ -546,11 +518,7 @@ export class SandboxManager {
   private async ensureProjectNetwork(projectId: string): Promise<void> {
     if (!this.provisionedNetworks.has(projectId)) {
       try {
-        await execFileAsync("docker", [
-          "network",
-          "create",
-          `ide-net-${projectId}`,
-        ]);
+        await execFileAsync("docker", ["network", "create", `ide-net-${projectId}`]);
       } catch {}
       this.provisionedNetworks.add(projectId);
     }
@@ -695,12 +663,7 @@ export class SandboxManager {
     const appId = this.resolveAppContainerId();
     if (!appId || this.connectedNetworks.has(projectId)) return;
     try {
-      await execFileAsync("docker", [
-        "network",
-        "connect",
-        `ide-net-${projectId}`,
-        appId,
-      ]);
+      await execFileAsync("docker", ["network", "connect", `ide-net-${projectId}`, appId]);
       this.connectedNetworks.add(projectId);
     } catch {
       this.connectedNetworks.add(projectId);
@@ -759,9 +722,7 @@ export class SandboxManager {
     return list;
   }
 
-  async terminateSandbox(
-    containerId: string,
-  ): Promise<{ success: boolean; projectId?: string }> {
+  async terminateSandbox(containerId: string): Promise<{ success: boolean; projectId?: string }> {
     if (!/^ide-sandbox-[a-zA-Z0-9_-]+$/.test(containerId)) {
       throw new Error("invalid container id: not a managed sandbox");
     }
@@ -859,12 +820,11 @@ export class SandboxManager {
   startReaper(config: AppConfig): void {
     this.stopReaper();
     this.reaperTimer = setInterval(() => {
-      this.reapIdleSandboxes(
-        config.sandboxIdleTimeoutMs,
-        config.sandboxRoomEmptyGraceMs,
-      ).catch((err) => {
-        console.error("[sandbox] reaper error:", err);
-      });
+      this.reapIdleSandboxes(config.sandboxIdleTimeoutMs, config.sandboxRoomEmptyGraceMs).catch(
+        (err) => {
+          console.error("[sandbox] reaper error:", err);
+        },
+      );
     }, config.sandboxReaperIntervalMs);
     this.reaperTimer.unref();
   }
@@ -931,8 +891,7 @@ export class SandboxManager {
         }
         const parsed = JSON.parse(stdout.trim().split("\n")[0]!);
         const cpu = parseFloat((parsed.CPUPerc || "0%").replace("%", "")) || 0;
-        const memPerc =
-          parseFloat((parsed.MemPerc || "0%").replace("%", "")) || 0;
+        const memPerc = parseFloat((parsed.MemPerc || "0%").replace("%", "")) || 0;
 
         const memUsageStr = parsed.MemUsage || "";
         let memUsageBytes = 0;
@@ -983,9 +942,7 @@ export class SandboxManager {
     return fetchPromise;
   }
 
-  private async readPortMapping(
-    containerId: string,
-  ): Promise<Record<number, number>> {
+  private async readPortMapping(containerId: string): Promise<Record<number, number>> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const mapping: Record<number, number> = {};
       try {
@@ -1029,16 +986,13 @@ export class SandboxManager {
     listing = psOut;
 
     const projectExists = (projectId: string): boolean => {
-      const row = db
-        .prepare("SELECT id FROM projects WHERE id = ?")
-        .get(projectId);
+      const row = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId);
       return row !== undefined;
     };
 
     const ownerOf = (projectId: string): number | undefined => {
-      const row = db
-        .prepare("SELECT owner_id FROM projects WHERE id = ?")
-        .get(projectId) as { owner_id?: number } | undefined;
+      const row = db.prepare("SELECT owner_id FROM projects WHERE id = ?").get(projectId) as
+        { owner_id?: number } | undefined;
       return row?.owner_id;
     };
 
@@ -1088,10 +1042,7 @@ export class SandboxManager {
       for (const netName of netOut.split("\n")) {
         if (!netName.startsWith("ide-net-")) continue;
         const projectId = netName.slice("ide-net-".length);
-        if (
-          !projectExists(projectId) &&
-          !this.projectContainers.has(projectId)
-        ) {
+        if (!projectExists(projectId) && !this.projectContainers.has(projectId)) {
           try {
             await execFileAsync("docker", ["network", "rm", netName]);
           } catch {}
@@ -1118,9 +1069,7 @@ export const sandboxManager = SandboxManager.getInstance();
  * process is already gone is expected here, not fatal: the run has ended and
  * the execution socket's `finish()` will drop the controller a moment later.
  */
-export function makeStdinWriter(
-  child: ChildProcessWithoutNullStreams,
-): (data: string) => void {
+export function makeStdinWriter(child: ChildProcessWithoutNullStreams): (data: string) => void {
   child.stdin.on("error", () => {});
   return (data: string) => {
     if (child.stdin.writable) child.stdin.write(data);
@@ -1176,8 +1125,7 @@ export async function sandboxRun(
   if (opts.isCancelled?.()) {
     return {
       stdout: "",
-      stderr:
-        "[sandbox] execution cancelled: client disconnected before the process started",
+      stderr: "[sandbox] execution cancelled: client disconnected before the process started",
       exitCode: null,
       signal: null,
       timedOut: false,
@@ -1221,12 +1169,7 @@ export async function sandboxRun(
     // "$@" is <command> <args...>. The command and its args stay as
     // separate, non-secret argv entries; only the file path (a UUID) is
     // interpolated.
-    execArgs.push(
-      containerId,
-      ...secretsExecPrefix(secretsFile.path),
-      opts.command,
-      ...opts.args,
-    );
+    execArgs.push(containerId, ...secretsExecPrefix(secretsFile.path), opts.command, ...opts.args);
   } else {
     execArgs.push(containerId, opts.command, ...opts.args);
   }
@@ -1291,9 +1234,7 @@ export async function sandboxRun(
     killProcess();
   }, opts.timeoutMs);
 
-  const [code, signal] = await new Promise<
-    [number | null, NodeJS.Signals | null]
-  >((resolve) => {
+  const [code, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) => {
     child.on("close", (c, s) => resolve([c, s]));
     child.on("error", () => resolve([null, null]));
   });
@@ -1307,8 +1248,7 @@ export async function sandboxRun(
   sandboxManager.touch(projectId);
 
   if (spawnError) {
-    stderr =
-      `${stderr}\n[sandbox] failed to exec process: ${spawnError}`.trim();
+    stderr = `${stderr}\n[sandbox] failed to exec process: ${spawnError}`.trim();
   }
 
   return {

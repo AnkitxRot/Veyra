@@ -88,17 +88,13 @@ export async function buildAIContext(
          LIMIT 1`,
       )
       .get(projectId) as
-      | { exit_code: number | null; status: string; duration_ms: number }
-      | undefined;
+      { exit_code: number | null; status: string; duration_ms: number } | undefined;
 
     if (lastRun) {
       recentExecution = {
         exitCode: lastRun.exit_code,
         stdout: "",
-        stderr:
-          lastRun.status === "failed"
-            ? `Execution status: ${lastRun.status}`
-            : "",
+        stderr: lastRun.status === "failed" ? `Execution status: ${lastRun.status}` : "",
       };
     }
   } catch {}
@@ -144,8 +140,7 @@ export async function buildAIContext(
         lines.slice(start, end).join("\n").slice(0, maxChars);
     } else {
       fileContent =
-        fileContent.slice(0, maxChars) +
-        "\n// [Truncated: reached context character limit]";
+        fileContent.slice(0, maxChars) + "\n// [Truncated: reached context character limit]";
     }
   }
 

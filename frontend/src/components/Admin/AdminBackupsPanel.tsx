@@ -70,11 +70,7 @@ function formatTimestamp(iso: string): string {
 // for every listed (not just-created) database backup — see
 // backup/service.ts's own doc comment on listDatabaseBackups(). It must
 // never be displayed as though it were "ok".
-function IntegrityBadge({
-  integrity,
-}: {
-  integrity: DbBackupMetadata["integrity"];
-}) {
+function IntegrityBadge({ integrity }: { integrity: DbBackupMetadata["integrity"] }) {
   if (integrity === "ok") {
     return (
       <span className="glass-badge glass-badge-success">
@@ -107,9 +103,7 @@ async function downloadBackup(
     const res = await fetch(url, { credentials: "include" });
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      throw new Error(
-        errJson.error?.message || `Download failed with status ${res.status}`,
-      );
+      throw new Error(errJson.error?.message || `Download failed with status ${res.status}`);
     }
     const blob = await res.blob();
     const objectUrl = window.URL.createObjectURL(blob);
@@ -125,11 +119,7 @@ async function downloadBackup(
   }
 }
 
-export default function AdminBackupsPanel({
-  projects,
-}: {
-  projects: AdminProjectData[];
-}) {
+export default function AdminBackupsPanel({ projects }: { projects: AdminProjectData[] }) {
   // ---- Database backups ----
   const [dbBackups, setDbBackups] = useState<DbBackupMetadata[]>([]);
   const [dbLoading, setDbLoading] = useState(false);
@@ -141,9 +131,7 @@ export default function AdminBackupsPanel({
     setDbLoading(true);
     setDbError(null);
     try {
-      const res = await api<{ backups: DbBackupMetadata[] }>(
-        "/api/admin/backups",
-      );
+      const res = await api<{ backups: DbBackupMetadata[] }>("/api/admin/backups");
       setDbBackups(res.backups || []);
     } catch (err: any) {
       setDbError(err.message || "Failed to load database backups");
@@ -236,8 +224,7 @@ export default function AdminBackupsPanel({
   };
 
   // ---- Shared destructive-delete confirmation (DB + workspace) ----
-  const [pendingDeletion, setPendingDeletion] =
-    useState<PendingDeletion | null>(null);
+  const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -272,9 +259,7 @@ export default function AdminBackupsPanel({
   };
 
   // ---- Destructive restore confirmation (workspace only) ----
-  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(
-    null,
-  );
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   // M56: set when the restore was blocked because a live collaboration room
@@ -288,17 +273,12 @@ export default function AdminBackupsPanel({
     if (!force) setRestoreFlushBlocked(false);
     try {
       const { backup } = pendingRestore;
-      await api(
-        `/api/admin/workspace-backups/${backup.projectId}/${backup.filename}/restore`,
-        {
-          method: "POST",
-          body: JSON.stringify(force ? { force: true } : {}),
-        },
-      );
+      await api(`/api/admin/workspace-backups/${backup.projectId}/${backup.filename}/restore`, {
+        method: "POST",
+        body: JSON.stringify(force ? { force: true } : {}),
+      });
       setRestoreFlushBlocked(false);
-      setWsMessage(
-        `Restored ${backup.filename} to ${pendingRestore.projectName}.`,
-      );
+      setWsMessage(`Restored ${backup.filename} to ${pendingRestore.projectName}.`);
       setTimeout(() => setWsMessage(null), 5000);
       setPendingRestore(null);
       // The restore just overwrote this project's live workspace — the
@@ -371,10 +351,7 @@ export default function AdminBackupsPanel({
         </div>
 
         {dbError && (
-          <div
-            className="glass-banner glass-banner-error"
-            style={{ margin: "10px 14px 0" }}
-          >
+          <div className="glass-banner glass-banner-error" style={{ margin: "10px 14px 0" }}>
             <span>{dbError}</span>
           </div>
         )}
@@ -424,12 +401,8 @@ export default function AdminBackupsPanel({
                     >
                       {b.filename}
                     </td>
-                    <td style={{ color: "var(--fg-secondary)" }}>
-                      {formatBytes(b.sizeBytes)}
-                    </td>
-                    <td style={{ color: "var(--fg-muted)" }}>
-                      {formatTimestamp(b.createdAt)}
-                    </td>
+                    <td style={{ color: "var(--fg-secondary)" }}>{formatBytes(b.sizeBytes)}</td>
+                    <td style={{ color: "var(--fg-muted)" }}>{formatTimestamp(b.createdAt)}</td>
                     <td>
                       <IntegrityBadge integrity={b.integrity} />
                     </td>
@@ -439,11 +412,7 @@ export default function AdminBackupsPanel({
                         title="Download"
                         aria-label={`Download ${b.filename}`}
                         onClick={() =>
-                          downloadBackup(
-                            `/api/admin/backups/${b.filename}`,
-                            b.filename,
-                            setDbError,
-                          )
+                          downloadBackup(`/api/admin/backups/${b.filename}`, b.filename, setDbError)
                         }
                       >
                         <IconDownload size={12} />
@@ -453,9 +422,7 @@ export default function AdminBackupsPanel({
                         title="Delete"
                         aria-label={`Delete ${b.filename}`}
                         style={{ marginLeft: "6px", color: "#f38ba8" }}
-                        onClick={() =>
-                          setPendingDeletion({ kind: "db", backup: b })
-                        }
+                        onClick={() => setPendingDeletion({ kind: "db", backup: b })}
                       >
                         <IconTrash size={12} />
                       </button>
@@ -482,9 +449,7 @@ export default function AdminBackupsPanel({
             }}
           >
             <IconServer size={16} color="#a6e3a1" />
-            <span>
-              Workspace Backups {selectedProjectId && `(${wsBackups.length})`}
-            </span>
+            <span>Workspace Backups {selectedProjectId && `(${wsBackups.length})`}</span>
           </h2>
 
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -523,10 +488,7 @@ export default function AdminBackupsPanel({
         </div>
 
         {wsError && (
-          <div
-            className="glass-banner glass-banner-error"
-            style={{ margin: "10px 14px 0" }}
-          >
+          <div className="glass-banner glass-banner-error" style={{ margin: "10px 14px 0" }}>
             <span>{wsError}</span>
           </div>
         )}
@@ -586,12 +548,8 @@ export default function AdminBackupsPanel({
                     >
                       {b.filename}
                     </td>
-                    <td style={{ color: "var(--fg-secondary)" }}>
-                      {formatBytes(b.sizeBytes)}
-                    </td>
-                    <td style={{ color: "var(--fg-muted)" }}>
-                      {formatTimestamp(b.createdAt)}
-                    </td>
+                    <td style={{ color: "var(--fg-secondary)" }}>{formatBytes(b.sizeBytes)}</td>
+                    <td style={{ color: "var(--fg-muted)" }}>{formatTimestamp(b.createdAt)}</td>
                     <td style={{ textAlign: "right" }}>
                       <button
                         className="glass-btn glass-btn-icon"
@@ -714,22 +672,13 @@ export default function AdminBackupsPanel({
                 marginBottom: "20px",
               }}
             >
-              Permanently delete{" "}
-              {pendingDeletion.kind === "workspace"
-                ? "workspace "
-                : "database "}
-              backup{" "}
-              <strong style={{ color: "#f38ba8" }}>
-                {pendingDeletion.backup.filename}
-              </strong>
+              Permanently delete {pendingDeletion.kind === "workspace" ? "workspace " : "database "}
+              backup <strong style={{ color: "#f38ba8" }}>{pendingDeletion.backup.filename}</strong>
               {pendingDeletion.kind === "workspace" && (
                 <>
                   {" "}
                   (project{" "}
-                  <strong style={{ color: "#f38ba8" }}>
-                    {pendingDeletion.projectName}
-                  </strong>
-                  )
+                  <strong style={{ color: "#f38ba8" }}>{pendingDeletion.projectName}</strong>)
                 </>
               )}
               ?
@@ -836,15 +785,10 @@ export default function AdminBackupsPanel({
                 marginBottom: "20px",
               }}
             >
-              Restore{" "}
-              <strong style={{ color: "#f9e2af" }}>
-                {pendingRestore.backup.filename}
-              </strong>{" "}
+              Restore <strong style={{ color: "#f9e2af" }}>{pendingRestore.backup.filename}</strong>{" "}
               (created {formatTimestamp(pendingRestore.backup.createdAt)}) to{" "}
-              <strong style={{ color: "#f9e2af" }}>
-                {pendingRestore.projectName}
-              </strong>
-              ? This will replace the project's current workspace contents.
+              <strong style={{ color: "#f9e2af" }}>{pendingRestore.projectName}</strong>? This will
+              replace the project's current workspace contents.
             </p>
 
             <div
@@ -877,9 +821,7 @@ export default function AdminBackupsPanel({
                     fontWeight: 600,
                   }}
                 >
-                  {restoreLoading
-                    ? "Restoring…"
-                    : "Force restore (discard unsaved edits)"}
+                  {restoreLoading ? "Restoring…" : "Force restore (discard unsaved edits)"}
                 </button>
               ) : (
                 <button

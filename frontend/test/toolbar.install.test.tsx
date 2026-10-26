@@ -5,9 +5,7 @@ import type { Project } from "../src/types";
 
 import Toolbar from "../src/components/Toolbar/Toolbar";
 
-function baseProps(
-  overrides: Partial<React.ComponentProps<typeof Toolbar>> = {},
-) {
+function baseProps(overrides: Partial<React.ComponentProps<typeof Toolbar>> = {}) {
   const project: Project = { id: "proj-1", name: "My Project" };
   return {
     project,
@@ -35,9 +33,7 @@ describe("Toolbar — Milestone 43 Install action", () => {
   });
 
   it("renders an Install button", () => {
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
     expect(getByText("Install")).toBeTruthy();
   });
 
@@ -45,9 +41,7 @@ describe("Toolbar — Milestone 43 Install action", () => {
     const listener = vi.fn();
     document.addEventListener("ide-install", listener);
 
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
     fireEvent.click(getByText("Install"));
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -55,15 +49,11 @@ describe("Toolbar — Milestone 43 Install action", () => {
   });
 
   it("7. Run is disabled while an install is in progress", () => {
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
 
     fireEvent(document, new Event("install-started"));
 
-    const runButton = getByText("Run Python").closest(
-      "button",
-    ) as HTMLButtonElement;
+    const runButton = getByText("Run Python").closest("button") as HTMLButtonElement;
     expect(runButton.disabled).toBe(true);
   });
 
@@ -81,15 +71,11 @@ describe("Toolbar — Milestone 43 Install action", () => {
   });
 
   it("8. Install is disabled while a run is in progress", () => {
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
 
     fireEvent(document, new Event("run-started"));
 
-    const installButton = getByText("Install").closest(
-      "button",
-    ) as HTMLButtonElement;
+    const installButton = getByText("Install").closest("button") as HTMLButtonElement;
     expect(installButton.disabled).toBe(true);
   });
 
@@ -97,9 +83,7 @@ describe("Toolbar — Milestone 43 Install action", () => {
     const listener = vi.fn();
     document.addEventListener("ide-install", listener);
 
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
     fireEvent(document, new Event("run-started"));
     fireEvent.click(getByText("Install"));
 
@@ -111,9 +95,7 @@ describe("Toolbar — Milestone 43 Install action", () => {
     const listener = vi.fn();
     document.addEventListener("ide-install", listener);
 
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
     const installButton = getByText("Install");
     // Fired before React has a chance to re-render with isInstalling=true —
     // the synchronous installInFlightRef guard in handleInstall must still
@@ -126,19 +108,13 @@ describe("Toolbar — Milestone 43 Install action", () => {
   });
 
   it("install-stopped clears the busy state and re-enables both actions", () => {
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
 
     fireEvent(document, new Event("install-started"));
     fireEvent(document, new Event("install-stopped"));
 
-    const runButton = getByText("Run Python").closest(
-      "button",
-    ) as HTMLButtonElement;
-    const installButton = getByText("Install").closest(
-      "button",
-    ) as HTMLButtonElement;
+    const runButton = getByText("Run Python").closest("button") as HTMLButtonElement;
+    const installButton = getByText("Install").closest("button") as HTMLButtonElement;
     expect(runButton.disabled).toBe(false);
     expect(installButton.disabled).toBe(false);
   });
@@ -147,9 +123,7 @@ describe("Toolbar — Milestone 43 Install action", () => {
     const listener = vi.fn();
     document.addEventListener("ide-run", listener);
 
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
     fireEvent.click(getByText("Run Python"));
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -162,9 +136,7 @@ describe("Toolbar — Milestone 43 Install action", () => {
     const listener = vi.fn();
     document.addEventListener("ide-stop", listener);
 
-    const { getByText } = render(
-      React.createElement(Toolbar, baseProps() as any),
-    );
+    const { getByText } = render(React.createElement(Toolbar, baseProps() as any));
     fireEvent(document, new Event("run-started"));
     fireEvent.click(getByText("Stop"));
 

@@ -48,20 +48,12 @@ function normalizeMultiLine(v: string): string {
 function validateDisplayName(v: unknown): string | null {
   if (v === null) return null; // null clears
   if (typeof v !== "string") {
-    throw new ApiError(
-      400,
-      "displayName must be a string or null",
-      "invalid_display_name",
-    );
+    throw new ApiError(400, "displayName must be a string or null", "invalid_display_name");
   }
   const n = normalizeSingleLineIdentity(v);
   if (n.length === 0) {
     // a non-null value that normalizes to empty is invalid (unlike null)
-    throw new ApiError(
-      400,
-      "displayName must not be empty",
-      "invalid_display_name",
-    );
+    throw new ApiError(400, "displayName must not be empty", "invalid_display_name");
   }
   if (n.length > DISPLAY_NAME_MAX) {
     throw new ApiError(
@@ -76,11 +68,7 @@ function validateDisplayName(v: unknown): string | null {
 function validatePronouns(v: unknown): string | null {
   if (v === null) return null; // null clears
   if (typeof v !== "string") {
-    throw new ApiError(
-      400,
-      "pronouns must be a string or null",
-      "invalid_pronouns",
-    );
+    throw new ApiError(400, "pronouns must be a string or null", "invalid_pronouns");
   }
   const n = normalizeSingleLineIdentity(v);
   // empty normalizes to the single cleared representation (NULL) — no second
@@ -104,11 +92,7 @@ function validateBio(v: unknown): string | null {
   const n = normalizeMultiLine(v);
   if (n.length === 0) return null; // blank clears, same as null
   if (n.length > BIO_MAX) {
-    throw new ApiError(
-      400,
-      `bio must be at most ${BIO_MAX} characters`,
-      "invalid_bio",
-    );
+    throw new ApiError(400, `bio must be at most ${BIO_MAX} characters`, "invalid_bio");
   }
   return n;
 }
@@ -121,21 +105,13 @@ function validateBio(v: unknown): string | null {
  */
 export function validateProfilePatch(body: unknown): ProfilePatch {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw new ApiError(
-      400,
-      "profile body must be an object",
-      "invalid_profile_body",
-    );
+    throw new ApiError(400, "profile body must be an object", "invalid_profile_body");
   }
   const rec = body as Record<string, unknown>;
 
   for (const key of Object.keys(rec)) {
     if (!ALLOWED_KEYS.has(key)) {
-      throw new ApiError(
-        400,
-        `unknown profile key: "${key}"`,
-        "invalid_profile_key",
-      );
+      throw new ApiError(400, `unknown profile key: "${key}"`, "invalid_profile_key");
     }
   }
 

@@ -21,16 +21,10 @@ function mark(status: WorkflowTestResult["status"]): string {
 
 function locOf(t: WorkflowTestResult): string | null {
   if (!t.file) return null;
-  return typeof t.line === "number" && t.line > 0
-    ? `${t.file}:${t.line}`
-    : t.file;
+  return typeof t.line === "number" && t.line > 0 ? `${t.file}:${t.line}` : t.file;
 }
 
-export default function TestExplorer({
-  projectRole = "viewer",
-}: {
-  projectRole?: ProjectRole;
-}) {
+export default function TestExplorer({ projectRole = "viewer" }: { projectRole?: ProjectRole }) {
   const exec = useExecutionSession();
   const dbg = useOptionalDebugSession();
   const [query, setQuery] = useState("");
@@ -38,10 +32,10 @@ export default function TestExplorer({
 
   const debugging = Boolean(
     dbg &&
-      (dbg.state === "starting" ||
-        dbg.state === "running" ||
-        dbg.state === "paused" ||
-        dbg.state === "stopping"),
+    (dbg.state === "starting" ||
+      dbg.state === "running" ||
+      dbg.state === "paused" ||
+      dbg.state === "stopping"),
   );
   const canRun = projectRole !== "viewer" && !exec.isRunning && !exec.isInstalling && !debugging;
   const testTasks = exec.workflowTasks.filter((t) => t.kind === "test");
@@ -55,9 +49,7 @@ export default function TestExplorer({
     });
   }, [exec.testResults, q]);
   const selectedResult = results.find((t) => t.name === selected) ?? null;
-  const failed = exec.testResults.filter(
-    (t) => t.status === "failed" || t.status === "error",
-  );
+  const failed = exec.testResults.filter((t) => t.status === "failed" || t.status === "error");
   const defaultTest = testTasks[0];
 
   const runTask = (taskId: string, targetPath?: string) => {
@@ -165,9 +157,7 @@ export default function TestExplorer({
       </div>
 
       {debugging && (
-        <p className="workflow-muted">
-          Stop the debugger before running tests or builds.
-        </p>
+        <p className="workflow-muted">Stop the debugger before running tests or builds.</p>
       )}
       {projectRole === "viewer" && (
         <p className="workflow-muted">Viewers can inspect results but cannot run tasks.</p>
@@ -177,8 +167,8 @@ export default function TestExplorer({
         <h3>Tests</h3>
         {testTasks.length === 0 && (
           <p className="workflow-muted" data-testid="workflow-empty">
-            No test tasks discovered. Add a package.json script named{" "}
-            <code>test</code> or <code>test:*</code>, or a pytest project.
+            No test tasks discovered. Add a package.json script named <code>test</code> or{" "}
+            <code>test:*</code>, or a pytest project.
           </p>
         )}
         {testTasks.length > 0 && (
@@ -245,8 +235,8 @@ export default function TestExplorer({
         <h3>Tasks &amp; builds</h3>
         {buildTasks.length === 0 && (
           <p className="workflow-muted" data-testid="workflow-build-empty">
-            No build tasks. Add a package.json script named <code>build</code>{" "}
-            or <code>build:*</code>.
+            No build tasks. Add a package.json script named <code>build</code> or{" "}
+            <code>build:*</code>.
           </p>
         )}
         {buildTasks.length > 0 && (

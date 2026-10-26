@@ -43,9 +43,7 @@ export function normalizeSingleLineIdentity(v: string): string {
  * hard-caps length at 48 so a resolver caller can never emit an unbounded
  * string even if a longer value somehow reached the column.
  */
-export function sanitizeStoredDisplayName(
-  raw: string | null | undefined,
-): string | null {
+export function sanitizeStoredDisplayName(raw: string | null | undefined): string | null {
   if (typeof raw !== "string") return null;
   const n = normalizeSingleLineIdentity(raw);
   if (n.length === 0) return null;
@@ -74,9 +72,7 @@ export function effectiveDisplayName(
  * genuinely optional, so there is no username-style fallback. Presentation
  * only: never a key, never a lookup.
  */
-export function sanitizeStoredPronouns(
-  raw: string | null | undefined,
-): string | null {
+export function sanitizeStoredPronouns(raw: string | null | undefined): string | null {
   if (typeof raw !== "string") return null;
   const n = normalizeSingleLineIdentity(raw);
   if (n.length === 0) return null;

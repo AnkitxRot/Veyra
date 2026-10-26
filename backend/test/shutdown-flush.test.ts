@@ -66,9 +66,7 @@ interface Booted {
   base: string;
 }
 
-async function bootServer(
-  overrides: Partial<{ shutdownGraceMs: number }> = {},
-): Promise<Booted> {
+async function bootServer(overrides: Partial<{ shutdownGraceMs: number }> = {}): Promise<Booted> {
   const cfg = makeTestConfig({
     // Keep the force-exit window comfortably above the flush budget used in
     // the hanging-flush test while staying fast for CI.
@@ -111,11 +109,7 @@ function makeRequest(base: string): TestRequest {
 }
 
 /** Opens an authenticated /ws/collab socket and waits for the server's SyncStep1. */
-async function connectCollab(
-  base: string,
-  projectId: string,
-  token: string,
-): Promise<WebSocket> {
+async function connectCollab(base: string, projectId: string, token: string): Promise<WebSocket> {
   const wsUrl = `${base.replace(/^http/, "ws")}/ws/collab?projectId=${encodeURIComponent(projectId)}`;
   const ws = new WebSocket(wsUrl, {
     headers: { Cookie: `session_token=${token}` },
@@ -126,10 +120,7 @@ async function connectCollab(
   // BEFORE awaiting anything, or that first frame is lost forever.
   const step1 = new Promise<void>((resolve) => ws.once("message", () => resolve()));
   const opened = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("collab WS open timeout")),
-      4000,
-    );
+    const timer = setTimeout(() => reject(new Error("collab WS open timeout")), 4000);
     ws.once("open", () => {
       clearTimeout(timer);
       resolve();
@@ -241,10 +232,9 @@ describe("M2 graceful shutdown persists collaboration rooms (BUG-2)", () => {
       // failure and still flush room 2 (allSettled semantics).
       const poisonedRoom = collaborationManager.getRoom(p1.projectId);
       expect(poisonedRoom).toBeDefined();
-      (poisonedRoom as unknown as CollaborationRoomShape).flushToDisk =
-        async () => {
-          throw new Error("poisoned flush");
-        };
+      (poisonedRoom as unknown as CollaborationRoomShape).flushToDisk = async () => {
+        throw new Error("poisoned flush");
+      };
       ws1.close();
       ws2.close();
 
@@ -401,10 +391,9 @@ describe("M2 flushAllRooms() hardening (unit)", () => {
         /* never settles */
       });
     let healthyTouched = false;
-    (healthyRoom as unknown as CollaborationRoomShape).flushToDisk =
-      async () => {
-        healthyTouched = true;
-      };
+    (healthyRoom as unknown as CollaborationRoomShape).flushToDisk = async () => {
+      healthyTouched = true;
+    };
 
     const startedAt = Date.now();
     // Tiny per-room bound keeps the test fast while proving the mechanism.
@@ -419,8 +408,7 @@ describe("M2 flushAllRooms() hardening (unit)", () => {
     // therefore start and complete immediately rather than inheriting a
     // permanently-pending promise.
     let secondPassRan = false;
-    (hungRoom as unknown as CollaborationRoomShape).flushToDisk =
-      async () => {};
+    (hungRoom as unknown as CollaborationRoomShape).flushToDisk = async () => {};
     await collaborationManager.flushAllRooms({ perRoomTimeoutMs: 1000 });
     secondPassRan = true;
     expect(secondPassRan).toBe(true);

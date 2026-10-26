@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  loadBreakpoints,
-  saveBreakpoints,
-  toggleLine,
-} from "../src/debug/breakpoints";
+import { loadBreakpoints, saveBreakpoints, toggleLine } from "../src/debug/breakpoints";
 
 beforeEach(() => {
   try {

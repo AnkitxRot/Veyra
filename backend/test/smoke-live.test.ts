@@ -28,9 +28,7 @@ describe("Milestone 23 — Smoke Harness Live Server Execution", () => {
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
 
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
   });
@@ -46,10 +44,7 @@ describe("Milestone 23 — Smoke Harness Live Server Execution", () => {
   it("executes the full smoke test suite against a running server instance", async () => {
     const isDocker = await isDockerRunningAsync();
     try {
-      const { stdout } = await execFileAsync(process.execPath, [
-        smokeScriptPath,
-        `--url=${base}`,
-      ]);
+      const { stdout } = await execFileAsync(process.execPath, [smokeScriptPath, `--url=${base}`]);
 
       expect(stdout).toContain("Veyra Automated Production Deployment Smoke Test");
       expect(stdout).toContain("[PASS] 1. Liveness Check");

@@ -56,11 +56,7 @@ export function validateHttpsGitRemoteUrl(raw: unknown): string {
 
   // SCP-like `git@host:path` (no scheme). Do not coerce to https.
   if (!trimmed.includes("://") && /^[^/\s]+@[^/\s]+:/.test(trimmed)) {
-    throw new ApiError(
-      400,
-      "only HTTPS Git remotes are supported",
-      "unsupported_protocol",
-    );
+    throw new ApiError(400, "only HTTPS Git remotes are supported", "unsupported_protocol");
   }
 
   if (!trimmed.includes("://")) {
@@ -75,19 +71,11 @@ export function validateHttpsGitRemoteUrl(raw: unknown): string {
   }
 
   if (url.protocol !== "https:") {
-    throw new ApiError(
-      400,
-      "only HTTPS Git remotes are supported",
-      "unsupported_protocol",
-    );
+    throw new ApiError(400, "only HTTPS Git remotes are supported", "unsupported_protocol");
   }
 
   if (url.username !== "" || url.password !== "") {
-    throw new ApiError(
-      400,
-      "remote URLs must not contain credentials",
-      "credential_bearing_url",
-    );
+    throw new ApiError(400, "remote URLs must not contain credentials", "credential_bearing_url");
   }
 
   if (!url.hostname) {
@@ -152,8 +140,7 @@ export function httpsRemotesEquivalent(a: string, b: string): boolean {
   try {
     const ua = new URL(validateHttpsGitRemoteUrl(a));
     const ub = new URL(validateHttpsGitRemoteUrl(b));
-    const norm = (p: string) =>
-      p.replace(/\/+$/, "").replace(/\.git$/i, "") || "/";
+    const norm = (p: string) => p.replace(/\/+$/, "").replace(/\.git$/i, "") || "/";
     return (
       ua.hostname.toLowerCase() === ub.hostname.toLowerCase() &&
       ua.port === ub.port &&

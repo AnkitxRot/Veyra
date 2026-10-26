@@ -33,9 +33,7 @@ function customFrame(obj: unknown): Uint8Array {
   return encoding.toUint8Array(enc);
 }
 function feed(client: CollaborationClient, obj: unknown): void {
-  (
-    client as unknown as { handleMessage: (m: Uint8Array) => void }
-  ).handleMessage(customFrame(obj));
+  (client as unknown as { handleMessage: (m: Uint8Array) => void }).handleMessage(customFrame(obj));
 }
 
 describe("CollaborationClient — M61 comment/profile pings", () => {

@@ -22,9 +22,7 @@ function makeDiagnostic(overrides: Partial<Diagnostic> = {}): Diagnostic {
   };
 }
 
-function baseProps(
-  overrides: Partial<React.ComponentProps<typeof ProblemsPanel>> = {},
-) {
+function baseProps(overrides: Partial<React.ComponentProps<typeof ProblemsPanel>> = {}) {
   return {
     diagnostics: [makeDiagnostic()],
     onSelectDiagnostic: vi.fn(),
@@ -50,10 +48,7 @@ describe("ProblemsPanel — Milestone 44 inline Install Dependencies action", ()
     const onInstallDependency = vi.fn();
     const diag = makeDiagnostic();
     const { getByText } = render(
-      React.createElement(
-        ProblemsPanel,
-        baseProps({ diagnostics: [diag], onInstallDependency }),
-      ),
+      React.createElement(ProblemsPanel, baseProps({ diagnostics: [diag], onInstallDependency })),
     );
     fireEvent.click(getByText("Install Dependencies"));
     expect(onInstallDependency).toHaveBeenCalledTimes(1);
@@ -66,18 +61,13 @@ describe("ProblemsPanel — Milestone 44 inline Install Dependencies action", ()
       message: "ZeroDivisionError: division by zero",
     });
     const { queryByText } = render(
-      React.createElement(
-        ProblemsPanel,
-        baseProps({ diagnostics: [diag], onInstallDependency }),
-      ),
+      React.createElement(ProblemsPanel, baseProps({ diagnostics: [diag], onInstallDependency })),
     );
     expect(queryByText("Install Dependencies")).toBeNull();
   });
 
   it("does not render the action at all when onInstallDependency is not provided", () => {
-    const { queryByText } = render(
-      React.createElement(ProblemsPanel, baseProps()),
-    );
+    const { queryByText } = render(React.createElement(ProblemsPanel, baseProps()));
     expect(queryByText("Install Dependencies")).toBeNull();
   });
 

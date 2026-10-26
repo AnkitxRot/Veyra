@@ -61,11 +61,7 @@ export class FakeModel {
 
   // Mirrors real Monaco's full-content replace shape used by
   // applyLiveContent(): a single edit op whose `.text` is the new content.
-  pushEditOperations(
-    _before: unknown,
-    ops: { range: unknown; text: string }[],
-    _cb: unknown,
-  ) {
+  pushEditOperations(_before: unknown, ops: { range: unknown; text: string }[], _cb: unknown) {
     if (ops.length > 0) {
       this.value = ops[0]!.text;
     }
@@ -155,11 +151,7 @@ export class FakeEditorInstance {
   // Editor.tsx (M70) adds/disposes the save action as the resolved keybinding
   // changes; tests read `actions` / `disposedActions` to assert that.
   public disposedActions: string[] = [];
-  addAction(action: {
-    id: string;
-    keybindings?: number[];
-    run?: (...args: unknown[]) => unknown;
-  }) {
+  addAction(action: { id: string; keybindings?: number[]; run?: (...args: unknown[]) => unknown }) {
     this.actions.set(action.id, action);
     return {
       dispose: () => {
@@ -214,9 +206,7 @@ export class FakeEditorInstance {
   }
 
   restoreViewState(vs: unknown): void {
-    const modelPath = this.model
-      ? this.model.uri.path.replace(/^\//, "")
-      : null;
+    const modelPath = this.model ? this.model.uri.path.replace(/^\//, "") : null;
     this.lastRestoredViewState = vs;
     this.restoreCalls.push({ vs, modelPath });
   }
@@ -288,8 +278,7 @@ const editor = {
     modelRegistry.set(uri.toString(), m);
     return m;
   },
-  getModel: (uri: { toString: () => string }) =>
-    modelRegistry.get(uri.toString()) ?? null,
+  getModel: (uri: { toString: () => string }) => modelRegistry.get(uri.toString()) ?? null,
   getModels: () => Array.from(modelRegistry.values()),
   setModelLanguage: (_model: unknown, _languageId: string) => {},
   setModelMarkers: (_model: unknown, _owner: string, _markers: unknown[]) => {},

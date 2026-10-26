@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  cleanup,
-  fireEvent,
-  waitFor,
-  screen,
-} from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor, screen } from "@testing-library/react";
 import * as React from "react";
 import type { Project } from "../src/types";
 
@@ -121,8 +115,7 @@ function installApi(routes: RouteMap = {}, opts: { fail?: string } = {}) {
     }
     if (path.endsWith("/git/status")) return routes.status ?? CLEAN_STATUS;
     if (path.includes("/git/log")) return routes.log ?? LOG;
-    if (path.endsWith("/git/branches") && method === "GET")
-      return routes.branches ?? BRANCHES;
+    if (path.endsWith("/git/branches") && method === "GET") return routes.branches ?? BRANCHES;
     if (path.includes("/git/diff/file"))
       return (
         routes.fileDiff ?? {
@@ -148,9 +141,7 @@ function installApi(routes: RouteMap = {}, opts: { fail?: string } = {}) {
   return calls;
 }
 
-function renderPanel(
-  props: Partial<React.ComponentProps<typeof SourceControlPanel>> = {},
-) {
+function renderPanel(props: Partial<React.ComponentProps<typeof SourceControlPanel>> = {}) {
   const onReconcileBuffers = vi.fn();
   const getDirtyOpenPaths = vi.fn(() => [] as string[]);
   render(
@@ -186,9 +177,7 @@ describe("SourceControlPanel — M51", () => {
     renderPanel();
     fireEvent.click(await screen.findByText("Initialize Git Repository"));
     await waitFor(() =>
-      expect(
-        calls.some((c) => c.path.endsWith("/git/init") && c.method === "POST"),
-      ).toBe(true),
+      expect(calls.some((c) => c.path.endsWith("/git/init") && c.method === "POST")).toBe(true),
     );
   });
 
@@ -287,8 +276,7 @@ describe("SourceControlPanel — M51", () => {
       const method = o.method || "GET";
       const body = o.body ? JSON.parse(o.body) : undefined;
       calls.push({ path, method, body });
-      if (path.endsWith("/git/commit"))
-        return { hash: "d".repeat(40), shortHash: "ddddddd" };
+      if (path.endsWith("/git/commit")) return { hash: "d".repeat(40), shortHash: "ddddddd" };
       if (path.endsWith("/git/status")) return dirtyStatus();
       if (path.includes("/git/log")) return LOG;
       if (path.endsWith("/git/branches")) return BRANCHES;
@@ -334,9 +322,7 @@ describe("SourceControlPanel — M51", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() =>
       expect(
-        calls.find(
-          (c) => c.path.endsWith("/git/branches") && c.method === "POST",
-        )?.body,
+        calls.find((c) => c.path.endsWith("/git/branches") && c.method === "POST")?.body,
       ).toEqual({ name: "feature/new" }),
     );
   });
@@ -389,17 +375,11 @@ describe("SourceControlPanel — M51", () => {
     fireEvent.click(await screen.findByText("BRANCHES"));
     fireEvent.click(await screen.findByLabelText("Delete branch feature/x"));
     // confirm modal
-    expect(
-      await screen.findByRole("heading", { name: "Delete branch" }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Delete branch" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Delete branch" }));
     await waitFor(() =>
       expect(
-        calls.some(
-          (c) =>
-            c.method === "DELETE" &&
-            c.path.includes("/git/branches/feature%2Fx"),
-        ),
+        calls.some((c) => c.method === "DELETE" && c.path.includes("/git/branches/feature%2Fx")),
       ).toBe(true),
     );
   });
@@ -418,9 +398,7 @@ describe("SourceControlPanel — M51", () => {
     });
     renderPanel();
     // Refresh button is disabled while loading
-    const btn = screen.getByLabelText(
-      "Refresh Source Control",
-    ) as HTMLButtonElement;
+    const btn = screen.getByLabelText("Refresh Source Control") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     resolve(CLEAN_STATUS);
     await waitFor(() => expect(btn.disabled).toBe(false));
@@ -488,15 +466,11 @@ describe("SourceControlPanel — M51", () => {
     expect(screen.getByText("credentials saved")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Fetch/ }));
     await waitFor(() =>
-      expect(
-        calls.some((c) => c.path.endsWith("/git/fetch") && c.method === "POST"),
-      ).toBe(true),
+      expect(calls.some((c) => c.path.endsWith("/git/fetch") && c.method === "POST")).toBe(true),
     );
     fireEvent.click(screen.getByRole("button", { name: /Push/ }));
     await waitFor(() =>
-      expect(
-        calls.some((c) => c.path.endsWith("/git/push") && c.method === "POST"),
-      ).toBe(true),
+      expect(calls.some((c) => c.path.endsWith("/git/push") && c.method === "POST")).toBe(true),
     );
   });
 
@@ -509,10 +483,9 @@ describe("SourceControlPanel — M51", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save origin" }));
     await waitFor(() =>
-      expect(
-        calls.find((c) => c.path.endsWith("/git/remote") && c.method === "PUT")
-          ?.body,
-      ).toEqual({ url: "https://gitlab.com/org/repo.git" }),
+      expect(calls.find((c) => c.path.endsWith("/git/remote") && c.method === "PUT")?.body).toEqual(
+        { url: "https://gitlab.com/org/repo.git" },
+      ),
     );
   });
 
@@ -612,14 +585,10 @@ describe("SourceControlPanel — M51", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save credentials" }));
     await waitFor(() =>
       expect(
-        calls.find(
-          (c) => c.path.endsWith("/git/credentials") && c.method === "PUT",
-        )?.body,
+        calls.find((c) => c.path.endsWith("/git/credentials") && c.method === "PUT")?.body,
       ).toEqual({ username: "git", token: "ghp_not_a_real_token" }),
     );
-    expect(
-      (screen.getByLabelText("Git token") as HTMLInputElement).value,
-    ).toBe("");
+    expect((screen.getByLabelText("Git token") as HTMLInputElement).value).toBe("");
   });
 });
 

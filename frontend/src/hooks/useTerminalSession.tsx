@@ -46,12 +46,8 @@ export function useTerminalSession(
   resolvedTheme: "dark" | "light",
   userId?: number,
 ): TerminalSession {
-  const [state, setStateRaw] = useState<TerminalConnectionState>(
-    TERMINAL_STATES.connecting,
-  );
-  const [endedReason, setEndedReason] = useState<TerminalEndedReason | null>(
-    null,
-  );
+  const [state, setStateRaw] = useState<TerminalConnectionState>(TERMINAL_STATES.connecting);
+  const [endedReason, setEndedReason] = useState<TerminalEndedReason | null>(null);
 
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -241,9 +237,7 @@ export function useTerminalSession(
     detachWs();
 
     setConnState(
-      attemptRef.current > 0
-        ? TERMINAL_STATES.reconnecting
-        : TERMINAL_STATES.connecting,
+      attemptRef.current > 0 ? TERMINAL_STATES.reconnecting : TERMINAL_STATES.connecting,
     );
 
     const url = getWebSocketUrl("/ws/terminal", projectId, {
@@ -282,9 +276,7 @@ export function useTerminalSession(
       };
       try {
         const raw =
-          typeof e.data === "string"
-            ? e.data
-            : new TextDecoder().decode(e.data as ArrayBuffer);
+          typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data as ArrayBuffer);
         msg = JSON.parse(raw);
       } catch {
         return;
@@ -292,10 +284,7 @@ export function useTerminalSession(
       if (msg.type === "data" && typeof msg.data === "string") {
         // Defense in depth against a double replay: the server already only
         // resends `seq > lastSeq`, but never write a frame we've applied.
-        if (
-          typeof msg.seq === "number" &&
-          msg.seq <= lastSeqRef.current
-        ) {
+        if (typeof msg.seq === "number" && msg.seq <= lastSeqRef.current) {
           return;
         }
         if (typeof msg.seq === "number") lastSeqRef.current = msg.seq;
@@ -427,9 +416,7 @@ export function useTerminalSession(
     // (userId, projectId) — enables reattach after same-tab reload.  Otherwise
     // mint a fresh id for a new session.
     const restored =
-      isPersistableTerminalUser(userId) && projectId
-        ? readTerminalResume(userId, projectId)
-        : null;
+      isPersistableTerminalUser(userId) && projectId ? readTerminalResume(userId, projectId) : null;
     if (restored) {
       terminalIdRef.current = restored;
       resumeRef.current = true;

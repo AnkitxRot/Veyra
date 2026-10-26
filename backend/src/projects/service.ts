@@ -22,10 +22,7 @@ export function projectDir(cfg: AppConfig, id: string): string {
   return join(cfg.workspacesDir, id);
 }
 
-export async function workspacePath(
-  cfg: AppConfig,
-  id: string,
-): Promise<string> {
+export async function workspacePath(cfg: AppConfig, id: string): Promise<string> {
   const dir = projectDir(cfg, id);
   try {
     await fs.access(dir, constants.F_OK);
@@ -36,16 +33,11 @@ export async function workspacePath(
 }
 
 export function getProject(db: Db, id: string): ProjectRow | null {
-  const row = db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as
-    ProjectRow | undefined;
+  const row = db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as ProjectRow | undefined;
   return row ?? null;
 }
 
-export function requireOwnedProject(
-  db: Db,
-  ownerId: number,
-  id: string,
-): ProjectRow {
+export function requireOwnedProject(db: Db, ownerId: number, id: string): ProjectRow {
   const row = db
     .prepare("SELECT * FROM projects WHERE id = ? AND owner_id = ?")
     .get(id, ownerId) as ProjectRow | undefined;
@@ -90,27 +82,21 @@ export function requireProjectAccess(
     .prepare(
       "SELECT role, created_at FROM project_collaborators WHERE project_id = ? AND user_id = ?",
     )
-    .get(projectId, userId) as
-    { role: "editor" | "viewer"; created_at: string } | undefined;
+    .get(projectId, userId) as { role: "editor" | "viewer"; created_at: string } | undefined;
 
   if (collab) {
     if (minRole === "owner") {
       throw new ApiError(403, "project owner permission required", "forbidden");
     }
     if (minRole === "editor" && collab.role === "viewer") {
-      throw new ApiError(
-        403,
-        "read-only viewer permission: editor access required",
-        "forbidden",
-      );
+      throw new ApiError(403, "read-only viewer permission: editor access required", "forbidden");
     }
     return { project, role: collab.role };
   }
 
   // 3. Platform Admin access
-  const userRow = db
-    .prepare("SELECT role FROM users WHERE id = ?")
-    .get(userId) as { role?: string } | undefined;
+  const userRow = db.prepare("SELECT role FROM users WHERE id = ?").get(userId) as
+    { role?: string } | undefined;
   if (userRow?.role === "admin") {
     return { project, role: "owner" };
   }
@@ -118,10 +104,7 @@ export function requireProjectAccess(
   throw new ApiError(404, "project not found", "not_found");
 }
 
-export function listProjectCollaborators(
-  db: Db,
-  projectId: string,
-): CollaboratorInfo[] {
+export function listProjectCollaborators(db: Db, projectId: string): CollaboratorInfo[] {
   // LEFT JOIN so a collaborator with no profile row still appears. Only
   // `display_name` and the avatar cache-buster are read from user_profiles —
   // no other (dormant) profile column is exposed.
@@ -144,13 +127,11 @@ export function listProjectCollaborators(
       profileVersion: number | null;
     }
   >;
-  return rows.map(
-    ({ displayNameRaw, avatarMediaId, profileVersion, ...r }) => ({
-      ...r,
-      displayName: effectiveDisplayName(displayNameRaw, r.username),
-      avatarVersion: avatarMediaId ? (profileVersion ?? 0) : 0,
-    }),
-  );
+  return rows.map(({ displayNameRaw, avatarMediaId, profileVersion, ...r }) => ({
+    ...r,
+    displayName: effectiveDisplayName(displayNameRaw, r.username),
+    avatarVersion: avatarMediaId ? (profileVersion ?? 0) : 0,
+  }));
 }
 
 export function addProjectCollaborator(
@@ -162,11 +143,7 @@ export function addProjectCollaborator(
   const project = getProject(db, projectId);
   if (!project) throw new ApiError(404, "project not found", "not_found");
   if (project.owner_id === targetUserId) {
-    throw new ApiError(
-      400,
-      "owner is already project administrator",
-      "invalid_request",
-    );
+    throw new ApiError(400, "owner is already project administrator", "invalid_request");
   }
 
   db.prepare(
@@ -176,14 +153,11 @@ export function addProjectCollaborator(
   ).run(projectId, targetUserId, role);
 }
 
-export function removeProjectCollaborator(
-  db: Db,
-  projectId: string,
-  targetUserId: number,
-): void {
-  db.prepare(
-    "DELETE FROM project_collaborators WHERE project_id = ? AND user_id = ?",
-  ).run(projectId, targetUserId);
+export function removeProjectCollaborator(db: Db, projectId: string, targetUserId: number): void {
+  db.prepare("DELETE FROM project_collaborators WHERE project_id = ? AND user_id = ?").run(
+    projectId,
+    targetUserId,
+  );
 }
 
 export function listProjects(db: Db, ownerId: number): ProjectRow[] {
@@ -205,18 +179,12 @@ export async function createProject(
   opts: { name: string; language?: string },
 ): Promise<ProjectRow> {
   const name =
-    typeof opts.name === "string" && opts.name.trim()
-      ? opts.name.trim().slice(0, 64)
-      : "untitled";
+    typeof opts.name === "string" && opts.name.trim() ? opts.name.trim().slice(0, 64) : "untitled";
   const { count } = db
     .prepare("SELECT COUNT(*) AS count FROM projects WHERE owner_id = ?")
     .get(ownerId) as { count: number };
   if (count >= cfg.projectQuota) {
-    throw new ApiError(
-      403,
-      `project quota reached (max ${cfg.projectQuota})`,
-      "quota_exceeded",
-    );
+    throw new ApiError(403, `project quota reached (max ${cfg.projectQuota})`, "quota_exceeded");
   }
   const id = randomUUID();
   const dir = projectDir(cfg, id);
@@ -242,9 +210,7 @@ export async function createProject(
     }
   }
 
-  db.prepare(
-    "INSERT INTO projects (id, owner_id, name, language) VALUES (?, ?, ?, ?)",
-  ).run(
+  db.prepare("INSERT INTO projects (id, owner_id, name, language) VALUES (?, ?, ?, ?)").run(
     id,
     ownerId,
     name,
@@ -374,7 +340,5 @@ export async function deleteProject(
 }
 
 export function touchProject(db: Db, id: string): void {
-  db.prepare(
-    "UPDATE projects SET updated_at = datetime('now') WHERE id = ?",
-  ).run(id);
+  db.prepare("UPDATE projects SET updated_at = datetime('now') WHERE id = ?").run(id);
 }

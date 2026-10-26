@@ -25,8 +25,7 @@ const LOADED: LayoutPreferences = {
 function setup(loaded: LayoutPreferences | null = null) {
   const persist = vi.fn().mockResolvedValue(undefined);
   const view = renderHook(
-    ({ l }: { l: LayoutPreferences | null }) =>
-      useLayoutPreferences(l, persist),
+    ({ l }: { l: LayoutPreferences | null }) => useLayoutPreferences(l, persist),
     { initialProps: { l: loaded } },
   );
   return { persist, ...view };
@@ -64,17 +63,13 @@ describe("useLayoutPreferences — defaults & hydration", () => {
     const { result, rerender } = setup(null);
     act(() => rerender({ l: LOADED }));
     act(() => result.current.setSidebarWidth(280));
-    act(() =>
-      rerender({ l: { ...LOADED, sidebarWidth: 999 } as LayoutPreferences }),
-    );
+    act(() => rerender({ l: { ...LOADED, sidebarWidth: 999 } as LayoutPreferences }));
     expect(result.current.sidebarWidth).toBe(280);
   });
 
   it("clamps an out-of-range hydrated width", () => {
     const { result, rerender } = setup(null);
-    act(() =>
-      rerender({ l: { ...LOADED, sidebarWidth: 12345 } as LayoutPreferences }),
-    );
+    act(() => rerender({ l: { ...LOADED, sidebarWidth: 12345 } as LayoutPreferences }));
     expect(result.current.sidebarWidth).toBe(LAYOUT_BOUNDS.sidebarWidth.max);
   });
 });
@@ -152,8 +147,7 @@ describe("useLayoutPreferences — toggle persistence", () => {
   it("a rejected persist does not roll back or corrupt local state", async () => {
     const persist = vi.fn().mockRejectedValue(new Error("network"));
     const { result, rerender } = renderHook(
-      ({ l }: { l: LayoutPreferences | null }) =>
-        useLayoutPreferences(l, persist),
+      ({ l }: { l: LayoutPreferences | null }) => useLayoutPreferences(l, persist),
       { initialProps: { l: null as LayoutPreferences | null } },
     );
     act(() => rerender({ l: LOADED }));

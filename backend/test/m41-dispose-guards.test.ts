@@ -5,16 +5,8 @@ import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
-import {
-  collaborationManager,
-  CollaborationRoom,
-} from "../src/collab/manager.js";
-import {
-  createProject,
-  deleteProject,
-  projectDir,
-  getProject,
-} from "../src/projects/service.js";
+import { collaborationManager, CollaborationRoom } from "../src/collab/manager.js";
+import { createProject, deleteProject, projectDir, getProject } from "../src/projects/service.js";
 import { writeProjectFile } from "../src/files/service.js";
 import { importProjectZip } from "../src/projects/archive.js";
 import { createZipArchive } from "../src/projects/zip.js";
@@ -69,9 +61,11 @@ describe("M41 — disposed collaboration rooms never re-arm timers or flush stal
       dataDir: tempDataDir,
     };
     collaborationManager.init(cfg, db);
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("m41user", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "m41user",
+      "h",
+      "user",
+    ); // id 1
   });
 
   afterEach(async () => {
@@ -149,9 +143,7 @@ describe("M41 — disposed collaboration rooms never re-arm timers or flush stal
     await room.ensureFileLoaded("main.py");
     // The pre-import room's own Y.Text holds the pre-import content — this
     // is exactly what a stale post-disposal flush would write back.
-    expect(room.doc.getText("main.py").toString()).toBe(
-      "OLD PRE-IMPORT CONTENT\n",
-    );
+    expect(room.doc.getText("main.py").toString()).toBe("OLD PRE-IMPORT CONTENT\n");
 
     const zipBuffer = createZipArchive([
       { path: "main.py", content: Buffer.from("NEW IMPORTED CONTENT\n") },
@@ -192,17 +184,11 @@ describe("M41 — disposed collaboration rooms never re-arm timers or flush stal
       role: "editor",
     });
     await room.ensureFileLoaded("main.py");
-    expect(room.doc.getText("main.py").toString()).toBe(
-      "STALE PRE-RESTORE CONTENT\n",
-    );
+    expect(room.doc.getText("main.py").toString()).toBe("STALE PRE-RESTORE CONTENT\n");
 
-    const result = await restoreWorkspaceBackup(
-      cfg,
-      db,
-      project.id,
-      backup.filename,
-      { actorUserId: 1 },
-    );
+    const result = await restoreWorkspaceBackup(cfg, db, project.id, backup.filename, {
+      actorUserId: 1,
+    });
     expect(result.workspaceFileCount).toBeGreaterThan(0);
 
     room.removeClient(ws);
@@ -248,15 +234,9 @@ describe("M41 — disposed collaboration rooms never re-arm timers or flush stal
   it("6. Non-regression: a genuinely idle (non-disposed) room still arms its timer and disposes normally", async () => {
     const project = await createProject(cfg, db, 1, { name: "NormalIdle" });
     const onDispose = vi.fn();
-    const writeSpy = vi
-      .spyOn(fs, "writeFile")
-      .mockResolvedValue(undefined as never);
-    const realpathSpy = vi
-      .spyOn(fs, "realpath")
-      .mockImplementation(async (p: any) => p);
-    const accessSpy = vi
-      .spyOn(fs, "access")
-      .mockResolvedValue(undefined as never);
+    const writeSpy = vi.spyOn(fs, "writeFile").mockResolvedValue(undefined as never);
+    const realpathSpy = vi.spyOn(fs, "realpath").mockImplementation(async (p: any) => p);
+    const accessSpy = vi.spyOn(fs, "access").mockResolvedValue(undefined as never);
     vi.useFakeTimers();
 
     try {

@@ -89,15 +89,13 @@ export async function createGitAskpass(
   await fs.chmod(passFile, 0o600);
   await fs.writeFile(helperJs, HELPER_SOURCE, { mode: 0o600 });
   if (IS_WINDOWS) {
-    await fs.writeFile(
-      launcher,
-      "@\"%CLOUDIDE_NODE%\" \"%CLOUDIDE_GIT_ASKPASS_JS%\" %*\r\n",
-      { mode: 0o700 },
-    );
+    await fs.writeFile(launcher, '@"%CLOUDIDE_NODE%" "%CLOUDIDE_GIT_ASKPASS_JS%" %*\r\n', {
+      mode: 0o700,
+    });
   } else {
     await fs.writeFile(
       launcher,
-      "#!/bin/sh\nexec \"$CLOUDIDE_NODE\" \"$CLOUDIDE_GIT_ASKPASS_JS\" \"$@\"\n",
+      '#!/bin/sh\nexec "$CLOUDIDE_NODE" "$CLOUDIDE_GIT_ASKPASS_JS" "$@"\n',
       { mode: 0o700 },
     );
     await fs.chmod(launcher, 0o700);

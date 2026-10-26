@@ -5,10 +5,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
-const scpSrc = readFileSync(
-  join(here, "../src/components/Git/SourceControlPanel.tsx"),
-  "utf-8",
-);
+const scpSrc = readFileSync(join(here, "../src/components/Git/SourceControlPanel.tsx"), "utf-8");
 
 /**
  * M64 — IDE.tsx wiring for the unified notice system. Source-string guards:
@@ -33,7 +30,7 @@ describe("M64 — IDE.tsx notice wiring", () => {
   });
 
   it("the ide-save listener contains no alert() call", () => {
-    const start = src.indexOf('const handleSave = async');
+    const start = src.indexOf("const handleSave = async");
     const end = src.indexOf('document.addEventListener("ide-save"', start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
@@ -67,9 +64,7 @@ describe("M64 — IDE.tsx notice wiring", () => {
   });
 
   it("the save/format status badge reads from the statusbar-surface notice", () => {
-    expect(src).toContain(
-      'activeNotices.find((n) => n.surface === "statusbar")?.text ?? null',
-    );
+    expect(src).toContain('activeNotices.find((n) => n.surface === "statusbar")?.text ?? null');
     expect(src).toContain("{statusbarNotice && (");
     // still rendered inside the status bar footer, not the stack
     const badgeAt = src.indexOf("{statusbarNotice && (");
@@ -142,9 +137,7 @@ describe("M64 — IDE.tsx notice wiring", () => {
     expect(editorNotice).toBeGreaterThan(editorArea);
     expect(editorNotice).toBeLessThan(errorBoundary);
     // FollowBanner.hasAnchor still reflects a live follow-left notice
-    expect(src).toContain(
-      'hasAnchor={followedUserId != null || hasNotice("follow-left")}',
-    );
+    expect(src).toContain('hasAnchor={followedUserId != null || hasNotice("follow-left")}');
   });
 
   it("the attention rate-limit signal is a headless notice, never a visible toast", () => {
@@ -154,8 +147,8 @@ describe("M64 — IDE.tsx notice wiring", () => {
     expect(block).toContain('surface: "headless"');
     expect(block).toContain("ttl: 4000");
     // headless: no kind, no text — it does not pretend to be a visible notice
-    expect(block).not.toContain('text:');
-    expect(block).not.toContain('kind:');
+    expect(block).not.toContain("text:");
+    expect(block).not.toContain("kind:");
     // AttentionTray still owns the visible banner, fed from the headless flag
     expect(src).toContain('rateLimited={hasNotice("attn-rate")}');
   });
@@ -188,7 +181,6 @@ describe("M64 — IDE.tsx notice wiring", () => {
     }
   });
 
-
   it("contains only out-of-scope AI alert() calls; every other path uses notices", () => {
     const alerts = src.match(/\balert\(/g) ?? [];
     // M75: the open-file failure moved to notify(); only the 4 AI-action /
@@ -198,13 +190,9 @@ describe("M64 — IDE.tsx notice wiring", () => {
 
   it("M75 — bridges an ide-notice event from Sidebar/Output straight to notify()", () => {
     // the listener + its detail forwarding
-    expect(src).toContain(
-      'import { IDE_NOTICE_EVENT } from "../../utils/notices"',
-    );
+    expect(src).toContain('import { IDE_NOTICE_EVENT } from "../../utils/notices"');
     expect(src).toContain("document.addEventListener(IDE_NOTICE_EVENT, onNotice)");
-    expect(src).toContain(
-      "document.removeEventListener(IDE_NOTICE_EVENT, onNotice)",
-    );
+    expect(src).toContain("document.removeEventListener(IDE_NOTICE_EVENT, onNotice)");
     const at = src.indexOf("const onNotice = (e: Event)");
     expect(at).toBeGreaterThan(-1);
     const block = src.slice(at, at + 260);

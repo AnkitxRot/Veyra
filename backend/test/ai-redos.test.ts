@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
-import {
-  DeterministicEngineeringProvider,
-  type AIContextBundle,
-} from "../src/ai/provider.js";
+import { DeterministicEngineeringProvider, type AIContextBundle } from "../src/ai/provider.js";
 import { buildAIContext } from "../src/ai/context.js";
 import { collaborationManager } from "../src/collab/manager.js";
 import { createProject, projectDir } from "../src/projects/service.js";
@@ -31,15 +28,13 @@ describe("M97 — AI context/provider are bounded against pathological input", (
   });
 
   it("caps a selection window over one huge line to maxChars", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("redos", "h", "user");
-    const project = await createProject(cfg, db, 1, { name: "Redos" });
-    await fs.writeFile(
-      join(projectDir(cfg, project.id), "x.py"),
-      "a".repeat(1_000_000),
-      "utf-8",
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "redos",
+      "h",
+      "user",
     );
+    const project = await createProject(cfg, db, 1, { name: "Redos" });
+    await fs.writeFile(join(projectDir(cfg, project.id), "x.py"), "a".repeat(1_000_000), "utf-8");
     const ctx = await buildAIContext(cfg, db, project.id, 1, {
       activeFilePath: "x.py",
       selectionRange: { startLine: 1, endLine: 1, startColumn: 0, endColumn: 0 },
@@ -53,9 +48,7 @@ describe("M97 — AI context/provider are bounded against pathological input", (
       activeFilePath: "x.py",
       fileContent: "a".repeat(200_000),
       language: "python",
-      diagnostics: [
-        { message: "ZeroDivisionError", line: 1, source: "x", severity: "error" },
-      ],
+      diagnostics: [{ message: "ZeroDivisionError", line: 1, source: "x", severity: "error" }],
     };
     const t0 = Date.now();
     await new DeterministicEngineeringProvider().executeAction("fix_error", bundle);

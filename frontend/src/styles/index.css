@@ -21,11 +21,15 @@
 @import "@xterm/xterm/css/xterm.css";
 
 /* Global Box Sizing & Defaults */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   width: 100%;
   margin: 0;
@@ -62,12 +66,16 @@ html, body, #root {
 }
 
 /* Global Form Elements */
-button, input, select, textarea {
+button,
+input,
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
 
-a, button.link {
+a,
+button.link {
   color: var(--accent);
   text-decoration: none;
   background: none;
@@ -77,7 +85,8 @@ a, button.link {
   transition: color var(--duration-fast) ease;
 }
 
-a:hover, button.link:hover {
+a:hover,
+button.link:hover {
   color: var(--accent-hover);
   text-decoration: underline;
 }
@@ -85,7 +94,9 @@ a:hover, button.link:hover {
 /* Keyboard Focus Ring */
 :focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent) !important;
+  box-shadow:
+    0 0 0 2px var(--bg-deep),
+    0 0 0 4px var(--accent) !important;
 }
 
 /* Subtle Selection */

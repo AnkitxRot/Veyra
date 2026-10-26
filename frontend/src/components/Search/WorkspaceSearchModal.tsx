@@ -65,12 +65,7 @@ export interface WorkspaceSearchModalProps {
    *  capability), so the toggle defaults on for owners and is unavailable
    *  otherwise. */
   projectRole?: "owner" | "editor" | "viewer";
-  onSelectResult: (
-    filePath: string,
-    line: number,
-    column: number,
-    matchLength: number,
-  ) => void;
+  onSelectResult: (filePath: string, line: number, column: number, matchLength: number) => void;
   /** Called after a successful Replace All apply with the workspace-relative
    *  paths that were actually written. IDE.tsx uses this to reconcile any
    *  already-open editor buffers so a later save cannot silently revert the
@@ -98,22 +93,16 @@ export default function WorkspaceSearchModal({
   const [replaceText, setReplaceText] = useState("");
   const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [applyResult, setApplyResult] = useState<ReplaceApplyResult | null>(
-    null,
-  );
+  const [applyResult, setApplyResult] = useState<ReplaceApplyResult | null>(null);
   // M56: another collaborator has KNOWN-unsaved edits in a selected file.
   // Holds the impact list until the user confirms "Replace anyway".
-  const [collabConfirm, setCollabConfirm] = useState<
-    CollaboratorImpact[] | null
-  >(null);
+  const [collabConfirm, setCollabConfirm] = useState<CollaboratorImpact[] | null>(null);
   // M50: take a rollback snapshot before writing. Owner-only; default on for
   // owners.
   const [createSnapshot, setCreateSnapshot] = useState(isOwner);
   // M50: files the user has explicitly excluded from Replace All. Empty means
   // "every matched file is selected". Reset whenever a fresh preview lands.
-  const [deselectedFiles, setDeselectedFiles] = useState<Set<string>>(
-    new Set(),
-  );
+  const [deselectedFiles, setDeselectedFiles] = useState<Set<string>>(new Set());
 
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -136,10 +125,7 @@ export default function WorkspaceSearchModal({
       setTimeout(() => inputRef.current?.focus(), 20);
     } else {
       searchAbortRef.current?.abort();
-      if (
-        previousFocusRef.current &&
-        typeof previousFocusRef.current.focus === "function"
-      ) {
+      if (previousFocusRef.current && typeof previousFocusRef.current.focus === "function") {
         previousFocusRef.current.focus();
       }
     }
@@ -166,22 +152,19 @@ export default function WorkspaceSearchModal({
         // of the search response, adding a per-match `replacedLineContent`
         // preview, so the same results list below renders either shape.
         const endpoint = showReplace ? "search/replace" : "search";
-        const res = await api<SearchResponse>(
-          `/api/projects/${project.id}/${endpoint}`,
-          {
-            method: "POST",
-            signal: ac.signal,
-            body: JSON.stringify({
-              query: searchQuery,
-              ...(showReplace ? { replacement: replaceText } : {}),
-              isCaseSensitive,
-              isWholeWord,
-              isRegex,
-              includePattern: includePattern.trim() || undefined,
-              excludePattern: excludePattern.trim() || undefined,
-            }),
-          },
-        );
+        const res = await api<SearchResponse>(`/api/projects/${project.id}/${endpoint}`, {
+          method: "POST",
+          signal: ac.signal,
+          body: JSON.stringify({
+            query: searchQuery,
+            ...(showReplace ? { replacement: replaceText } : {}),
+            isCaseSensitive,
+            isWholeWord,
+            isRegex,
+            includePattern: includePattern.trim() || undefined,
+            excludePattern: excludePattern.trim() || undefined,
+          }),
+        });
         if (ac.signal.aborted) return;
         setResults(res);
         // A fresh preview supersedes any previous per-file selection — start
@@ -250,8 +233,7 @@ export default function WorkspaceSearchModal({
   const selectedMatchCount = (results?.groups ?? [])
     .filter((g) => !deselectedFiles.has(g.filePath))
     .reduce((n, g) => n + g.matches.length, 0);
-  const allSelected =
-    !!results && deselectedFiles.size === 0 && results.groups.length > 0;
+  const allSelected = !!results && deselectedFiles.size === 0 && results.groups.length > 0;
 
   const toggleFileSelected = (filePath: string) => {
     setDeselectedFiles((prev) => {
@@ -265,9 +247,7 @@ export default function WorkspaceSearchModal({
   const toggleSelectAll = () => {
     if (!results) return;
     setDeselectedFiles((prev) =>
-      prev.size === 0
-        ? new Set(results.groups.map((g) => g.filePath))
-        : new Set(),
+      prev.size === 0 ? new Set(results.groups.map((g) => g.filePath)) : new Set(),
     );
   };
 
@@ -285,35 +265,30 @@ export default function WorkspaceSearchModal({
     setError(null);
     if (!force) setCollabConfirm(null);
     try {
-      const res = await api<ReplaceApplyResult>(
-        `/api/projects/${project.id}/search/replace`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            query,
-            replacement: replaceText,
-            isCaseSensitive,
-            isWholeWord,
-            isRegex,
-            includePattern: includePattern.trim() || undefined,
-            excludePattern: excludePattern.trim() || undefined,
-            dryRun: false,
-            // Only constrain the server when the user actually narrowed the
-            // set; otherwise let it act on the fresh match set it computes.
-            files: deselectedFiles.size > 0 ? selectedFilePaths : undefined,
-            createSafetySnapshot: isOwner && createSnapshot,
-            ...(force ? { force: true } : {}),
-          }),
-        },
-      );
+      const res = await api<ReplaceApplyResult>(`/api/projects/${project.id}/search/replace`, {
+        method: "POST",
+        body: JSON.stringify({
+          query,
+          replacement: replaceText,
+          isCaseSensitive,
+          isWholeWord,
+          isRegex,
+          includePattern: includePattern.trim() || undefined,
+          excludePattern: excludePattern.trim() || undefined,
+          dryRun: false,
+          // Only constrain the server when the user actually narrowed the
+          // set; otherwise let it act on the fresh match set it computes.
+          files: deselectedFiles.size > 0 ? selectedFilePaths : undefined,
+          createSafetySnapshot: isOwner && createSnapshot,
+          ...(force ? { force: true } : {}),
+        }),
+      });
       setCollabConfirm(null);
       setApplyResult(res);
       // M50: hand the actually-written paths to IDE.tsx so any open editor
       // buffer for those files is refreshed — without this a later save from
       // a stale Monaco model silently reverts the replacement.
-      const changed = res.results
-        .filter((r) => r.status === "replaced")
-        .map((r) => r.filePath);
+      const changed = res.results.filter((r) => r.status === "replaced").map((r) => r.filePath);
       if (changed.length > 0) onReplaceApplied?.(changed);
       // Re-run the preview so the list reflects what (if anything) remains —
       // e.g. files skipped for being truncated/oversized still show matches.
@@ -523,9 +498,7 @@ export default function WorkspaceSearchModal({
                     {applying
                       ? "Replacing..."
                       : `Replace ${
-                          results && deselectedFiles.size > 0
-                            ? "Selected"
-                            : "All"
+                          results && deselectedFiles.size > 0 ? "Selected" : "All"
                         }${results ? ` (${selectedMatchCount})` : ""}`}
                   </button>
                 </div>
@@ -555,9 +528,7 @@ export default function WorkspaceSearchModal({
                   />
                   <span>
                     Create a safety snapshot first
-                    {isOwner
-                      ? " — restore anytime from the Snapshots tab"
-                      : " (owner only)"}
+                    {isOwner ? " — restore anytime from the Snapshots tab" : " (owner only)"}
                   </span>
                 </label>
               </div>
@@ -568,56 +539,40 @@ export default function WorkspaceSearchModal({
               <div
                 style={{
                   fontSize: "11px",
-                  color:
-                    applyResult.filesChanged > 0
-                      ? "#a6e3a1"
-                      : "var(--fg-muted)",
+                  color: applyResult.filesChanged > 0 ? "#a6e3a1" : "var(--fg-muted)",
                   padding: "2px 2px",
                 }}
               >
                 Replaced {applyResult.matchesReplaced}{" "}
                 {applyResult.matchesReplaced === 1 ? "match" : "matches"} across{" "}
-                {applyResult.filesChanged}{" "}
-                {applyResult.filesChanged === 1 ? "file" : "files"}.
+                {applyResult.filesChanged} {applyResult.filesChanged === 1 ? "file" : "files"}.
                 {applyResult.snapshotId && (
                   <span style={{ color: "var(--fg-muted)" }}>
                     {" "}
-                    A safety snapshot was created — restore it anytime from the
-                    Snapshots tab.
+                    A safety snapshot was created — restore it anytime from the Snapshots tab.
                   </span>
                 )}
                 {applyResult.results.some((r) => r.status === "skipped") && (
                   <span style={{ color: "#fab387" }}>
                     {" "}
-                    {
-                      applyResult.results.filter((r) => r.status === "skipped")
-                        .length
-                    }{" "}
-                    file(s) skipped (too large or results were truncated) —
-                    narrow your search and try again.
+                    {applyResult.results.filter((r) => r.status === "skipped").length} file(s)
+                    skipped (too large or results were truncated) — narrow your search and try
+                    again.
                   </span>
                 )}
                 {applyResult.results.some((r) => r.status === "conflict") && (
                   <span style={{ color: "#fab387" }}>
                     {" "}
-                    {
-                      applyResult.results.filter(
-                        (r) => r.status === "conflict",
-                      ).length
-                    }{" "}
-                    file(s) not replaced — a collaborator has unsaved changes
-                    in the live session and their version was kept. Retry once
-                    they save.
+                    {applyResult.results.filter((r) => r.status === "conflict").length} file(s) not
+                    replaced — a collaborator has unsaved changes in the live session and their
+                    version was kept. Retry once they save.
                   </span>
                 )}
                 {applyResult.results.some((r) => r.status === "error") && (
                   <span style={{ color: "#f38ba8" }}>
                     {" "}
-                    {
-                      applyResult.results.filter((r) => r.status === "error")
-                        .length
-                    }{" "}
-                    file(s) failed to write — see server logs.
+                    {applyResult.results.filter((r) => r.status === "error").length} file(s) failed
+                    to write — see server logs.
                   </span>
                 )}
               </div>
@@ -648,8 +603,7 @@ export default function WorkspaceSearchModal({
                 }}
               >
                 <strong>
-                  Another collaborator has unsaved changes in one of the
-                  selected files.
+                  Another collaborator has unsaved changes in one of the selected files.
                 </strong>
                 <CollaboratorImpactNotice impacts={collabConfirm} />
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
@@ -722,9 +676,7 @@ export default function WorkspaceSearchModal({
                 color: "var(--fg-muted)",
               }}
             >
-              <span
-                style={{ display: "flex", alignItems: "center", gap: "10px" }}
-              >
+              <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 {showReplace && results.groups.length > 0 && (
                   <button
                     type="button"
@@ -742,8 +694,8 @@ export default function WorkspaceSearchModal({
                     : results.totalMatches}{" "}
                   {results.totalMatches === 1 ? "match" : "matches"}
                   {showReplace ? " selected" : ""} in {results.groups.length}{" "}
-                  {results.groups.length === 1 ? "file" : "files"} (searched{" "}
-                  {results.filesSearched} files in {results.durationMs}ms)
+                  {results.groups.length === 1 ? "file" : "files"} (searched {results.filesSearched}{" "}
+                  files in {results.durationMs}ms)
                 </span>
               </span>
               {results.truncated && (
@@ -766,17 +718,12 @@ export default function WorkspaceSearchModal({
                 <span>Scanning workspace files...</span>
               </div>
             ) : error ? (
-              <div
-                className="command-palette-empty"
-                style={{ color: "#f38ba8" }}
-              >
+              <div className="command-palette-empty" style={{ color: "#f38ba8" }}>
                 <span>{error}</span>
               </div>
             ) : !query.trim() ? (
               <div className="command-palette-empty">
-                <span>
-                  Type text above to search across all workspace files.
-                </span>
+                <span>Type text above to search across all workspace files.</span>
               </div>
             ) : results && results.groups.length === 0 ? (
               <div className="command-palette-empty">
@@ -867,12 +814,7 @@ export default function WorkspaceSearchModal({
                             key={`${group.filePath}-${m.lineNumber}-${m.column}-${idx}`}
                             type="button"
                             onClick={() => {
-                              onSelectResult(
-                                m.filePath,
-                                m.lineNumber,
-                                m.column,
-                                m.matchLength,
-                              );
+                              onSelectResult(m.filePath, m.lineNumber, m.column, m.matchLength);
                               onClose();
                             }}
                             style={{
@@ -891,8 +833,7 @@ export default function WorkspaceSearchModal({
                               transition: "background 100ms ease",
                             }}
                             onMouseEnter={(e) => {
-                              e.currentTarget.style.background =
-                                "rgba(137, 180, 250, 0.1)";
+                              e.currentTarget.style.background = "rgba(137, 180, 250, 0.1)";
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.background = "transparent";
@@ -916,8 +857,7 @@ export default function WorkspaceSearchModal({
                                 minWidth: 0,
                               }}
                             >
-                              {showReplace &&
-                              m.replacedLineContent !== undefined ? (
+                              {showReplace && m.replacedLineContent !== undefined ? (
                                 <span
                                   style={{
                                     display: "flex",
@@ -977,8 +917,7 @@ export default function WorkspaceSearchModal({
                 <kbd className="command-palette-key">Esc</kbd> Close
               </span>
               <span>
-                <kbd className="command-palette-key">↵</kbd> Open match in
-                editor
+                <kbd className="command-palette-key">↵</kbd> Open match in editor
               </span>
             </div>
             <div>

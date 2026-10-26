@@ -120,18 +120,14 @@ async function flushMicro() {
 
 describe("M79 — terminal session lifecycle edges", () => {
   it("F18: the host stays mounted while hidden and starts lazily on first visible", async () => {
-    const view = render(
-      <Terminal projectId="p1" resolvedTheme="dark" visible={false} />,
-    );
+    const view = render(<Terminal projectId="p1" resolvedTheme="dark" visible={false} />);
     await flushMicro();
     // mounted, but not started
     expect(FakeXTerm.instances).toHaveLength(0);
     expect(FakeWS.instances).toHaveLength(0);
 
     act(() => {
-      view.rerender(
-        <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
-      );
+      view.rerender(<Terminal projectId="p1" resolvedTheme="dark" visible={true} />);
     });
     await flushMicro();
     expect(FakeXTerm.instances).toHaveLength(1);
@@ -139,9 +135,7 @@ describe("M79 — terminal session lifecycle edges", () => {
 
     // hide again — session persists
     act(() => {
-      view.rerender(
-        <Terminal projectId="p1" resolvedTheme="dark" visible={false} />,
-      );
+      view.rerender(<Terminal projectId="p1" resolvedTheme="dark" visible={false} />);
     });
     await flushMicro();
     expect(FakeXTerm.instances).toHaveLength(1);
@@ -192,27 +186,17 @@ describe("M79 — terminal session lifecycle edges", () => {
 
     act(() => h.unmount());
     expect(vi.getTimerCount()).toBe(0);
-    expect(FakeWS.instances.every((w) => w.closed || w.readyState === 3)).toBe(
-      true,
-    );
+    expect(FakeWS.instances.every((w) => w.closed || w.readyState === 3)).toBe(true);
   });
 
   it("Scenario I: rapid visibility churn never creates a second socket or PTY view", async () => {
-    const view = render(
-      <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
-    );
+    const view = render(<Terminal projectId="p1" resolvedTheme="dark" visible={true} />);
     await flushMicro();
     act(() => FakeWS.instances[0]!._open());
 
     for (let i = 0; i < 10; i++) {
       act(() => {
-        view.rerender(
-          <Terminal
-            projectId="p1"
-            resolvedTheme="dark"
-            visible={i % 2 === 0}
-          />,
-        );
+        view.rerender(<Terminal projectId="p1" resolvedTheme="dark" visible={i % 2 === 0} />);
       });
       await flushMicro();
     }

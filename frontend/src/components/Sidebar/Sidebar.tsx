@@ -77,22 +77,14 @@ function Sidebar({
 
   // Modals state
   const [modalState, setModalState] = useState<{
-    type:
-      | "new_file"
-      | "new_folder"
-      | "rename"
-      | "delete"
-      | "new_project"
-      | "fork_project"
-      | null;
+    type: "new_file" | "new_folder" | "rename" | "delete" | "new_project" | "fork_project" | null;
     node?: TreeNode | null;
     initialValue?: string;
   }>({ type: null });
   const [isForking, setIsForking] = useState(false);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
 
-  const isDemoUser =
-    user.username.startsWith("evaluator_") || (user as any).isDemo;
+  const isDemoUser = user.username.startsWith("evaluator_") || (user as any).isDemo;
 
   // M57: file-level AND folder-level collaborator presence, derived in one
   // pass over the canonical `collaborators` array (no second store). A folder
@@ -101,8 +93,7 @@ function Sidebar({
   const { collaboratorsByPath, collaboratorsByFolder } = React.useMemo(() => {
     const byPath = new Map<string, CollaboratorPresence[]>();
     const byFolder = new Map<string, CollaboratorPresence[]>();
-    if (!collaborators)
-      return { collaboratorsByPath: byPath, collaboratorsByFolder: byFolder };
+    if (!collaborators) return { collaboratorsByPath: byPath, collaboratorsByFolder: byFolder };
     for (const c of collaborators) {
       if (c.userId === currentUserId || !c.activeFile) continue;
       const fileList = byPath.get(c.activeFile) || [];
@@ -208,13 +199,10 @@ function Sidebar({
     if (!project || isForking) return;
     setIsForking(true);
     try {
-      const res = await api<{ project: Project }>(
-        `/api/projects/${project.id}/fork`,
-        {
-          method: "POST",
-          body: JSON.stringify(name.trim() ? { name: name.trim() } : {}),
-        },
-      );
+      const res = await api<{ project: Project }>(`/api/projects/${project.id}/fork`, {
+        method: "POST",
+        body: JSON.stringify(name.trim() ? { name: name.trim() } : {}),
+      });
       onCreateProject();
       if (res.project) {
         onSelectProject(res.project);
@@ -301,9 +289,7 @@ function Sidebar({
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(
-          errJson.error?.message || `Upload failed with status ${res.status}`,
-        );
+        throw new Error(errJson.error?.message || `Upload failed with status ${res.status}`);
       }
 
       refreshTree();
@@ -330,9 +316,7 @@ function Sidebar({
       });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(
-          errJson.error?.message || `Export failed with status ${res.status}`,
-        );
+        throw new Error(errJson.error?.message || `Export failed with status ${res.status}`);
       }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -348,9 +332,7 @@ function Sidebar({
     }
   };
 
-  const handleImportNewProject = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleImportNewProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -380,9 +362,7 @@ function Sidebar({
     }
   };
 
-  const handleImportWorkspace = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleImportWorkspace = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!project) return;
     const file = e.target.files?.[0];
     if (!file) return;
@@ -427,11 +407,7 @@ function Sidebar({
     if (!project) return;
     const { type, node } = modalState;
     const parentPath =
-      node?.type === "dir"
-        ? node.path
-        : node
-          ? node.path.split("/").slice(0, -1).join("/")
-          : "";
+      node?.type === "dir" ? node.path : node ? node.path.split("/").slice(0, -1).join("/") : "";
 
     try {
       if (type === "new_file" && val) {
@@ -443,9 +419,7 @@ function Sidebar({
         refreshTree();
         onOpenFile(fullPath);
       } else if (type === "new_folder" && val) {
-        const fullPath = parentPath
-          ? `${parentPath}/${val}/.keep`
-          : `${val}/.keep`;
+        const fullPath = parentPath ? `${parentPath}/${val}/.keep` : `${val}/.keep`;
         await api(`/api/projects/${project.id}/file`, {
           method: "POST",
           body: JSON.stringify({ path: fullPath, content: "" }),
@@ -559,17 +533,11 @@ function Sidebar({
                 <IconChevronRight size={12} />
               )}
               Projects
-              <span
-                className="glass-badge"
-                style={{ padding: "0 5px", fontSize: "10px" }}
-              >
+              <span className="glass-badge" style={{ padding: "0 5px", fontSize: "10px" }}>
                 {projects.length}
               </span>
             </span>
-            <div
-              className="section-actions"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="section-actions" onClick={(e) => e.stopPropagation()}>
               <input
                 type="file"
                 ref={fileInputRef}
@@ -795,8 +763,7 @@ function Sidebar({
                     setModalState({
                       type: action,
                       node,
-                      initialValue:
-                        action === "rename" && node ? node.name : "",
+                      initialValue: action === "rename" && node ? node.name : "",
                     });
                   } else if (action === "upload_file") {
                     const parentPath =
@@ -885,9 +852,7 @@ function Sidebar({
         message={`The following file(s) already exist in the workspace: ${conflictModal.conflicts.slice(0, 4).join(", ")}${conflictModal.conflicts.length > 4 ? ` and ${conflictModal.conflicts.length - 4} more` : ""}. Do you want to replace them?`}
         confirmLabel="Overwrite"
         isDestructive={true}
-        onConfirm={() =>
-          handleUploadFiles(conflictModal.files, conflictModal.targetDir, true)
-        }
+        onConfirm={() => handleUploadFiles(conflictModal.files, conflictModal.targetDir, true)}
         onCancel={() =>
           setConflictModal({
             isOpen: false,
@@ -963,8 +928,7 @@ function FileTree({
     const lower = filter.toLowerCase();
     return items
       .map((item) => {
-        if (item.type === "file" && item.name.toLowerCase().includes(lower))
-          return item;
+        if (item.type === "file" && item.name.toLowerCase().includes(lower)) return item;
         if (item.type === "dir") {
           if (item.name.toLowerCase().includes(lower)) return item;
           if (item.children) {
@@ -987,10 +951,7 @@ function FileTree({
   const bare = nodes.length === 0;
 
   return (
-    <div
-      onContextMenu={handleContextBg}
-      style={{ minHeight: "100%", paddingBottom: "20px" }}
-    >
+    <div onContextMenu={handleContextBg} style={{ minHeight: "100%", paddingBottom: "20px" }}>
       {bare && status === "loading" ? (
         <div
           data-testid="file-tree-loading"
@@ -1021,9 +982,7 @@ function FileTree({
             fontSize: "var(--text-xs)",
           }}
         >
-          <p style={{ margin: "0 0 12px 0" }}>
-            Couldn&apos;t load the file tree.
-          </p>
+          <p style={{ margin: "0 0 12px 0" }}>Couldn&apos;t load the file tree.</p>
           <button
             className="glass-btn glass-btn-primary"
             style={{ fontSize: "11px", padding: "4px 10px" }}
@@ -1061,7 +1020,7 @@ function FileTree({
           selected={selected}
           onContextNode={handleContextNode}
           collaboratorsByPath={collaboratorsByPath}
-                collaboratorsByFolder={collaboratorsByFolder}
+          collaboratorsByFolder={collaboratorsByFolder}
           runningByPath={runningByPath}
           commentCountsByFile={commentCountsByFile}
         />
@@ -1168,18 +1127,10 @@ function FileTreeNodes({
       e.preventDefault();
       if (n.type === "dir") toggleCollapse(n.path);
       else onSelect(n.path);
-    } else if (
-      e.key === "ArrowRight" &&
-      n.type === "dir" &&
-      collapsed[n.path]
-    ) {
+    } else if (e.key === "ArrowRight" && n.type === "dir" && collapsed[n.path]) {
       e.preventDefault();
       toggleCollapse(n.path);
-    } else if (
-      e.key === "ArrowLeft" &&
-      n.type === "dir" &&
-      !collapsed[n.path]
-    ) {
+    } else if (e.key === "ArrowLeft" && n.type === "dir" && !collapsed[n.path]) {
       e.preventDefault();
       toggleCollapse(n.path);
     }
@@ -1195,10 +1146,8 @@ function FileTreeNodes({
         const nodeCollaborators = isDir
           ? collaboratorsByFolder?.get(n.path) || []
           : collaboratorsByPath?.get(n.path) || [];
-        const nodeRunners: string[] = !isDir
-          ? runningByPath?.get(n.path) || []
-          : [];
-        const commentCount = !isDir ? commentCountsByFile?.get(n.path) ?? 0 : 0;
+        const nodeRunners: string[] = !isDir ? runningByPath?.get(n.path) || [] : [];
+        const commentCount = !isDir ? (commentCountsByFile?.get(n.path) ?? 0) : 0;
 
         return (
           <li key={n.path} role="none">
@@ -1217,14 +1166,8 @@ function FileTreeNodes({
               title={n.path}
             >
               {isDir && (
-                <span
-                  style={{ color: "var(--fg-muted)", display: "inline-flex" }}
-                >
-                  {isCollapsed ? (
-                    <IconChevronRight size={12} />
-                  ) : (
-                    <IconChevronDown size={12} />
-                  )}
+                <span style={{ color: "var(--fg-muted)", display: "inline-flex" }}>
+                  {isCollapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
                 </span>
               )}
               <span className="tree-node-icon">
@@ -1262,10 +1205,7 @@ function FileTreeNodes({
                 <span
                   className="tree-node-collab-badge"
                   title={nodeCollaborators
-                    .map(
-                      (c: any) =>
-                        `${c.name} (${c.activity?.type || "viewing"})`,
-                    )
+                    .map((c: any) => `${c.name} (${c.activity?.type || "viewing"})`)
                     .join(", ")}
                   aria-label={`${nodeCollaborators.length} active collaborator(s)`}
                 >
@@ -1277,9 +1217,7 @@ function FileTreeNodes({
                     />
                   ))}
                   {nodeCollaborators.length > 3 && (
-                    <span className="tree-node-collab-count">
-                      +{nodeCollaborators.length - 3}
-                    </span>
+                    <span className="tree-node-collab-count">+{nodeCollaborators.length - 3}</span>
                   )}
                 </span>
               )}
@@ -1301,7 +1239,7 @@ function FileTreeNodes({
                   selected={selected}
                   onContextNode={onContextNode}
                   collaboratorsByPath={collaboratorsByPath}
-                collaboratorsByFolder={collaboratorsByFolder}
+                  collaboratorsByFolder={collaboratorsByFolder}
                   runningByPath={runningByPath}
                   commentCountsByFile={commentCountsByFile}
                 />

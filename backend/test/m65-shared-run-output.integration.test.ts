@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  beforeEach,
-  vi,
-} from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import { WebSocket } from "ws";
 import * as decoding from "lib0/decoding";
@@ -139,16 +131,13 @@ describe("M65 — shared run output: authorization + end-to-end", () => {
   const openCollab = (token: string) =>
     new Promise<{ ws: WebSocket; frames: any[] }>((resolve, reject) => {
       const frames: any[] = [];
-      const ws = new WebSocket(
-        `ws://127.0.0.1:${wsPort}/ws/collab?projectId=${projectId}`,
-        { headers: { Cookie: `session_token=${token}` } },
-      );
+      const ws = new WebSocket(`ws://127.0.0.1:${wsPort}/ws/collab?projectId=${projectId}`, {
+        headers: { Cookie: `session_token=${token}` },
+      });
       ws.on("message", (d: any) => frames.push(...decodeCustomFrames(d)));
       ws.on("open", () => resolve({ ws, frames }));
       ws.on("error", reject);
-      ws.on("unexpected-response", (_req, res) =>
-        reject(new Error(`upgrade ${res.statusCode}`)),
-      );
+      ws.on("unexpected-response", (_req, res) => reject(new Error(`upgrade ${res.statusCode}`)));
     });
 
   const tryUpgrade = (path: string, token: string) =>
@@ -160,34 +149,24 @@ describe("M65 — shared run output: authorization + end-to-end", () => {
         resolve(101);
         ws.close();
       });
-      ws.on("unexpected-response", (_req, res) =>
-        resolve(res.statusCode ?? 0),
-      );
+      ws.on("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
       ws.on("error", () => resolve(0));
     });
 
   it("a viewer cannot open /ws/execute (no stdin, no kill — editor+ only)", async () => {
-    expect(await tryUpgrade(`/ws/execute?projectId=${projectId}`, viewerTok)).toBe(
-      403,
-    );
+    expect(await tryUpgrade(`/ws/execute?projectId=${projectId}`, viewerTok)).toBe(403);
   });
 
   it("a non-member cannot open /ws/execute", async () => {
-    expect(
-      await tryUpgrade(`/ws/execute?projectId=${projectId}`, strangerTok),
-    ).toBe(403);
+    expect(await tryUpgrade(`/ws/execute?projectId=${projectId}`, strangerTok)).toBe(403);
   });
 
   it("a non-member cannot subscribe to the collaboration room", async () => {
-    expect(
-      await tryUpgrade(`/ws/collab?projectId=${projectId}`, strangerTok),
-    ).toBe(403);
+    expect(await tryUpgrade(`/ws/collab?projectId=${projectId}`, strangerTok)).toBe(403);
   });
 
   it("an editor can open /ws/execute", async () => {
-    expect(
-      await tryUpgrade(`/ws/execute?projectId=${projectId}`, editorTok),
-    ).toBe(101);
+    expect(await tryUpgrade(`/ws/execute?projectId=${projectId}`, editorTok)).toBe(101);
   });
 
   it("an owner run streams output to an editor collaborator, never to a viewer", async () => {
@@ -215,37 +194,24 @@ describe("M65 — shared run output: authorization + end-to-end", () => {
     };
 
     const execWs = makeFakeExecWs();
-    await handleExecutionConnection(
-      execWs as any,
-      projectId,
-      ownerId,
-      "m65owner",
-      cfg,
-      db,
-    );
+    await handleExecutionConnection(execWs as any, projectId, ownerId, "m65owner", cfg, db);
     execWs.emit(
       "message",
-      Buffer.from(
-        JSON.stringify({ type: "start", language: "python", activeFile: "main.py" }),
-      ),
+      Buffer.from(JSON.stringify({ type: "start", language: "python", activeFile: "main.py" })),
     );
 
     await new Promise((r) => setTimeout(r, 250));
 
     const editorOut = editor.frames.filter((f) => f.type === "run_output");
     expect(editorOut.length).toBeGreaterThan(0);
-    const text = editorOut
-      .flatMap((f) => f.chunks.map((c: any) => c.data))
-      .join("");
+    const text = editorOut.flatMap((f) => f.chunks.map((c: any) => c.data)).join("");
     expect(text).toContain("shared line 1");
     expect(text).toContain("shared line 2");
     expect(text).toContain("a warning");
 
     expect(viewer.frames.filter((f) => f.type === "run_output")).toHaveLength(0);
     // viewer still sees run status (M54)
-    expect(
-      viewer.frames.filter((f) => f.type === "run_status").length,
-    ).toBeGreaterThan(0);
+    expect(viewer.frames.filter((f) => f.type === "run_status").length).toBeGreaterThan(0);
 
     editor.ws.close();
     viewer.ws.close();

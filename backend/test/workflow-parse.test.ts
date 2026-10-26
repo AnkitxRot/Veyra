@@ -67,18 +67,13 @@ describe("workflow test output parsers", () => {
   });
 
   it("rejects source locations outside the workspace", () => {
-    const out = parseTestOutput(
-      "✖ escape (1ms)\n      at boom (/etc/passwd:1:1)\n",
-    );
+    const out = parseTestOutput("✖ escape (1ms)\n      at boom (/etc/passwd:1:1)\n");
     const failed = out.find((t) => t.status === "failed");
     expect(failed?.file).toBeUndefined();
   });
 
   it("bounds huge input and case counts", () => {
-    const lines = Array.from(
-      { length: 400 },
-      (_, i) => `ok ${i + 1} - case-${i}`,
-    );
+    const lines = Array.from({ length: 400 }, (_, i) => `ok ${i + 1} - case-${i}`);
     const out = parseTestOutput(lines.join("\n"));
     expect(out.length).toBe(200);
   });

@@ -17,11 +17,7 @@ import {
 } from "./helpers.js";
 import type { AppConfig, ConfigOverrides } from "../src/config.js";
 import type { Db } from "../src/db.js";
-import {
-  addProjectCollaborator,
-  createProject,
-  workspacePath,
-} from "../src/projects/service.js";
+import { addProjectCollaborator, createProject, workspacePath } from "../src/projects/service.js";
 import { sandboxManager } from "../src/execution/sandbox.js";
 
 const execFileAsync = promisify(execFile);
@@ -57,7 +53,7 @@ export interface M87Fixture {
 function payloadScript(hostMarker: string): string {
   return [
     "#!/bin/sh",
-    'if [ -f /.dockerenv ] && [ -d /opt/debug/bin ]; then',
+    "if [ -f /.dockerenv ] && [ -d /opt/debug/bin ]; then",
     '  printf "%s\\n" "ran $*" >> /workspace/.m87/ran-in-sandbox',
     "  env >> /workspace/.m87/sandbox-env",
     "else",
@@ -68,9 +64,7 @@ function payloadScript(hostMarker: string): string {
   ].join("\n");
 }
 
-export async function makeM87Fixture(
-  overrides: ConfigOverrides = {},
-): Promise<M87Fixture> {
+export async function makeM87Fixture(overrides: ConfigOverrides = {}): Promise<M87Fixture> {
   const cfg = makeTestConfig(overrides);
   const api = await startTestApi(cfg);
   const db = api.db;
@@ -95,12 +89,7 @@ export async function makeM87Fixture(
   const hostMarker = join(cfg.dataDir, "HOST_EXECUTED").replace(/\\/g, "/");
 
   const sh = async (script: string, opts: { input?: string } = {}) => {
-    const cid = await sandboxManager.ensureProjectSandbox(
-      proj.id,
-      cfg,
-      cwd,
-      owner.user.id,
-    );
+    const cid = await sandboxManager.ensureProjectSandbox(proj.id, cfg, cwd, owner.user.id);
     const child = execFileAsync(
       "docker",
       // umask 0 like sandbox Git, so a backend with another uid can clean up.
@@ -136,8 +125,7 @@ export async function makeM87Fixture(
         },
       );
     },
-    sandboxRan: async () =>
-      sh("cat .m87/ran-in-sandbox 2>/dev/null || true"),
+    sandboxRan: async () => sh("cat .m87/ran-in-sandbox 2>/dev/null || true"),
     hostRan: () => existsSync(hostMarker),
     close: async () => {
       await stopProjectSandboxesForTest(db);

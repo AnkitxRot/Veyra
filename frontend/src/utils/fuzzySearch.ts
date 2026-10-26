@@ -13,7 +13,10 @@ export interface FuzzyMatchResult<T> {
  * Computes a relevance score between a target string and search query.
  * Higher score indicates better match. Returns 0 if no match.
  */
-export function scoreFuzzyMatch(target: string, query: string): { score: number; indices: number[] } {
+export function scoreFuzzyMatch(
+  target: string,
+  query: string,
+): { score: number; indices: number[] } {
   if (!query) return { score: 1, indices: [] };
   if (!target) return { score: 0, indices: [] };
 
@@ -104,7 +107,7 @@ export function scoreFuzzyMatch(target: string, query: string): { score: number;
 export function fuzzyFilter<T>(
   items: T[],
   query: string,
-  getString: (item: T) => string
+  getString: (item: T) => string,
 ): FuzzyMatchResult<T>[] {
   if (!query || !query.trim()) {
     return items.map((item) => ({ item, score: 1, matchedIndices: [] }));

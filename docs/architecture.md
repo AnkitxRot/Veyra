@@ -15,13 +15,13 @@ Sandbox  ide-sandbox-<projectId>
 
 ## Isolation
 
-| Layer | What is isolated | How |
-| --- | --- | --- |
-| Project | Workspace files, sandbox, Git repo, secrets | `projectId` on every route/WS; `requireProjectAccess` |
-| User | Debugger control, terminal PTY attach, sessions | Authenticated session; debug is `(projectId, userId)` |
-| Process | User code, language servers, debug adapters, npm/pytest | `docker exec` in the project container, non-root, cap-drop |
-| Filesystem | Paths under the project workspace | `safeResolve` + `assertInsideWorkspace`; `.git` blocked on the normalized and real path (M86) |
-| Environment | Secrets, Git PATs, backend env | Allowlisted container env; secrets not injected into LSP/debug/install |
+| Layer       | What is isolated                                        | How                                                                                           |
+| ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Project     | Workspace files, sandbox, Git repo, secrets             | `projectId` on every route/WS; `requireProjectAccess`                                         |
+| User        | Debugger control, terminal PTY attach, sessions         | Authenticated session; debug is `(projectId, userId)`                                         |
+| Process     | User code, language servers, debug adapters, npm/pytest | `docker exec` in the project container, non-root, cap-drop                                    |
+| Filesystem  | Paths under the project workspace                       | `safeResolve` + `assertInsideWorkspace`; `.git` blocked on the normalized and real path (M86) |
+| Environment | Secrets, Git PATs, backend env                          | Allowlisted container env; secrets not injected into LSP/debug/install                        |
 
 The browser never names an executable, container ID, cwd, or env for
 Run, Debug, LSP, Test, or Build.

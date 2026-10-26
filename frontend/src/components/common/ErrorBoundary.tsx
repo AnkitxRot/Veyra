@@ -10,10 +10,7 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   override state: ErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
@@ -21,11 +18,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   override componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error(
-      `[ErrorBoundary:${this.props.label}]`,
-      error,
-      info.componentStack,
-    );
+    console.error(`[ErrorBoundary:${this.props.label}]`, error, info.componentStack);
   }
 
   override render() {
@@ -78,11 +71,7 @@ export class ErrorBoundary extends React.Component<
           >
             {error.message || "An unexpected error occurred."}
           </div>
-          <button
-            type="button"
-            className="glass-btn"
-            onClick={() => window.location.reload()}
-          >
+          <button type="button" className="glass-btn" onClick={() => window.location.reload()}>
             Reload
           </button>
         </div>

@@ -19,9 +19,7 @@ describe("M72 UserAvatar", () => {
   });
 
   it("renders an <img> with a cache-busted src when avatarVersion > 0", () => {
-    render(
-      <UserAvatar userId={5} username="asha" size={32} avatarVersion={7} />,
-    );
+    render(<UserAvatar userId={5} username="asha" size={32} avatarVersion={7} />);
     const img = document.querySelector("img")!;
     expect(img).toBeTruthy();
     expect(img.getAttribute("src")).toBe("/api/auth/profile/5/avatar?v=7");
@@ -29,24 +27,12 @@ describe("M72 UserAvatar", () => {
   });
 
   it("uses the self route when `self` is set", () => {
-    render(
-      <UserAvatar
-        userId={5}
-        username="asha"
-        size={32}
-        avatarVersion={2}
-        self
-      />,
-    );
-    expect(document.querySelector("img")!.getAttribute("src")).toBe(
-      "/api/auth/profile/avatar?v=2",
-    );
+    render(<UserAvatar userId={5} username="asha" size={32} avatarVersion={2} self />);
+    expect(document.querySelector("img")!.getAttribute("src")).toBe("/api/auth/profile/avatar?v=2");
   });
 
   it("falls back to initials after the image fails to load", () => {
-    render(
-      <UserAvatar userId={9} username="kim" size={24} avatarVersion={1} />,
-    );
+    render(<UserAvatar userId={9} username="kim" size={24} avatarVersion={1} />);
     const img = document.querySelector("img")!;
     fireEvent.error(img);
     expect(document.querySelector("img")).toBeNull();

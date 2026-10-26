@@ -54,9 +54,7 @@ describe("ws server survives a malformed client frame", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -155,9 +153,7 @@ describe("admin ws server survives a malformed client frame", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -172,9 +168,7 @@ describe("admin ws server survives a malformed client frame", () => {
         username: "wsmalformedadmin",
         password: "AdminPass@123",
       }),
-    }).then(
-      (r) => r.json() as Promise<{ token: string; user: { id: number } }>,
-    );
+    }).then((r) => r.json() as Promise<{ token: string; user: { id: number } }>);
     adminToken = login.token;
     adminUserId = login.user.id;
   });
@@ -224,9 +218,7 @@ describe("admin ws server survives a malformed client frame", () => {
       expect(uncaught).toBeNull();
 
       // The /ws/admin branch's own error listener must have handled it.
-      const handled = errorSpy.mock.calls.some(
-        (call) => call[0] === "[ws] admin socket error:",
-      );
+      const handled = errorSpy.mock.calls.some((call) => call[0] === "[ws] admin socket error:");
       expect(handled).toBe(true);
 
       // The offending connection must be gone from the registry — it is

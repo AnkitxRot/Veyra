@@ -33,9 +33,7 @@ export function deleteExpiredSessions(db: Db): number {
 export function requireAuth(db: Db) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const header = req.headers.authorization ?? "";
-    let token = header.startsWith("Bearer ")
-      ? header.slice("Bearer ".length)
-      : null;
+    let token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
     if (!token && req.cookies && req.cookies.session_token) {
       token = req.cookies.session_token;
     }
@@ -94,9 +92,7 @@ export function requireAdmin(db: Db) {
     auth(req, res, (err) => {
       if (err) return next(err);
       if (req.user?.role !== "admin") {
-        return next(
-          new ApiError(403, "admin privileges required", "forbidden"),
-        );
+        return next(new ApiError(403, "admin privileges required", "forbidden"));
       }
       next();
     });
@@ -107,9 +103,11 @@ export function issueSession(db: Db, userId: number, ttlMs: number): string {
   const token = randomToken();
   const hashedToken = hashToken(token);
   const expiresAt = new Date(Date.now() + ttlMs).toISOString();
-  db.prepare(
-    "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-  ).run(hashedToken, userId, expiresAt);
+  db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(
+    hashedToken,
+    userId,
+    expiresAt,
+  );
   return token;
 }
 

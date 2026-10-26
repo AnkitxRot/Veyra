@@ -66,8 +66,7 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
     vi.unstubAllGlobals();
   });
 
-  const feed = (obj: Record<string, unknown>) =>
-    ws.onmessage?.({ data: customFrame(obj) });
+  const feed = (obj: Record<string, unknown>) => ws.onmessage?.({ data: customFrame(obj) });
 
   it("accumulates output chunks and emits run_output_change", () => {
     const changes: any[] = [];
@@ -157,7 +156,7 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
     feed(outputFrame());
     const decoded = ws.sent.map((u8) => {
       try {
-        const dec = (encoding as any); // decode manually
+        const dec = encoding as any; // decode manually
         void dec;
         return new TextDecoder().decode(u8);
       } catch {

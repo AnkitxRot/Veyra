@@ -27,14 +27,8 @@ export async function runWorkflowTask(opts: {
   onStatus?: (data: string) => void;
   onController?: (ctrl: SandboxController) => void;
   isCancelled?: () => boolean;
-}): Promise<
-  { ok: true; value: WorkflowRunResult } | { ok: false; error: string }
-> {
-  const resolved = await resolveWorkflowTask(
-    opts.workspaceDir,
-    opts.taskId,
-    opts.targetPath,
-  );
+}): Promise<{ ok: true; value: WorkflowRunResult } | { ok: false; error: string }> {
+  const resolved = await resolveWorkflowTask(opts.workspaceDir, opts.taskId, opts.targetPath);
   if (!resolved.ok) return resolved;
 
   const spec = resolved.value;
@@ -87,9 +81,7 @@ export async function runWorkflowTask(opts: {
   }
 
   const result: RunResult = {
-    type: sandbox.exitCode === 0 && !sandbox.timedOut && !sandbox.oom
-      ? "success"
-      : "compile_error",
+    type: sandbox.exitCode === 0 && !sandbox.timedOut && !sandbox.oom ? "success" : "compile_error",
     language: spec.task.origin === "pytest" ? "python" : "node",
     mainFile: spec.task.name,
     stdout: sandbox.stdout.slice(0, MAX_CAPTURE),

@@ -10,11 +10,7 @@ import {
 } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
-import {
-  createProject,
-  workspacePath,
-  addProjectCollaborator,
-} from "../src/projects/service.js";
+import { createProject, workspacePath, addProjectCollaborator } from "../src/projects/service.js";
 import * as git from "../src/git/service.js";
 import { collaborationManager } from "../src/collab/manager.js";
 
@@ -95,11 +91,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.initRepository(cfg, projectId, user);
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "init", user);
-    await fs.writeFile(
-      join(cwd, "a.py"),
-      "print('one')\nprint('extra')\n",
-      "utf8",
-    );
+    await fs.writeFile(join(cwd, "a.py"), "print('one')\nprint('extra')\n", "utf8");
     const diff = await git.getDiffStat(cfg, projectId, false);
     const a = diff.find((d) => d.path === "a.py")!;
     expect(a.additions).toBe(1);
@@ -112,11 +104,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.commit(cfg, projectId, "init", user);
     await fs.writeFile(join(cwd, "a.py"), "print('CHANGED')\n", "utf8");
     await git.stage(cfg, projectId, { paths: ["a.py"] });
-    await fs.writeFile(
-      join(cwd, "a.py"),
-      "print('CHANGED')\nprint('more')\n",
-      "utf8",
-    );
+    await fs.writeFile(join(cwd, "a.py"), "print('CHANGED')\nprint('more')\n", "utf8");
     const stagedDiff = await git.getDiffStat(cfg, projectId, true);
     const worktreeDiff = await git.getDiffStat(cfg, projectId, false);
     expect(stagedDiff.find((d) => d.path === "a.py")).toBeTruthy();
@@ -140,9 +128,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
   it("8. stage moves a file into the index", async () => {
     await git.initRepository(cfg, projectId, user);
     await git.stage(cfg, projectId, { paths: ["a.py"] });
-    expect(
-      (await git.getStatus(cfg, projectId)).staged.map((f) => f.path),
-    ).toEqual(["a.py"]);
+    expect((await git.getStatus(cfg, projectId)).staged.map((f) => f.path)).toEqual(["a.py"]);
   });
 
   it("9. unstage removes a file from the index", async () => {
@@ -168,27 +154,24 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
   it("11. empty commit message is rejected", async () => {
     await git.initRepository(cfg, projectId, user);
     await git.stage(cfg, projectId, { all: true });
-    await expect(git.commit(cfg, projectId, "   ", user)).rejects.toMatchObject(
-      {
-        code: "invalid_message",
-      },
-    );
+    await expect(git.commit(cfg, projectId, "   ", user)).rejects.toMatchObject({
+      code: "invalid_message",
+    });
   });
 
   it("12. nothing-to-commit is rejected", async () => {
     await git.initRepository(cfg, projectId, user);
-    await expect(
-      git.commit(cfg, projectId, "noop", user),
-    ).rejects.toMatchObject({ code: "nothing_to_commit" });
+    await expect(git.commit(cfg, projectId, "noop", user)).rejects.toMatchObject({
+      code: "nothing_to_commit",
+    });
   });
 
   it("13. commit authorship uses <username>@veyra.local", async () => {
     await git.initRepository(cfg, projectId, { username: "alice" });
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "by alice", { username: "alice" });
-    const out = (
-      await git.runGit(cfg, projectId, ["log", "-1", "--pretty=format:%an <%ae>"])
-    ).stdout;
+    const out = (await git.runGit(cfg, projectId, ["log", "-1", "--pretty=format:%an <%ae>"]))
+      .stdout;
     expect(out).toBe("alice <alice@veyra.local>");
   });
 
@@ -244,9 +227,9 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.initRepository(cfg, projectId, user);
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "init", user);
-    await expect(
-      git.deleteBranch(cfg, projectId, "main", false),
-    ).rejects.toMatchObject({ code: "cannot_delete_current" });
+    await expect(git.deleteBranch(cfg, projectId, "main", false)).rejects.toMatchObject({
+      code: "cannot_delete_current",
+    });
   });
 
   it("19b. unmerged branch delete needs force", async () => {
@@ -259,9 +242,9 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "diverge", user);
     await git.checkoutBranch(cfg, projectId, "main", []);
-    await expect(
-      git.deleteBranch(cfg, projectId, "unmerged", false),
-    ).rejects.toMatchObject({ code: "branch_not_merged" });
+    await expect(git.deleteBranch(cfg, projectId, "unmerged", false)).rejects.toMatchObject({
+      code: "branch_not_merged",
+    });
     const forced = await git.deleteBranch(cfg, projectId, "unmerged", true);
     expect(forced.forced).toBe(true);
   });
@@ -281,49 +264,49 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
       "a".repeat(300),
       "",
     ]) {
-      await expect(git.createBranch(cfg, projectId, bad)).rejects.toMatchObject(
-        { code: "invalid_branch_name" },
-      );
+      await expect(git.createBranch(cfg, projectId, bad)).rejects.toMatchObject({
+        code: "invalid_branch_name",
+      });
     }
   });
 
   it("21. option-like pathspecs are rejected", async () => {
     await git.initRepository(cfg, projectId, user);
     for (const bad of ["--all", "-f", "--git-dir=/tmp"]) {
-      await expect(
-        git.stage(cfg, projectId, { paths: [bad] }),
-      ).rejects.toMatchObject({ code: "invalid_path" });
+      await expect(git.stage(cfg, projectId, { paths: [bad] })).rejects.toMatchObject({
+        code: "invalid_path",
+      });
     }
   });
 
   it("22. path traversal is rejected", async () => {
     await git.initRepository(cfg, projectId, user);
     for (const bad of ["../secret", "a/../../b", "..\\..\\x"]) {
-      await expect(
-        git.stage(cfg, projectId, { paths: [bad] }),
-      ).rejects.toMatchObject({ code: "invalid_path" });
+      await expect(git.stage(cfg, projectId, { paths: [bad] })).rejects.toMatchObject({
+        code: "invalid_path",
+      });
     }
   });
 
   it("23. absolute paths are rejected", async () => {
     await git.initRepository(cfg, projectId, user);
     for (const bad of ["/etc/passwd", "C:\\Windows\\win.ini"]) {
-      await expect(
-        git.stage(cfg, projectId, { paths: [bad] }),
-      ).rejects.toMatchObject({ code: "invalid_path" });
+      await expect(git.stage(cfg, projectId, { paths: [bad] })).rejects.toMatchObject({
+        code: "invalid_path",
+      });
     }
   });
 
   it("24. .git internal paths are rejected", async () => {
     await git.initRepository(cfg, projectId, user);
     for (const bad of [".git/config", ".git/hooks/pre-commit", ".git"]) {
-      await expect(
-        git.stage(cfg, projectId, { paths: [bad] }),
-      ).rejects.toMatchObject({ code: "invalid_path" });
+      await expect(git.stage(cfg, projectId, { paths: [bad] })).rejects.toMatchObject({
+        code: "invalid_path",
+      });
     }
-    await expect(
-      git.getFileDiff(cfg, projectId, ".git/config", false),
-    ).rejects.toMatchObject({ code: "invalid_path" });
+    await expect(git.getFileDiff(cfg, projectId, ".git/config", false)).rejects.toMatchObject({
+      code: "invalid_path",
+    });
   });
 
   it("29. author identity cannot be supplied by the caller (only username)", async () => {
@@ -332,9 +315,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.initRepository(cfg, projectId, { username: "mallory" });
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "x", { username: "mallory" });
-    const email = (
-      await git.runGit(cfg, projectId, ["log", "-1", "--pretty=%ae"])
-    ).stdout.trim();
+    const email = (await git.runGit(cfg, projectId, ["log", "-1", "--pretty=%ae"])).stdout.trim();
     expect(email).toBe("mallory@veyra.local");
   });
 
@@ -380,9 +361,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     if (res.ok === false) expect(res.blockingPaths).toContain("a.py");
     // still on main, file untouched
     expect((await git.getCurrentBranch(cfg, projectId)).branch).toBe("main");
-    expect(await fs.readFile(join(cwd, "a.py"), "utf8")).toBe(
-      "print('UNCOMMITTED')\n",
-    );
+    expect(await fs.readFile(join(cwd, "a.py"), "utf8")).toBe("print('UNCOMMITTED')\n");
   });
 
   it("34. checkout reports changedPaths for clean reconciliation", async () => {
@@ -431,8 +410,7 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
     await git.initRepository(cfg, projectId, user);
     await git.stage(cfg, projectId, { all: true });
     await git.commit(cfg, projectId, "init", user);
-    const { withProjectSnapshotLock } =
-      await import("../src/projects/snapshots.js");
+    const { withProjectSnapshotLock } = await import("../src/projects/snapshots.js");
     await Promise.all(
       Array.from({ length: 8 }, (_, i) =>
         withProjectSnapshotLock(projectId, async () => {
@@ -449,407 +427,366 @@ describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: service engine", () => {
   });
 });
 
-describe.skipIf(!HAS_GIT)(
-  "Milestone 51 — Local Git: HTTP API + authorization",
-  () => {
-    let cfg: AppConfig;
-    let api: TestApi;
-    let db: Db;
-    let ownerToken: string;
-    let editorToken: string;
-    let viewerToken: string;
-    let outsiderToken: string;
-    let projectId: string;
-    let cwd: string;
+describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: HTTP API + authorization", () => {
+  let cfg: AppConfig;
+  let api: TestApi;
+  let db: Db;
+  let ownerToken: string;
+  let editorToken: string;
+  let viewerToken: string;
+  let outsiderToken: string;
+  let projectId: string;
+  let cwd: string;
 
-    beforeEach(async () => {
-      cfg = makeTestConfig();
-      api = await startTestApi(cfg);
-      db = api.db;
-      const mk = async (u: string) =>
-        (
-          await api.request("POST", "/api/auth/register", {
-            body: { username: u, password: "password123" },
-          })
-        ).data;
-      const owner = await mk("gitowner");
-      const editor = await mk("giteditor");
-      const viewer = await mk("gitviewer");
-      const outsider = await mk("gitoutsider");
-      ownerToken = owner.token;
-      editorToken = editor.token;
-      viewerToken = viewer.token;
-      outsiderToken = outsider.token;
-      const proj = await createProject(cfg, db, owner.user.id, {
-        name: "git-http",
-        language: "python",
-      });
-      projectId = proj.id;
-      cwd = await workspacePath(cfg, projectId);
-      addProjectCollaborator(db, projectId, editor.user.id, "editor");
-      addProjectCollaborator(db, projectId, viewer.user.id, "viewer");
-      await fs.writeFile(join(cwd, "main.py"), "print('hi')\n", "utf8");
-    });
-
-    afterEach(async () => {
-      await stopProjectSandboxesForTest(db);
-      await api.close();
-      try {
-        await fs.rm(cfg.dataDir, { recursive: true, force: true });
-      } catch {}
-    });
-
-    const g = (p: string) => `/api/projects/${projectId}/git${p}`;
-
-    it("25. viewer can read status; 26. viewer cannot write", async () => {
-      await api.request("POST", g("/init"), { token: ownerToken });
-      const st = await api.request("GET", g("/status"), { token: viewerToken });
-      expect(st.status).toBe(200);
-      expect(st.data.initialized).toBe(true);
-
-      const stage = await api.request("POST", g("/stage"), {
-        token: viewerToken,
-        body: { all: true },
-      });
-      expect(stage.status).toBe(403);
-      const commit = await api.request("POST", g("/commit"), {
-        token: viewerToken,
-        body: { message: "x" },
-      });
-      expect(commit.status).toBe(403);
-      const init = await api.request("POST", g("/init"), {
-        token: viewerToken,
-      });
-      expect(init.status).toBe(403);
-    });
-
-    it("27. editor can read and write", async () => {
-      const init = await api.request("POST", g("/init"), {
-        token: editorToken,
-      });
-      expect(init.status).toBe(200);
-      const stage = await api.request("POST", g("/stage"), {
-        token: editorToken,
-        body: { all: true },
-      });
-      expect(stage.status).toBe(200);
-      const commit = await api.request("POST", g("/commit"), {
-        token: editorToken,
-        body: { message: "editor commit" },
-      });
-      expect(commit.status).toBe(200);
-      expect(commit.data.shortHash).toBeTruthy();
-    });
-
-    it("28. non-collaborator gets an IDOR-safe 404 (never 403)", async () => {
-      for (const path of ["/status", "/branches", "/log"] as const) {
-        const r = await api.request("GET", g(path), { token: outsiderToken });
-        expect(r.status).toBe(404);
-      }
-      const w = await api.request("POST", g("/init"), { token: outsiderToken });
-      expect(w.status).toBe(404);
-      const anon = await api.request("GET", g("/status"));
-      expect(anon.status).toBe(401);
-    });
-
-    it("commit author = the AUTHENTICATED user, not whoever ran init", async () => {
-      await api.request("POST", g("/init"), { token: ownerToken });
-      await api.request("POST", g("/stage"), {
-        token: editorToken,
-        body: { all: true },
-      });
-      await api.request("POST", g("/commit"), {
-        token: editorToken,
-        body: { message: "by the editor" },
-      });
-      const email = (
-        await git.runGit(cfg, projectId, ["log", "-1", "--pretty=%ae"])
-      ).stdout.trim();
-      expect(email).toBe("giteditor@veyra.local");
-    });
-
-    it("records GIT_INIT / GIT_COMMIT / GIT_CHECKOUT audit events", async () => {
-      await api.request("POST", g("/init"), { token: ownerToken });
-      await api.request("POST", g("/stage"), {
-        token: ownerToken,
-        body: { all: true },
-      });
-      await api.request("POST", g("/commit"), {
-        token: ownerToken,
-        body: { message: "audited" },
-      });
-      await api.request("POST", g("/branches"), {
-        token: ownerToken,
-        body: { name: "b1" },
-      });
-      await api.request("POST", g("/checkout"), {
-        token: ownerToken,
-        body: { name: "b1" },
-      });
-      const types = (
-        db
-          .prepare(
-            "SELECT event_type FROM audit_logs WHERE project_id = ? ORDER BY id",
-          )
-          .all(projectId) as Array<{ event_type: string }>
-      ).map((r) => r.event_type);
-      expect(types).toEqual(
-        expect.arrayContaining([
-          "GIT_INIT",
-          "GIT_COMMIT",
-          "GIT_BRANCH_CREATED",
-          "GIT_CHECKOUT",
-        ]),
-      );
-    });
-
-    it("checkout conflict returns 409 with blockingPaths and does not switch", async () => {
-      await api.request("POST", g("/init"), { token: ownerToken });
-      await api.request("POST", g("/stage"), {
-        token: ownerToken,
-        body: { all: true },
-      });
-      await api.request("POST", g("/commit"), {
-        token: ownerToken,
-        body: { message: "init" },
-      });
-      await api.request("POST", g("/branches"), {
-        token: ownerToken,
-        body: { name: "feat" },
-      });
-      await api.request("POST", g("/checkout"), {
-        token: ownerToken,
-        body: { name: "feat" },
-      });
-      await fs.writeFile(join(cwd, "main.py"), "print('feat')\n", "utf8");
-      await api.request("POST", g("/stage"), {
-        token: ownerToken,
-        body: { all: true },
-      });
-      await api.request("POST", g("/commit"), {
-        token: ownerToken,
-        body: { message: "feat edit" },
-      });
-      await api.request("POST", g("/checkout"), {
-        token: ownerToken,
-        body: { name: "main" },
-      });
-      await fs.writeFile(join(cwd, "main.py"), "print('dirty')\n", "utf8");
-      const r = await api.request("POST", g("/checkout"), {
-        token: ownerToken,
-        body: { name: "feat", dirtyOpenPaths: ["main.py"] },
-      });
-      expect(r.status).toBe(409);
-      expect(r.data.blockingPaths).toContain("main.py");
-      expect(await fs.readFile(join(cwd, "main.py"), "utf8")).toBe(
-        "print('dirty')\n",
-      );
-    });
-
-    it("checkout reports conflictedPaths for a file held at a live collaborator's unsaved version; the branch switch still stands", async () => {
-      await api.request("POST", g("/init"), { token: ownerToken });
-      await api.request("POST", g("/stage"), {
-        token: ownerToken,
-        body: { all: true },
-      });
-      await api.request("POST", g("/commit"), {
-        token: ownerToken,
-        body: { message: "init" },
-      });
-      await api.request("POST", g("/branches"), {
-        token: ownerToken,
-        body: { name: "feat" },
-      });
-      await api.request("POST", g("/checkout"), {
-        token: ownerToken,
-        body: { name: "feat" },
-      });
-      await fs.writeFile(join(cwd, "main.py"), "print('feat')\n", "utf8");
-      await api.request("POST", g("/stage"), {
-        token: ownerToken,
-        body: { all: true },
-      });
-      await api.request("POST", g("/commit"), {
-        token: ownerToken,
-        body: { message: "feat edit" },
-      });
-      await api.request("POST", g("/checkout"), {
-        token: ownerToken,
-        body: { name: "main" },
-      });
-
-      // A live collaborator has an unsaved edit in main.py (Y.Doc only).
-      const room = collaborationManager.getOrCreateRoom(projectId);
-      // Keep the edit in the room only: sandbox Git can take longer than
-      // the 2s persistence debounce, which would otherwise write it to disk.
+  beforeEach(async () => {
+    cfg = makeTestConfig();
+    api = await startTestApi(cfg);
+    db = api.db;
+    const mk = async (u: string) =>
       (
-        room as unknown as { scheduleDebouncedPersistence: () => void }
-      ).scheduleDebouncedPersistence = () => {};
-      const yText = await room.ensureFileLoaded("main.py");
-      room.doc.transact(() => {
-        yText.insert(yText.length, "# collab unsaved\n");
+        await api.request("POST", "/api/auth/register", {
+          body: { username: u, password: "password123" },
+        })
+      ).data;
+    const owner = await mk("gitowner");
+    const editor = await mk("giteditor");
+    const viewer = await mk("gitviewer");
+    const outsider = await mk("gitoutsider");
+    ownerToken = owner.token;
+    editorToken = editor.token;
+    viewerToken = viewer.token;
+    outsiderToken = outsider.token;
+    const proj = await createProject(cfg, db, owner.user.id, {
+      name: "git-http",
+      language: "python",
+    });
+    projectId = proj.id;
+    cwd = await workspacePath(cfg, projectId);
+    addProjectCollaborator(db, projectId, editor.user.id, "editor");
+    addProjectCollaborator(db, projectId, viewer.user.id, "viewer");
+    await fs.writeFile(join(cwd, "main.py"), "print('hi')\n", "utf8");
+  });
+
+  afterEach(async () => {
+    await stopProjectSandboxesForTest(db);
+    await api.close();
+    try {
+      await fs.rm(cfg.dataDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  const g = (p: string) => `/api/projects/${projectId}/git${p}`;
+
+  it("25. viewer can read status; 26. viewer cannot write", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    const st = await api.request("GET", g("/status"), { token: viewerToken });
+    expect(st.status).toBe(200);
+    expect(st.data.initialized).toBe(true);
+
+    const stage = await api.request("POST", g("/stage"), {
+      token: viewerToken,
+      body: { all: true },
+    });
+    expect(stage.status).toBe(403);
+    const commit = await api.request("POST", g("/commit"), {
+      token: viewerToken,
+      body: { message: "x" },
+    });
+    expect(commit.status).toBe(403);
+    const init = await api.request("POST", g("/init"), {
+      token: viewerToken,
+    });
+    expect(init.status).toBe(403);
+  });
+
+  it("27. editor can read and write", async () => {
+    const init = await api.request("POST", g("/init"), {
+      token: editorToken,
+    });
+    expect(init.status).toBe(200);
+    const stage = await api.request("POST", g("/stage"), {
+      token: editorToken,
+      body: { all: true },
+    });
+    expect(stage.status).toBe(200);
+    const commit = await api.request("POST", g("/commit"), {
+      token: editorToken,
+      body: { message: "editor commit" },
+    });
+    expect(commit.status).toBe(200);
+    expect(commit.data.shortHash).toBeTruthy();
+  });
+
+  it("28. non-collaborator gets an IDOR-safe 404 (never 403)", async () => {
+    for (const path of ["/status", "/branches", "/log"] as const) {
+      const r = await api.request("GET", g(path), { token: outsiderToken });
+      expect(r.status).toBe(404);
+    }
+    const w = await api.request("POST", g("/init"), { token: outsiderToken });
+    expect(w.status).toBe(404);
+    const anon = await api.request("GET", g("/status"));
+    expect(anon.status).toBe(401);
+  });
+
+  it("commit author = the AUTHENTICATED user, not whoever ran init", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    await api.request("POST", g("/stage"), {
+      token: editorToken,
+      body: { all: true },
+    });
+    await api.request("POST", g("/commit"), {
+      token: editorToken,
+      body: { message: "by the editor" },
+    });
+    const email = (await git.runGit(cfg, projectId, ["log", "-1", "--pretty=%ae"])).stdout.trim();
+    expect(email).toBe("giteditor@veyra.local");
+  });
+
+  it("records GIT_INIT / GIT_COMMIT / GIT_CHECKOUT audit events", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    await api.request("POST", g("/stage"), {
+      token: ownerToken,
+      body: { all: true },
+    });
+    await api.request("POST", g("/commit"), {
+      token: ownerToken,
+      body: { message: "audited" },
+    });
+    await api.request("POST", g("/branches"), {
+      token: ownerToken,
+      body: { name: "b1" },
+    });
+    await api.request("POST", g("/checkout"), {
+      token: ownerToken,
+      body: { name: "b1" },
+    });
+    const types = (
+      db
+        .prepare("SELECT event_type FROM audit_logs WHERE project_id = ? ORDER BY id")
+        .all(projectId) as Array<{ event_type: string }>
+    ).map((r) => r.event_type);
+    expect(types).toEqual(
+      expect.arrayContaining(["GIT_INIT", "GIT_COMMIT", "GIT_BRANCH_CREATED", "GIT_CHECKOUT"]),
+    );
+  });
+
+  it("checkout conflict returns 409 with blockingPaths and does not switch", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    await api.request("POST", g("/stage"), {
+      token: ownerToken,
+      body: { all: true },
+    });
+    await api.request("POST", g("/commit"), {
+      token: ownerToken,
+      body: { message: "init" },
+    });
+    await api.request("POST", g("/branches"), {
+      token: ownerToken,
+      body: { name: "feat" },
+    });
+    await api.request("POST", g("/checkout"), {
+      token: ownerToken,
+      body: { name: "feat" },
+    });
+    await fs.writeFile(join(cwd, "main.py"), "print('feat')\n", "utf8");
+    await api.request("POST", g("/stage"), {
+      token: ownerToken,
+      body: { all: true },
+    });
+    await api.request("POST", g("/commit"), {
+      token: ownerToken,
+      body: { message: "feat edit" },
+    });
+    await api.request("POST", g("/checkout"), {
+      token: ownerToken,
+      body: { name: "main" },
+    });
+    await fs.writeFile(join(cwd, "main.py"), "print('dirty')\n", "utf8");
+    const r = await api.request("POST", g("/checkout"), {
+      token: ownerToken,
+      body: { name: "feat", dirtyOpenPaths: ["main.py"] },
+    });
+    expect(r.status).toBe(409);
+    expect(r.data.blockingPaths).toContain("main.py");
+    expect(await fs.readFile(join(cwd, "main.py"), "utf8")).toBe("print('dirty')\n");
+  });
+
+  it("checkout reports conflictedPaths for a file held at a live collaborator's unsaved version; the branch switch still stands", async () => {
+    await api.request("POST", g("/init"), { token: ownerToken });
+    await api.request("POST", g("/stage"), {
+      token: ownerToken,
+      body: { all: true },
+    });
+    await api.request("POST", g("/commit"), {
+      token: ownerToken,
+      body: { message: "init" },
+    });
+    await api.request("POST", g("/branches"), {
+      token: ownerToken,
+      body: { name: "feat" },
+    });
+    await api.request("POST", g("/checkout"), {
+      token: ownerToken,
+      body: { name: "feat" },
+    });
+    await fs.writeFile(join(cwd, "main.py"), "print('feat')\n", "utf8");
+    await api.request("POST", g("/stage"), {
+      token: ownerToken,
+      body: { all: true },
+    });
+    await api.request("POST", g("/commit"), {
+      token: ownerToken,
+      body: { message: "feat edit" },
+    });
+    await api.request("POST", g("/checkout"), {
+      token: ownerToken,
+      body: { name: "main" },
+    });
+
+    // A live collaborator has an unsaved edit in main.py (Y.Doc only).
+    const room = collaborationManager.getOrCreateRoom(projectId);
+    // Keep the edit in the room only: sandbox Git can take longer than
+    // the 2s persistence debounce, which would otherwise write it to disk.
+    (room as unknown as { scheduleDebouncedPersistence: () => void }).scheduleDebouncedPersistence =
+      () => {};
+    const yText = await room.ensureFileLoaded("main.py");
+    room.doc.transact(() => {
+      yText.insert(yText.length, "# collab unsaved\n");
+    });
+
+    try {
+      const res = await api.request("POST", g("/checkout"), {
+        token: ownerToken,
+        body: { name: "feat" },
       });
 
-      try {
-        const res = await api.request("POST", g("/checkout"), {
-          token: ownerToken,
-          body: { name: "feat" },
-        });
-
-        expect(res.status).toBe(200);
-        // The branch switch is real, not rolled back...
-        expect(res.data.branch).toBe("feat");
-        expect(res.data.changedPaths).toContain("main.py");
-        // ...but the conflict is reported, not swallowed.
-        expect(res.data.conflictedPaths).toEqual(["main.py"]);
-        // The collaborator's unsaved edit is intact.
-        expect(yText.toString()).toBe("print('hi')\n# collab unsaved\n");
-      } finally {
-        room.dispose();
-      }
-    });
-  },
-);
-
-describe.skipIf(!HAS_GIT)(
-  "Milestone 51 — Local Git: .git portability (local-only)",
-  () => {
-    let cfg: AppConfig;
-    let api: TestApi;
-    let db: Db;
-    let ownerId: number;
-    let ownerToken: string;
-    let projectId: string;
-    let cwd: string;
-    const user = { username: "portuser" };
-
-    beforeEach(async () => {
-      cfg = makeTestConfig();
-      api = await startTestApi(cfg);
-      db = api.db;
-      const reg = await api.request("POST", "/api/auth/register", {
-        body: { username: "portuser", password: "password123" },
-      });
-      ownerId = reg.data.user.id;
-      ownerToken = reg.data.token;
-      const proj = await createProject(cfg, db, ownerId, {
-        name: "port-src",
-        language: "python",
-      });
-      projectId = proj.id;
-      cwd = await workspacePath(cfg, projectId);
-      await fs.writeFile(join(cwd, "keep.py"), "print('keep')\n", "utf8");
-      await git.initRepository(cfg, projectId, user);
-      await git.stage(cfg, projectId, { all: true });
-      await git.commit(cfg, projectId, "history that must not travel", user);
-    });
-
-    afterEach(async () => {
-      await stopProjectSandboxesForTest(db);
-      await api.close();
-      try {
-        await fs.rm(cfg.dataDir, { recursive: true, force: true });
-      } catch {}
-    });
-
-    it("36. fork creates a project with NO inherited .git history", async () => {
-      const { forkProject } = await import("../src/projects/fork.js");
-      const { project: forked } = await forkProject(
-        cfg,
-        db,
-        ownerId,
-        projectId,
-      );
-      const forkedCwd = await workspacePath(cfg, forked.id);
-      let hasGit = true;
-      try {
-        await fs.access(join(forkedCwd, ".git"));
-      } catch {
-        hasGit = false;
-      }
-      expect(hasGit).toBe(false);
-      expect(await fs.readFile(join(forkedCwd, "keep.py"), "utf8")).toBe(
-        "print('keep')\n",
-      );
-    });
-
-    it("37. ZIP export excludes .git", async () => {
-      const res = await api.request(
-        "GET",
-        `/api/projects/${projectId}/export`,
-        {
-          token: ownerToken,
-        },
-      );
       expect(res.status).toBe(200);
-      // PKZIP central-directory filenames are stored as plain bytes; a `.git/`
-      // entry would show up literally in the archive bytes.
-      expect(res.text.includes(".git/")).toBe(false);
-      expect(res.text.includes("keep.py")).toBe(true);
+      // The branch switch is real, not rolled back...
+      expect(res.data.branch).toBe("feat");
+      expect(res.data.changedPaths).toContain("main.py");
+      // ...but the conflict is reported, not swallowed.
+      expect(res.data.conflictedPaths).toEqual(["main.py"]);
+      // The collaborator's unsaved edit is intact.
+      expect(yText.toString()).toBe("print('hi')\n# collab unsaved\n");
+    } finally {
+      room.dispose();
+    }
+  });
+});
+
+describe.skipIf(!HAS_GIT)("Milestone 51 — Local Git: .git portability (local-only)", () => {
+  let cfg: AppConfig;
+  let api: TestApi;
+  let db: Db;
+  let ownerId: number;
+  let ownerToken: string;
+  let projectId: string;
+  let cwd: string;
+  const user = { username: "portuser" };
+
+  beforeEach(async () => {
+    cfg = makeTestConfig();
+    api = await startTestApi(cfg);
+    db = api.db;
+    const reg = await api.request("POST", "/api/auth/register", {
+      body: { username: "portuser", password: "password123" },
     });
-
-    it("38. workspace backup archive excludes .git", async () => {
-      const { createWorkspaceBackup, listWorkspaceBackups } =
-        await import("../src/backup/workspaceBackup.js");
-      await createWorkspaceBackup(cfg, db, projectId);
-      const [backup] = await listWorkspaceBackups(cfg, projectId);
-      const buf = await fs.readFile(backup!.filePath);
-      expect(buf.includes(Buffer.from("workspace/.git/"))).toBe(false);
-      expect(buf.includes(Buffer.from("keep.py"))).toBe(true);
+    ownerId = reg.data.user.id;
+    ownerToken = reg.data.token;
+    const proj = await createProject(cfg, db, ownerId, {
+      name: "port-src",
+      language: "python",
     });
+    projectId = proj.id;
+    cwd = await workspacePath(cfg, projectId);
+    await fs.writeFile(join(cwd, "keep.py"), "print('keep')\n", "utf8");
+    await git.initRepository(cfg, projectId, user);
+    await git.stage(cfg, projectId, { all: true });
+    await git.commit(cfg, projectId, "history that must not travel", user);
+  });
 
-    it("35. snapshot restore PRESERVES .git, its history and branches", async () => {
-      const { createSnapshot, restoreSnapshot, listSnapshots } =
-        await import("../src/projects/snapshots.js");
-      await git.createBranch(cfg, projectId, "feature/keep-me");
-      const snap = await createSnapshot(
-        cfg,
-        db,
-        ownerId,
-        projectId,
-        "before change",
-      );
-      // Mutate ordinary files, add a new commit, then restore the snapshot.
-      await fs.writeFile(join(cwd, "keep.py"), "print('changed')\n", "utf8");
-      await fs.writeFile(join(cwd, "extra.py"), "x\n", "utf8");
-      await git.stage(cfg, projectId, { all: true });
-      await git.commit(cfg, projectId, "post-snapshot commit", user);
+  afterEach(async () => {
+    await stopProjectSandboxesForTest(db);
+    await api.close();
+    try {
+      await fs.rm(cfg.dataDir, { recursive: true, force: true });
+    } catch {}
+  });
 
-      await restoreSnapshot(cfg, db, ownerId, projectId, snap.id);
+  it("36. fork creates a project with NO inherited .git history", async () => {
+    const { forkProject } = await import("../src/projects/fork.js");
+    const { project: forked } = await forkProject(cfg, db, ownerId, projectId);
+    const forkedCwd = await workspacePath(cfg, forked.id);
+    let hasGit = true;
+    try {
+      await fs.access(join(forkedCwd, ".git"));
+    } catch {
+      hasGit = false;
+    }
+    expect(hasGit).toBe(false);
+    expect(await fs.readFile(join(forkedCwd, "keep.py"), "utf8")).toBe("print('keep')\n");
+  });
 
-      // Ordinary files rolled back...
-      expect(await fs.readFile(join(cwd, "keep.py"), "utf8")).toBe(
-        "print('keep')\n",
-      );
-      // ...but .git is intact: repo still exists, history + the new commit
-      // + the branch all survive (snapshots never captured .git).
-      expect(await git.isRepository(cfg, projectId)).toBe(true);
-      const log = await git.getLog(cfg, projectId, 10);
-      expect(log.map((c) => c.subject)).toContain("post-snapshot commit");
-      const { branches } = await git.listBranches(cfg, projectId);
-      expect(branches.map((b) => b.name)).toContain("feature/keep-me");
-      void listSnapshots;
+  it("37. ZIP export excludes .git", async () => {
+    const res = await api.request("GET", `/api/projects/${projectId}/export`, {
+      token: ownerToken,
     });
+    expect(res.status).toBe(200);
+    // PKZIP central-directory filenames are stored as plain bytes; a `.git/`
+    // entry would show up literally in the archive bytes.
+    expect(res.text.includes(".git/")).toBe(false);
+    expect(res.text.includes("keep.py")).toBe(true);
+  });
 
-    it("the by-path file API refuses .git internals (read/write/delete/move)", async () => {
-      const {
-        readProjectFile,
-        writeProjectFile,
-        deleteProjectPath,
-        moveProjectPath,
-      } = await import("../src/files/service.js");
-      await expect(readProjectFile(cwd, ".git/config")).rejects.toMatchObject({
-        code: "invalid_path",
-      });
-      await expect(
-        writeProjectFile(cwd, ".git/hooks/pre-commit", "#!/bin/sh\n"),
-      ).rejects.toMatchObject({ code: "invalid_path" });
-      await expect(deleteProjectPath(cwd, ".git")).rejects.toMatchObject({
-        code: "invalid_path",
-      });
-      await expect(
-        moveProjectPath(cwd, ".git/config", "stolen.txt"),
-      ).rejects.toMatchObject({ code: "invalid_path" });
+  it("38. workspace backup archive excludes .git", async () => {
+    const { createWorkspaceBackup, listWorkspaceBackups } =
+      await import("../src/backup/workspaceBackup.js");
+    await createWorkspaceBackup(cfg, db, projectId);
+    const [backup] = await listWorkspaceBackups(cfg, projectId);
+    const buf = await fs.readFile(backup!.filePath);
+    expect(buf.includes(Buffer.from("workspace/.git/"))).toBe(false);
+    expect(buf.includes(Buffer.from("keep.py"))).toBe(true);
+  });
+
+  it("35. snapshot restore PRESERVES .git, its history and branches", async () => {
+    const { createSnapshot, restoreSnapshot, listSnapshots } =
+      await import("../src/projects/snapshots.js");
+    await git.createBranch(cfg, projectId, "feature/keep-me");
+    const snap = await createSnapshot(cfg, db, ownerId, projectId, "before change");
+    // Mutate ordinary files, add a new commit, then restore the snapshot.
+    await fs.writeFile(join(cwd, "keep.py"), "print('changed')\n", "utf8");
+    await fs.writeFile(join(cwd, "extra.py"), "x\n", "utf8");
+    await git.stage(cfg, projectId, { all: true });
+    await git.commit(cfg, projectId, "post-snapshot commit", user);
+
+    await restoreSnapshot(cfg, db, ownerId, projectId, snap.id);
+
+    // Ordinary files rolled back...
+    expect(await fs.readFile(join(cwd, "keep.py"), "utf8")).toBe("print('keep')\n");
+    // ...but .git is intact: repo still exists, history + the new commit
+    // + the branch all survive (snapshots never captured .git).
+    expect(await git.isRepository(cfg, projectId)).toBe(true);
+    const log = await git.getLog(cfg, projectId, 10);
+    expect(log.map((c) => c.subject)).toContain("post-snapshot commit");
+    const { branches } = await git.listBranches(cfg, projectId);
+    expect(branches.map((b) => b.name)).toContain("feature/keep-me");
+    void listSnapshots;
+  });
+
+  it("the by-path file API refuses .git internals (read/write/delete/move)", async () => {
+    const { readProjectFile, writeProjectFile, deleteProjectPath, moveProjectPath } =
+      await import("../src/files/service.js");
+    await expect(readProjectFile(cwd, ".git/config")).rejects.toMatchObject({
+      code: "invalid_path",
     });
-  },
-);
+    await expect(
+      writeProjectFile(cwd, ".git/hooks/pre-commit", "#!/bin/sh\n"),
+    ).rejects.toMatchObject({ code: "invalid_path" });
+    await expect(deleteProjectPath(cwd, ".git")).rejects.toMatchObject({
+      code: "invalid_path",
+    });
+    await expect(moveProjectPath(cwd, ".git/config", "stolen.txt")).rejects.toMatchObject({
+      code: "invalid_path",
+    });
+  });
+});

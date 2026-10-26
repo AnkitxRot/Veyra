@@ -6,10 +6,10 @@
 ## Concurrency Scaling
 
 | Concurrency | Wall Time (ms) | p50 Latency (ms) | p95 Latency (ms) | Max Latency (ms) |
-|---|---|---|---|---|
-| 10 callers | 15.0 ms | 14.6 ms | 14.7 ms | 14.7 ms |
-| 50 callers | 54.4 ms | 54.1 ms | 54.2 ms | 54.2 ms |
-| 100 callers | 109.9 ms | 109.5 ms | 109.6 ms | 109.6 ms |
+| ----------- | -------------- | ---------------- | ---------------- | ---------------- |
+| 10 callers  | 15.0 ms        | 14.6 ms          | 14.7 ms          | 14.7 ms          |
+| 50 callers  | 54.4 ms        | 54.1 ms          | 54.2 ms          | 54.2 ms          |
+| 100 callers | 109.9 ms       | 109.5 ms         | 109.6 ms         | 109.6 ms         |
 
 ## Findings & Root Cause
 

@@ -131,19 +131,13 @@ describe("projects and files", () => {
       token,
       body: { path: "main.py", content: 'print("hi")\n' },
     });
-    const got = await api.request(
-      "GET",
-      `/api/projects/${projectId}/file?path=main.py`,
-      { token },
-    );
+    const got = await api.request("GET", `/api/projects/${projectId}/file?path=main.py`, { token });
     expect(got.status).toBe(200);
     expect(got.data.content).toBe('print("hi")\n');
     const tree = await api.request("GET", `/api/projects/${projectId}/tree`, {
       token,
     });
-    expect(
-      tree.data.tree.some((n: { path: string }) => n.path === "main.py"),
-    ).toBe(true);
+    expect(tree.data.tree.some((n: { path: string }) => n.path === "main.py")).toBe(true);
   });
 
   it("moves files", async () => {
@@ -151,11 +145,9 @@ describe("projects and files", () => {
       token,
       body: { from: "main.py", to: "src/main.py" },
     });
-    const got = await api.request(
-      "GET",
-      `/api/projects/${projectId}/file?path=src/main.py`,
-      { token },
-    );
+    const got = await api.request("GET", `/api/projects/${projectId}/file?path=src/main.py`, {
+      token,
+    });
     expect(got.data.content).toBe('print("hi")\n');
   });
 
@@ -164,11 +156,9 @@ describe("projects and files", () => {
       token,
       body: { path: "src/main.py" },
     });
-    const got = await api.request(
-      "GET",
-      `/api/projects/${projectId}/file?path=src/main.py`,
-      { token },
-    );
+    const got = await api.request("GET", `/api/projects/${projectId}/file?path=src/main.py`, {
+      token,
+    });
     expect(got.status).toBe(404);
   });
 
@@ -260,19 +250,11 @@ describe("projects and files", () => {
       expect(res.data.error.code).toBe("collab_external_conflict");
 
       // The collaborator's unflushed line is untouched...
-      expect(yText.toString()).toBe(
-        'console.log("v1")\nconsole.log("collab unsaved")\n',
-      );
+      expect(yText.toString()).toBe('console.log("v1")\nconsole.log("collab unsaved")\n');
       // ...and disk reconverges to the live content, not the stale save.
       await room.flushToDisk();
-      const got = await api.request(
-        "GET",
-        `/api/projects/${pid}/file?path=app.js`,
-        { token },
-      );
-      expect(got.data.content).toBe(
-        'console.log("v1")\nconsole.log("collab unsaved")\n',
-      );
+      const got = await api.request("GET", `/api/projects/${pid}/file?path=app.js`, { token });
+      expect(got.data.content).toBe('console.log("v1")\nconsole.log("collab unsaved")\n');
     } finally {
       room.dispose();
     }
@@ -302,38 +284,25 @@ describe("path traversal protection", () => {
 
   // Skip symlink tests on Windows — symlinks require elevated privileges
   it.skipIf(IS_WINDOWS)("rejects symlink escapes", async () => {
-    const secret = join(
-      tmpdir(),
-      `cloudide-secret-${Math.random().toString(36).slice(2)}.txt`,
-    );
+    const secret = join(tmpdir(), `cloudide-secret-${Math.random().toString(36).slice(2)}.txt`);
     writeFileSync(secret, "SECRET");
     const ws = join(cfg.workspacesDir, projectId);
     symlinkSync(secret, join(ws, "link.txt"));
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/file?path=link.txt`,
-      { token },
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/file?path=link.txt`, { token });
     expect(r.status).toBe(400);
   });
 
-  it.skipIf(IS_WINDOWS)(
-    "rejects write through a symlinked directory",
-    async () => {
-      const outside = join(
-        tmpdir(),
-        `cloudide-out-${Math.random().toString(36).slice(2)}`,
-      );
-      mkdirSync(outside, { recursive: true });
-      const ws = join(cfg.workspacesDir, projectId);
-      symlinkSync(outside, join(ws, "linkdir"));
-      const r = await api.request("POST", `/api/projects/${projectId}/file`, {
-        token,
-        body: { path: "linkdir/x.txt", content: "evil" },
-      });
-      expect(r.status).toBe(400);
-    },
-  );
+  it.skipIf(IS_WINDOWS)("rejects write through a symlinked directory", async () => {
+    const outside = join(tmpdir(), `cloudide-out-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(outside, { recursive: true });
+    const ws = join(cfg.workspacesDir, projectId);
+    symlinkSync(outside, join(ws, "linkdir"));
+    const r = await api.request("POST", `/api/projects/${projectId}/file`, {
+      token,
+      body: { path: "linkdir/x.txt", content: "evil" },
+    });
+    expect(r.status).toBe(400);
+  });
 });
 
 describe.skipIf(!isDockerRunning())("execution via API", () => {
@@ -524,45 +493,32 @@ describe("Preview server detection (no Docker required)", () => {
   });
 
   it("requires authentication", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${detOwnProjectId}/preview/ports`,
-    );
+    const r = await api.request("GET", `/api/projects/${detOwnProjectId}/preview/ports`);
     expect(r.status).toBe(401);
   });
 
   it("is owner-only: a non-owner gets an IDOR-safe 404, never a port list", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${detOwnProjectId}/preview/ports`,
-      { token: detOtherToken },
-    );
+    const r = await api.request("GET", `/api/projects/${detOwnProjectId}/preview/ports`, {
+      token: detOtherToken,
+    });
     expect(r.status).toBe(404);
     expect(r.data.ports).toBeUndefined();
   });
 
   it("project A's owner cannot detect project B's preview via A's endpoint (and vice versa)", async () => {
-    const own = await api.request(
-      "GET",
-      `/api/projects/${detOwnProjectId}/preview/ports`,
-      { token },
-    );
+    const own = await api.request("GET", `/api/projects/${detOwnProjectId}/preview/ports`, {
+      token,
+    });
     expect(own.status).toBe(200);
     expect(own.data).toEqual({ ports: [], sandbox: false });
-    const cross = await api.request(
-      "GET",
-      `/api/projects/${detOtherProjectId}/preview/ports`,
-      { token },
-    );
+    const cross = await api.request("GET", `/api/projects/${detOtherProjectId}/preview/ports`, {
+      token,
+    });
     expect(cross.status).toBe(404);
   });
 
   it("no running sandbox => { ports: [], sandbox: false } (nothing is probed)", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${detOwnProjectId}/preview/ports`,
-      { token },
-    );
+    const r = await api.request("GET", `/api/projects/${detOwnProjectId}/preview/ports`, { token });
     expect(r.status).toBe(200);
     expect(r.data).toEqual({ ports: [], sandbox: false });
   });
@@ -580,129 +536,121 @@ describe("Preview server detection (no Docker required)", () => {
   });
 });
 
-describe.skipIf(!isDockerRunning())(
-  "Preview server detection (docker end-to-end)",
-  () => {
-    let e2eApi: TestApi;
-    let e2eCfg: ReturnType<typeof makeTestConfig>;
-    let e2eToken: string;
-    let e2ePid: string;
-    let containerId: string;
+describe.skipIf(!isDockerRunning())("Preview server detection (docker end-to-end)", () => {
+  let e2eApi: TestApi;
+  let e2eCfg: ReturnType<typeof makeTestConfig>;
+  let e2eToken: string;
+  let e2ePid: string;
+  let containerId: string;
 
-    const ports = (path: string, tok = e2eToken) =>
-      e2eApi.request("GET", path, { token: tok });
+  const ports = (path: string, tok = e2eToken) => e2eApi.request("GET", path, { token: tok });
 
-    beforeAll(async () => {
-      // Many earlier docker tests in this file leave sandboxes running; free
-      // the global pool so this block's own `/run` can always get a slot.
-      // Nothing after this block needs a live sandbox.
-      await sandboxManager.cleanupAllSandboxes().catch(() => {});
-      e2eCfg = makeTestConfig();
-      e2eApi = await startTestApi(e2eCfg);
-      e2eToken = (
-        await e2eApi.request("POST", "/api/auth/register", {
-          body: { username: "prevdetecte2e", password: "secret123" },
-        })
-      ).data.token;
-      e2ePid = (
-        await e2eApi.request("POST", "/api/projects", {
-          token: e2eToken,
-          body: { name: "prevdetect" },
-        })
-      ).data.project.id;
-      await e2eApi.request("POST", `/api/projects/${e2ePid}/file`, {
+  beforeAll(async () => {
+    // Many earlier docker tests in this file leave sandboxes running; free
+    // the global pool so this block's own `/run` can always get a slot.
+    // Nothing after this block needs a live sandbox.
+    await sandboxManager.cleanupAllSandboxes().catch(() => {});
+    e2eCfg = makeTestConfig();
+    e2eApi = await startTestApi(e2eCfg);
+    e2eToken = (
+      await e2eApi.request("POST", "/api/auth/register", {
+        body: { username: "prevdetecte2e", password: "secret123" },
+      })
+    ).data.token;
+    e2ePid = (
+      await e2eApi.request("POST", "/api/projects", {
         token: e2eToken,
-        body: { path: "main.py", content: "print('boot')\n" },
-      });
-      // boot the sandbox
-      const run = await e2eApi.request("POST", `/api/projects/${e2ePid}/run`, {
-        token: e2eToken,
-        body: { language: "python" },
-      });
-      expect(run.status).toBe(200);
-      containerId = `ide-sandbox-${e2ePid}`;
-    }, 180_000);
+        body: { name: "prevdetect" },
+      })
+    ).data.project.id;
+    await e2eApi.request("POST", `/api/projects/${e2ePid}/file`, {
+      token: e2eToken,
+      body: { path: "main.py", content: "print('boot')\n" },
+    });
+    // boot the sandbox
+    const run = await e2eApi.request("POST", `/api/projects/${e2ePid}/run`, {
+      token: e2eToken,
+      body: { language: "python" },
+    });
+    expect(run.status).toBe(200);
+    containerId = `ide-sandbox-${e2ePid}`;
+  }, 180_000);
 
-    // Start a self-terminating HTTP server inside the sandbox on `port`,
-    // living `ttlSec` seconds (coreutils `timeout` — no `pkill`/`procps`
-    // needed in the slim runner image).
-    const startServer = (port: number, ttlSec: number) =>
-      execFileAsync("docker", [
-        "exec",
-        "-d",
-        containerId,
-        "sh",
-        "-c",
-        `cd /workspace && timeout ${ttlSec} python3 -m http.server ${port}`,
-      ]);
+  // Start a self-terminating HTTP server inside the sandbox on `port`,
+  // living `ttlSec` seconds (coreutils `timeout` — no `pkill`/`procps`
+  // needed in the slim runner image).
+  const startServer = (port: number, ttlSec: number) =>
+    execFileAsync("docker", [
+      "exec",
+      "-d",
+      containerId,
+      "sh",
+      "-c",
+      `cd /workspace && timeout ${ttlSec} python3 -m http.server ${port}`,
+    ]);
 
-    afterAll(async () => {
-      try {
-        const { sandboxManager } = await import("../src/execution/sandbox.js");
-        await sandboxManager.stopProjectSandbox(e2ePid);
-      } catch {
-        /* ignore */
-      }
-      await e2eApi?.close();
-    }, 60_000);
+  afterAll(async () => {
+    try {
+      const { sandboxManager } = await import("../src/execution/sandbox.js");
+      await sandboxManager.stopProjectSandbox(e2ePid);
+    } catch {
+      /* ignore */
+    }
+    await e2eApi?.close();
+  }, 60_000);
 
-    it("with no dev server running: sandbox true, no ports", async () => {
-      const r = await ports(`/api/projects/${e2ePid}/preview/ports`);
-      expect(r.status).toBe(200);
-      expect(r.data.sandbox).toBe(true);
-      expect(r.data.ports).toEqual([]);
-    }, 30_000);
+  it("with no dev server running: sandbox true, no ports", async () => {
+    const r = await ports(`/api/projects/${e2ePid}/preview/ports`);
+    expect(r.status).toBe(200);
+    expect(r.data.sandbox).toBe(true);
+    expect(r.data.ports).toEqual([]);
+  }, 30_000);
 
-    it("detects a real HTTP server on an allowed port, ignores one on a disallowed port, and the proxy still serves it", async () => {
-      await startServer(8000, 40); // allowed
-      await startServer(9001, 40); // NOT in ALLOWED_PREVIEW_PORTS
-      await sleep(2500); // boot + detection cache TTL
+  it("detects a real HTTP server on an allowed port, ignores one on a disallowed port, and the proxy still serves it", async () => {
+    await startServer(8000, 40); // allowed
+    await startServer(9001, 40); // NOT in ALLOWED_PREVIEW_PORTS
+    await sleep(2500); // boot + detection cache TTL
 
-      const r = await ports(`/api/projects/${e2ePid}/preview/ports`);
-      expect(r.status).toBe(200);
-      expect(r.data.sandbox).toBe(true);
-      expect(r.data.ports).toContain(8000);
-      expect(r.data.ports).not.toContain(9001);
-      expect(
-        r.data.ports.every((p: number) =>
-          [3000, 4173, 5173, 8000, 8080].includes(p),
-        ),
-      ).toBe(true);
+    const r = await ports(`/api/projects/${e2ePid}/preview/ports`);
+    expect(r.status).toBe(200);
+    expect(r.data.sandbox).toBe(true);
+    expect(r.data.ports).toContain(8000);
+    expect(r.data.ports).not.toContain(9001);
+    expect(r.data.ports.every((p: number) => [3000, 4173, 5173, 8000, 8080].includes(p))).toBe(
+      true,
+    );
 
-      // the manual proxy path to the detected port still works
-      const proxied = await e2eApi.request(
-        "GET",
-        `/api/projects/${e2ePid}/proxy/8000/`,
-        { token: e2eToken },
-      );
-      expect(proxied.status).not.toBe(401);
-      expect(proxied.status).not.toBe(404);
-    }, 60_000);
+    // the manual proxy path to the detected port still works
+    const proxied = await e2eApi.request("GET", `/api/projects/${e2ePid}/proxy/8000/`, {
+      token: e2eToken,
+    });
+    expect(proxied.status).not.toBe(401);
+    expect(proxied.status).not.toBe(404);
+  }, 60_000);
 
-    it("a stopped server disappears from detection while the sandbox stays up (no stale healthy state)", async () => {
-      await startServer(3000, 6); // short-lived
-      await sleep(2500);
-      const up = await ports(`/api/projects/${e2ePid}/preview/ports`);
-      expect(up.data.ports).toContain(3000);
+  it("a stopped server disappears from detection while the sandbox stays up (no stale healthy state)", async () => {
+    await startServer(3000, 6); // short-lived
+    await sleep(2500);
+    const up = await ports(`/api/projects/${e2ePid}/preview/ports`);
+    expect(up.data.ports).toContain(3000);
 
-      await sleep(7000); // server self-terminates + detection cache TTL
-      const down = await ports(`/api/projects/${e2ePid}/preview/ports`);
-      expect(down.status).toBe(200);
-      expect(down.data.sandbox).toBe(true); // sandbox still alive...
-      expect(down.data.ports).not.toContain(3000); // ...server gone
-    }, 60_000);
+    await sleep(7000); // server self-terminates + detection cache TTL
+    const down = await ports(`/api/projects/${e2ePid}/preview/ports`);
+    expect(down.status).toBe(200);
+    expect(down.data.sandbox).toBe(true); // sandbox still alive...
+    expect(down.data.ports).not.toContain(3000); // ...server gone
+  }, 60_000);
 
-    it("another user cannot detect this project's preview", async () => {
-      const other = (
-        await e2eApi.request("POST", "/api/auth/register", {
-          body: { username: "prevdetecte2e_other", password: "secret123" },
-        })
-      ).data.token;
-      const r = await ports(`/api/projects/${e2ePid}/preview/ports`, other);
-      expect(r.status).toBe(404);
-    }, 30_000);
-  },
-);
+  it("another user cannot detect this project's preview", async () => {
+    const other = (
+      await e2eApi.request("POST", "/api/auth/register", {
+        body: { username: "prevdetecte2e_other", password: "secret123" },
+      })
+    ).data.token;
+    const r = await ports(`/api/projects/${e2ePid}/preview/ports`, other);
+    expect(r.status).toBe(404);
+  }, 30_000);
+});
 
 describe.skipIf(!isDockerRunning())("Preview Proxy Security", () => {
   let user2Token: string;
@@ -715,45 +663,29 @@ describe.skipIf(!isDockerRunning())("Preview Proxy Security", () => {
   });
 
   it("rejects unauthenticated requests to proxy", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/proxy/3000/`,
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/proxy/3000/`);
     expect(r.status).toBe(401);
   });
 
   it("rejects proxy access via query token", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/proxy/3000/?token=${token}`,
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/proxy/3000/?token=${token}`);
     expect(r.status).toBe(401);
   });
 
   it("allows proxy access via bearer token", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/proxy/3000/`,
-      { token },
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/proxy/3000/`, { token });
     expect(r.status).not.toBe(401);
   });
 
   it("prevents user2 from proxying user1 project", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/proxy/3000/`,
-      { token: user2Token },
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/proxy/3000/`, {
+      token: user2Token,
+    });
     expect(r.status).toBe(404);
   });
 
   it("rejects invalid port formats", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/proxy/invalid/`,
-      { token },
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/proxy/invalid/`, { token });
     expect(r.status).toBe(400);
     expect(r.data.error.message).toBe("Invalid port");
   });
@@ -842,11 +774,9 @@ describe("search concurrency gate", () => {
     // Sequential searches must all succeed; a leaked slot would wedge the
     // user's budget permanently after the bursts above.
     for (let i = 0; i < 3; i++) {
-      const r = await gateApi.request(
-        "GET",
-        `/api/projects/${gateProjectId}/search?q=needle`,
-        { token: gateToken },
-      );
+      const r = await gateApi.request("GET", `/api/projects/${gateProjectId}/search?q=needle`, {
+        token: gateToken,
+      });
       expect(r.status).toBe(200);
       expect(r.data.totalMatches).toBeGreaterThan(0);
     }
@@ -860,11 +790,9 @@ describe("search concurrency gate", () => {
     );
     expect(bad.status).toBe(400);
     expect(bad.data.error.code).toBe("invalid_regex");
-    const ok = await gateApi.request(
-      "GET",
-      `/api/projects/${gateProjectId}/search?q=needle`,
-      { token: gateToken },
-    );
+    const ok = await gateApi.request("GET", `/api/projects/${gateProjectId}/search?q=needle`, {
+      token: gateToken,
+    });
     expect(ok.status).toBe(200);
   });
 });
@@ -908,20 +836,16 @@ describe("AI apply-patch: requested safety snapshot must not fail silently", () 
   });
 
   it("aborts the patch (does not write the file) when the requested safety snapshot cannot be created", async () => {
-    const res = await snapApi.request(
-      "POST",
-      `/api/projects/${snapProjectId}/ai/apply-patch`,
-      {
-        token: snapToken,
-        body: {
-          filePath: "main.py",
-          content: 'print("patched by AI")\n',
-          createSafetySnapshot: true,
-          explanation: "test patch",
-          baseRevision: revOf('print("original")\n'),
-        },
+    const res = await snapApi.request("POST", `/api/projects/${snapProjectId}/ai/apply-patch`, {
+      token: snapToken,
+      body: {
+        filePath: "main.py",
+        content: 'print("patched by AI")\n',
+        createSafetySnapshot: true,
+        explanation: "test patch",
+        baseRevision: revOf('print("original")\n'),
       },
-    );
+    });
 
     // Must fail loudly, not return { ok: true, snapshotId: undefined } as
     // if nothing was requested.
@@ -931,37 +855,29 @@ describe("AI apply-patch: requested safety snapshot must not fail silently", () 
     // The patch must not have been applied: a requested-but-failed safety
     // net must not leave the caller with an unprotected, already-applied
     // change and no way to tell it happened.
-    const got = await snapApi.request(
-      "GET",
-      `/api/projects/${snapProjectId}/file?path=main.py`,
-      { token: snapToken },
-    );
+    const got = await snapApi.request("GET", `/api/projects/${snapProjectId}/file?path=main.py`, {
+      token: snapToken,
+    });
     expect(got.data.content).toBe('print("original")\n');
   });
 
   it("still applies the patch normally when no safety snapshot is requested", async () => {
-    const res = await snapApi.request(
-      "POST",
-      `/api/projects/${snapProjectId}/ai/apply-patch`,
-      {
-        token: snapToken,
-        body: {
-          filePath: "main.py",
-          content: 'print("patched without snapshot")\n',
-          createSafetySnapshot: false,
-          baseRevision: revOf('print("original")\n'),
-        },
+    const res = await snapApi.request("POST", `/api/projects/${snapProjectId}/ai/apply-patch`, {
+      token: snapToken,
+      body: {
+        filePath: "main.py",
+        content: 'print("patched without snapshot")\n',
+        createSafetySnapshot: false,
+        baseRevision: revOf('print("original")\n'),
       },
-    );
+    });
     expect(res.status).toBe(200);
     expect(res.data.ok).toBe(true);
     expect(res.data.snapshotId).toBeUndefined();
 
-    const got = await snapApi.request(
-      "GET",
-      `/api/projects/${snapProjectId}/file?path=main.py`,
-      { token: snapToken },
-    );
+    const got = await snapApi.request("GET", `/api/projects/${snapProjectId}/file?path=main.py`, {
+      token: snapToken,
+    });
     expect(got.data.content).toBe('print("patched without snapshot")\n');
   });
 });
@@ -984,27 +900,19 @@ describe("AI apply-patch: stale-patch conflict detection", () => {
     });
 
     const baseRevision = revOf(original);
-    const res = await api.request(
-      "POST",
-      `/api/projects/${pid}/ai/apply-patch`,
-      {
-        token,
-        body: {
-          filePath: "main.py",
-          content: 'print("v2, ai patch")\n',
-          baseRevision,
-        },
+    const res = await api.request("POST", `/api/projects/${pid}/ai/apply-patch`, {
+      token,
+      body: {
+        filePath: "main.py",
+        content: 'print("v2, ai patch")\n',
+        baseRevision,
       },
-    );
+    });
 
     expect(res.status).toBe(200);
     expect(res.data.ok).toBe(true);
 
-    const got = await api.request(
-      "GET",
-      `/api/projects/${pid}/file?path=main.py`,
-      { token },
-    );
+    const got = await api.request("GET", `/api/projects/${pid}/file?path=main.py`, { token });
     expect(got.data.content).toBe('print("v2, ai patch")\n');
   });
 
@@ -1027,27 +935,19 @@ describe("AI apply-patch: stale-patch conflict detection", () => {
       body: { path: "main.py", content: editedContent },
     });
 
-    const res = await api.request(
-      "POST",
-      `/api/projects/${pid}/ai/apply-patch`,
-      {
-        token,
-        body: {
-          filePath: "main.py",
-          content: 'print("ai patch, would clobber the edit")\n',
-          baseRevision,
-        },
+    const res = await api.request("POST", `/api/projects/${pid}/ai/apply-patch`, {
+      token,
+      body: {
+        filePath: "main.py",
+        content: 'print("ai patch, would clobber the edit")\n',
+        baseRevision,
       },
-    );
+    });
 
     expect(res.status).toBe(409);
     expect(res.data.error.code).toBe("stale_patch");
 
-    const got = await api.request(
-      "GET",
-      `/api/projects/${pid}/file?path=main.py`,
-      { token },
-    );
+    const got = await api.request("GET", `/api/projects/${pid}/file?path=main.py`, { token });
     expect(got.data.content).toBe(editedContent);
   });
 
@@ -1072,25 +972,19 @@ describe("AI apply-patch: stale-patch conflict detection", () => {
     });
 
     try {
-      const res = await api.request(
-        "POST",
-        `/api/projects/${pid}/ai/apply-patch`,
-        {
-          token,
-          body: {
-            filePath,
-            content: 'print("ai patch, would clobber the collaborator")\n',
-            baseRevision,
-          },
+      const res = await api.request("POST", `/api/projects/${pid}/ai/apply-patch`, {
+        token,
+        body: {
+          filePath,
+          content: 'print("ai patch, would clobber the collaborator")\n',
+          baseRevision,
         },
-      );
+      });
 
       expect(res.status).toBe(409);
       expect(res.data.error.code).toBe("stale_patch");
 
-      expect(room.doc.getText(filePath).toString()).toBe(
-        "unsaved collaborative edit ",
-      );
+      expect(room.doc.getText(filePath).toString()).toBe("unsaved collaborative edit ");
     } finally {
       room.dispose();
     }
@@ -1111,19 +1005,17 @@ describe("AI apply-patch: stale-patch conflict detection", () => {
       baseRevision,
     };
 
-    const first = await api.request(
-      "POST",
-      `/api/projects/${pid}/ai/apply-patch`,
-      { token, body: applyBody },
-    );
+    const first = await api.request("POST", `/api/projects/${pid}/ai/apply-patch`, {
+      token,
+      body: applyBody,
+    });
     expect(first.status).toBe(200);
     expect(first.data.ok).toBe(true);
 
-    const second = await api.request(
-      "POST",
-      `/api/projects/${pid}/ai/apply-patch`,
-      { token, body: applyBody },
-    );
+    const second = await api.request("POST", `/api/projects/${pid}/ai/apply-patch`, {
+      token,
+      body: applyBody,
+    });
     expect(second.status).toBe(409);
     expect(second.data.error.code).toBe("stale_patch");
   });
@@ -1135,17 +1027,13 @@ describe("AI apply-patch: stale-patch conflict detection", () => {
       body: { path: "main.py", content: 'print("v1")\n' },
     });
 
-    const res = await api.request(
-      "POST",
-      `/api/projects/${pid}/ai/apply-patch`,
-      {
-        token,
-        body: {
-          filePath: "main.py",
-          content: 'print("v2, ai patch")\n',
-        },
+    const res = await api.request("POST", `/api/projects/${pid}/ai/apply-patch`, {
+      token,
+      body: {
+        filePath: "main.py",
+        content: 'print("v2, ai patch")\n',
       },
-    );
+    });
 
     expect(res.status).toBe(400);
     expect(res.data.error.code).toBe("invalid_base_revision");
@@ -1164,11 +1052,9 @@ describe("AI apply-patch: stale-patch conflict detection", () => {
 // ---------------------------------------------------------------------------
 describe("save-truthfulness backend contract (M1)", () => {
   const readBack = async (path: string) =>
-    api.request(
-      "GET",
-      `/api/projects/${projectId}/file?path=${encodeURIComponent(path)}`,
-      { token },
-    );
+    api.request("GET", `/api/projects/${projectId}/file?path=${encodeURIComponent(path)}`, {
+      token,
+    });
 
   it("persists exactly the bytes posted and reads them back byte-identically", async () => {
     const path = "contract/probe.txt";
@@ -1215,11 +1101,10 @@ describe("save-truthfulness backend contract (M1)", () => {
     const payload = "stable content\nno edits between saves\n";
 
     for (let i = 0; i < 2; i++) {
-      const write = await api.request(
-        "POST",
-        `/api/projects/${projectId}/file`,
-        { token, body: { path, content: payload } },
-      );
+      const write = await api.request("POST", `/api/projects/${projectId}/file`, {
+        token,
+        body: { path, content: payload },
+      });
       expect(write.status).toBe(200);
     }
 

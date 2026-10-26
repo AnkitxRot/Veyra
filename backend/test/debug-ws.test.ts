@@ -9,10 +9,7 @@ import { makeTestConfig } from "./helpers.js";
 import { openDb, type Db } from "../src/db.js";
 import { createApp } from "../src/app.js";
 import { setupWebSocketServer } from "../src/ws/index.js";
-import {
-  debugSessions,
-  resetDebugSessionsForTests,
-} from "../src/debug/manager.js";
+import { debugSessions, resetDebugSessionsForTests } from "../src/debug/manager.js";
 import type { AppConfig } from "../src/config.js";
 import type { DebugSpawnRequest } from "../src/debug/process.js";
 
@@ -52,9 +49,7 @@ describe("debug websocket authz", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -119,9 +114,7 @@ describe("debug websocket authz", () => {
   }
 
   it("rejects an unauthenticated upgrade", async () => {
-    const ws = new WebSocket(
-      `ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`,
-    );
+    const ws = new WebSocket(`ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`);
     const code = await new Promise<number>((resolve, reject) => {
       ws.on("unexpected-response", (_req, res) => {
         resolve(res.statusCode ?? 0);
@@ -134,10 +127,9 @@ describe("debug websocket authz", () => {
   });
 
   it("rejects a user who does not have the project", async () => {
-    const ws = new WebSocket(
-      `ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`,
-      { headers: { Cookie: `session_token=${otherToken}` } },
-    );
+    const ws = new WebSocket(`ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`, {
+      headers: { Cookie: `session_token=${otherToken}` },
+    });
     const code = await new Promise<number>((resolve, reject) => {
       ws.on("unexpected-response", (_req, res) => {
         resolve(res.statusCode ?? 0);
@@ -150,10 +142,9 @@ describe("debug websocket authz", () => {
   });
 
   it("rejects a viewer (debug requires editor)", async () => {
-    const ws = new WebSocket(
-      `ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`,
-      { headers: { Cookie: `session_token=${viewerToken}` } },
-    );
+    const ws = new WebSocket(`ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`, {
+      headers: { Cookie: `session_token=${viewerToken}` },
+    });
     const code = await new Promise<number>((resolve, reject) => {
       ws.on("unexpected-response", (_req, res) => {
         resolve(res.statusCode ?? 0);
@@ -166,10 +157,9 @@ describe("debug websocket authz", () => {
   });
 
   it("accepts the owner and speaks the mediated protocol", async () => {
-    const ws = new WebSocket(
-      `ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`,
-      { headers: { Cookie: `session_token=${token}` } },
-    );
+    const ws = new WebSocket(`ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`, {
+      headers: { Cookie: `session_token=${token}` },
+    });
     const messages: any[] = [];
     await new Promise<void>((resolve, reject) => {
       ws.on("open", () => resolve());
@@ -187,19 +177,15 @@ describe("debug websocket authz", () => {
         breakpoints: { "main.py": [3] },
       }),
     );
-    await waitFor(
-      () => messages.some((m) => m.type === "status" && m.state === "paused"),
-      5000,
-    );
+    await waitFor(() => messages.some((m) => m.type === "status" && m.state === "paused"), 5000);
     ws.close();
   });
 
   it("does not drop a launch sent before attach finishes", async () => {
     debugSessions.setAttachDelayForTests(250);
-    const ws = new WebSocket(
-      `ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`,
-      { headers: { Cookie: `session_token=${token}` } },
-    );
+    const ws = new WebSocket(`ws://127.0.0.1:${port()}/ws/debug?projectId=${projectId}`, {
+      headers: { Cookie: `session_token=${token}` },
+    });
     const messages: any[] = [];
     ws.on("message", (data) => {
       messages.push(JSON.parse(String(data)));
@@ -221,9 +207,7 @@ describe("debug websocket authz", () => {
         messages.some(
           (m) =>
             m.type === "status" &&
-            (m.state === "starting" ||
-              m.state === "running" ||
-              m.state === "paused"),
+            (m.state === "starting" || m.state === "running" || m.state === "paused"),
         ),
       15_000,
     );

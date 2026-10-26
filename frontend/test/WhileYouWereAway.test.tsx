@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  render,
-  screen,
-  fireEvent,
-  cleanup,
-  act,
-} from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import * as React from "react";
 import WhileYouWereAway from "../src/components/Collab/WhileYouWereAway";
 import type { TimelineEvent } from "../src/types";
@@ -78,12 +72,7 @@ describe("WhileYouWereAway", () => {
     vi.useFakeTimers();
     const d = vi.fn();
     render(
-      <WhileYouWereAway
-        groups={groups}
-        onNavigate={() => {}}
-        onDismiss={d}
-        autoDismissMs={1000}
-      />,
+      <WhileYouWereAway groups={groups} onNavigate={() => {}} onDismiss={d} autoDismissMs={1000} />,
     );
     act(() => {
       vi.advanceTimersByTime(1100);

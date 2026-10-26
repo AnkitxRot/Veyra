@@ -5,11 +5,7 @@ import { PassThrough, type Readable, type Writable } from "node:stream";
 import { ApiError } from "../errors.js";
 import type { AppConfig } from "../config.js";
 import { IS_WINDOWS } from "../config.js";
-import {
-  assertGitProjectId,
-  runSandboxGit,
-  GIT_TRANSFER_TIMEOUT_MS,
-} from "./sandboxGit.js";
+import { assertGitProjectId, runSandboxGit, GIT_TRANSFER_TIMEOUT_MS } from "./sandboxGit.js";
 import { withGitAskpass, type GitAskpassCreds } from "./askpass.js";
 import { redactGitOutput } from "./redact.js";
 import { httpsRemoteHost } from "./remoteUrl.js";
@@ -251,9 +247,7 @@ async function runHostGit(
         return;
       }
       if (overflow) {
-        reject(
-          new ApiError(413, "git transfer too large", "git_output_too_large"),
-        );
+        reject(new ApiError(413, "git transfer too large", "git_output_too_large"));
         return;
       }
       resolve({
@@ -314,10 +308,7 @@ export async function ensureMirror(
   await fs.writeFile(join(dir, ORIGIN_MARKER), url, { mode: 0o600 });
 }
 
-export async function removeMirror(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<void> {
+export async function removeMirror(cfg: AppConfig, projectId: string): Promise<void> {
   await fs.rm(mirrorDir(cfg, projectId), { recursive: true, force: true });
 }
 
@@ -426,20 +417,9 @@ export async function mirrorPush(
   }
   await assertHostBranchName(cfg, projectId, branch);
   await withRemote(cfg, projectId, url, creds, onFailure, async (net) => {
-    await net([
-      "push",
-      "--porcelain",
-      "--no-verify",
-      "--",
-      url,
-      `${sha}:refs/heads/${branch}`,
-    ]);
+    await net(["push", "--porcelain", "--no-verify", "--", url, `${sha}:refs/heads/${branch}`]);
   });
-  await runHostGit(cfg, projectId, [
-    "update-ref",
-    `${REMOTE_TRACKING_PREFIX}${branch}`,
-    sha,
-  ]);
+  await runHostGit(cfg, projectId, ["update-ref", `${REMOTE_TRACKING_PREFIX}${branch}`, sha]);
 }
 
 // ---------------------------------------------------------------------------
@@ -460,21 +440,14 @@ export async function assertHostBranchName(
   ) {
     throw new ApiError(400, "invalid branch name", "invalid_branch_name");
   }
-  const res = await runHostGit(cfg, projectId, [
-    "check-ref-format",
-    "--branch",
-    branch,
-  ]);
+  const res = await runHostGit(cfg, projectId, ["check-ref-format", "--branch", branch]);
   if (res.code !== 0 || res.stdout.trim() !== branch) {
     throw new ApiError(400, "invalid branch name", "invalid_branch_name");
   }
   return branch;
 }
 
-async function mirrorTips(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<Map<string, string>> {
+async function mirrorTips(cfg: AppConfig, projectId: string): Promise<Map<string, string>> {
   const res = await runHostGit(cfg, projectId, [
     "for-each-ref",
     "--format=%(objectname) %(refname)",
@@ -495,11 +468,7 @@ async function mirrorTips(
 }
 
 /** Which of `oids` exist in the mirror. */
-async function mirrorHas(
-  cfg: AppConfig,
-  projectId: string,
-  oids: string[],
-): Promise<Set<string>> {
+async function mirrorHas(cfg: AppConfig, projectId: string, oids: string[]): Promise<Set<string>> {
   if (oids.length === 0) return new Set();
   const res = await runHostGit(cfg, projectId, ["cat-file", "--batch-check"], {
     input: oids.join("\n") + "\n",
@@ -508,11 +477,7 @@ async function mirrorHas(
 }
 
 /** Which of `oids` exist in the project repository (sandbox, untrusted). */
-async function sandboxHas(
-  cfg: AppConfig,
-  projectId: string,
-  oids: string[],
-): Promise<Set<string>> {
+async function sandboxHas(cfg: AppConfig, projectId: string, oids: string[]): Promise<Set<string>> {
   if (oids.length === 0) return new Set();
   const res = await runSandboxGit(cfg, projectId, ["cat-file", "--batch-check"], {
     input: oids.join("\n") + "\n",
@@ -561,16 +526,16 @@ export async function deliverRemoteTracking(
     const local = await runSandboxGit(
       cfg,
       projectId,
-      [
-        "for-each-ref",
-        "--format=%(objectname)",
-        "refs/heads/",
-        REMOTE_TRACKING_PREFIX,
-      ],
+      ["for-each-ref", "--format=%(objectname)", "refs/heads/", REMOTE_TRACKING_PREFIX],
       { allowNonZero: true },
     );
     const claimed = [
-      ...new Set(local.stdout.split("\n").map((s) => s.trim()).filter(isObjectId)),
+      ...new Set(
+        local.stdout
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(isObjectId),
+      ),
     ];
     const haves = [...(await mirrorHas(cfg, projectId, claimed))];
     await pipeHostPackToSandbox(cfg, projectId, packRevInput(missing, haves));
@@ -614,14 +579,7 @@ async function pipeHostPackToSandbox(
   }
 }
 
-const PACK_OBJECTS = [
-  "pack-objects",
-  "--stdout",
-  "--revs",
-  "--thin",
-  "--delta-base-offset",
-  "-q",
-];
+const PACK_OBJECTS = ["pack-objects", "--stdout", "--revs", "--thin", "--delta-base-offset", "-q"];
 
 /**
  * Stream a pack from `produce` into `consume`. Whichever side fails first
@@ -701,12 +659,10 @@ export async function importCommitFromSandbox(
           timeoutMs: GIT_TRANSFER_TIMEOUT_MS,
         }),
       (pipe) =>
-        runHostGit(
-          cfg,
-          projectId,
-          ["index-pack", "--stdin", "--fix-thin", "--strict"],
-          { stdinFrom: pipe, timeoutMs: GIT_TRANSFER_TIMEOUT_MS },
-        ),
+        runHostGit(cfg, projectId, ["index-pack", "--stdin", "--fix-thin", "--strict"], {
+          stdinFrom: pipe,
+          timeoutMs: GIT_TRANSFER_TIMEOUT_MS,
+        }),
     );
     if (!ok) {
       throw new ApiError(
@@ -738,10 +694,7 @@ export async function importCommitFromSandbox(
 }
 
 /** Pack size in bytes currently stored in the mirror. */
-export async function mirrorPackBytes(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<number> {
+export async function mirrorPackBytes(cfg: AppConfig, projectId: string): Promise<number> {
   const res = await runHostGit(cfg, projectId, ["count-objects", "-v"]);
   let kib = 0;
   for (const line of res.stdout.split("\n")) {

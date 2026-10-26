@@ -51,10 +51,7 @@ const MESSAGE_CUSTOM = 3;
 function fileReadyMessage(path: string): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
-  encoding.writeVarString(
-    encoder,
-    JSON.stringify({ type: "file_ready", path }),
-  );
+  encoding.writeVarString(encoder, JSON.stringify({ type: "file_ready", path }));
   return encoding.toUint8Array(encoder);
 }
 
@@ -125,10 +122,7 @@ class FakeWebSocket {
 // built from `serverDoc` — the exact protocol exchange the real backend
 // (backend/src/collab/manager.ts) performs, reused here unmocked (only
 // y-monaco and monacoSetup are mocked; yjs/y-protocols/lib0 run for real).
-function serverReplyToSyncStep1(
-  serverDoc: Y.Doc,
-  syncStep1Message: Uint8Array,
-): Uint8Array {
+function serverReplyToSyncStep1(serverDoc: Y.Doc, syncStep1Message: Uint8Array): Uint8Array {
   const decoder = decoding.createDecoder(syncStep1Message);
   decoding.readVarUint(decoder); // consume MESSAGE_SYNC envelope tag
   const encoder = encoding.createEncoder();
@@ -235,9 +229,7 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
     ws2.simulateOpen();
 
     const serverDoc = new Y.Doc();
-    serverDoc
-      .getText("app.js")
-      .insert(0, 'print("AFTER IMPORT FROM IMPORT")\n');
+    serverDoc.getText("app.js").insert(0, 'print("AFTER IMPORT FROM IMPORT")\n');
     const reply = serverReplyToSyncStep1(serverDoc, ws2.sent[0]!);
     ws2.simulateMessage(reply);
 
@@ -352,9 +344,7 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
     const reply = serverReplyToSyncStep1(restoredServerDoc, ws2.sent[0]!);
     ws2.simulateMessage(reply);
 
-    expect(client.doc.getText("config.json").toString()).toBe(
-      '{ "restored": true }',
-    );
+    expect(client.doc.getText("config.json").toString()).toBe('{ "restored": true }');
   });
 
   // Test 6 (ORDINARY NETWORK RECONNECT) — the most important non-regression:
@@ -382,9 +372,7 @@ describe("CollaborationClient — M40 explicit-disposal state reset", () => {
 
     expect(client.status).toBe("disconnected");
     expect(client.doc).toBe(docBefore);
-    expect(client.doc.getText("main.py").toString()).toBe(
-      "unsaved offline edit",
-    );
+    expect(client.doc.getText("main.py").toString()).toBe("unsaved offline edit");
     expect(model.getValue()).toBe("unsaved offline edit");
     // A reconnect was still scheduled (existing behavior).
     expect((client as any).reconnectTimer).not.toBeNull();

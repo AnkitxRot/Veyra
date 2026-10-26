@@ -132,10 +132,20 @@ const MAX_MESSAGE_LENGTH = 200;
 function classifyError(err: unknown): string {
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
-    if (msg.includes("disk") || msg.includes("full") || msg.includes("sqlite") || msg.includes("locked")) {
+    if (
+      msg.includes("disk") ||
+      msg.includes("full") ||
+      msg.includes("sqlite") ||
+      msg.includes("locked")
+    ) {
       return "db_error";
     }
-    if (msg.includes("constraint") || msg.includes("foreign key") || msg.includes("unique") || msg.includes("schema")) {
+    if (
+      msg.includes("constraint") ||
+      msg.includes("foreign key") ||
+      msg.includes("unique") ||
+      msg.includes("schema")
+    ) {
       return "integrity_error";
     }
   }
@@ -145,7 +155,8 @@ function classifyError(err: unknown): string {
 export function recordAuditFailure(err: unknown): void {
   const category = classifyError(err);
   const message = err instanceof Error ? err.message : String(err);
-  const truncated = message.length > MAX_MESSAGE_LENGTH ? message.slice(0, MAX_MESSAGE_LENGTH) + "…" : message;
+  const truncated =
+    message.length > MAX_MESSAGE_LENGTH ? message.slice(0, MAX_MESSAGE_LENGTH) + "…" : message;
 
   state.totalFailures++;
   state.byCategory[category] = (state.byCategory[category] ?? 0) + 1;
@@ -165,7 +176,8 @@ export function getAuditFailureSnapshot(): AuditFailureSnapshot {
   return {
     totalFailures: state.totalFailures,
     byCategory: { ...state.byCategory },
-    lastFailureAt: state.lastFailureAt !== null ? new Date(state.lastFailureAt).toISOString() : null,
+    lastFailureAt:
+      state.lastFailureAt !== null ? new Date(state.lastFailureAt).toISOString() : null,
     lastFailureMessage: state.lastFailureMessage,
     since: new Date(state.since).toISOString(),
   };
@@ -174,9 +186,7 @@ export function getAuditFailureSnapshot(): AuditFailureSnapshot {
 /** M93 — delete audit_logs rows older than retentionDays. */
 export function pruneAuditLogs(db: Db, retentionDays: number): number {
   const result = db
-    .prepare(
-      "DELETE FROM audit_logs WHERE created_at < datetime('now', '-' || ? || ' days')",
-    )
+    .prepare("DELETE FROM audit_logs WHERE created_at < datetime('now', '-' || ? || ' days')")
     .run(retentionDays);
   return Number(result.changes);
 }
@@ -308,8 +318,7 @@ export function queryAuditLogs(
     params.push(filters.projectId);
   }
 
-  const whereSql =
-    whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
   const countRow = db
     .prepare(`SELECT COUNT(*) as total FROM audit_logs a ${whereSql}`)

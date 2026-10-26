@@ -6,12 +6,12 @@
 ## Phase 1: Cold Wait Decomposition
 
 | Concurrency | Success | Rejected | Total p50 (ms) | Total p95 (ms) | Total p99 (ms) | Wall (ms) |
-|---|---|---|---|---|---|---|
-| **C=1** | 1/1 | 0 | 4860.0 | 4860.0 | 4860.0 | 4860.5 |
-| **C=5** | 5/5 | 0 | 830.8 | 1013.7 | 1013.7 | 1016.1 |
-| **C=10** | 10/10 | 0 | 1334.8 | 1748.7 | 1748.7 | 1749.9 |
-| **C=20** | 20/20 | 0 | 2813.7 | 3921.4 | 3921.4 | 3924.7 |
-| **C=40** | 40/40 | 0 | 1763.9 | 4022.7 | 4157.0 | 4159.2 |
+| ----------- | ------- | -------- | -------------- | -------------- | -------------- | --------- |
+| **C=1**     | 1/1     | 0        | 4860.0         | 4860.0         | 4860.0         | 4860.5    |
+| **C=5**     | 5/5     | 0        | 830.8          | 1013.7         | 1013.7         | 1016.1    |
+| **C=10**    | 10/10   | 0        | 1334.8         | 1748.7         | 1748.7         | 1749.9    |
+| **C=20**    | 20/20   | 0        | 2813.7         | 3921.4         | 3921.4         | 3924.7    |
+| **C=40**    | 40/40   | 0        | 1763.9         | 4022.7         | 4157.0         | 4159.2    |
 
 ### Wait Decomposition Analysis
 
@@ -26,47 +26,48 @@ The entire cold latency is Docker provisioning + execution time.
 
 ### Steady Traffic (20 sequential requests, 500ms apart)
 
-| Metric | Value |
-|---|---|
-| p50 | 620.5 ms |
-| p95 | 838.4 ms |
-| p99 | 838.4 ms |
-| <1s | 20 (100%) |
-| 1-2s | 0 (0%) |
-| 2-5s | 0 (0%) |
-| >5s | 0 (0%) |
+| Metric | Value     |
+| ------ | --------- |
+| p50    | 620.5 ms  |
+| p95    | 838.4 ms  |
+| p99    | 838.4 ms  |
+| <1s    | 20 (100%) |
+| 1-2s   | 0 (0%)    |
+| 2-5s   | 0 (0%)    |
+| >5s    | 0 (0%)    |
 
 ### 20-Concurrent Cold Burst
 
-| Metric | Value |
-|---|---|
-| Success / Total | 20 / 20 |
-| Rejected | 0 |
-| p50 | 2813.7 ms |
-| p95 | 3921.4 ms |
-| p99 | 3921.4 ms |
-| <1s | 0 |
-| 1-2s | 3 |
-| 2-5s | 17 |
-| >5s | 0 |
+| Metric          | Value     |
+| --------------- | --------- |
+| Success / Total | 20 / 20   |
+| Rejected        | 0         |
+| p50             | 2813.7 ms |
+| p95             | 3921.4 ms |
+| p99             | 3921.4 ms |
+| <1s             | 0         |
+| 1-2s            | 3         |
+| 2-5s            | 17        |
+| >5s             | 0         |
 
 ### 40-Concurrent Cold Burst
 
-| Metric | Value |
-|---|---|
-| Success / Total | 40 / 40 |
-| Rejected | 0 |
-| p50 | 1763.9 ms |
-| p95 | 4022.7 ms |
-| p99 | 4157.0 ms |
-| <1s | 20 |
-| 1-2s | 2 |
-| 2-5s | 18 |
-| >5s | 0 |
+| Metric          | Value     |
+| --------------- | --------- |
+| Success / Total | 40 / 40   |
+| Rejected        | 0         |
+| p50             | 1763.9 ms |
+| p95             | 4022.7 ms |
+| p99             | 4157.0 ms |
+| <1s             | 20        |
+| 1-2s            | 2         |
+| 2-5s            | 18        |
+| >5s             | 0         |
 
 ## Phase 3: Scheduling Strategy Simulation
 
 ### A. Current: Immediate Admission
+
 Under C≤20: all requests admitted, no queuing.
 Under C>20: 0/40 requests rejected immediately (no wait, clear error).
 No head-of-line blocking. No starvation. No queue memory.
@@ -74,6 +75,7 @@ Rejected requests can retry (client-side).
 Throughput data: C=1: 0.2 req/s, avg=4860ms; C=5: 4.9 req/s, avg=827ms; C=10: 5.7 req/s, avg=1291ms; C=20: 5.1 req/s, avg=2765ms; C=40: 9.6 req/s, avg=1619ms
 
 ### B. Strict FIFO Queue
+
 Would eliminate immediate rejections at C>20.
 But: adds admission wait to ALL queued requests (at C=40, 20 requests wait for the first batch to complete).
 Estimated added wait for queued requests at C=40: ~3.9s (full C=20 batch wall time).
@@ -82,6 +84,7 @@ Requires: disconnect detection, cancellation, timeout, queue depth limit, per-us
 Net effect: converts fast rejection into slow queuing — user waits longer for the same outcome.
 
 ### C. Shortest-Job Ordering
+
 All cold starts have similar cost (Docker provisioning dominates).
 Cannot estimate job duration before running it.
 For this system, all executions are roughly equivalent (print-hello).
@@ -89,6 +92,7 @@ No meaningful scheduling advantage over FIFO.
 Adds complexity: cost estimation, priority inversion, starvation prevention.
 
 ### D. Bounded Docker Concurrency
+
 Optimal measured concurrency: C=5 (best throughput/latency ratio).
 Could reduce p95/p99 for the admitted batch by avoiding Docker daemon serialization.
 But: current system already has maxSandboxes=20 which naturally bounds concurrency.
@@ -98,6 +102,7 @@ The Docker daemon is the bottleneck, not the admission logic.
 ## Phase 4: Resource & Fairness Tradeoff
 
 Any scheduling/queuing layer introduces:
+
 - **Queue memory**: O(queued requests) — bounded if limited, but adds a new resource dimension.
 - **Cancellation**: Must detect client disconnect while queued and free the slot.
 - **Starvation**: FIFO prevents starvation but adds head-of-line blocking; priority queues risk starvation for low-priority.

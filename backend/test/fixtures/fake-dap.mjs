@@ -183,9 +183,7 @@ function handle(req) {
 
   if (cmd === "scopes") {
     respond(req, {
-      scopes: [
-        { name: "Locals", variablesReference: 10, expensive: false },
-      ],
+      scopes: [{ name: "Locals", variablesReference: 10, expensive: false }],
     });
     return;
   }

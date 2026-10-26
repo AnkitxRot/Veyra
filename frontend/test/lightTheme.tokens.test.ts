@@ -4,14 +4,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const tokens = readFileSync(
-  join(here, "../src/styles/tokens.css"),
-  "utf-8",
-);
-const indexCss = readFileSync(
-  join(here, "../src/styles/index.css"),
-  "utf-8",
-);
+const tokens = readFileSync(join(here, "../src/styles/tokens.css"), "utf-8");
+const indexCss = readFileSync(join(here, "../src/styles/index.css"), "utf-8");
 
 /**
  * M69 — the light theme redefines the *colour / elevation* tokens under
@@ -46,9 +40,7 @@ const THEME_INVARIANT = /^--(blur|glass-filter|radius|space|font|text|spring|dur
 
 describe("M69 — light theme token coverage", () => {
   const rootVars = declaredVars(blockBody(tokens, ":root"));
-  const lightVars = new Set(
-    declaredVars(blockBody(tokens, ':root[data-theme="light"]')),
-  );
+  const lightVars = new Set(declaredVars(blockBody(tokens, ':root[data-theme="light"]')));
 
   it("defines a light block keyed off the resolved-appearance root attribute", () => {
     expect(tokens).toContain(':root[data-theme="light"] {');
@@ -59,9 +51,7 @@ describe("M69 — light theme token coverage", () => {
   });
 
   it("redefines every theme-variant :root colour token for light", () => {
-    const missing = rootVars.filter(
-      (v) => !THEME_INVARIANT.test(v) && !lightVars.has(v),
-    );
+    const missing = rootVars.filter((v) => !THEME_INVARIANT.test(v) && !lightVars.has(v));
     expect(missing).toEqual([]);
   });
 
@@ -70,16 +60,12 @@ describe("M69 — light theme token coverage", () => {
     expect(lightVars.has("--scrollbar-thumb")).toBe(true);
     expect(lightVars.has("--scrollbar-thumb-hover")).toBe(true);
     expect(indexCss).toContain("background: var(--scrollbar-thumb)");
-    expect(indexCss).not.toContain(
-      "::-webkit-scrollbar-thumb {\n  background: rgba(255, 255, 255",
-    );
+    expect(indexCss).not.toContain("::-webkit-scrollbar-thumb {\n  background: rgba(255, 255, 255");
   });
 
   it("switches color-scheme between the two themes", () => {
     expect(blockBody(tokens, ":root")).toContain("color-scheme: dark");
-    expect(blockBody(tokens, ':root[data-theme="light"]')).toContain(
-      "color-scheme: light",
-    );
+    expect(blockBody(tokens, ':root[data-theme="light"]')).toContain("color-scheme: light");
   });
 
   it("keeps the reduced-transparency fallback coherent in light mode", () => {
@@ -101,12 +87,9 @@ describe("M69 — light theme token coverage", () => {
   });
 
   it("no core surface still uses a raw dark rgba() background", () => {
-    const files = [
-      "glass.css",
-      "output.css",
-      "toolbar.css",
-      "admin.css",
-    ].map((f) => readFileSync(join(here, "../src/styles/" + f), "utf-8"));
+    const files = ["glass.css", "output.css", "toolbar.css", "admin.css"].map((f) =>
+      readFileSync(join(here, "../src/styles/" + f), "utf-8"),
+    );
     for (const css of files) {
       expect(css).not.toMatch(/background[^:]*:\s*rgba\(1[05], ?1[128], ?2?6/);
       expect(css).not.toMatch(/background[^:]*:\s*rgba\(9, ?11, ?16/);

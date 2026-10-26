@@ -6,10 +6,7 @@ import React from "react";
  * string child — React auto-escapes it, so `<img onerror>` / `[x](javascript:)`
  * render literally. Never `innerHTML`, never Markdown→HTML.
  */
-export function mentionText(
-  body: string,
-  knownUsernames: Set<string>,
-): React.ReactNode[] {
+export function mentionText(body: string, knownUsernames: Set<string>): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   const re = /@(\w+)/g;
   let last = 0;

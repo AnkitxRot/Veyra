@@ -33,7 +33,7 @@ function clipCases(cases: TestCaseResult[]): TestCaseResult[] {
     name: clip(c.name, MAX_NAME),
     suite: c.suite ? clip(c.suite, MAX_NAME) : undefined,
     message: c.message ? clip(c.message, MAX_MESSAGE) : undefined,
-    file: c.file ? mapFile(c.file) ?? undefined : undefined,
+    file: c.file ? (mapFile(c.file) ?? undefined) : undefined,
   }));
 }
 

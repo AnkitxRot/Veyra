@@ -25,8 +25,7 @@ function formatBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
@@ -49,41 +48,42 @@ export default function AdminObservabilityPanel() {
   const inFlightRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  const fetchObservability = useCallback(async (isManual = false) => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
+  const fetchObservability = useCallback(
+    async (isManual = false) => {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
 
-    if (isManual || !data) {
-      setRefreshing(true);
-    }
-
-    try {
-      const res = await api<AdminObservabilityData>("/api/admin/observability");
-      if (isMountedRef.current) {
-        setData(res);
-        setLastUpdated(new Date());
-        setSecondsAgo(0);
-        setError(null);
-        setRefreshError(null);
+      if (isManual || !data) {
+        setRefreshing(true);
       }
-    } catch (err: any) {
-      if (isMountedRef.current) {
-        if (!data) {
-          setError(
-            err?.message || "Failed to load platform observability telemetry",
-          );
-        } else {
-          setRefreshError("Unable to refresh observability data");
+
+      try {
+        const res = await api<AdminObservabilityData>("/api/admin/observability");
+        if (isMountedRef.current) {
+          setData(res);
+          setLastUpdated(new Date());
+          setSecondsAgo(0);
+          setError(null);
+          setRefreshError(null);
+        }
+      } catch (err: any) {
+        if (isMountedRef.current) {
+          if (!data) {
+            setError(err?.message || "Failed to load platform observability telemetry");
+          } else {
+            setRefreshError("Unable to refresh observability data");
+          }
+        }
+      } finally {
+        if (isMountedRef.current) {
+          inFlightRef.current = false;
+          setLoading(false);
+          setRefreshing(false);
         }
       }
-    } finally {
-      if (isMountedRef.current) {
-        inFlightRef.current = false;
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [data]);
+    },
+    [data],
+  );
 
   // Initial load
   useEffect(() => {
@@ -176,10 +176,7 @@ export default function AdminObservabilityPanel() {
           borderColor: "rgba(243, 139, 168, 0.3)",
         }}
       >
-        <IconAlertTriangle
-          size={28}
-          style={{ margin: "0 auto 16px", color: "#f38ba8" }}
-        />
+        <IconAlertTriangle size={28} style={{ margin: "0 auto 16px", color: "#f38ba8" }} />
         <div
           style={{
             fontSize: "15px",
@@ -253,18 +250,15 @@ export default function AdminObservabilityPanel() {
               margin: "4px 0 0",
             }}
           >
-            Real-time event loop latency, database query percentiles, and active
-            system resource telemetry
+            Real-time event loop latency, database query percentiles, and active system resource
+            telemetry
           </p>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           {/* Polling / Visibility Status Pill */}
           {isHidden ? (
-            <span
-              className="glass-badge glass-badge-warning"
-              style={{ fontSize: "11px" }}
-            >
+            <span className="glass-badge glass-badge-warning" style={{ fontSize: "11px" }}>
               Updates paused while tab is hidden
             </span>
           ) : (
@@ -279,9 +273,7 @@ export default function AdminObservabilityPanel() {
 
           {/* Last Updated Timestamp */}
           <span style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-            {secondsAgo === 0
-              ? "Updated just now"
-              : `Updated ${secondsAgo}s ago`}
+            {secondsAgo === 0 ? "Updated just now" : `Updated ${secondsAgo}s ago`}
           </span>
 
           <button
@@ -358,9 +350,7 @@ export default function AdminObservabilityPanel() {
               marginBottom: "4px",
             }}
           >
-            {data.eventLoopLagMs
-              ? formatMs(data.eventLoopLagMs.p95Ms)
-              : "Monitor inactive"}
+            {data.eventLoopLagMs ? formatMs(data.eventLoopLagMs.p95Ms) : "Monitor inactive"}
           </div>
           <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
             {data.eventLoopLagMs ? (
@@ -443,8 +433,7 @@ export default function AdminObservabilityPanel() {
             {data.activeWsConnections} WS / {data.activeCollabRooms} Rooms
           </div>
           <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-            {data.totalCollabBroadcastSends.toLocaleString()} broadcast sends
-            (coalesced)
+            {data.totalCollabBroadcastSends.toLocaleString()} broadcast sends (coalesced)
           </div>
         </div>
 
@@ -528,9 +517,7 @@ export default function AdminObservabilityPanel() {
                   borderRadius: "8px",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-                  Min
-                </div>
+                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>Min</div>
                 <div style={{ fontSize: "14px", fontWeight: 600 }}>
                   {formatMs(data.eventLoopLagMs.minMs)}
                 </div>
@@ -542,9 +529,7 @@ export default function AdminObservabilityPanel() {
                   borderRadius: "8px",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-                  Mean
-                </div>
+                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>Mean</div>
                 <div style={{ fontSize: "14px", fontWeight: 600 }}>
                   {formatMs(data.eventLoopLagMs.meanMs)}
                 </div>
@@ -556,9 +541,7 @@ export default function AdminObservabilityPanel() {
                   borderRadius: "8px",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-                  p50 (Median)
-                </div>
+                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>p50 (Median)</div>
                 <div style={{ fontSize: "14px", fontWeight: 600 }}>
                   {formatMs(data.eventLoopLagMs.p50Ms)}
                 </div>
@@ -570,9 +553,7 @@ export default function AdminObservabilityPanel() {
                   borderRadius: "8px",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-                  p95
-                </div>
+                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>p95</div>
                 <div style={{ fontSize: "14px", fontWeight: 600 }}>
                   {formatMs(data.eventLoopLagMs.p95Ms)}
                 </div>
@@ -584,9 +565,7 @@ export default function AdminObservabilityPanel() {
                   borderRadius: "8px",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-                  p99
-                </div>
+                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>p99</div>
                 <div style={{ fontSize: "14px", fontWeight: 600 }}>
                   {formatMs(data.eventLoopLagMs.p99Ms)}
                 </div>
@@ -598,9 +577,7 @@ export default function AdminObservabilityPanel() {
                   borderRadius: "8px",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
-                  Max
-                </div>
+                <div style={{ fontSize: "11px", color: "var(--fg-muted)" }}>Max</div>
                 <div style={{ fontSize: "14px", fontWeight: 600 }}>
                   {formatMs(data.eventLoopLagMs.maxMs)}
                 </div>
@@ -692,9 +669,7 @@ export default function AdminObservabilityPanel() {
               }}
             >
               <span style={{ color: "var(--fg-muted)" }}>Resident Set Size (RSS):</span>
-              <span style={{ fontWeight: 600 }}>
-                {formatBytes(data.memory.rssBytes)}
-              </span>
+              <span style={{ fontWeight: 600 }}>{formatBytes(data.memory.rssBytes)}</span>
             </div>
             <div
               style={{
@@ -705,8 +680,7 @@ export default function AdminObservabilityPanel() {
             >
               <span style={{ color: "var(--fg-muted)" }}>Heap Used / Total:</span>
               <span style={{ fontWeight: 600 }}>
-                {formatBytes(data.memory.heapUsedBytes)} /{" "}
-                {formatBytes(data.memory.heapTotalBytes)}
+                {formatBytes(data.memory.heapUsedBytes)} / {formatBytes(data.memory.heapTotalBytes)}
               </span>
             </div>
             <div
@@ -717,9 +691,7 @@ export default function AdminObservabilityPanel() {
               }}
             >
               <span style={{ color: "var(--fg-muted)" }}>External (Buffers/Native):</span>
-              <span style={{ fontWeight: 600 }}>
-                {formatBytes(data.memory.externalBytes)}
-              </span>
+              <span style={{ fontWeight: 600 }}>{formatBytes(data.memory.externalBytes)}</span>
             </div>
             <div
               style={{
@@ -729,9 +701,7 @@ export default function AdminObservabilityPanel() {
               }}
             >
               <span style={{ color: "var(--fg-muted)" }}>ArrayBuffers:</span>
-              <span style={{ fontWeight: 600 }}>
-                {formatBytes(data.memory.arrayBuffersBytes)}
-              </span>
+              <span style={{ fontWeight: 600 }}>{formatBytes(data.memory.arrayBuffersBytes)}</span>
             </div>
           </div>
 
@@ -816,9 +786,8 @@ export default function AdminObservabilityPanel() {
               }}
             >
               Overall: {data.dbCalls.overall.count.toLocaleString()} calls · Mean:{" "}
-              {formatMs(data.dbCalls.overall.meanMs)} · p50:{" "}
-              {formatMs(data.dbCalls.overall.p50Ms)} · p95:{" "}
-              {formatMs(data.dbCalls.overall.p95Ms)} · p99:{" "}
+              {formatMs(data.dbCalls.overall.meanMs)} · p50: {formatMs(data.dbCalls.overall.p50Ms)}{" "}
+              · p95: {formatMs(data.dbCalls.overall.p95Ms)} · p99:{" "}
               {formatMs(data.dbCalls.overall.p99Ms)}
             </div>
           </div>
@@ -837,10 +806,7 @@ export default function AdminObservabilityPanel() {
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table
-              className="admin-table"
-              style={{ width: "100%", fontSize: "12px" }}
-            >
+            <table className="admin-table" style={{ width: "100%", fontSize: "12px" }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: "left" }}>SQL Operation</th>
@@ -855,24 +821,16 @@ export default function AdminObservabilityPanel() {
               <tbody>
                 {dbOperationsList.map(([opName, snapshot]) => (
                   <tr key={opName}>
-                    <td style={{ fontWeight: 600, fontFamily: "var(--font-mono)" }}>
-                      {opName}
-                    </td>
+                    <td style={{ fontWeight: 600, fontFamily: "var(--font-mono)" }}>{opName}</td>
                     <td style={{ textAlign: "right", color: "var(--fg-muted)" }}>
                       {snapshot.count.toLocaleString()}
                     </td>
-                    <td style={{ textAlign: "right" }}>
-                      {formatMs(snapshot.meanMs)}
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      {formatMs(snapshot.p50Ms)}
-                    </td>
+                    <td style={{ textAlign: "right" }}>{formatMs(snapshot.meanMs)}</td>
+                    <td style={{ textAlign: "right" }}>{formatMs(snapshot.p50Ms)}</td>
                     <td style={{ textAlign: "right", fontWeight: 600 }}>
                       {formatMs(snapshot.p95Ms)}
                     </td>
-                    <td style={{ textAlign: "right" }}>
-                      {formatMs(snapshot.p99Ms)}
-                    </td>
+                    <td style={{ textAlign: "right" }}>{formatMs(snapshot.p99Ms)}</td>
                     <td style={{ textAlign: "right", color: "var(--fg-muted)" }}>
                       {formatMs(snapshot.maxMs)}
                     </td>

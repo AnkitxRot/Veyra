@@ -32,10 +32,7 @@ function makeWs(): any {
 }
 
 function storedUser(projectId: string, clientId: number): any {
-  return collaborationManager
-    .getRoom(projectId)!
-    .awareness.getStates()
-    .get(clientId)?.user;
+  return collaborationManager.getRoom(projectId)!.awareness.getStates().get(clientId)?.user;
 }
 
 describe("M73 — collaborator pronouns through presence identity", () => {
@@ -75,10 +72,7 @@ describe("M73 — collaborator pronouns through presence identity", () => {
     const r = room("p1");
     const ws = makeWs();
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]));
     expect("pronouns" in storedUser("p1", 10)).toBe(false);
   });
 
@@ -87,10 +81,7 @@ describe("M73 — collaborator pronouns through presence identity", () => {
     const r = room("p1");
     const ws = makeWs();
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]));
     expect(storedUser("p1", 10).pronouns).toBe("she/her");
   });
 
@@ -98,19 +89,13 @@ describe("M73 — collaborator pronouns through presence identity", () => {
     const r = room("p1");
     const ws = makeWs();
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]));
     expect("pronouns" in storedUser("p1", 10)).toBe(false);
 
     updateProfile(db, 1, { pronouns: "they/them" });
     collaborationManager.broadcastProfileEventForUser(1);
 
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 2, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 2, state: { user: {} } }]));
     expect(storedUser("p1", 10).pronouns).toBe("they/them");
   });
 
@@ -139,10 +124,7 @@ describe("M73 — collaborator pronouns through presence identity", () => {
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
     const spy = vi.spyOn(profileStore, "getPronouns");
     for (let clock = 1; clock <= 5; clock++) {
-      r.handleMessage(
-        ws,
-        awarenessFrame([{ clientId: 10, clock, state: { user: {} } }]),
-      );
+      r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock, state: { user: {} } }]));
     }
     expect(spy).not.toHaveBeenCalled();
     expect(storedUser("p1", 10).pronouns).toBe("she/her");
@@ -157,10 +139,7 @@ describe("M73 — collaborator pronouns through presence identity", () => {
     updateProfile(db, 1, { pronouns: "xe/xem" });
     const ws2 = makeWs();
     await r.addClient(ws2, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws2,
-      awarenessFrame([{ clientId: 12, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws2, awarenessFrame([{ clientId: 12, clock: 1, state: { user: {} } }]));
     expect(storedUser("p1", 12).pronouns).toBe("xe/xem");
   });
 });

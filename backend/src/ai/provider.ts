@@ -66,11 +66,7 @@ export interface AIProvider {
   readonly id: string;
   readonly name: string;
   readonly type: AIProviderType;
-  executeAction(
-    action: AIAction,
-    context: AIContextBundle,
-    options?: any,
-  ): Promise<AIResponse>;
+  executeAction(action: AIAction, context: AIContextBundle, options?: any): Promise<AIResponse>;
 }
 
 /**
@@ -82,10 +78,7 @@ export class DeterministicEngineeringProvider implements AIProvider {
   public readonly name = "Deterministic Rule & Static Analysis Engine";
   public readonly type: AIProviderType = "deterministic";
 
-  public async executeAction(
-    action: AIAction,
-    ctx: AIContextBundle,
-  ): Promise<AIResponse> {
+  public async executeAction(action: AIAction, ctx: AIContextBundle): Promise<AIResponse> {
     const inputTokenEstimate = Math.ceil(ctx.fileContent.length / 4) + 120;
 
     switch (action) {
@@ -94,20 +87,15 @@ export class DeterministicEngineeringProvider implements AIProvider {
         const diag = ctx.diagnostics?.[0];
         const execErr = ctx.recentExecution?.stderr || "";
 
-        let rootCause =
-          "Potential logic or syntax defect detected in active source file.";
+        let rootCause = "Potential logic or syntax defect detected in active source file.";
         let explanation = "Analyzed AST structure and diagnostic coordinates.";
         let patch: AIPatchProposal | null = null;
         let modified = ctx.fileContent;
         let evidence: string[] = [];
 
         // 1. Python ZeroDivisionError
-        if (
-          diag?.message?.includes("ZeroDivisionError") ||
-          execErr.includes("ZeroDivisionError")
-        ) {
-          rootCause =
-            "ZeroDivisionError: Division operation with unvalidated zero denominator.";
+        if (diag?.message?.includes("ZeroDivisionError") || execErr.includes("ZeroDivisionError")) {
+          rootCause = "ZeroDivisionError: Division operation with unvalidated zero denominator.";
           explanation =
             "Added guard condition ensuring denominator is non-zero before evaluating division expression.";
           evidence = [
@@ -127,13 +115,8 @@ export class DeterministicEngineeringProvider implements AIProvider {
           }
         }
         // 2. Python NameError / Undefined Variable
-        else if (
-          diag?.message?.includes("NameError") ||
-          execErr.includes("NameError")
-        ) {
-          const varMatch = (diag?.message || execErr).match(
-            /name '([^']+)' is not defined/,
-          );
+        else if (diag?.message?.includes("NameError") || execErr.includes("NameError")) {
+          const varMatch = (diag?.message || execErr).match(/name '([^']+)' is not defined/);
           const varName = varMatch ? varMatch[1] : "val";
           rootCause = `NameError: Variable '${varName}' referenced prior to initialization.`;
           explanation = `Declared and initialized variable '${varName}' with default value.`;
@@ -146,10 +129,8 @@ export class DeterministicEngineeringProvider implements AIProvider {
           ctx.language === "cpp" ||
           ctx.activeFilePath.endsWith(".c")
         ) {
-          rootCause =
-            "C Compiler Diagnostic: Missing statement terminator or return statement.";
-          explanation =
-            "Corrected syntax terminators and ensured valid function exit code.";
+          rootCause = "C Compiler Diagnostic: Missing statement terminator or return statement.";
+          explanation = "Corrected syntax terminators and ensured valid function exit code.";
           evidence = ["GCC diagnostic at line coordinate"];
           modified = ctx.fileContent.replace(/return 0(?!\s*;)/g, "return 0;");
         }
@@ -159,19 +140,13 @@ export class DeterministicEngineeringProvider implements AIProvider {
           explanation = "Added necessary import statement or declaration.";
           evidence = [diag.message];
           modified =
-            `// TODO: Check missing type definition for ${diag.message}\n` +
-            ctx.fileContent;
+            `// TODO: Check missing type definition for ${diag.message}\n` + ctx.fileContent;
         }
         // Generic fallback fix: formatting and header cleanup
         else {
-          rootCause = diag
-            ? `Diagnostic: ${diag.message}`
-            : "Runtime execution failure.";
-          explanation =
-            "Applied defensive coding patterns and normalized syntax.";
-          evidence = diag
-            ? [diag.message]
-            : ["Execution returned non-zero exit code"];
+          rootCause = diag ? `Diagnostic: ${diag.message}` : "Runtime execution failure.";
+          explanation = "Applied defensive coding patterns and normalized syntax.";
+          evidence = diag ? [diag.message] : ["Execution returned non-zero exit code"];
           if (action === "fix_error") {
             modified = ctx.fileContent.trimEnd() + "\n";
           }
@@ -226,10 +201,7 @@ def test_error_handling():
     assert True
 `;
         } else if (lang === "typescript" || lang === "javascript") {
-          testPath = ctx.activeFilePath.replace(
-            /\.(ts|js|tsx|jsx)$/,
-            ".test.$1",
-          );
+          testPath = ctx.activeFilePath.replace(/\.(ts|js|tsx|jsx)$/, ".test.$1");
           tests = `import { describe, it, expect } from 'vitest';
 
 describe('${ctx.activeFilePath}', () => {
@@ -299,10 +271,7 @@ describe('${ctx.activeFilePath}', () => {
             originalContent: ctx.fileContent,
             modifiedContent: fullModified,
             explanation: `Refactored ${ctx.activeFilePath} for enhanced clarity and robustness.`,
-            linesAdded:
-              fullModified.split("\n").length -
-              ctx.fileContent.split("\n").length +
-              1,
+            linesAdded: fullModified.split("\n").length - ctx.fileContent.split("\n").length + 1,
             linesRemoved: 0,
           },
           confidence: "high",

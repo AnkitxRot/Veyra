@@ -1,10 +1,7 @@
 import { useEffect, useRef } from "react";
 import { IconTrash, IconRefresh } from "../common/Icons";
 import { useTerminalSession } from "../../hooks/useTerminalSession";
-import {
-  TERMINAL_STATES,
-  type TerminalConnectionState,
-} from "../../hooks/terminalSessionState";
+import { TERMINAL_STATES, type TerminalConnectionState } from "../../hooks/terminalSessionState";
 
 /**
  * M79 — thin presentation layer over `useTerminalSession`.
@@ -16,19 +13,17 @@ import {
  * NOT close the socket, dispose the XTerm, or kill the PTY.
  */
 
-const BADGE: Record<
-  TerminalConnectionState,
-  { text: string; kind: "success" | "error" | "warn" }
-> = {
-  [TERMINAL_STATES.connecting]: { text: "Connecting…", kind: "warn" },
-  [TERMINAL_STATES.connected]: { text: "bash (sandbox)", kind: "success" },
-  [TERMINAL_STATES.reconnecting]: { text: "Reconnecting…", kind: "warn" },
-  [TERMINAL_STATES.reconnect_exhausted]: {
-    text: "Disconnected",
-    kind: "error",
-  },
-  [TERMINAL_STATES.ended]: { text: "Session ended", kind: "error" },
-};
+const BADGE: Record<TerminalConnectionState, { text: string; kind: "success" | "error" | "warn" }> =
+  {
+    [TERMINAL_STATES.connecting]: { text: "Connecting…", kind: "warn" },
+    [TERMINAL_STATES.connected]: { text: "bash (sandbox)", kind: "success" },
+    [TERMINAL_STATES.reconnecting]: { text: "Reconnecting…", kind: "warn" },
+    [TERMINAL_STATES.reconnect_exhausted]: {
+      text: "Disconnected",
+      kind: "error",
+    },
+    [TERMINAL_STATES.ended]: { text: "Session ended", kind: "error" },
+  };
 
 export default function Terminal({
   projectId,
@@ -64,8 +59,7 @@ export default function Terminal({
   const badge = BADGE[state];
   const connected = state === TERMINAL_STATES.connected;
   const showRetry =
-    state === TERMINAL_STATES.reconnect_exhausted ||
-    state === TERMINAL_STATES.ended;
+    state === TERMINAL_STATES.reconnect_exhausted || state === TERMINAL_STATES.ended;
 
   return (
     <div
@@ -87,16 +81,10 @@ export default function Terminal({
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span
             className={`glass-badge glass-badge-${
-              badge.kind === "success"
-                ? "success"
-                : badge.kind === "warn"
-                  ? "warn"
-                  : "error"
+              badge.kind === "success" ? "success" : badge.kind === "warn" ? "warn" : "error"
             }`}
           >
-            <span
-              className={`capability-dot ${connected ? "ready" : "error"}`}
-            />
+            <span className={`capability-dot ${connected ? "ready" : "error"}`} />
             <span>{badge.text}</span>
           </span>
           <span style={{ color: "var(--fg-muted)", fontSize: "11px" }}>
@@ -112,15 +100,9 @@ export default function Terminal({
               className="glass-btn"
               style={{ fontSize: "11px", padding: "2px 8px" }}
               onClick={retry}
-              title={
-                state === TERMINAL_STATES.ended
-                  ? "Start a new terminal"
-                  : "Retry connection"
-              }
+              title={state === TERMINAL_STATES.ended ? "Start a new terminal" : "Retry connection"}
             >
-              {state === TERMINAL_STATES.ended
-                ? "Start new terminal"
-                : "Retry"}
+              {state === TERMINAL_STATES.ended ? "Start new terminal" : "Retry"}
             </button>
           )}
           <button

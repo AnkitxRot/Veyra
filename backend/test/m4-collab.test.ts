@@ -27,10 +27,7 @@ import { promises as fs } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
-import {
-  controlWriteFile,
-  resetWriteControl,
-} from "./confinedWriteMock.js";
+import { controlWriteFile, resetWriteControl } from "./confinedWriteMock.js";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -44,11 +41,7 @@ function makeMockWs() {
   } as any;
 }
 
-async function waitUntil(
-  predicate: () => boolean,
-  label: string,
-  timeoutMs = 8000,
-): Promise<void> {
+async function waitUntil(predicate: () => boolean, label: string, timeoutMs = 8000): Promise<void> {
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start > timeoutMs) {
@@ -119,11 +112,7 @@ function buildFileOpenFrame(path: string) {
  * Sync Step 1 provokes a Step 2 reply, which is sent straight back into the
  * room via `room.handleMessage`, completing the real handshake.
  */
-function wireClientToRoom(
-  room: CollaborationRoom,
-  ws: any,
-  clientDoc: Y.Doc,
-): void {
+function wireClientToRoom(room: CollaborationRoom, ws: any, clientDoc: Y.Doc): void {
   ws.send = (message: Uint8Array) => {
     const decoder = decoding.createDecoder(message);
     const messageType = decoding.readVarUint(decoder);
@@ -214,9 +203,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("2. Lazy file loading & disk workspace persistence", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("owner_u", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "owner_u",
+      "h",
+      "user",
+    );
     const project = await createProject(cfg, db, 1, {
       name: "MultiplayerProj",
     });
@@ -236,15 +227,15 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     await room.flushToDisk();
 
     const savedDiskContent = await fs.readFile(diskPath, "utf-8");
-    expect(savedDiskContent).toBe(
-      'print("initial disk content")\nprint("multiplayer added line")',
-    );
+    expect(savedDiskContent).toBe('print("initial disk content")\nprint("multiplayer added line")');
   });
 
   it("3. External file mutation safety: converges the Y.Doc when safe, refuses to clobber an unpersisted collaborator edit", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("owner_u", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "owner_u",
+      "h",
+      "user",
+    );
     const project = await createProject(cfg, db, 1, { name: "ExternalProj" });
     const room = collaborationManager.getOrCreateRoom(project.id);
 
@@ -252,8 +243,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // to the external content (a genuine on-disk change flowing into the room).
     const calm = "calm.js";
     await room.ensureFileLoaded(calm);
-    const externalContent =
-      'const port = 8080;\nconsole.log("external change");';
+    const externalContent = 'const port = 8080;\nconsole.log("external change");';
     const applied = await collaborationManager.notifyExternalFileMutation(
       project.id,
       calm,
@@ -279,18 +269,26 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("4. Multi-Tenant access authorization & RBAC permissions", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("charlie", "h", "user"); // id 3
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("admin_u", "h", "admin"); // id 4
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "charlie",
+      "h",
+      "user",
+    ); // id 3
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "admin_u",
+      "h",
+      "admin",
+    ); // id 4
 
     const project = await createProject(cfg, db, 1, { name: "SecuredProj" });
 
@@ -299,9 +297,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     expect(ownerAccess.role).toBe("owner");
 
     // 2. Uninvited user access
-    expect(() => requireProjectAccess(db, 2, project.id)).toThrowError(
-      /not found/,
-    );
+    expect(() => requireProjectAccess(db, 2, project.id)).toThrowError(/not found/);
 
     // 3. Invite Bob as Editor
     addProjectCollaborator(db, project.id, 2, "editor");
@@ -314,9 +310,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     expect(viewerAccess.role).toBe("viewer");
 
     // Viewer fails editor minimum requirement
-    expect(() =>
-      requireProjectAccess(db, 3, project.id, "editor"),
-    ).toThrowError(/read-only viewer/);
+    expect(() => requireProjectAccess(db, 3, project.id, "editor")).toThrowError(
+      /read-only viewer/,
+    );
 
     // 5. Admin has owner-level access
     const adminAccess = requireProjectAccess(db, 4, project.id);
@@ -325,21 +321,21 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // 6. List collaborators
     const members = listProjectCollaborators(db, project.id);
     expect(members.length).toBe(2);
-    expect(
-      members.some((m) => m.username === "bob" && m.role === "editor"),
-    ).toBe(true);
-    expect(
-      members.some((m) => m.username === "charlie" && m.role === "viewer"),
-    ).toBe(true);
+    expect(members.some((m) => m.username === "bob" && m.role === "editor")).toBe(true);
+    expect(members.some((m) => m.username === "charlie" && m.role === "viewer")).toBe(true);
   });
 
   it("5. Revocation & collaborator removal immediately cuts access", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
 
     const project = await createProject(cfg, db, 1, { name: "RevokeProj" });
     addProjectCollaborator(db, project.id, 2, "editor");
@@ -347,9 +343,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     // Revoke collaborator
     removeProjectCollaborator(db, project.id, 2);
-    expect(() => requireProjectAccess(db, 2, project.id)).toThrowError(
-      /not found/,
-    );
+    expect(() => requireProjectAccess(db, 2, project.id)).toThrowError(/not found/);
     expect(listProjectCollaborators(db, project.id).length).toBe(0);
   });
 
@@ -386,9 +380,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("7. Multi-File collaboration in same room", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    );
     const project = await createProject(cfg, db, 1, { name: "MultiFileProj" });
 
     const room = collaborationManager.getOrCreateRoom(project.id);
@@ -406,18 +402,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     await room.flushToDisk();
 
-    const pyDisk = await fs.readFile(
-      join(projectDir(cfg, project.id), "main.py"),
-      "utf-8",
-    );
-    const jsDisk = await fs.readFile(
-      join(projectDir(cfg, project.id), "index.js"),
-      "utf-8",
-    );
-    const mdDisk = await fs.readFile(
-      join(projectDir(cfg, project.id), "README.md"),
-      "utf-8",
-    );
+    const pyDisk = await fs.readFile(join(projectDir(cfg, project.id), "main.py"), "utf-8");
+    const jsDisk = await fs.readFile(join(projectDir(cfg, project.id), "index.js"), "utf-8");
+    const mdDisk = await fs.readFile(join(projectDir(cfg, project.id), "README.md"), "utf-8");
 
     expect(pyDisk).toBe('print("Python File")');
     expect(jsDisk).toBe('console.log("JavaScript File")');
@@ -425,12 +412,16 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("8. Per-client awareness ownership: disconnect cleans up only that client's presence, peers preserved, duplicate cleanup is safe", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
 
     const project = await createProject(cfg, db, 1, { name: "AwarenessProj" });
     const room = collaborationManager.getOrCreateRoom(project.id);
@@ -506,9 +497,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("9. Project deletion disposes the active CollaborationRoom and disconnects live collaborators", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "DeletedProj" });
     const room = collaborationManager.getOrCreateRoom(project.id);
@@ -535,9 +528,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("10. Snapshot restore does not silently revert a collaborator's unsaved edit; disk reconverges to the live content", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("owner_u", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "owner_u",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "SnapRestoreProj",
@@ -559,13 +554,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     yText.delete(0, yText.length);
     yText.insert(0, "print('v3, unsaved local edit')");
 
-    const restoreResult = await restoreSnapshot(
-      cfg,
-      db,
-      1,
-      project.id,
-      snapshot.id,
-    );
+    const restoreResult = await restoreSnapshot(cfg, db, 1, project.id, snapshot.id);
 
     // The conflict is surfaced to the caller (not silently swallowed).
     expect(restoreResult.conflictedPaths).toEqual([filePath]);
@@ -582,15 +571,15 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // Because the live content is authoritative, the next flush reconverges
     // disk to it rather than leaving the half-applied restore in place.
     await room.flushToDisk();
-    expect(await fs.readFile(workspaceFile, "utf-8")).toBe(
-      "print('v3, unsaved local edit')",
-    );
+    expect(await fs.readFile(workspaceFile, "utf-8")).toBe("print('v3, unsaved local edit')");
   });
 
   it("11. Role downgrade takes effect on a live connection: a demoted editor immediately loses write access", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("carol", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "carol",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "RoleDowngradeProj",
@@ -603,9 +592,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const clientText = clientDoc.getText("main.py");
 
     // While still an editor, a real update is accepted into the room's doc.
-    const frame1 = buildSyncUpdateFrame(clientDoc, () =>
-      clientText.insert(0, "print(1)"),
-    );
+    const frame1 = buildSyncUpdateFrame(clientDoc, () => clientText.insert(0, "print(1)"));
     room.handleMessage(ws, frame1);
     expect(room.doc.getText("main.py").toString()).toBe("print(1)");
 
@@ -626,9 +613,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("12. A failed disk write keeps the file dirty so the next flush retries it (no silent false 'clean')", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("dana", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "dana",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "FlushFailProj" });
     const onDispose = vi.fn();
@@ -669,29 +658,25 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     await room.flushToDisk();
 
     expect((room as any).dirtyFiles.has(filePath)).toBe(false);
-    expect(await fs.readFile(diskPath, "utf-8")).toBe(
-      "unsaved collaborative edit",
-    );
+    expect(await fs.readFile(diskPath, "utf-8")).toBe("unsaved collaborative edit");
 
     cleanup12();
     room.dispose();
   });
 
   it.skip("13. Idle disposal is deferred while a flush failure leaves content unpersisted, and only disposes once the retry succeeds (M90: covered by 13a/13b below)", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("eli", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "eli",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "IdleDisposeProj",
     });
     const onDispose = vi.fn();
-    const realpathSpy = vi
-      .spyOn(fs, "realpath")
-      .mockImplementation(async (p: any) => p);
-    const accessSpy = vi
-      .spyOn(fs, "access")
-      .mockResolvedValue(undefined as never);
+    const realpathSpy = vi.spyOn(fs, "realpath").mockImplementation(async (p: any) => p);
+    const accessSpy = vi.spyOn(fs, "access").mockResolvedValue(undefined as never);
     vi.useFakeTimers();
 
     let cleanup13: (opts?: { passThrough?: boolean }) => void = () => {};
@@ -720,9 +705,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
       expect(onDispose).not.toHaveBeenCalled();
       expect((room as any).dirtyFiles.has(filePath)).toBe(true);
-      expect(room.doc.getText(filePath).toString()).toBe(
-        "edits that must not be lost",
-      );
+      expect(room.doc.getText(filePath).toString()).toBe("edits that must not be lost");
 
       cleanup13({ passThrough: true });
       await vi.advanceTimersByTimeAsync(20_000);
@@ -738,20 +721,18 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it.skip("13b. Idle-disposal retry backs off exponentially, capped at 5 minutes, and never stops retrying (M90: skip — infinite backoff requires real wall-clock time incompatible with fake timers)", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("ida", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "ida",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "BackoffCapProj",
     });
     const onDispose = vi.fn();
-    const realpathSpy = vi
-      .spyOn(fs, "realpath")
-      .mockImplementation(async (p: any) => p);
-    const accessSpy = vi
-      .spyOn(fs, "access")
-      .mockResolvedValue(undefined as never);
+    const realpathSpy = vi.spyOn(fs, "realpath").mockImplementation(async (p: any) => p);
+    const accessSpy = vi.spyOn(fs, "access").mockResolvedValue(undefined as never);
     vi.useFakeTimers();
 
     let cleanup13b: (() => void) | undefined;
@@ -777,9 +758,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
       room.removeClient(ws);
 
-      const expectedDelays = [
-        10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000,
-      ];
+      const expectedDelays = [10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000];
       let callsBefore = 0;
       for (const delay of expectedDelays) {
         await vi.advanceTimersByTimeAsync(delay);
@@ -789,9 +768,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
       expect(onDispose).not.toHaveBeenCalled();
       expect((room as any).dirtyFiles.has(filePath)).toBe(true);
-      expect(room.doc.getText(filePath).toString()).toBe(
-        "content that must not be lost",
-      );
+      expect(room.doc.getText(filePath).toString()).toBe("content that must not be lost");
 
       room.dispose();
     } finally {
@@ -803,9 +780,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("14. A real sync-protocol edit marks the edited file dirty, even for a file the server never opened", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("frank", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "frank",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "SyncDirtyProj" });
     const onDispose = vi.fn();
@@ -832,9 +811,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     );
 
     // The edit landed in the room's doc...
-    expect(room.doc.getText(filePath).toString()).toBe(
-      "print('real collaborative edit')",
-    );
+    expect(room.doc.getText(filePath).toString()).toBe("print('real collaborative edit')");
     // ...and, crucially, was recorded as dirty. This was permanently false
     // before the fix (markFileDirty was never called from any real request
     // path), which silently disabled flush-retry and disposal deferral.
@@ -842,9 +819,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     // End-to-end: the tracked file actually persists and then goes clean.
     await room.flushToDisk();
-    expect(
-      await fs.readFile(join(projectDir(cfg, project.id), filePath), "utf-8"),
-    ).toBe("print('real collaborative edit')");
+    expect(await fs.readFile(join(projectDir(cfg, project.id), filePath), "utf-8")).toBe(
+      "print('real collaborative edit')",
+    );
     expect((room as any).dirtyFiles.has(filePath)).toBe(false);
 
     clientDoc.destroy();
@@ -852,9 +829,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("15. Two different files edited via separate real sync messages are both tracked dirty", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("grace", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "grace",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "SyncMultiDirtyProj",
@@ -900,21 +879,23 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
     await room.flushToDisk();
     expect(dirty.size).toBe(0);
-    expect(
-      await fs.readFile(join(projectDir(cfg, project.id), "alpha.py"), "utf-8"),
-    ).toBe("alpha = 1");
-    expect(
-      await fs.readFile(join(projectDir(cfg, project.id), "beta.js"), "utf-8"),
-    ).toBe("const beta = 2;");
+    expect(await fs.readFile(join(projectDir(cfg, project.id), "alpha.py"), "utf-8")).toBe(
+      "alpha = 1",
+    );
+    expect(await fs.readFile(join(projectDir(cfg, project.id), "beta.js"), "utf-8")).toBe(
+      "const beta = 2;",
+    );
 
     clientDoc.destroy();
     room.dispose();
   });
 
   it("16. External mutations are never queued as dirty, so a deleted file is not resurrected by the next flush", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("heidi", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "heidi",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "ExtDirtyProj" });
     const onDispose = vi.fn();
@@ -947,9 +928,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("17. A crafted shared-type key cannot queue a write outside the project workspace", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("ivan", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "ivan",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "TraversalProj" });
     const onDispose = vi.fn();
@@ -981,9 +964,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("18. A valid in-workspace collaborative path persists, while a path resolving through a planted symlink is refused", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("judy", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "judy",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "SymlinkProj" });
     const onDispose = vi.fn();
@@ -1064,9 +1049,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("19. A real file_open message loads an in-workspace file into the room doc and broadcasts it to peers", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("kate", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "kate",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "FileOpenProj" });
     const onDispose = vi.fn();
@@ -1076,11 +1063,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     await fs.mkdir(join(projectDir(cfg, project.id), "src"), {
       recursive: true,
     });
-    await fs.writeFile(
-      join(projectDir(cfg, project.id), filePath),
-      "print('on disk')",
-      "utf-8",
-    );
+    await fs.writeFile(join(projectDir(cfg, project.id), filePath), "print('on disk')", "utf-8");
 
     const wsA = makeMockWs();
     const peerFrames: Uint8Array[] = [];
@@ -1108,9 +1091,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("20. A traversal path in a file_open message cannot make the server read a file outside the workspace", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("liam", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "liam",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "OpenTraversalProj",
@@ -1138,9 +1123,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     });
     peerFrames.length = 0;
 
-    expect(() =>
-      room.handleMessage(wsA, buildFileOpenFrame(evilPath)),
-    ).not.toThrow();
+    expect(() => room.handleMessage(wsA, buildFileOpenFrame(evilPath))).not.toThrow();
     await flushAsync();
 
     // Nothing outside the workspace was read into the shared doc...
@@ -1148,17 +1131,17 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // ...and nothing was pushed to the other collaborators in the room.
     expect(peerFrames.length).toBe(0);
     // The victim file itself is untouched and its content never leaked.
-    expect(await fs.readFile(victimFile, "utf-8")).toBe(
-      "TOP SECRET HOST CONTENT",
-    );
+    expect(await fs.readFile(victimFile, "utf-8")).toBe("TOP SECRET HOST CONTENT");
 
     room.dispose();
   });
 
   it("21. A file_open path resolving through a planted symlink is refused, and a rejected key is never registered in doc.share", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("mia", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "mia",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "OpenSymlinkProj",
@@ -1207,9 +1190,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
         expect(room.doc.getText(evilPath).toString()).toBe("");
         // ...and was never broadcast to the other collaborator.
         expect(peerFrames.length).toBe(0);
-        expect(await fs.readFile(victimFile, "utf-8")).toBe(
-          "TOP SECRET HOST CONTENT",
-        );
+        expect(await fs.readFile(victimFile, "utf-8")).toBe("TOP SECRET HOST CONTENT");
       }
 
       // A rejected key must never be materialized in doc.share (Y.Doc.get()
@@ -1222,9 +1203,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
 
       // The rejected path also never reaches disk via the fallback flush.
       await room.flushToDisk();
-      await expect(
-        fs.readFile(join(workspace, traversalPath), "utf-8"),
-      ).rejects.toThrow();
+      await expect(fs.readFile(join(workspace, traversalPath), "utf-8")).rejects.toThrow();
     } finally {
       room.dispose();
       await fs.rm(outsideDir, { recursive: true, force: true });
@@ -1232,9 +1211,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("22. A client reconnecting while idle-disposal's flush is in flight is not evicted, and the room is not destroyed out from under them", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("nora", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "nora",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "ReconnectDisposeRaceProj",
@@ -1251,12 +1232,8 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     const cleanup22 = controlWriteFile(async () => {
       await writeGate;
     });
-    const realpathSpy = vi
-      .spyOn(fs, "realpath")
-      .mockImplementation(async (p: any) => p);
-    const accessSpy = vi
-      .spyOn(fs, "access")
-      .mockResolvedValue(undefined as never);
+    const realpathSpy = vi.spyOn(fs, "realpath").mockImplementation(async (p: any) => p);
+    const accessSpy = vi.spyOn(fs, "access").mockResolvedValue(undefined as never);
     vi.useFakeTimers();
 
     try {
@@ -1322,15 +1299,21 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("23. Three concurrent editors converge to identical content via real sync-protocol messages, and no one's edit is lost", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice3", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob3", "h", "user"); // id 2
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("carol3", "h", "user"); // id 3
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice3",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob3",
+      "h",
+      "user",
+    ); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "carol3",
+      "h",
+      "user",
+    ); // id 3
 
     const project = await createProject(cfg, db, 1, {
       name: "ThreeEditorProj",
@@ -1360,9 +1343,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // "never delay the initial synchronization handshake"), so this holds
     // with no timer advance.
     for (const doc of clientDocs) {
-      expect(doc.getText(filePath).toString()).toBe(
-        room.doc.getText(filePath).toString(),
-      );
+      expect(doc.getText(filePath).toString()).toBe(room.doc.getText(filePath).toString());
     }
 
     // M6: broadcasts to OTHER clients are now coalesced within a short
@@ -1383,9 +1364,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
         const clientText = clientDocs[i]!.getText(filePath);
         room.handleMessage(
           wsList[i],
-          buildSyncUpdateFrame(clientDocs[i]!, () =>
-            clientText.insert(0, edits[i]!),
-          ),
+          buildSyncUpdateFrame(clientDocs[i]!, () => clientText.insert(0, edits[i]!)),
         );
       }
       await vi.advanceTimersByTimeAsync(DEFAULT_YJS_COALESCE_MS);
@@ -1417,9 +1396,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       expect(clientDocs[2]!.getText(filePath).toString()).toBe(
         room.doc.getText(filePath).toString(),
       );
-      expect(clientDocs[2]!.getText(filePath).toString()).toContain(
-        "Alice again",
-      );
+      expect(clientDocs[2]!.getText(filePath).toString()).toContain("Alice again");
     } finally {
       vi.useRealTimers();
     }
@@ -1429,15 +1406,21 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("24. Bounded reconnect storm across 3 clients converges correctly with no presence corruption and no premature disposal", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("storm1", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("storm2", "h", "user"); // id 2
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("storm3", "h", "user"); // id 3
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "storm1",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "storm2",
+      "h",
+      "user",
+    ); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "storm3",
+      "h",
+      "user",
+    ); // id 3
 
     const project = await createProject(cfg, db, 1, { name: "StormProj" });
     const onDispose = vi.fn();
@@ -1533,9 +1516,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // limits, which are covered elsewhere.
     const ROOM_COUNT = 15;
 
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("soak_owner", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "soak_owner",
+      "h",
+      "user",
+    ); // id 1
 
     const baselineActive = collaborationManager.getActiveRoomCount();
 
@@ -1572,10 +1557,7 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // Content was actually flushed before disposal for every room, not
     // silently dropped at scale.
     for (let i = 0; i < ROOM_COUNT; i++) {
-      const content = await fs.readFile(
-        join(projectDir(cfg, projectIds[i]!), "f.txt"),
-        "utf-8",
-      );
+      const content = await fs.readFile(join(projectDir(cfg, projectIds[i]!), "f.txt"), "utf-8");
       expect(content).toBe(`room ${i}`);
     }
   });
@@ -1599,9 +1581,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   // called flushToDisk() afterward, so it could not have caught this.
 
   it("26. The exact bug: an empty external mutation for a never-tracked path materializes nothing, and a subsequent empty-dirtyFiles flush does not resurrect it", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("oscar", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "oscar",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "GhostBugProj" });
     const onDispose = vi.fn();
@@ -1631,9 +1615,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("27. Rename case: notifying the old path after a move leaves it absent from disk through an idle-style flush", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("pia", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "pia",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "GhostRenameProj",
@@ -1664,9 +1650,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("28. Delete case: notifying the deleted path leaves it absent from disk through an idle-style flush", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("quinn", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "quinn",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "GhostDeleteProj",
@@ -1694,9 +1682,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("29. Real-edit regression: the primary dirtyFiles-driven flush path is untouched by the ghost-key guards", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("river", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "river",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "GhostRealEditProj",
@@ -1724,9 +1714,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("30. Externally created file: a never-tracked path with real non-empty content is still seeded and persisted correctly", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("sage", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "sage",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "GhostExternalCreateProj",
@@ -1755,9 +1747,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("31. No ghost keys: an empty external mutation for an unknown path never registers a doc.share entry", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("tara", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "tara",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "GhostNoKeyProj",
@@ -1796,9 +1790,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   // workspace-restore.test.ts) for the identical race shape.
 
   it("26. Existing normal delete still disposes an active room and closes its client with the standard code (no regression from the added second dispose)", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("uma", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "uma",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "NormalDeleteNoRaceProj",
@@ -1826,9 +1822,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("27. Racing reconnect during project deletion: a room created after the first dispose (project row still visible) is disposed by the post-delete safety net, its client is closed normally, and the project is genuinely gone", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("vic", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "vic",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "DeleteReconnectRaceProj",
@@ -1904,15 +1902,15 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // POST_DELETE_RECONNECT: the project row is genuinely gone — a further
     // access attempt gets the existing, unmodified IDOR-safe "not found"
     // behavior, the same as any other deleted project.
-    expect(() => requireProjectAccess(db, 1, project.id)).toThrowError(
-      /not found/,
-    );
+    expect(() => requireProjectAccess(db, 1, project.id)).toThrowError(/not found/);
   });
 
   it("28. A race-created room cannot silently persist an edit after the project is deleted: the edit never reaches disk and the room does not survive to retry it", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("wren", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "wren",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "DeleteRaceSilentLossProj",
@@ -1994,9 +1992,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   // dispose-based mitigation shape.
 
   it("29. Normal (non-racing) import still disposes any pre-existing room exactly once, produces correct content, and leaves no room behind (no regression from the added second dispose)", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("xena", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "xena",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "ImportNormalNoRaceProj",
@@ -2033,9 +2033,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("30. Exact race: a room created after the first dispose but before workspace replacement reads stale pre-import content, and is disposed by the second (post-replacement) safety net", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("yara", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "yara",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "ImportRaceStaleReadProj",
@@ -2104,15 +2106,15 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     expect(collaborationManager.getRoom(project.id)).toBeUndefined();
     expect(raceCloseCode).toBe(1001);
     // The import's own result is authoritative on disk.
-    expect(await fs.readFile(diskPath, "utf-8")).toBe(
-      "print('NEW CONTENT FROM IMPORT')\n",
-    );
+    expect(await fs.readFile(diskPath, "utf-8")).toBe("print('NEW CONTENT FROM IMPORT')\n");
   });
 
   it("31. A real edit sent into the race-created room before the second dispose never overwrites the imported content", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("zane", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "zane",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "ImportRaceStaleWriteProj",
@@ -2161,15 +2163,15 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
     // still clobber the import later either.
     expect(collaborationManager.getRoom(project.id)).toBeUndefined();
     // The imported content is untouched by the stale edit.
-    expect(await fs.readFile(diskPath, "utf-8")).toBe(
-      "print('NEW CONTENT FROM IMPORT')\n",
-    );
+    expect(await fs.readFile(diskPath, "utf-8")).toBe("print('NEW CONTENT FROM IMPORT')\n");
   });
 
   it("32. Legitimate reconnect semantics: old client -> first dispose -> race reconnect -> second dispose -> a reconnect AFTER completion sees correct content and is not disposed", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("aria", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "aria",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "ImportLegitReconnectProj",
@@ -2283,16 +2285,14 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   }
 
   it("33. file_open triggers a `file_ready` custom frame back to the requesting client once the file is loaded from disk", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("olga", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "olga",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "FileReadyProj" });
-    await fs.writeFile(
-      join(projectDir(cfg, project.id), "notes.txt"),
-      "DISK",
-      "utf-8",
-    );
+    await fs.writeFile(join(projectDir(cfg, project.id), "notes.txt"), "DISK", "utf-8");
 
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
     const frames: Uint8Array[] = [];
@@ -2316,9 +2316,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("34. A path-escape key in file_open never registers in doc.share and never reaches disk, even though a file_ready may still be signalled", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("pete", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "pete",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "FileReadyEscapeProj",
@@ -2341,13 +2343,9 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
       cfg.dataDir,
       `collab-escape-probe-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`,
     );
-    const evil = relative(projectDir(cfg, project.id), escapeAbs)
-      .split(sep)
-      .join("/");
+    const evil = relative(projectDir(cfg, project.id), escapeAbs).split(sep).join("/");
 
-    expect(() =>
-      room.handleMessage(ws, buildFileOpenFrame(evil)),
-    ).not.toThrow();
+    expect(() => room.handleMessage(ws, buildFileOpenFrame(evil))).not.toThrow();
     await flushAsync();
 
     // ensureFileLoaded refuses the path and returns a DETACHED Y.Text, so the
@@ -2363,9 +2361,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("35. Disk byte fidelity: a real sync-protocol edit on a loaded file flushes back byte-for-byte, trailing newline included", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("quinn", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "quinn",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "ByteFidelityProj",
@@ -2407,9 +2407,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("36. A client joining a file the server already loaded from disk does not double its content (server-side proof of the seed-race class)", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("rick", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "rick",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, {
       name: "NoDoubleSeedProj",
@@ -2473,9 +2475,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   }
 
   it("37. External mutation does not discard a concurrent unpersisted collaborator edit", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("nate", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "nate",
+      "h",
+      "user",
+    ); // id 1
     const project = await createProject(cfg, db, 1, { name: "ExtConflictA" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
     const filePath = "app.py";
@@ -2516,9 +2520,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("38. External mutation with no concurrent collaborator edit applies cleanly", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("olive", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "olive",
+      "h",
+      "user",
+    ); // id 1
     const project = await createProject(cfg, db, 1, { name: "ExtConflictB" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
     const filePath = "config.json";
@@ -2541,19 +2547,18 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("39. A collaborator edit AFTER an external mutation still syncs and persists normally", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("pat", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "pat",
+      "h",
+      "user",
+    ); // id 1
     const project = await createProject(cfg, db, 1, { name: "ExtConflictC" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
     const filePath = "notes.md";
     const diskPath = await seedLoadedFile(room, filePath, "# Notes\n");
 
     await fs.writeFile(diskPath, "# Notes\n\n- imported line\n", "utf-8");
-    const ext = await room.handleExternalFileMutation(
-      filePath,
-      "# Notes\n\n- imported line\n",
-    );
+    const ext = await room.handleExternalFileMutation(filePath, "# Notes\n\n- imported line\n");
     expect(ext).toEqual({ applied: true, conflict: false });
 
     // Normal collaboration resumes: a real sync-path edit lands, tracks
@@ -2586,9 +2591,11 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("40. Sequential external mutations converge to the latest; a later stale one over a live edit is a conflict", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("quinn2", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "quinn2",
+      "h",
+      "user",
+    ); // id 1
     const project = await createProject(cfg, db, 1, { name: "ExtConflictD" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
     const filePath = "seq.txt";
@@ -2628,12 +2635,16 @@ describe("M4 Real-Time Multiplayer Collaboration & CRDT Engine", () => {
   });
 
   it("41. A conflicting external mutation does not suppress the M56 external_mutation_notice", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("rae", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("sam", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "rae",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "sam",
+      "h",
+      "user",
+    ); // id 2
     const project = await createProject(cfg, db, 1, { name: "ExtConflictE" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
     const filePath = "shared.py";

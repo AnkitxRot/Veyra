@@ -1,13 +1,13 @@
-import { promises as fs } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import type { Db } from '../db.js';
-import type { AppConfig } from '../config.js';
-import { ApiError } from '../errors.js';
-import { requireOwnedProject, workspacePath, touchProject } from '../projects/service.js';
-import { safeResolve, assertInsideWorkspace, invalidateTreeCache } from './service.js';
-import { collaborationManager } from '../collab/manager.js';
-import { recordAuditLog } from '../audit.js';
+import { promises as fs } from "node:fs";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
+import { ApiError } from "../errors.js";
+import { requireOwnedProject, workspacePath, touchProject } from "../projects/service.js";
+import { safeResolve, assertInsideWorkspace, invalidateTreeCache } from "./service.js";
+import { collaborationManager } from "../collab/manager.js";
+import { recordAuditLog } from "../audit.js";
 
 export interface UploadFileItem {
   path: string; // relative path within target directory e.g. "app.py" or "nested/sub.ts"
@@ -29,7 +29,7 @@ export function parseMultipartFormData(
 ): { fields: Record<string, string>; files: UploadFileItem[] } {
   const boundaryMatch = contentTypeHeader.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
   if (!boundaryMatch) {
-    throw new ApiError(400, 'Invalid multipart/form-data: missing boundary', 'invalid_multipart');
+    throw new ApiError(400, "Invalid multipart/form-data: missing boundary", "invalid_multipart");
   }
   const boundaryStr = boundaryMatch[1] || boundaryMatch[2];
   const boundary = Buffer.from(`--${boundaryStr}`);
@@ -72,25 +72,29 @@ export function parseMultipartFormData(
     startIdx = nextBoundaryIdx;
 
     // Find headers / body delimiter (\r\n\r\n or \n\n)
-    let headerEndIdx = partBuffer.indexOf(Buffer.from('\r\n\r\n'));
+    let headerEndIdx = partBuffer.indexOf(Buffer.from("\r\n\r\n"));
     let headerLen = 4;
     if (headerEndIdx === -1) {
-      headerEndIdx = partBuffer.indexOf(Buffer.from('\n\n'));
+      headerEndIdx = partBuffer.indexOf(Buffer.from("\n\n"));
       headerLen = 2;
     }
     if (headerEndIdx === -1) continue;
 
-    const headersStr = partBuffer.subarray(0, headerEndIdx).toString('utf8');
+    const headersStr = partBuffer.subarray(0, headerEndIdx).toString("utf8");
     const content = partBuffer.subarray(headerEndIdx + headerLen);
 
-    const dispositionMatch = headersStr.match(/Content-Disposition:\s*form-data;\s*([^;\r\n]+(?:;[^\r\n]+)*)/i);
+    const dispositionMatch = headersStr.match(
+      /Content-Disposition:\s*form-data;\s*([^;\r\n]+(?:;[^\r\n]+)*)/i,
+    );
     if (!dispositionMatch) continue;
 
     const dispositionParams = dispositionMatch[1]!;
     const nameMatch = dispositionParams.match(/name="([^"]+)"/i);
-    const fieldName = nameMatch ? nameMatch[1] : '';
+    const fieldName = nameMatch ? nameMatch[1] : "";
 
-    const filenameMatch = dispositionParams.match(/filename="([^"]+)"/i) || dispositionParams.match(/filename\*=utf-8''([^;\r\n]+)/i);
+    const filenameMatch =
+      dispositionParams.match(/filename="([^"]+)"/i) ||
+      dispositionParams.match(/filename\*=utf-8''([^;\r\n]+)/i);
 
     if (filenameMatch) {
       let rawFilename = filenameMatch[1]!;
@@ -98,13 +102,13 @@ export function parseMultipartFormData(
         rawFilename = decodeURIComponent(rawFilename);
       } catch {}
       // Normalize slashes
-      const cleanPath = rawFilename.replace(/\\/g, '/').replace(/^\/+/, '');
+      const cleanPath = rawFilename.replace(/\\/g, "/").replace(/^\/+/, "");
       files.push({
         path: cleanPath,
         buffer: Buffer.from(content),
       });
     } else if (fieldName) {
-      fields[fieldName] = content.toString('utf8').trim();
+      fields[fieldName] = content.toString("utf8").trim();
     }
   }
 
@@ -149,12 +153,16 @@ export async function uploadProjectFiles(
   const project = requireOwnedProject(db, userId, projectId);
   const cwd = await workspacePath(cfg, project.id);
 
-  const targetDir = (payload.targetDir ?? '').trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  const targetDir = (payload.targetDir ?? "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
   const overwrite = Boolean(payload.overwrite);
   const files = payload.files;
 
   if (!files || !Array.isArray(files) || files.length === 0) {
-    throw new ApiError(400, 'No files provided for upload', 'empty_upload');
+    throw new ApiError(400, "No files provided for upload", "empty_upload");
   }
 
   // 1. Check file count limit
@@ -162,7 +170,7 @@ export async function uploadProjectFiles(
     throw new ApiError(
       413,
       `Exceeded maximum uploaded file count of ${cfg.maxUploadFileCount} (got ${files.length})`,
-      'upload_limit_exceeded',
+      "upload_limit_exceeded",
     );
   }
 
@@ -177,7 +185,7 @@ export async function uploadProjectFiles(
     throw new ApiError(
       413,
       `Aggregate upload size (${aggregateBytes} bytes) exceeds limit of ${cfg.maxAggregateUploadBytes} bytes`,
-      'upload_limit_exceeded',
+      "upload_limit_exceeded",
     );
   }
 
@@ -193,13 +201,13 @@ export async function uploadProjectFiles(
   const normalizedItems: Array<{ relDest: string; absDest: string; buffer: Buffer }> = [];
 
   for (const file of files) {
-    if (!file || typeof file.path !== 'string') {
-      throw new ApiError(400, 'Each file must have a valid string path', 'invalid_path');
+    if (!file || typeof file.path !== "string") {
+      throw new ApiError(400, "Each file must have a valid string path", "invalid_path");
     }
 
-    const rawPath = file.path.trim().replace(/\\/g, '/');
-    if (!rawPath || rawPath === '.' || rawPath === '..') {
-      throw new ApiError(400, 'Invalid file path in upload payload', 'invalid_path');
+    const rawPath = file.path.trim().replace(/\\/g, "/");
+    if (!rawPath || rawPath === "." || rawPath === "..") {
+      throw new ApiError(400, "Invalid file path in upload payload", "invalid_path");
     }
 
     // Single file size limit
@@ -208,7 +216,7 @@ export async function uploadProjectFiles(
       throw new ApiError(
         413,
         `File "${rawPath}" (${fileSize} bytes) exceeds single-file limit of ${cfg.maxSingleUploadFileBytes} bytes`,
-        'file_too_large',
+        "file_too_large",
       );
     }
 
@@ -239,8 +247,8 @@ export async function uploadProjectFiles(
   if (conflicts.length > 0) {
     throw new ApiError(
       409,
-      `File(s) already exist: ${conflicts.slice(0, 5).join(', ')}${conflicts.length > 5 ? ` and ${conflicts.length - 5} more` : ''}. Confirmation required (pass overwrite=true to replace).`,
-      'conflict',
+      `File(s) already exist: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? ` and ${conflicts.length - 5} more` : ""}. Confirmation required (pass overwrite=true to replace).`,
+      "conflict",
     );
   }
 
@@ -257,7 +265,6 @@ export async function uploadProjectFiles(
 
     // 6. Move/Copy from staging into workspace
     await copyDirectoryRecursive(stagingDir, cwd);
-
   } finally {
     try {
       await fs.rm(stagingDir, { recursive: true, force: true });
@@ -275,7 +282,7 @@ export async function uploadProjectFiles(
     try {
       const isLikelyText = !item.buffer.includes(0);
       if (isLikelyText) {
-        const textContent = item.buffer.toString('utf8');
+        const textContent = item.buffer.toString("utf8");
         const mutation = await collaborationManager.notifyExternalFileMutation(
           project.id,
           item.relDest,
@@ -290,13 +297,12 @@ export async function uploadProjectFiles(
   }
 
   // M56: metadata-only external-mutation notice to affected collaborators.
-  const uploadActor = db
-    .prepare('SELECT username FROM users WHERE id = ?')
-    .get(userId) as { username: string } | undefined;
+  const uploadActor = db.prepare("SELECT username FROM users WHERE id = ?").get(userId) as
+    { username: string } | undefined;
   if (uploadActor && mutatedRelPaths.length > 0) {
     collaborationManager.emitExternalMutationNotice(project.id, {
       paths: mutatedRelPaths,
-      mutationType: 'upload',
+      mutationType: "upload",
       actorUserId: userId,
       actorUsername: uploadActor.username,
     });
@@ -307,10 +313,10 @@ export async function uploadProjectFiles(
     recordAuditLog(db, {
       userId,
       projectId: project.id,
-      eventType: 'PROJECT_FILES_UPLOADED',
+      eventType: "PROJECT_FILES_UPLOADED",
       details: {
         projectName: project.name,
-        targetDir: targetDir || '/',
+        targetDir: targetDir || "/",
         fileCount: normalizedItems.length,
         totalBytes: aggregateBytes,
         overwrite,

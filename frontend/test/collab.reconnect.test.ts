@@ -65,10 +65,7 @@ class FakeWebSocket {
   }
 }
 
-function serverReplyToSyncStep1(
-  serverDoc: Y.Doc,
-  syncStep1Message: Uint8Array,
-): Uint8Array {
+function serverReplyToSyncStep1(serverDoc: Y.Doc, syncStep1Message: Uint8Array): Uint8Array {
   const decoder = decoding.createDecoder(syncStep1Message);
   decoding.readVarUint(decoder);
   const encoder = encoding.createEncoder();

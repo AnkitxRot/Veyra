@@ -18,8 +18,7 @@ import { recordAuditLog } from "../audit.js";
 export const DEFAULT_TERMINAL_DETACH_GRACE_MS = 90_000;
 export const TERMINAL_RING_MAX_BYTES = 256 * 1024;
 
-const TRUNCATION_MARKER =
-  "\r\n\x1b[2m[... earlier terminal output truncated ...]\x1b[0m\r\n";
+const TRUNCATION_MARKER = "\r\n\x1b[2m[... earlier terminal output truncated ...]\x1b[0m\r\n";
 
 export type TerminalEndedReason =
   | "grace_expired"
@@ -229,14 +228,8 @@ export class TerminalSessionRegistry {
    *  (from the bounded tombstone map); otherwise `null`. Lets `/ws/terminal`
    *  tell a reconnecting client its session is gone instead of silently
    *  spawning a fresh shell under the same UI. */
-  reapedReason(
-    userId: number,
-    projectId: string,
-    terminalId: string,
-  ): TerminalEndedReason | null {
-    return (
-      this.tombstones.get(keyOf(userId, projectId, terminalId)) ?? null
-    );
+  reapedReason(userId: number, projectId: string, terminalId: string): TerminalEndedReason | null {
+    return this.tombstones.get(keyOf(userId, projectId, terminalId)) ?? null;
   }
 
   /**
@@ -284,9 +277,7 @@ export class TerminalSessionRegistry {
     const replay = entry.ring.since(lastSeq);
     if (replay.data.length > 0 && ws.readyState === WS_OPEN) {
       try {
-        ws.send(
-          JSON.stringify({ type: "data", seq: entry.seq, data: replay.data }),
-        );
+        ws.send(JSON.stringify({ type: "data", seq: entry.seq, data: replay.data }));
       } catch {
         /* ignore */
       }
@@ -303,12 +294,7 @@ export class TerminalSessionRegistry {
    * displacement in `attach`), the displaced socket's late `close` event is a
    * no-op here instead of detaching the session its successor now owns.
    */
-  detach(
-    userId: number,
-    projectId: string,
-    terminalId: string,
-    expectedWs?: RegistrySocket,
-  ): void {
+  detach(userId: number, projectId: string, terminalId: string, expectedWs?: RegistrySocket): void {
     const key = keyOf(userId, projectId, terminalId);
     const entry = this.sessions.get(key);
     if (!entry || entry.state === "ended") return;
@@ -329,12 +315,7 @@ export class TerminalSessionRegistry {
     (entry.graceTimer as { unref?: () => void }).unref?.();
   }
 
-  writeInput(
-    userId: number,
-    projectId: string,
-    terminalId: string,
-    data: string,
-  ): void {
+  writeInput(userId: number, projectId: string, terminalId: string, data: string): void {
     const entry = this.sessions.get(keyOf(userId, projectId, terminalId));
     if (!entry || entry.state === "ended") return;
     try {
@@ -344,13 +325,7 @@ export class TerminalSessionRegistry {
     }
   }
 
-  resize(
-    userId: number,
-    projectId: string,
-    terminalId: string,
-    cols: number,
-    rows: number,
-  ): void {
+  resize(userId: number, projectId: string, terminalId: string, cols: number, rows: number): void {
     const entry = this.sessions.get(keyOf(userId, projectId, terminalId));
     if (!entry || entry.state === "ended") return;
     try {
@@ -362,12 +337,7 @@ export class TerminalSessionRegistry {
 
   /** Kill the PTY, clean secrets, release the gate slot, drop the entry.
    *  Idempotent — a second call for the same key does nothing. */
-  reap(
-    userId: number,
-    projectId: string,
-    terminalId: string,
-    reason: TerminalEndedReason,
-  ): void {
+  reap(userId: number, projectId: string, terminalId: string, reason: TerminalEndedReason): void {
     const key = keyOf(userId, projectId, terminalId);
     const entry = this.sessions.get(key);
     if (!entry || entry.state === "ended") return;
@@ -426,12 +396,7 @@ export class TerminalSessionRegistry {
   reapProject(projectId: string): void {
     for (const entry of [...this.sessions.values()]) {
       if (entry.projectId === projectId) {
-        this.reap(
-          entry.userId,
-          entry.projectId,
-          entry.terminalId,
-          "container_stopped",
-        );
+        this.reap(entry.userId, entry.projectId, entry.terminalId, "container_stopped");
       }
     }
   }
@@ -439,12 +404,7 @@ export class TerminalSessionRegistry {
   reapUser(userId: number): void {
     for (const entry of [...this.sessions.values()]) {
       if (entry.userId === userId) {
-        this.reap(
-          entry.userId,
-          entry.projectId,
-          entry.terminalId,
-          "authorization_revoked",
-        );
+        this.reap(entry.userId, entry.projectId, entry.terminalId, "authorization_revoked");
       }
     }
   }
@@ -452,12 +412,7 @@ export class TerminalSessionRegistry {
   reapUserProject(userId: number, projectId: string): void {
     for (const entry of [...this.sessions.values()]) {
       if (entry.userId === userId && entry.projectId === projectId) {
-        this.reap(
-          entry.userId,
-          entry.projectId,
-          entry.terminalId,
-          "authorization_revoked",
-        );
+        this.reap(entry.userId, entry.projectId, entry.terminalId, "authorization_revoked");
       }
     }
   }
@@ -493,12 +448,7 @@ export class TerminalSessionRegistry {
 
   disposeAll(reason: TerminalEndedReason = "container_stopped"): void {
     for (const entry of [...this.sessions.values()]) {
-      this.reap(
-        entry.userId,
-        entry.projectId,
-        entry.terminalId,
-        reason,
-      );
+      this.reap(entry.userId, entry.projectId, entry.terminalId, reason);
     }
   }
 }

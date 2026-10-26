@@ -4,10 +4,7 @@ import { getWebSocketUrl } from "../api";
 import { throttleDirtyPaths } from "../utils/throttleLatest";
 import type { Diagnostic } from "../utils/diagnostics";
 import { LspBridge, createWebSocketTransport } from "../lsp/bridge";
-import {
-  ensureLspProviders,
-  setLspBridge,
-} from "../lsp/providers";
+import { ensureLspProviders, setLspBridge } from "../lsp/providers";
 import {
   LSP_DIAGNOSTICS_EVENT,
   LSP_STATUS_EVENT,
@@ -21,28 +18,19 @@ import {
   lspServerIdsForFiles,
   type LspServerId,
 } from "../lsp/languages";
-import {
-  DEBUG_STARTED_EVENT,
-  DEBUG_STOPPED_EVENT,
-} from "../debug/types";
+import { DEBUG_STARTED_EVENT, DEBUG_STOPPED_EVENT } from "../debug/types";
 
 const CHANGE_WAIT_MS = 200;
 const MARKER_OWNER = "lsp";
 const MAX_RECONNECT = 5;
 
-function pathsForServer(
-  openFiles: { path: string }[],
-  serverId: LspServerId,
-): string[] {
-  return openFiles
-    .map((f) => f.path)
-    .filter((p) => lspLanguageForPath(p)?.id === serverId);
+function pathsForServer(openFiles: { path: string }[], serverId: LspServerId): string[] {
+  return openFiles.map((f) => f.path).filter((p) => lspLanguageForPath(p)?.id === serverId);
 }
 
 function toDiagnostics(rel: string, items: LspDiagnostic[]): Diagnostic[] {
   return items.slice(0, 500).map((d, i) => {
-    const sev =
-      d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info";
+    const sev = d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info";
     return {
       id: `lsp-${rel}-${d.range?.start?.line ?? 0}-${i}`,
       severity: sev,
@@ -94,9 +82,7 @@ function emitStatus(status: LspStatus): void {
 
 function emitDiagnostics(all: Map<string, Diagnostic[]>): void {
   const diagnostics = [...all.values()].flat();
-  document.dispatchEvent(
-    new CustomEvent(LSP_DIAGNOSTICS_EVENT, { detail: { diagnostics } }),
-  );
+  document.dispatchEvent(new CustomEvent(LSP_DIAGNOSTICS_EVENT, { detail: { diagnostics } }));
 }
 
 interface ServerSession {
@@ -154,9 +140,7 @@ export function useLanguageIntelligence(opts: {
   }, []);
 
   useEffect(() => {
-    const wantedIds = (
-      wantedKey ? wantedKey.split(",") : []
-    ) as LspServerId[];
+    const wantedIds = (wantedKey ? wantedKey.split(",") : []) as LspServerId[];
     if (debugSuspend) {
       teardownAll("stopped");
       emitDiagnostics(new Map());
@@ -325,11 +309,7 @@ export function useLanguageIntelligence(opts: {
       }
       for (const path of live) {
         if (opened.has(path)) continue;
-        session.bridge.didOpen(
-          path,
-          getLiveContent(path) ?? "",
-          documentLanguageId(path),
-        );
+        session.bridge.didOpen(path, getLiveContent(path) ?? "", documentLanguageId(path));
         opened.add(path);
       }
     }

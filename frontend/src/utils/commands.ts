@@ -1,6 +1,7 @@
-import { fuzzyFilter } from './fuzzySearch';
+import { fuzzyFilter } from "./fuzzySearch";
 
-export type CommandCategory = 'Navigation' | 'Workspace' | 'Execution' | 'UI' | 'Admin' | 'General' | 'Collaboration' | 'AI';
+export type CommandCategory =
+  "Navigation" | "Workspace" | "Execution" | "UI" | "Admin" | "General" | "Collaboration" | "AI";
 
 export interface Command {
   id: string;
@@ -85,7 +86,11 @@ export class CommandRegistry {
       return available;
     }
 
-    const filtered = fuzzyFilter(available, query, (cmd) => `${cmd.category} ${cmd.title} ${cmd.description || ''}`);
+    const filtered = fuzzyFilter(
+      available,
+      query,
+      (cmd) => `${cmd.category} ${cmd.title} ${cmd.description || ""}`,
+    );
     return filtered.map((r) => r.item);
   }
 

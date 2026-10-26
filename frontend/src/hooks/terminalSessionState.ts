@@ -12,8 +12,7 @@ export const TERMINAL_STATES = {
   ended: "ended",
 } as const;
 
-export type TerminalConnectionState =
-  (typeof TERMINAL_STATES)[keyof typeof TERMINAL_STATES];
+export type TerminalConnectionState = (typeof TERMINAL_STATES)[keyof typeof TERMINAL_STATES];
 
 // Bounded reconnect policy. Cumulative backoff before the ceiling:
 // 1.0 + 1.8 + 3.24 + 5.83 + 10.5 + 15.0 ≈ 37.4s — comfortably inside the
@@ -65,7 +64,5 @@ export function newTerminalId(): string {
   } catch {
     /* fall through */
   }
-  return (
-    "tid-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2)
-  );
+  return "tid-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
 }

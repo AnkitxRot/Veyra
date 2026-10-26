@@ -71,23 +71,13 @@ describe("ActivityTimeline", () => {
   it("[Show more] calls onLoadMore only when hasMore", () => {
     const more = vi.fn();
     const { rerender } = render(
-      <ActivityTimeline
-        events={[ev()]}
-        hasMore
-        onLoadMore={more}
-        onNavigate={() => {}}
-      />,
+      <ActivityTimeline events={[ev()]} hasMore onLoadMore={more} onNavigate={() => {}} />,
     );
     fireEvent.click(screen.getByText(/show more/i));
     expect(more).toHaveBeenCalled();
 
     rerender(
-      <ActivityTimeline
-        events={[ev()]}
-        hasMore={false}
-        onLoadMore={more}
-        onNavigate={() => {}}
-      />,
+      <ActivityTimeline events={[ev()]} hasMore={false} onLoadMore={more} onNavigate={() => {}} />,
     );
     expect(screen.queryByText(/show more/i)).toBeNull();
   });
@@ -99,9 +89,7 @@ describe("ActivityTimeline", () => {
         hasMore={false}
         onLoadMore={() => {}}
         onNavigate={() => {}}
-        actorIdentity={
-          new Map([[7, { displayName: "Rahul K.", avatarVersion: 4 }]])
-        }
+        actorIdentity={new Map([[7, { displayName: "Rahul K.", avatarVersion: 4 }]])}
       />,
     );
     expect(screen.getByText("Rahul K.")).toBeTruthy();
@@ -150,12 +138,7 @@ describe("ActivityTimeline", () => {
 
   it("shows an empty state when there are no events", () => {
     render(
-      <ActivityTimeline
-        events={[]}
-        hasMore={false}
-        onLoadMore={() => {}}
-        onNavigate={() => {}}
-      />,
+      <ActivityTimeline events={[]} hasMore={false} onLoadMore={() => {}} onNavigate={() => {}} />,
     );
     expect(screen.getByText(/no recent activity/i)).toBeTruthy();
   });

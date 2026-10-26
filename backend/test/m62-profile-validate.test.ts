@@ -26,9 +26,10 @@ describe("M62-2 validateProfilePatch — allowlist", () => {
       { profile_visibility: "public" },
       { bio: "ok", banner_kind: "image" },
     ]) {
-      expect(code(() => validateProfilePatch(body)), JSON.stringify(body)).toBe(
-        "invalid_profile_key",
-      );
+      expect(
+        code(() => validateProfilePatch(body)),
+        JSON.stringify(body),
+      ).toBe("invalid_profile_key");
     }
   });
 
@@ -52,40 +53,24 @@ describe("M62-2 validateProfilePatch — allowlist", () => {
 
 describe("M62-2 validateProfilePatch — displayName", () => {
   it("strips ALL C0 + DEL then collapses whitespace then trims", () => {
-    expect(validateProfilePatch({ displayName: `a${c(0)}b` }).displayName).toBe(
-      "ab",
-    );
-    expect(validateProfilePatch({ displayName: `a${c(10)}b` }).displayName).toBe(
-      "ab",
-    );
-    expect(validateProfilePatch({ displayName: `a${c(9)}b` }).displayName).toBe(
-      "ab",
-    );
-    expect(validateProfilePatch({ displayName: `a${c(11)}b` }).displayName).toBe(
-      "ab",
-    );
-    expect(
-      validateProfilePatch({ displayName: "  Ada   L.  " }).displayName,
-    ).toBe("Ada L.");
+    expect(validateProfilePatch({ displayName: `a${c(0)}b` }).displayName).toBe("ab");
+    expect(validateProfilePatch({ displayName: `a${c(10)}b` }).displayName).toBe("ab");
+    expect(validateProfilePatch({ displayName: `a${c(9)}b` }).displayName).toBe("ab");
+    expect(validateProfilePatch({ displayName: `a${c(11)}b` }).displayName).toBe("ab");
+    expect(validateProfilePatch({ displayName: "  Ada   L.  " }).displayName).toBe("Ada L.");
   });
 
   it("null clears; whitespace/control-only is invalid", () => {
     expect(validateProfilePatch({ displayName: null }).displayName).toBeNull();
-    expect(code(() => validateProfilePatch({ displayName: "   " }))).toBe(
+    expect(code(() => validateProfilePatch({ displayName: "   " }))).toBe("invalid_display_name");
+    expect(code(() => validateProfilePatch({ displayName: `${c(0)}${c(9)}` }))).toBe(
       "invalid_display_name",
     );
-    expect(
-      code(() => validateProfilePatch({ displayName: `${c(0)}${c(9)}` })),
-    ).toBe("invalid_display_name");
-    expect(code(() => validateProfilePatch({ displayName: 5 }))).toBe(
-      "invalid_display_name",
-    );
+    expect(code(() => validateProfilePatch({ displayName: 5 }))).toBe("invalid_display_name");
   });
 
   it("48-char boundary: 48 ok, 49 rejected", () => {
-    expect(
-      validateProfilePatch({ displayName: "x".repeat(48) }).displayName!.length,
-    ).toBe(48);
+    expect(validateProfilePatch({ displayName: "x".repeat(48) }).displayName!.length).toBe(48);
     expect(code(() => validateProfilePatch({ displayName: "x".repeat(49) }))).toBe(
       "invalid_display_name",
     );
@@ -97,18 +82,12 @@ describe("M62-2 validateProfilePatch — pronouns", () => {
     expect(validateProfilePatch({ pronouns: null }).pronouns).toBeNull();
     expect(validateProfilePatch({ pronouns: "   " }).pronouns).toBeNull();
     expect(validateProfilePatch({ pronouns: "" }).pronouns).toBeNull();
-    expect(
-      validateProfilePatch({ pronouns: `she${c(10)}/${c(9)}her` }).pronouns,
-    ).toBe("she/her");
+    expect(validateProfilePatch({ pronouns: `she${c(10)}/${c(9)}her` }).pronouns).toBe("she/her");
   });
 
   it("24-char boundary: 24 ok, 25 rejected", () => {
-    expect(
-      validateProfilePatch({ pronouns: "p".repeat(24) }).pronouns!.length,
-    ).toBe(24);
-    expect(code(() => validateProfilePatch({ pronouns: "p".repeat(25) }))).toBe(
-      "invalid_pronouns",
-    );
+    expect(validateProfilePatch({ pronouns: "p".repeat(24) }).pronouns!.length).toBe(24);
+    expect(code(() => validateProfilePatch({ pronouns: "p".repeat(25) }))).toBe("invalid_pronouns");
   });
 });
 
@@ -133,8 +112,6 @@ describe("M62-2 validateProfilePatch — bio (separate multi-line rule)", () => 
 
   it("280-char boundary: 280 ok, 281 rejected", () => {
     expect(validateProfilePatch({ bio: "b".repeat(280) }).bio!.length).toBe(280);
-    expect(code(() => validateProfilePatch({ bio: "b".repeat(281) }))).toBe(
-      "invalid_bio",
-    );
+    expect(code(() => validateProfilePatch({ bio: "b".repeat(281) }))).toBe("invalid_bio");
   });
 });

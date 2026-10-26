@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  afterAll,
-  afterEach,
-  beforeEach,
-  vi,
-} from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeEach, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
@@ -66,29 +58,23 @@ describe.skipIf(!isDockerRunning())("sandbox", () => {
 
       const containerName = `ide-sandbox-${projectId}`;
       const nameFilter = `name=^/${containerName}$`;
-      const before = execFileSync(
-        "docker",
-        ["ps", "-a", "-q", "-f", nameFilter],
-        { encoding: "utf8" },
-      ).trim();
+      const before = execFileSync("docker", ["ps", "-a", "-q", "-f", nameFilter], {
+        encoding: "utf8",
+      }).trim();
       expect(before.length).toBeGreaterThan(0);
 
       await sandboxManager.cleanupAllSandboxes();
 
-      const after = execFileSync(
-        "docker",
-        ["ps", "-a", "-q", "-f", nameFilter],
-        { encoding: "utf8" },
-      ).trim();
+      const after = execFileSync("docker", ["ps", "-a", "-q", "-f", nameFilter], {
+        encoding: "utf8",
+      }).trim();
       expect(after).toBe("");
     },
   );
 });
 
 type DockerCall = { file: string; args: string[] };
-type DockerHandler = (
-  args: string[],
-) => Promise<{ stdout: string; stderr: string }>;
+type DockerHandler = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -245,9 +231,9 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
     const projectId = `retry-${randomUUID()}`;
     const ws = makeWorkspace(cfg);
 
-    await expect(
-      manager.ensureProjectSandbox(projectId, cfg, ws, 1),
-    ).rejects.toThrow(/docker run exploded/);
+    await expect(manager.ensureProjectSandbox(projectId, cfg, ws, 1)).rejects.toThrow(
+      /docker run exploded/,
+    );
 
     // The failed attempt above must not have leaked the per-user slot it
     // acquired: this retry uses the same userId and must succeed.
@@ -307,10 +293,8 @@ describe("ensureProjectSandbox in-flight deduplication", () => {
  *  care about admission behavior, not the specific docker command sequence. */
 const genericDockerHandler: DockerHandler = async (args) => {
   if (args[0] === "run") return { stdout: "deadbeef\n", stderr: "" };
-  if (args[0] === "port")
-    return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-  if (args[0] === "network" && args[1] === "inspect")
-    throw new Error("no such network");
+  if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+  if (args[0] === "network" && args[1] === "inspect") throw new Error("no such network");
   return { stdout: "", stderr: "" };
 };
 
@@ -326,23 +310,12 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
   });
 
   it("blocks a user from exceeding their per-user sandbox quota, independent of the global cap", async () => {
-    const { manager, sandboxGate } =
-      await loadManagerWithFakeDocker(genericDockerHandler);
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(genericDockerHandler);
     const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 2 });
     const ws = makeWorkspace(cfg);
 
-    await manager.ensureProjectSandbox(
-      `u1-a-${randomUUID()}`,
-      perUserCfg,
-      ws,
-      1,
-    );
-    await manager.ensureProjectSandbox(
-      `u1-b-${randomUUID()}`,
-      perUserCfg,
-      ws,
-      1,
-    );
+    await manager.ensureProjectSandbox(`u1-a-${randomUUID()}`, perUserCfg, ws, 1);
+    await manager.ensureProjectSandbox(`u1-b-${randomUUID()}`, perUserCfg, ws, 1);
     expect(sandboxGate.activeCount(1)).toBe(2);
 
     await expect(
@@ -353,8 +326,7 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
   });
 
   it("tracks different users' sandbox counts separately", async () => {
-    const { manager, sandboxGate } =
-      await loadManagerWithFakeDocker(genericDockerHandler);
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(genericDockerHandler);
     const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
     const ws = makeWorkspace(cfg);
 
@@ -366,18 +338,12 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
     expect(sandboxGate.activeCount(2)).toBe(1);
 
     await expect(
-      manager.ensureProjectSandbox(
-        `u1-again-${randomUUID()}`,
-        perUserCfg,
-        ws,
-        1,
-      ),
+      manager.ensureProjectSandbox(`u1-again-${randomUUID()}`, perUserCfg, ws, 1),
     ).rejects.toThrow(/per-user sandbox limit reached/);
   });
 
   it("returns the slot to the pool once the sandbox is destroyed", async () => {
-    const { manager, sandboxGate } =
-      await loadManagerWithFakeDocker(genericDockerHandler);
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(genericDockerHandler);
     const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
     const ws = makeWorkspace(cfg);
     const projectId = `destroy-${randomUUID()}`;
@@ -389,33 +355,26 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
     expect(sandboxGate.activeCount(1)).toBe(0);
 
     // The freed slot is immediately usable again, by the same user.
-    await manager.ensureProjectSandbox(
-      `destroy-2-${randomUUID()}`,
-      perUserCfg,
-      ws,
-      1,
-    );
+    await manager.ensureProjectSandbox(`destroy-2-${randomUUID()}`, perUserCfg, ws, 1);
     expect(sandboxGate.activeCount(1)).toBe(1);
   });
 
   it("never leaks the per-user slot when container provisioning fails after it was acquired", async () => {
     let attempt = 0;
-    const { manager, sandboxGate } = await loadManagerWithFakeDocker(
-      async (args) => {
-        if (args[0] === "run") {
-          attempt++;
-          // Every attempt fails: the per-user slot must be released every
-          // single time, not just once, or repeated failures would
-          // eventually exhaust the quota for a user who never has a single
-          // live sandbox.
-          throw new Error(`docker run exploded (attempt ${attempt})`);
-        }
-        if (args[0] === "network" && args[1] === "inspect") {
-          throw new Error("no such network");
-        }
-        return { stdout: "", stderr: "" };
-      },
-    );
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") {
+        attempt++;
+        // Every attempt fails: the per-user slot must be released every
+        // single time, not just once, or repeated failures would
+        // eventually exhaust the quota for a user who never has a single
+        // live sandbox.
+        throw new Error(`docker run exploded (attempt ${attempt})`);
+      }
+      if (args[0] === "network" && args[1] === "inspect") {
+        throw new Error("no such network");
+      }
+      return { stdout: "", stderr: "" };
+    });
     const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
     const ws = makeWorkspace(cfg);
 
@@ -442,32 +401,24 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
 
     // Different users, so the per-user gate has plenty of room — only the
     // global cap should be the blocker here.
-    await manager.ensureProjectSandbox(
-      `g1-${randomUUID()}`,
-      tightGlobalCfg,
-      ws,
-      1,
-    );
+    await manager.ensureProjectSandbox(`g1-${randomUUID()}`, tightGlobalCfg, ws, 1);
     await expect(
       manager.ensureProjectSandbox(`g2-${randomUUID()}`, tightGlobalCfg, ws, 2),
     ).rejects.toThrow(/sandbox limit reached/);
   });
 
   it("does not double-count concurrent duplicate creation calls for the same project", async () => {
-    const { manager, sandboxGate } = await loadManagerWithFakeDocker(
-      async (args) => {
-        if (args[0] === "run") {
-          await sleep(20);
-          return { stdout: "deadbeef\n", stderr: "" };
-        }
-        if (args[0] === "network" && args[1] === "inspect") {
-          throw new Error("no such network");
-        }
-        if (args[0] === "port")
-          return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-        return { stdout: "", stderr: "" };
-      },
-    );
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") {
+        await sleep(20);
+        return { stdout: "deadbeef\n", stderr: "" };
+      }
+      if (args[0] === "network" && args[1] === "inspect") {
+        throw new Error("no such network");
+      }
+      if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
     const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 1 });
     const ws = makeWorkspace(cfg);
     const projectId = `dup-${randomUUID()}`;
@@ -494,34 +445,31 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
     });
     let containerRemoved = false;
 
-    const { manager, sandboxGate } = await loadManagerWithFakeDocker(
-      async (args) => {
-        if (args[0] === "run") return { stdout: "deadbeef\n", stderr: "" };
-        if (args[0] === "port")
-          return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-        if (args[0] === "network" && args[1] === "inspect") {
-          throw new Error("no such network");
-        }
-        if (args[0] === "rm") {
-          // stopProjectSandbox's teardown `docker rm -f` for the project
-          // under test: mark the container gone, matching a real daemon.
-          containerRemoved = true;
-          return { stdout: "", stderr: "" };
-        }
-        if (args[0] === "network" && args[1] === "rm") {
-          // Pause performStop here — *after* the container has already
-          // been removed (containerRemoved=true) but *before*
-          // sandboxGate.release() runs. This is exactly the unguarded
-          // window the security gate identified.
-          await networkRmGate;
-          return { stdout: "", stderr: "" };
-        }
-        if (args[0] === "inspect") {
-          return { stdout: containerRemoved ? "" : "true\n", stderr: "" };
-        }
+    const { manager, sandboxGate } = await loadManagerWithFakeDocker(async (args) => {
+      if (args[0] === "run") return { stdout: "deadbeef\n", stderr: "" };
+      if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect") {
+        throw new Error("no such network");
+      }
+      if (args[0] === "rm") {
+        // stopProjectSandbox's teardown `docker rm -f` for the project
+        // under test: mark the container gone, matching a real daemon.
+        containerRemoved = true;
         return { stdout: "", stderr: "" };
-      },
-    );
+      }
+      if (args[0] === "network" && args[1] === "rm") {
+        // Pause performStop here — *after* the container has already
+        // been removed (containerRemoved=true) but *before*
+        // sandboxGate.release() runs. This is exactly the unguarded
+        // window the security gate identified.
+        await networkRmGate;
+        return { stdout: "", stderr: "" };
+      }
+      if (args[0] === "inspect") {
+        return { stdout: containerRemoved ? "" : "true\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
     const perUserCfg = makeTestConfig({ maxSandboxesPerUser: 5 });
     const ws = makeWorkspace(cfg);
     const ownerId = 1;
@@ -548,12 +496,7 @@ describe("sandboxGate — per-user live-sandbox quota", () => {
     // already true) and take the staleOwnerId release path, releasing
     // ownerId's slot a SECOND time before the paused stop releases it once.
     const otherOwnerId = 2;
-    const ensurePromise = manager.ensureProjectSandbox(
-      projectP,
-      perUserCfg,
-      ws,
-      otherOwnerId,
-    );
+    const ensurePromise = manager.ensureProjectSandbox(projectP, perUserCfg, ws, otherOwnerId);
 
     // Let the paused teardown proceed only now — after the race window has
     // had a chance to be entered incorrectly, if it were going to be.
@@ -598,10 +541,8 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
         await runBarrier;
         return { stdout: "deadbeef\n", stderr: "" };
       }
-      if (args[0] === "port")
-        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-      if (args[0] === "network" && args[1] === "inspect")
-        throw new Error("no such network");
+      if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect") throw new Error("no such network");
       return { stdout: "", stderr: "" };
     });
 
@@ -631,9 +572,7 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
     expect(runCalls).toBe(1);
 
     const fulfilled = settled.filter((s) => s.status === "fulfilled");
-    const rejected = settled.filter(
-      (s) => s.status === "rejected",
-    ) as PromiseRejectedResult[];
+    const rejected = settled.filter((s) => s.status === "rejected") as PromiseRejectedResult[];
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0]!.reason.message).toMatch(/sandbox limit reached/);
@@ -656,10 +595,8 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
         await runBarrier;
         return { stdout: "deadbeef\n", stderr: "" };
       }
-      if (args[0] === "port")
-        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-      if (args[0] === "network" && args[1] === "inspect")
-        throw new Error("no such network");
+      if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect") throw new Error("no such network");
       return { stdout: "", stderr: "" };
     });
 
@@ -669,22 +606,15 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
       sandboxIdleTimeoutMs: 60_000,
     });
     const ws = makeWorkspace(cfg);
-    const projectIds = Array.from(
-      { length: N },
-      () => `burstN-${randomUUID()}`,
-    );
+    const projectIds = Array.from({ length: N }, () => `burstN-${randomUUID()}`);
 
-    const results = projectIds.map((pid, i) =>
-      manager.ensureProjectSandbox(pid, cfgN, ws, i + 1),
-    );
+    const results = projectIds.map((pid, i) => manager.ensureProjectSandbox(pid, cfgN, ws, i + 1));
     releaseRun();
     const settled = await Promise.allSettled(results);
 
     expect(runCalls).toBe(N - 1);
     expect(settled.filter((s) => s.status === "fulfilled")).toHaveLength(N - 1);
-    const rejections = settled.filter(
-      (s) => s.status === "rejected",
-    ) as PromiseRejectedResult[];
+    const rejections = settled.filter((s) => s.status === "rejected") as PromiseRejectedResult[];
     expect(rejections).toHaveLength(1);
     expect(rejections[0]!.reason.message).toMatch(/sandbox limit reached/);
 
@@ -700,10 +630,8 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
         if (attempt === 1) throw new Error("docker run exploded");
         return { stdout: "deadbeef\n", stderr: "" };
       }
-      if (args[0] === "port")
-        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-      if (args[0] === "network" && args[1] === "inspect")
-        throw new Error("no such network");
+      if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect") throw new Error("no such network");
       return { stdout: "", stderr: "" };
     });
 
@@ -716,19 +644,14 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
     const projectFailed = `failA-${randomUUID()}`;
     const projectAfter = `failB-${randomUUID()}`;
 
-    await expect(
-      manager.ensureProjectSandbox(projectFailed, tightCfg, ws, 1),
-    ).rejects.toThrow(/docker run exploded/);
+    await expect(manager.ensureProjectSandbox(projectFailed, tightCfg, ws, 1)).rejects.toThrow(
+      /docker run exploded/,
+    );
 
     // A DIFFERENT project must be able to use the slot the failed attempt
     // above reserved then released — if the reservation leaked, this would
     // fail with "sandbox limit reached" instead.
-    const id = await manager.ensureProjectSandbox(
-      projectAfter,
-      tightCfg,
-      ws,
-      2,
-    );
+    const id = await manager.ensureProjectSandbox(projectAfter, tightCfg, ws, 2);
     expect(id).toBe(`ide-sandbox-${projectAfter}`);
   });
 
@@ -744,12 +667,7 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
 
     await manager.ensureProjectSandbox(projectId, tightCfg, ws, 1);
     await expect(
-      manager.ensureProjectSandbox(
-        `glob-blocked-${randomUUID()}`,
-        tightCfg,
-        ws,
-        2,
-      ),
+      manager.ensureProjectSandbox(`glob-blocked-${randomUUID()}`, tightCfg, ws, 2),
     ).rejects.toThrow(/sandbox limit reached/);
 
     await manager.stopProjectSandbox(projectId);
@@ -792,10 +710,8 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
         await sleep(20);
         return { stdout: "deadbeef\n", stderr: "" };
       }
-      if (args[0] === "network" && args[1] === "inspect")
-        throw new Error("no such network");
-      if (args[0] === "port")
-        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect") throw new Error("no such network");
+      if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
       return { stdout: "", stderr: "" };
     });
     const tightCfg = makeTestConfig({
@@ -823,10 +739,8 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
           stderr: "",
         };
       }
-      if (args[0] === "port")
-        return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-      if (args[0] === "network" && args[1] === "ls")
-        return { stdout: "", stderr: "" };
+      if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "ls") return { stdout: "", stderr: "" };
       return { stdout: "", stderr: "" };
     });
 
@@ -843,9 +757,7 @@ describe("global sandbox admission — cross-project concurrency (M5b)", () => {
       ["recB", 1],
       ["recC", 2],
     ] as [string, number][]) {
-      db.prepare(
-        "INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)",
-      ).run(id, owner, id);
+      db.prepare("INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)").run(id, owner, id);
     }
 
     const tightCfg = makeTestConfig({
@@ -885,10 +797,8 @@ async function loadSandboxRunWithFakeDocker(): Promise<{
 
   const handler: DockerHandler = async (args) => {
     if (args[0] === "run") return { stdout: "deadbeef\n", stderr: "" };
-    if (args[0] === "port")
-      return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
-    if (args[0] === "network" && args[1] === "inspect")
-      throw new Error("no such network");
+    if (args[0] === "port") return { stdout: "3000/tcp -> 127.0.0.1:49153\n", stderr: "" };
+    if (args[0] === "network" && args[1] === "inspect") throw new Error("no such network");
     return { stdout: "", stderr: "" };
   };
 
@@ -900,8 +810,7 @@ async function loadSandboxRunWithFakeDocker(): Promise<{
         (err) => cb(err),
       );
     };
-    execFile[promisify.custom] = (_file: string, args: string[]) =>
-      handler(args);
+    execFile[promisify.custom] = (_file: string, args: string[]) => handler(args);
     const spawn: any = (file: string, args: string[]) => {
       spawnCalls.push({ file, args });
       const child: any = new EventEmitter();

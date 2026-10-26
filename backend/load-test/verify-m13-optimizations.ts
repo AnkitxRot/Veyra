@@ -29,7 +29,10 @@ interface PhaseTimings {
   totalMs: number;
 }
 
-async function measureM13DockerPhases(projectId: string, workspaceDir: string): Promise<PhaseTimings> {
+async function measureM13DockerPhases(
+  projectId: string,
+  workspaceDir: string,
+): Promise<PhaseTimings> {
   const containerId = `test-opt13-${projectId}`;
   const netName = `test-net13-${projectId}`;
 
@@ -47,34 +50,58 @@ async function measureM13DockerPhases(projectId: string, workspaceDir: string): 
   // 3. Docker run (Level 4 hardening)
   const hardeningArgs = [
     "--read-only",
-    "--tmpfs", "/tmp:rw,size=64m,mode=1777",
-    "--tmpfs", "/run:rw,size=16m,mode=1777",
-    "--tmpfs", "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
+    "--tmpfs",
+    "/tmp:rw,size=64m,mode=1777",
+    "--tmpfs",
+    "/run:rw,size=16m,mode=1777",
+    "--tmpfs",
+    "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
   ];
   const portArgs = [3000, 4173, 5173, 8000, 8080].flatMap((p) => ["-p", `127.0.0.1::${p}`]);
   const dockerArgs = [
-    "run", "-d",
-    "--name", containerId,
-    "--network", netName,
-    "--security-opt", "no-new-privileges",
-    "--cap-drop", "ALL",
-    "--memory", "536870912b",
-    "--cpus", "1.0",
-    "--pids-limit", "100",
+    "run",
+    "-d",
+    "--name",
+    containerId,
+    "--network",
+    netName,
+    "--security-opt",
+    "no-new-privileges",
+    "--cap-drop",
+    "ALL",
+    "--memory",
+    "536870912b",
+    "--cpus",
+    "1.0",
+    "--pids-limit",
+    "100",
     ...hardeningArgs,
     ...portArgs,
-    "-v", `${workspaceDir}:/workspace`,
-    "-w", "/workspace",
-    "--user", "ide",
+    "-v",
+    `${workspaceDir}:/workspace`,
+    "-w",
+    "/workspace",
+    "--user",
+    "ide",
     "cloudeeeide-runner:latest",
-    "sleep", "infinity",
+    "sleep",
+    "infinity",
   ];
   await execFileAsync("docker", dockerArgs);
   const t3 = performance.now();
 
   // 4 & 5. Exec startup and program execution
   let firstByteTime = 0;
-  const child = spawn("docker", ["exec", "-i", "-w", "/workspace", containerId, "python3", "-c", "import sys; sys.stdout.write('START\\n'); sys.stdout.flush(); import time; time.sleep(0.05); print('DONE')"]);
+  const child = spawn("docker", [
+    "exec",
+    "-i",
+    "-w",
+    "/workspace",
+    containerId,
+    "python3",
+    "-c",
+    "import sys; sys.stdout.write('START\\n'); sys.stdout.flush(); import time; time.sleep(0.05); print('DONE')",
+  ]);
   const execStart = performance.now();
 
   await new Promise<void>((resolve) => {
@@ -117,12 +144,35 @@ async function runExecutionBenchmarks() {
     const warmContainer = `test-warm-m13-${Date.now()}`;
     const warmNet = `test-warm-net13-${Date.now()}`;
     await execFileAsync("docker", ["network", "create", warmNet]);
-    await execFileAsync("docker", ["run", "-d", "--name", warmContainer, "--network", warmNet, "-v", `${tempDir}:/workspace`, "-w", "/workspace", "cloudeeeide-runner:latest", "sleep", "infinity"]);
+    await execFileAsync("docker", [
+      "run",
+      "-d",
+      "--name",
+      warmContainer,
+      "--network",
+      warmNet,
+      "-v",
+      `${tempDir}:/workspace`,
+      "-w",
+      "/workspace",
+      "cloudeeeide-runner:latest",
+      "sleep",
+      "infinity",
+    ]);
 
     const warmLatencies: number[] = [];
     for (let i = 0; i < 10; i++) {
       const t0 = performance.now();
-      await execFileAsync("docker", ["exec", "-i", "-w", "/workspace", warmContainer, "python3", "-c", "print('hello')"]);
+      await execFileAsync("docker", [
+        "exec",
+        "-i",
+        "-w",
+        "/workspace",
+        warmContainer,
+        "python3",
+        "-c",
+        "print('hello')",
+      ]);
       warmLatencies.push(performance.now() - t0);
     }
     warmLatencies.sort((a, b) => a - b);
@@ -138,7 +188,10 @@ async function runExecutionBenchmarks() {
       const reg = (await fetch(`${server.baseUrl}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: `burst13_u_${i}_${Date.now()}`, password: "load-test-password-1234" }),
+        body: JSON.stringify({
+          username: `burst13_u_${i}_${Date.now()}`,
+          password: "load-test-password-1234",
+        }),
       }).then((r) => r.json())) as any;
 
       const proj = (await fetch(`${server.baseUrl}/api/projects`, {

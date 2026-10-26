@@ -47,11 +47,9 @@ describe("M72 — avatar media is wiped on user deletion", () => {
     const adminLogin = await api.request("POST", "/api/auth/admin-login", {
       body: { username: "admin_del", password: "AdminPass@123" },
     });
-    const del = await api.request(
-      "DELETE",
-      `/api/admin/users/${victimId}`,
-      { token: adminLogin.data.token },
-    );
+    const del = await api.request("DELETE", `/api/admin/users/${victimId}`, {
+      token: adminLogin.data.token,
+    });
     expect(del.status).toBe(200);
     expect(existsSync(profileMediaUserDir(cfg, victimId))).toBe(false);
   });

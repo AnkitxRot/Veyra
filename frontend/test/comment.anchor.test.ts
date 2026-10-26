@@ -39,10 +39,7 @@ describe("M61-A comment anchor math", () => {
     const e = s + "const x = compute(a, b)".length;
     const a = await encodeAnchor(t, s, e);
     t.delete(0, t.length);
-    t.insert(
-      0,
-      "new header\nnew line\nanother\nconst x = compute(a, b)\nend\n",
-    );
+    t.insert(0, "new header\nnew line\nanother\nconst x = compute(a, b)\nend\n");
     const r = await resolveAnchor(d, "f", a);
     expect(r.state).toBe("stale");
     expect(r.recovery?.line).toBe(4);
@@ -59,10 +56,7 @@ describe("M61-A comment anchor math", () => {
   });
 
   it("fuzzyMatchSlice returns null for a weak match (never auto-jump)", () => {
-    const r = fuzzyMatchSlice(
-      "totally\nunrelated\nlines\nhere\n",
-      "const x = compute(a, b)",
-    );
+    const r = fuzzyMatchSlice("totally\nunrelated\nlines\nhere\n", "const x = compute(a, b)");
     expect(r).toBeNull();
   });
 });

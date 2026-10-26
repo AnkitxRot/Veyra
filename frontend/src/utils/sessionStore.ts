@@ -32,8 +32,7 @@ const LAST_PROJECT_KEY = "cloudeee_last_project";
 const sessionKey = (projectId: string) => `cloudeee_session_${projectId}`;
 
 const isBottomTab = (v: unknown): v is BottomPanelTab =>
-  typeof v === "string" &&
-  (BOTTOM_PANEL_TABS as readonly string[]).includes(v);
+  typeof v === "string" && (BOTTOM_PANEL_TABS as readonly string[]).includes(v);
 
 function sanitizeTabs(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
@@ -73,10 +72,7 @@ export function readProjectSession(projectId: string): ProjectSession | null {
 
   const o = parsed as Record<string, unknown>;
   const openTabs = sanitizeTabs(o.openTabs);
-  const active =
-    typeof o.active === "string" && openTabs.includes(o.active)
-      ? o.active
-      : null;
+  const active = typeof o.active === "string" && openTabs.includes(o.active) ? o.active : null;
   const bottomTab = isBottomTab(o.bottomTab) ? o.bottomTab : null;
 
   return { openTabs, active, bottomTab };
@@ -84,20 +80,13 @@ export function readProjectSession(projectId: string): ProjectSession | null {
 
 /** Persist a project's session. Sanitizes before storing and swallows storage
  *  errors (quota exceeded, storage disabled) — persistence is best-effort. */
-export function writeProjectSession(
-  projectId: string,
-  session: ProjectSession,
-): void {
+export function writeProjectSession(projectId: string, session: ProjectSession): void {
   if (!projectId) return;
   const openTabs = sanitizeTabs(session.openTabs);
-  const active =
-    session.active && openTabs.includes(session.active) ? session.active : null;
+  const active = session.active && openTabs.includes(session.active) ? session.active : null;
   const bottomTab = isBottomTab(session.bottomTab) ? session.bottomTab : null;
   try {
-    localStorage.setItem(
-      sessionKey(projectId),
-      JSON.stringify({ openTabs, active, bottomTab }),
-    );
+    localStorage.setItem(sessionKey(projectId), JSON.stringify({ openTabs, active, bottomTab }));
   } catch {
     /* non-fatal */
   }

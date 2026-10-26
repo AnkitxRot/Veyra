@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  screen,
-  cleanup,
-  waitFor,
-  fireEvent,
-} from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import * as React from "react";
 
 const apiMock = vi.fn();
@@ -42,29 +36,21 @@ describe("Preview — auto-detection", () => {
     const calls = installApi(() => ({ ports: [], sandbox: true }));
     render(<Preview project={PROJECT} />);
     await waitFor(() =>
-      expect(
-        calls.some((c) => c === "/api/projects/proj-1/preview/ports"),
-      ).toBe(true),
+      expect(calls.some((c) => c === "/api/projects/proj-1/preview/ports")).toBe(true),
     );
   });
 
   it("sandbox up but no server → 'No running preview server detected'", async () => {
     installApi(() => ({ ports: [], sandbox: true }));
     render(<Preview project={PROJECT} />);
-    expect(
-      await screen.findByText(/No running preview server detected/i),
-    ).toBeTruthy();
+    expect(await screen.findByText(/No running preview server detected/i)).toBeTruthy();
   });
 
   it("no sandbox → 'No sandbox running yet' guidance", async () => {
     installApi(() => ({ ports: [], sandbox: false }));
     render(<Preview project={PROJECT} />);
-    expect(
-      await screen.findByText(/No sandbox running yet/i),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/Run your project .* to start its sandbox/i),
-    ).toBeTruthy();
+    expect(await screen.findByText(/No sandbox running yet/i)).toBeTruthy();
+    expect(screen.getByText(/Run your project .* to start its sandbox/i)).toBeTruthy();
   });
 
   it("a detected allowed port is surfaced as an 'Open :<port>' action that loads the proxy", async () => {
@@ -76,9 +62,7 @@ describe("Preview — auto-detection", () => {
     fireEvent.click(openBtn);
 
     const iframe = await screen.findByTitle("Sandbox Web Preview");
-    expect(iframe.getAttribute("src")).toMatch(
-      /^\/api\/projects\/proj-1\/proxy\/5173\/\?_t=\d+$/,
-    );
+    expect(iframe.getAttribute("src")).toMatch(/^\/api\/projects\/proj-1\/proxy\/5173\/\?_t=\d+$/);
   });
 
   it("multiple detected ports are offered in the order the server returned them (deterministic)", async () => {
@@ -103,9 +87,7 @@ describe("Preview — auto-detection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Go" }));
 
     const iframe = await screen.findByTitle("Sandbox Web Preview");
-    expect(iframe.getAttribute("src")).toMatch(
-      /\/api\/projects\/proj-1\/proxy\/8080\//,
-    );
+    expect(iframe.getAttribute("src")).toMatch(/\/api\/projects\/proj-1\/proxy\/8080\//);
   });
 
   it("a stopped server disappears from the detected list on the next poll", async () => {
@@ -114,18 +96,12 @@ describe("Preview — auto-detection", () => {
     installApi(() => ({ ports: up ? [8000] : [], sandbox: true }));
     render(<Preview project={PROJECT} />);
 
-    await vi.waitFor(() =>
-      expect(screen.queryByText("Detected server on :8000")).toBeTruthy(),
-    );
+    await vi.waitFor(() => expect(screen.queryByText("Detected server on :8000")).toBeTruthy());
 
     up = false;
     await vi.advanceTimersByTimeAsync(4100); // one poll interval
-    await vi.waitFor(() =>
-      expect(screen.queryByText("Detected server on :8000")).toBeNull(),
-    );
-    expect(
-      screen.getByText(/No running preview server detected/i),
-    ).toBeTruthy();
+    await vi.waitFor(() => expect(screen.queryByText("Detected server on :8000")).toBeNull());
+    expect(screen.getByText(/No running preview server detected/i)).toBeTruthy();
   });
 
   it("Rescan triggers an immediate re-poll", async () => {
@@ -156,9 +132,7 @@ describe("Preview — auto-detection", () => {
     installApi(() => ({ ports: up ? [3000] : [], sandbox: true }));
     render(<Preview project={PROJECT} />);
 
-    await vi.waitFor(() =>
-      screen.getByRole("button", { name: "Open :3000" }),
-    );
+    await vi.waitFor(() => screen.getByRole("button", { name: "Open :3000" }));
     fireEvent.click(screen.getByRole("button", { name: "Open :3000" }));
     await vi.waitFor(() => screen.getByTitle("Sandbox Web Preview"));
     expect(screen.getByText("LIVE SANDBOX")).toBeTruthy();
@@ -166,9 +140,7 @@ describe("Preview — auto-detection", () => {
     up = false;
     await vi.advanceTimersByTimeAsync(4100); // miss 1
     await vi.advanceTimersByTimeAsync(4100); // miss 2
-    await vi.waitFor(() =>
-      expect(screen.queryByText("NOT RESPONDING")).toBeTruthy(),
-    );
+    await vi.waitFor(() => expect(screen.queryByText("NOT RESPONDING")).toBeTruthy());
     // iframe is still there — we don't rip out the user's preview
     expect(screen.getByTitle("Sandbox Web Preview")).toBeTruthy();
   });

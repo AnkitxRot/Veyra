@@ -1,11 +1,5 @@
 export type LspSessionState =
-  | "starting"
-  | "ready"
-  | "restarting"
-  | "failed"
-  | "unavailable"
-  | "busy"
-  | "stopped";
+  "starting" | "ready" | "restarting" | "failed" | "unavailable" | "busy" | "stopped";
 
 export interface LspStatus {
   state: LspSessionState;

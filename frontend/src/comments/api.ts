@@ -90,10 +90,9 @@ export function react(
   commentId: string,
   emoji: string,
 ): Promise<{ thread: CommentThreadDTO }> {
-  return api(
-    `${base(projectId)}/${commentId}/reactions/${encodeURIComponent(emoji)}`,
-    { method: "PUT" },
-  );
+  return api(`${base(projectId)}/${commentId}/reactions/${encodeURIComponent(emoji)}`, {
+    method: "PUT",
+  });
 }
 
 export function unreact(
@@ -101,10 +100,9 @@ export function unreact(
   commentId: string,
   emoji: string,
 ): Promise<{ thread: CommentThreadDTO }> {
-  return api(
-    `${base(projectId)}/${commentId}/reactions/${encodeURIComponent(emoji)}`,
-    { method: "DELETE" },
-  );
+  return api(`${base(projectId)}/${commentId}/reactions/${encodeURIComponent(emoji)}`, {
+    method: "DELETE",
+  });
 }
 
 export function reportAnchorStatus(

@@ -70,25 +70,17 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
     });
 
     // 2. Create snapshot
-    const snapRes = await api.request(
-      "POST",
-      `/api/projects/${projectId}/snapshots`,
-      {
-        token,
-        body: { name: "Initial V1" },
-      },
-    );
+    const snapRes = await api.request("POST", `/api/projects/${projectId}/snapshots`, {
+      token,
+      body: { name: "Initial V1" },
+    });
     expect(snapRes.status).toBe(201);
     const snapshotId = snapRes.data.snapshot.id;
     expect(snapshotId).toBeDefined();
     expect(snapRes.data.snapshot.name).toBe("Initial V1");
 
     // 3. List snapshots
-    const listRes = await api.request(
-      "GET",
-      `/api/projects/${projectId}/snapshots`,
-      { token },
-    );
+    const listRes = await api.request("GET", `/api/projects/${projectId}/snapshots`, { token });
     expect(listRes.status).toBe(200);
     expect(listRes.data.snapshots).toHaveLength(1);
 
@@ -110,11 +102,9 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
     expect(restoreRes.data.conflictedPaths).toEqual([]);
 
     // 6. Verify restored file content
-    const fileRes = await api.request(
-      "GET",
-      `/api/projects/${projectId}/file?path=test.py`,
-      { token },
-    );
+    const fileRes = await api.request("GET", `/api/projects/${projectId}/file?path=test.py`, {
+      token,
+    });
     expect(fileRes.status).toBe(200);
     expect(fileRes.data.content).toBe('print("v1")');
 
@@ -126,11 +116,7 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
     );
     expect(delRes.status).toBe(200);
 
-    const afterDelete = await api.request(
-      "GET",
-      `/api/projects/${projectId}/snapshots`,
-      { token },
-    );
+    const afterDelete = await api.request("GET", `/api/projects/${projectId}/snapshots`, { token });
     expect(afterDelete.status).toBe(200);
     expect(afterDelete.data.snapshots).toHaveLength(0);
   });
@@ -151,14 +137,10 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
       token,
       body: { path: "b.txt", content: "snapshot-b" },
     });
-    const snapRes = await api.request(
-      "POST",
-      `/api/projects/${pid}/snapshots`,
-      {
-        token,
-        body: { name: "before-corruption" },
-      },
-    );
+    const snapRes = await api.request("POST", `/api/projects/${pid}/snapshots`, {
+      token,
+      body: { name: "before-corruption" },
+    });
     const snapshotId = snapRes.data.snapshot.id;
 
     // After the snapshot, replace b.txt with a DIRECTORY of the same name,
@@ -189,11 +171,7 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
     // restore never got to. Under the old delete-then-write ordering,
     // this file would already have been deleted regardless of whether the
     // subsequent write succeeded.
-    const keepRes = await api.request(
-      "GET",
-      `/api/projects/${pid}/file?path=keep.txt`,
-      { token },
-    );
+    const keepRes = await api.request("GET", `/api/projects/${pid}/file?path=keep.txt`, { token });
     expect(keepRes.status).toBe(200);
     expect(keepRes.data.content).toBe("must-survive");
   });
@@ -209,27 +187,22 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
       body: { path: "main.py", content: 'print("hi")' },
     });
 
-    const snapRes = await api.request(
-      "POST",
-      `/api/projects/${pid}/snapshots`,
-      { token, body: { name: "to-delete" } },
-    );
+    const snapRes = await api.request("POST", `/api/projects/${pid}/snapshots`, {
+      token,
+      body: { name: "to-delete" },
+    });
     expect(snapRes.status).toBe(201);
     const snapshotId = snapRes.data.snapshot.id;
     const archivePath = join(cfg.dataDir, "snapshots", pid, `${snapshotId}.gz`);
     expect(existsSync(archivePath)).toBe(true);
 
-    const delRes = await api.request(
-      "DELETE",
-      `/api/projects/${pid}/snapshots/${snapshotId}`,
-      { token },
-    );
+    const delRes = await api.request("DELETE", `/api/projects/${pid}/snapshots/${snapshotId}`, {
+      token,
+    });
     expect(delRes.status).toBe(200);
     expect(existsSync(archivePath)).toBe(false);
     expect(
-      api.db
-        .prepare("SELECT COUNT(*) AS n FROM snapshots WHERE id = ?")
-        .get(snapshotId),
+      api.db.prepare("SELECT COUNT(*) AS n FROM snapshots WHERE id = ?").get(snapshotId),
     ).toMatchObject({ n: 0 });
   });
 
@@ -246,18 +219,12 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
       token,
       body: { path: "secret.py", content: "victim-content" },
     });
-    const victimSnap = await api.request(
-      "POST",
-      `/api/projects/${victimId}/snapshots`,
-      { token, body: { name: "victim-snapshot" } },
-    );
+    const victimSnap = await api.request("POST", `/api/projects/${victimId}/snapshots`, {
+      token,
+      body: { name: "victim-snapshot" },
+    });
     const victimSnapshotId = victimSnap.data.snapshot.id;
-    const victimArchive = join(
-      cfg.dataDir,
-      "snapshots",
-      victimId,
-      `${victimSnapshotId}.gz`,
-    );
+    const victimArchive = join(cfg.dataDir, "snapshots", victimId, `${victimSnapshotId}.gz`);
     expect(existsSync(victimArchive)).toBe(true);
 
     const plantedPath = join(cfg.dataDir, "planted.gz");
@@ -275,11 +242,9 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
     const outsideDataDir = "..%2f..%2fplanted";
     const statuses: number[] = [];
     for (const payload of [crossTenant, outsideDataDir]) {
-      const res = await api.request(
-        "DELETE",
-        `/api/projects/${attackerId}/snapshots/${payload}`,
-        { token },
-      );
+      const res = await api.request("DELETE", `/api/projects/${attackerId}/snapshots/${payload}`, {
+        token,
+      });
       statuses.push(res.status);
     }
 
@@ -291,11 +256,7 @@ describe("Job History, Telemetry Stats & Snapshots API", () => {
     expect(statuses).toEqual([404, 404]);
 
     // And the victim's DB row still resolves through the normal path.
-    const victimList = await api.request(
-      "GET",
-      `/api/projects/${victimId}/snapshots`,
-      { token },
-    );
+    const victimList = await api.request("GET", `/api/projects/${victimId}/snapshots`, { token });
     expect(victimList.data.snapshots).toHaveLength(1);
     expect(victimList.data.snapshots[0].id).toBe(victimSnapshotId);
   });

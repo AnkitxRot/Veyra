@@ -16,16 +16,12 @@ const MAX_HITS = 80;
  * not under /workspace are dropped. Rename/refactor is not implemented —
  * this is navigation only.
  */
-export async function searchWorkspaceSymbols(
-  query: string,
-): Promise<WorkspaceSymbolHit[]> {
+export async function searchWorkspaceSymbols(query: string): Promise<WorkspaceSymbolHit[]> {
   const bridges = getReadyLspBridges();
   if (bridges.length === 0) return [];
   const q = query.trim().slice(0, 200);
   const results = await Promise.all(
-    bridges.map((bridge) =>
-      bridge.request("workspace/symbol", { query: q }).catch(() => []),
-    ),
+    bridges.map((bridge) => bridge.request("workspace/symbol", { query: q }).catch(() => [])),
   );
   const hits: WorkspaceSymbolHit[] = [];
   const seen = new Set<string>();
@@ -40,11 +36,10 @@ export async function searchWorkspaceSymbols(
       };
       const rel = fromWorkspaceUri(loc.uri ?? item.uri);
       if (!rel) continue;
-      const range = loc.range ??
+      const range =
+        loc.range ??
         (item.range as { start?: { line?: number; character?: number } } | undefined) ??
-        (item.selectionRange as
-          | { start?: { line?: number; character?: number } }
-          | undefined);
+        (item.selectionRange as { start?: { line?: number; character?: number } } | undefined);
       const line = (range?.start?.line ?? 0) + 1;
       const column = (range?.start?.character ?? 0) + 1;
       const key = `${rel}:${line}:${name}`;
@@ -55,8 +50,7 @@ export async function searchWorkspaceSymbols(
         filePath: rel,
         line,
         column,
-        containerName:
-          typeof item.containerName === "string" ? item.containerName : undefined,
+        containerName: typeof item.containerName === "string" ? item.containerName : undefined,
       });
       if (hits.length >= MAX_HITS) return hits;
     }

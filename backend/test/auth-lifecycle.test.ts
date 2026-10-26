@@ -69,9 +69,7 @@ describe("Milestone 19 — Auth Lifecycle & Session Security", () => {
       expect(closeReason).toBe("Session revoked");
 
       // 5. Verify session was removed from database
-      const sessionRow = db
-        .prepare("SELECT * FROM sessions WHERE user_id = ?")
-        .get(user.id);
+      const sessionRow = db.prepare("SELECT * FROM sessions WHERE user_id = ?").get(user.id);
       expect(sessionRow).toBeUndefined();
 
       // Clean up mock socket from registry
@@ -87,9 +85,7 @@ describe("Milestone 19 — Auth Lifecycle & Session Security", () => {
       await api.request("POST", "/api/auth/logout", { token });
 
       const auditRow = db
-        .prepare(
-          "SELECT * FROM audit_logs WHERE user_id = ? AND event_type = 'AUTH_LOGOUT'",
-        )
+        .prepare("SELECT * FROM audit_logs WHERE user_id = ? AND event_type = 'AUTH_LOGOUT'")
         .get(user.id) as any;
       expect(auditRow).toBeDefined();
       expect(JSON.parse(auditRow.details).username).toBe("audit_user_1");
@@ -150,26 +146,18 @@ describe("Milestone 19 — Auth Lifecycle & Session Security", () => {
       expect(existsSync(snapDir)).toBe(false);
 
       // 4. Assert user and project DB rows are gone
-      const userRow = db
-        .prepare("SELECT * FROM users WHERE id = ?")
-        .get(demoUserId);
+      const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(demoUserId);
       expect(userRow).toBeUndefined();
 
-      const projRow = db
-        .prepare("SELECT * FROM projects WHERE id = ?")
-        .get(project.id);
+      const projRow = db.prepare("SELECT * FROM projects WHERE id = ?").get(project.id);
       expect(projRow).toBeUndefined();
 
-      const snapRows = db
-        .prepare("SELECT * FROM snapshots WHERE user_id = ?")
-        .all(demoUserId);
+      const snapRows = db.prepare("SELECT * FROM snapshots WHERE user_id = ?").all(demoUserId);
       expect(snapRows).toHaveLength(0);
 
       // 5. Assert audit log was recorded
       const audit = db
-        .prepare(
-          "SELECT * FROM audit_logs WHERE event_type = 'DEMO_ACCOUNTS_GC'",
-        )
+        .prepare("SELECT * FROM audit_logs WHERE event_type = 'DEMO_ACCOUNTS_GC'")
         .get() as any;
       expect(audit).toBeDefined();
       expect(JSON.parse(audit.details).username).toBe("evaluator_exp001");
@@ -207,9 +195,7 @@ describe("Milestone 19 — Auth Lifecycle & Session Security", () => {
 
       // Assert user, project, and workspace on disk are intact
       expect(existsSync(join(wsDir, "main.py"))).toBe(true);
-      const userRow = db
-        .prepare("SELECT * FROM users WHERE id = ?")
-        .get(activeDemoId);
+      const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(activeDemoId);
       expect(userRow).toBeDefined();
     });
 
@@ -244,9 +230,7 @@ describe("Milestone 19 — Auth Lifecycle & Session Security", () => {
 
       // Assert Alice's account and workspace are completely untouched
       expect(existsSync(join(wsDir, "index.js"))).toBe(true);
-      const userRow = db
-        .prepare("SELECT * FROM users WHERE id = ?")
-        .get(regularId);
+      const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(regularId);
       expect(userRow).toBeDefined();
     });
 

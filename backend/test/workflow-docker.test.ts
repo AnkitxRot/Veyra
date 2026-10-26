@@ -9,9 +9,7 @@ import { runWorkflowTask } from "../src/workflow/run.js";
 
 const dockerOk = isDockerRunning() && isRunnerImageAvailable();
 if (process.env.CI === "true" && !dockerOk) {
-  throw new Error(
-    "M84 CI requires Docker and cloudeeeide-runner:latest for workflow tests",
-  );
+  throw new Error("M84 CI requires Docker and cloudeeeide-runner:latest for workflow tests");
 }
 
 describe.skipIf(!dockerOk)("workflow docker (real npm test/build)", () => {
@@ -39,7 +37,7 @@ describe.skipIf(!dockerOk)("workflow docker (real npm test/build)", () => {
         scripts: {
           test: "node --test --test-reporter=tap tests/add.test.js",
           build: "node -e \"require('fs').writeFileSync('out.txt','ok')\"",
-          "test:hang": "node -e \"setInterval(()=>{},1000)\"",
+          "test:hang": 'node -e "setInterval(()=>{},1000)"',
         },
       }),
     );
@@ -70,10 +68,7 @@ describe.skipIf(!dockerOk)("workflow docker (real npm test/build)", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.command).toBe("npm");
-    expect(r.value.args).toEqual([
-      "run",
-      "test",
-    ]);
+    expect(r.value.args).toEqual(["run", "test"]);
     expect(r.value.result.exitCode).not.toBe(0);
     const names = r.value.tests.map((t) => t.name);
     expect(names.some((n) => /adds/i.test(n))).toBe(true);

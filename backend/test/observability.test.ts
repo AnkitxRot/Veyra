@@ -15,15 +15,9 @@ describe("observability (M5a)", () => {
   });
 
   it("labelForSql extracts a bounded verb+table label", () => {
-    expect(
-      labelForSql("SELECT s.token FROM sessions s WHERE s.token = ?"),
-    ).toBe("SELECT sessions");
-    expect(labelForSql("INSERT INTO users (username) VALUES (?)")).toBe(
-      "INSERT users",
-    );
-    expect(labelForSql("DELETE FROM sessions WHERE token = ?")).toBe(
-      "DELETE sessions",
-    );
+    expect(labelForSql("SELECT s.token FROM sessions s WHERE s.token = ?")).toBe("SELECT sessions");
+    expect(labelForSql("INSERT INTO users (username) VALUES (?)")).toBe("INSERT users");
+    expect(labelForSql("DELETE FROM sessions WHERE token = ?")).toBe("DELETE sessions");
     expect(labelForSql("PRAGMA foreign_keys = ON")).toBe("PRAGMA");
   });
 
@@ -31,13 +25,14 @@ describe("observability (M5a)", () => {
     const cfg = makeTestConfig();
     const db = instrumentDb(openDb(cfg.dbPath));
 
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("carol", "hash", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "carol",
+      "hash",
+      "user",
+    );
 
-    const row = db
-      .prepare("SELECT id, username FROM users WHERE username = ?")
-      .get("carol") as { id: number; username: string } | undefined;
+    const row = db.prepare("SELECT id, username FROM users WHERE username = ?").get("carol") as
+      { id: number; username: string } | undefined;
     expect(row?.username).toBe("carol");
 
     const all = db.prepare("SELECT username FROM users").all() as {
@@ -50,9 +45,11 @@ describe("observability (M5a)", () => {
     const cfg = makeTestConfig();
     const db = instrumentDb(openDb(cfg.dbPath));
 
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("dave", "hash", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "dave",
+      "hash",
+      "user",
+    );
     db.prepare("SELECT id FROM users WHERE username = ?").get("dave");
     db.prepare("SELECT id FROM users WHERE username = ?").get("dave");
 

@@ -43,11 +43,7 @@ export function normalizeRelPath(relPath: unknown): string | null {
   if (typeof relPath !== "string" || relPath.length === 0) return null;
   if (relPath.length > MAX_REL_PATH) return null;
   if (relPath.includes("\0")) return null;
-  if (
-    relPath.startsWith("/") ||
-    relPath.startsWith("\\") ||
-    /^[a-zA-Z]:/.test(relPath)
-  ) {
+  if (relPath.startsWith("/") || relPath.startsWith("\\") || /^[a-zA-Z]:/.test(relPath)) {
     return null;
   }
   const n = relPath.replace(/\\/g, "/");
@@ -73,10 +69,7 @@ export function rewriteUris(
   }
 }
 
-function rewrite(
-  value: unknown,
-  map: (uri: string) => string | null,
-): unknown {
+function rewrite(value: unknown, map: (uri: string) => string | null): unknown {
   if (Array.isArray(value)) {
     return value.map((v) => rewrite(v, map));
   }
@@ -84,10 +77,7 @@ function rewrite(
     const src = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(src)) {
-      if (
-        (k === "uri" || k === "rootUri" || k === "targetUri") &&
-        typeof v === "string"
-      ) {
+      if ((k === "uri" || k === "rootUri" || k === "targetUri") && typeof v === "string") {
         const mapped = map(v);
         if (mapped === null) throw new Error("illegal_uri");
         out[k] = mapped;

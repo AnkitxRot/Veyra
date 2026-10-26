@@ -109,11 +109,7 @@ export function makeJpeg(width: number, height: number): Buffer {
   sof[14] = 0x11;
   sof[16] = 3;
   sof[17] = 0x11;
-  return Buffer.concat([
-    Buffer.from([0xff, 0xd8]),
-    sof,
-    Buffer.from([0xff, 0xd9]),
-  ]);
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), sof, Buffer.from([0xff, 0xd9])]);
 }
 
 /** A minimal RIFF/WEBP container with a lossy VP8 dimension header. */

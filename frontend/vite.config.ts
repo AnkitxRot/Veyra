@@ -51,8 +51,7 @@ export default defineConfig({
           if (p.includes("?worker")) return;
           if (!p.includes("/node_modules/")) return;
           if (p.includes("/node_modules/monaco-editor/")) return "monaco";
-          if (/\/node_modules\/(yjs|y-monaco|y-protocols|lib0)\//.test(p))
-            return "collab";
+          if (/\/node_modules\/(yjs|y-monaco|y-protocols|lib0)\//.test(p)) return "collab";
           if (/\/node_modules\/@xterm\//.test(p)) return "xterm";
           return "vendor";
         },

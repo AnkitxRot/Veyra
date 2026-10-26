@@ -36,7 +36,13 @@ class ExperimentalPrewarmPool {
   private reservedCount = 0;
   private peakGlobalLoad = 0;
   private disposed = false;
-  private assignmentLog: Array<{ containerId: string; from: string; to: string; projectId: string; userId: number }> = [];
+  private assignmentLog: Array<{
+    containerId: string;
+    from: string;
+    to: string;
+    projectId: string;
+    userId: number;
+  }> = [];
 
   constructor(poolSize: number, netName: string, maxSandboxes = 20) {
     this.poolSize = poolSize;
@@ -75,28 +81,45 @@ class ExperimentalPrewarmPool {
 
     const hardeningArgs = [
       "--read-only",
-      "--tmpfs", "/tmp:rw,size=64m,mode=1777",
-      "--tmpfs", "/run:rw,size=16m,mode=1777",
-      "--tmpfs", "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
-      "--tmpfs", "/workspace:rw,size=256m,uid=1000,gid=1000,mode=0777",
+      "--tmpfs",
+      "/tmp:rw,size=64m,mode=1777",
+      "--tmpfs",
+      "/run:rw,size=16m,mode=1777",
+      "--tmpfs",
+      "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
+      "--tmpfs",
+      "/workspace:rw,size=256m,uid=1000,gid=1000,mode=0777",
     ];
 
     const dockerArgs = [
-      "run", "-d",
-      "--name", slotId,
-      "--network", this.netName,
-      "--label", "cloudeeeide.managed=true",
-      "--label", "cloudeeeide.prewarmed=true",
-      "--security-opt", "no-new-privileges",
-      "--cap-drop", "ALL",
-      "--memory", "536870912b",
-      "--cpus", "1.0",
-      "--pids-limit", "100",
+      "run",
+      "-d",
+      "--name",
+      slotId,
+      "--network",
+      this.netName,
+      "--label",
+      "cloudeeeide.managed=true",
+      "--label",
+      "cloudeeeide.prewarmed=true",
+      "--security-opt",
+      "no-new-privileges",
+      "--cap-drop",
+      "ALL",
+      "--memory",
+      "536870912b",
+      "--cpus",
+      "1.0",
+      "--pids-limit",
+      "100",
       ...hardeningArgs,
-      "-w", "/workspace",
-      "--user", "ide",
+      "-w",
+      "/workspace",
+      "--user",
+      "ide",
       "cloudeeeide-runner:latest",
-      "sleep", "infinity",
+      "sleep",
+      "infinity",
     ];
 
     try {
@@ -120,7 +143,10 @@ class ExperimentalPrewarmPool {
 
   async refill() {
     if (this.disposed) return;
-    while (this.prewarmed.length < this.poolSize && this.getCurrentGlobalLoad() < this.maxSandboxes) {
+    while (
+      this.prewarmed.length < this.poolSize &&
+      this.getCurrentGlobalLoad() < this.maxSandboxes
+    ) {
       const c = await this.createAnonymousContainer();
       if (c) {
         this.prewarmed.push(c);
@@ -131,7 +157,11 @@ class ExperimentalPrewarmPool {
     this.updatePeak();
   }
 
-  async acquireForProject(projectId: string, userId: number, workspaceDir: string): Promise<{ containerId: string; wasPrewarmed: boolean }> {
+  async acquireForProject(
+    projectId: string,
+    userId: number,
+    workspaceDir: string,
+  ): Promise<{ containerId: string; wasPrewarmed: boolean }> {
     this.reservedCount++;
     this.updatePeak();
 
@@ -164,26 +194,41 @@ class ExperimentalPrewarmPool {
 
       const hardeningArgs = [
         "--read-only",
-        "--tmpfs", "/tmp:rw,size=64m,mode=1777",
-        "--tmpfs", "/run:rw,size=16m,mode=1777",
-        "--tmpfs", "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
+        "--tmpfs",
+        "/tmp:rw,size=64m,mode=1777",
+        "--tmpfs",
+        "/run:rw,size=16m,mode=1777",
+        "--tmpfs",
+        "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
       ];
 
       const dockerArgs = [
-        "run", "-d",
-        "--name", containerId,
-        "--network", this.netName,
-        "--security-opt", "no-new-privileges",
-        "--cap-drop", "ALL",
-        "--memory", "536870912b",
-        "--cpus", "1.0",
-        "--pids-limit", "100",
+        "run",
+        "-d",
+        "--name",
+        containerId,
+        "--network",
+        this.netName,
+        "--security-opt",
+        "no-new-privileges",
+        "--cap-drop",
+        "ALL",
+        "--memory",
+        "536870912b",
+        "--cpus",
+        "1.0",
+        "--pids-limit",
+        "100",
         ...hardeningArgs,
-        "-v", `${workspaceDir}:/workspace`,
-        "-w", "/workspace",
-        "--user", "ide",
+        "-v",
+        `${workspaceDir}:/workspace`,
+        "-w",
+        "/workspace",
+        "--user",
+        "ide",
         "cloudeeeide-runner:latest",
-        "sleep", "infinity",
+        "sleep",
+        "infinity",
       ];
 
       await execFileAsync("docker", dockerArgs);
@@ -200,8 +245,14 @@ class ExperimentalPrewarmPool {
     for (const f of files) {
       const content = await fs.readFile(join(workspaceDir, f), "utf8");
       await execFileAsync("docker", [
-        "exec", "-i", "-u", "ide", containerId,
-        "sh", "-c", `cat << 'EOF' > /workspace/${f}\n${content}\nEOF`
+        "exec",
+        "-i",
+        "-u",
+        "ide",
+        containerId,
+        "sh",
+        "-c",
+        `cat << 'EOF' > /workspace/${f}\n${content}\nEOF`,
       ]);
     }
   }
@@ -225,7 +276,10 @@ class ExperimentalPrewarmPool {
   }
 }
 
-async function run50VUBurstTest(poolSize: number, netName: string): Promise<{
+async function run50VUBurstTest(
+  poolSize: number,
+  netName: string,
+): Promise<{
   poolSize: number;
   burstP50: number;
   burstP95: number;
@@ -265,7 +319,13 @@ async function run50VUBurstTest(poolSize: number, netName: string): Promise<{
     else coldCreations++;
 
     const { stdout } = await execFileAsync("docker", [
-      "exec", "-i", "-w", "/workspace", sandbox.containerId, "python3", "main.py"
+      "exec",
+      "-i",
+      "-w",
+      "/workspace",
+      sandbox.containerId,
+      "python3",
+      "main.py",
     ]);
 
     const elapsed = performance.now() - reqStart;
@@ -285,12 +345,35 @@ async function run50VUBurstTest(poolSize: number, netName: string): Promise<{
 
   // Measure warm execution on a reused container
   const warmContainer = `test-warm-p${poolSize}-${Date.now()}`;
-  await execFileAsync("docker", ["run", "-d", "--name", warmContainer, "--network", netName, "-v", `${baseDir}:/workspace`, "-w", "/workspace", "cloudeeeide-runner:latest", "sleep", "infinity"]);
+  await execFileAsync("docker", [
+    "run",
+    "-d",
+    "--name",
+    warmContainer,
+    "--network",
+    netName,
+    "-v",
+    `${baseDir}:/workspace`,
+    "-w",
+    "/workspace",
+    "cloudeeeide-runner:latest",
+    "sleep",
+    "infinity",
+  ]);
 
   const warmLatencies: number[] = [];
   for (let i = 0; i < 5; i++) {
     const t0 = performance.now();
-    await execFileAsync("docker", ["exec", "-i", "-w", "/workspace", warmContainer, "python3", "-c", "print('warm')"]);
+    await execFileAsync("docker", [
+      "exec",
+      "-i",
+      "-w",
+      "/workspace",
+      warmContainer,
+      "python3",
+      "-c",
+      "print('warm')",
+    ]);
     warmLatencies.push(performance.now() - t0);
   }
   warmLatencies.sort((a, b) => a - b);
@@ -310,11 +393,22 @@ async function run50VUBurstTest(poolSize: number, netName: string): Promise<{
     seenContainers.add(entry.containerId);
   }
 
-  const { stdout: psOut } = await execFileAsync("docker", ["ps", "-a", "--filter", "name=exp-", "--format", "{{.ID}}"]);
+  const { stdout: psOut } = await execFileAsync("docker", [
+    "ps",
+    "-a",
+    "--filter",
+    "name=exp-",
+    "--format",
+    "{{.ID}}",
+  ]);
   const leftoverContainers = psOut.trim() ? psOut.trim().split("\n").length : 0;
 
-  console.log(`[P${poolSize}] Results: p50=${p50.toFixed(1)}ms, p95=${p95.toFixed(1)}ms, p99=${p99.toFixed(1)}ms, Wall=${(totalWallMs / 1000).toFixed(2)}s`);
-  console.log(`[P${poolSize}] Prewarmed hits: ${prewarmedHits}, Cold creations: ${coldCreations}, Peak global load: ${pool.getPeakGlobalLoad()}/20`);
+  console.log(
+    `[P${poolSize}] Results: p50=${p50.toFixed(1)}ms, p95=${p95.toFixed(1)}ms, p99=${p99.toFixed(1)}ms, Wall=${(totalWallMs / 1000).toFixed(2)}s`,
+  );
+  console.log(
+    `[P${poolSize}] Prewarmed hits: ${prewarmedHits}, Cold creations: ${coldCreations}, Peak global load: ${pool.getPeakGlobalLoad()}/20`,
+  );
 
   return {
     poolSize,
@@ -364,8 +458,13 @@ async function runExperiment() {
 
     // 5. Repeat best performing variant to confirm reproducibility
     const allVariants = [resP0, resP1, resP2, resP4];
-    const bestVariant = allVariants.reduce((best, curr) => (curr.burstP95 < best.burstP95 ? curr : best), resP0);
-    console.log(`\nBest variant identified: P${bestVariant.poolSize}. Running repeat validation...`);
+    const bestVariant = allVariants.reduce(
+      (best, curr) => (curr.burstP95 < best.burstP95 ? curr : best),
+      resP0,
+    );
+    console.log(
+      `\nBest variant identified: P${bestVariant.poolSize}. Running repeat validation...`,
+    );
 
     const repeatRes = await run50VUBurstTest(bestVariant.poolSize, sharedNet);
 

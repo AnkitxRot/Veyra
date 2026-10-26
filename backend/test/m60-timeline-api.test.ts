@@ -20,9 +20,7 @@ async function proj(token: string, name: string): Promise<string> {
 
 describe("M60 timeline API", () => {
   beforeAll(async () => {
-    api = await startTestApi(
-      makeTestConfig({ collabAwayMaxLookbackMs: 30 * 24 * 60 * 60 * 1000 }),
-    );
+    api = await startTestApi(makeTestConfig({ collabAwayMaxLookbackMs: 30 * 24 * 60 * 60 * 1000 }));
   });
   afterAll(async () => {
     // createApp() re-inits the singleton historian; stop its timers so they
@@ -36,11 +34,9 @@ describe("M60 timeline API", () => {
     const stranger = await reg("m60stranger1");
     const p = await proj(owner, "P1");
 
-    const denied = await api.request(
-      "GET",
-      `/api/projects/${p}/collab/timeline`,
-      { token: stranger },
-    );
+    const denied = await api.request("GET", `/api/projects/${p}/collab/timeline`, {
+      token: stranger,
+    });
     expect([403, 404]).toContain(denied.status);
 
     const ok = await api.request("GET", `/api/projects/${p}/collab/timeline`, {
@@ -48,9 +44,7 @@ describe("M60 timeline API", () => {
     });
     expect(ok.status).toBe(200);
     expect(Array.isArray(ok.data.events)).toBe(true);
-    expect(ok.data.nextBefore === null || typeof ok.data.nextBefore === "string").toBe(
-      true,
-    );
+    expect(ok.data.nextBefore === null || typeof ok.data.nextBefore === "string").toBe(true);
   });
 
   it("a viewer collaborator can read; a revoked collaborator cannot", async () => {
@@ -100,18 +94,18 @@ describe("M60 timeline API", () => {
       )
       .run(
         b,
-        (api.db.prepare("SELECT id FROM users WHERE username='m60owner3'").get() as {
-          id: number;
-        }).id,
+        (
+          api.db.prepare("SELECT id FROM users WHERE username='m60owner3'").get() as {
+            id: number;
+          }
+        ).id,
         "2026-08-31T10:00:00.000Z",
         "2026-08-31T10:00:00.000Z",
       );
     const r = await api.request("GET", `/api/projects/${a}/collab/timeline`, {
       token: u,
     });
-    expect(r.data.events.every((e: { id: string }) => e.id !== "collab:bx")).toBe(
-      true,
-    );
+    expect(r.data.events.every((e: { id: string }) => e.id !== "collab:bx")).toBe(true);
   });
 
   it("while-away + ack: a second call returns [] after ack", async () => {
@@ -138,22 +132,20 @@ describe("M60 timeline API", () => {
     // owner's collab_last_seen must exist and be older than the event, else
     // the 24h clamp already filters it — set it explicitly
     api.db
-      .prepare(
-        `INSERT INTO collab_last_seen (project_id, user_id, last_seen_at) VALUES (?, ?, ?)`,
-      )
+      .prepare(`INSERT INTO collab_last_seen (project_id, user_id, last_seen_at) VALUES (?, ?, ?)`)
       .run(
         p,
-        (api.db.prepare("SELECT id FROM users WHERE username='m60owner4'").get() as {
-          id: number;
-        }).id,
+        (
+          api.db.prepare("SELECT id FROM users WHERE username='m60owner4'").get() as {
+            id: number;
+          }
+        ).id,
         seenAt,
       );
 
-    const first = await api.request(
-      "GET",
-      `/api/projects/${p}/collab/while-away`,
-      { token: owner },
-    );
+    const first = await api.request("GET", `/api/projects/${p}/collab/while-away`, {
+      token: owner,
+    });
     expect(first.status).toBe(200);
     expect(first.data.events.length).toBeGreaterThan(0);
 
@@ -162,11 +154,9 @@ describe("M60 timeline API", () => {
       body: { upTo: first.data.events[0].at },
     });
 
-    const second = await api.request(
-      "GET",
-      `/api/projects/${p}/collab/while-away`,
-      { token: owner },
-    );
+    const second = await api.request("GET", `/api/projects/${p}/collab/while-away`, {
+      token: owner,
+    });
     expect(second.data.events.length).toBe(0);
   });
 });

@@ -22,9 +22,7 @@ describe.skipIf(!isDockerRunning())(
       const cfg = makeTestConfig();
       const occ = new Map<string, Occ>();
       const mgr = new SandboxManager();
-      mgr.setRoomOccupancyProvider(
-        (pid) => occ.get(pid) ?? { liveClients: 0, distinctUsers: 0 },
-      );
+      mgr.setRoomOccupancyProvider((pid) => occ.get(pid) ?? { liveClients: 0, distinctUsers: 0 });
 
       const pidSolo = `m74obs-solo-${randomUUID()}`;
       const pidMulti = `m74obs-multi-${randomUUID()}`;

@@ -4,10 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeTestConfig, makeWorkspace, startTestApi } from "./helpers.js";
-import {
-  debugSessions,
-  resetDebugSessionsForTests,
-} from "../src/debug/manager.js";
+import { debugSessions, resetDebugSessionsForTests } from "../src/debug/manager.js";
 import type { DebugClientSocket } from "../src/debug/session.js";
 import type { DebugSpawnRequest } from "../src/debug/process.js";
 import type { Db } from "../src/db.js";
@@ -37,11 +34,7 @@ class FakeSock implements DebugClientSocket {
   }
 }
 
-async function waitFor(
-  pred: () => boolean,
-  ms = 5000,
-  label = "condition",
-): Promise<void> {
+async function waitFor(pred: () => boolean, ms = 5000, label = "condition"): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
     if (pred()) return;
@@ -87,9 +80,7 @@ function getAuditRows(db: Db, eventType: string, projectId?: string): any[] {
     );
     return stmt.all(eventType, projectId) as any[];
   }
-  stmt = db.prepare(
-    "SELECT * FROM audit_logs WHERE event_type = ? ORDER BY id ASC",
-  );
+  stmt = db.prepare("SELECT * FROM audit_logs WHERE event_type = ? ORDER BY id ASC");
   return stmt.all(eventType) as any[];
 }
 
@@ -154,7 +145,13 @@ describe("M94 — DAP Audit Trail Coverage", () => {
   it("records DEBUG_SESSION_TIMEOUT on adapter that never initializes", async () => {
     debugSessions.setSpawnForTests(spawnFake({ FAKE_DAP_SLOW: "1" }));
     const cfgShort = makeTestConfig({ debugStartupTimeoutMs: 800, debugSessionTimeoutMs: 60_000 });
-    const { db, sock, session } = await boot("main.py", "x = 1\n", "dbg-audit-startup-to", 42, cfgShort);
+    const { db, sock, session } = await boot(
+      "main.py",
+      "x = 1\n",
+      "dbg-audit-startup-to",
+      42,
+      cfgShort,
+    );
     session.handleClientMessage(sock, {
       type: "launch",
       language: "python",
@@ -200,11 +197,7 @@ describe("M94 — DAP Audit Trail Coverage", () => {
       entryFile: "main.py",
       breakpoints: {},
     });
-    await waitFor(
-      () => sock.lastStatus()?.state === "terminated",
-      5000,
-      "terminated",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "terminated", 5000, "terminated");
     session.dispose("stopped");
     const rows = getAuditRows(db, "DEBUG_SESSION_STOPPED", "dbg-audit");
     expect(rows.length).toBeGreaterThanOrEqual(1);
@@ -243,11 +236,7 @@ describe("M94 — DAP Audit Trail Coverage", () => {
       entryFile: "main.py",
       breakpoints: {},
     });
-    await waitFor(
-      () => sock.lastStatus()?.state === "terminated",
-      5000,
-      "terminated",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "terminated", 5000, "terminated");
   });
 
   it("audit event metadata contains no source code or credentials", async () => {

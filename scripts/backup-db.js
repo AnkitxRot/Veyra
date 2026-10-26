@@ -32,9 +32,7 @@ function parseArgs() {
   const options = {
     dataDir:
       process.env.DATA_DIR ??
-      (process.platform === "win32"
-        ? join(homedir(), ".cloud-ide")
-        : "/var/lib/cloud-ide"),
+      (process.platform === "win32" ? join(homedir(), ".cloud-ide") : "/var/lib/cloud-ide"),
     dbPath: process.env.DATABASE_PATH,
     backupDir: process.env.BACKUP_DIR,
     maxBackups: Number(process.env.MAX_DATABASE_BACKUPS ?? 10),
@@ -102,53 +100,45 @@ async function main() {
     // Cross-process lock: coordinates this CLI invocation (e.g. cron) with
     // any server-triggered admin backup hitting the same backupDir, so the
     // two can never race on VACUUM INTO or retention pruning.
-    result = withBackupLockSync(
-      opts.backupDir,
-      { staleMs: opts.lockStaleMs },
-      () => {
-        const filename = generateBackupFilename();
-        const backupPath = join(opts.backupDir, filename);
+    result = withBackupLockSync(opts.backupDir, { staleMs: opts.lockStaleMs }, () => {
+      const filename = generateBackupFilename();
+      const backupPath = join(opts.backupDir, filename);
 
-        const startTime = Date.now();
-        let db;
+      const startTime = Date.now();
+      let db;
+      try {
+        db = new DatabaseSync(opts.dbPath);
+        const escaped = backupPath.replace(/'/g, "''");
+        db.exec(`VACUUM INTO '${escaped}'`);
+      } catch (err) {
         try {
-          db = new DatabaseSync(opts.dbPath);
-          const escaped = backupPath.replace(/'/g, "''");
-          db.exec(`VACUUM INTO '${escaped}'`);
-        } catch (err) {
+          rmSync(backupPath, { force: true });
+        } catch {}
+        throw new Error(`VACUUM INTO execution failed: ${err.message}`);
+      } finally {
+        if (db) {
           try {
-            rmSync(backupPath, { force: true });
+            db.close();
           } catch {}
-          throw new Error(`VACUUM INTO execution failed: ${err.message}`);
-        } finally {
-          if (db) {
-            try {
-              db.close();
-            } catch {}
-          }
         }
+      }
 
-        secureBackupFilePermissions(backupPath);
+      secureBackupFilePermissions(backupPath);
 
-        const integrity = verifyDatabaseBackupIntegrity(backupPath);
-        if (integrity !== "ok") {
-          try {
-            rmSync(backupPath, { force: true });
-          } catch {}
-          throw new Error(`Backup integrity verification failed: ${integrity}`);
-        }
+      const integrity = verifyDatabaseBackupIntegrity(backupPath);
+      if (integrity !== "ok") {
+        try {
+          rmSync(backupPath, { force: true });
+        } catch {}
+        throw new Error(`Backup integrity verification failed: ${integrity}`);
+      }
 
-        const stat = statSync(backupPath);
-        const durationMs = Date.now() - startTime;
-        const pruneResult = pruneBackupFilesSync(
-          opts.backupDir,
-          opts.maxBackups,
-          opts.maxBytes,
-        );
+      const stat = statSync(backupPath);
+      const durationMs = Date.now() - startTime;
+      const pruneResult = pruneBackupFilesSync(opts.backupDir, opts.maxBackups, opts.maxBytes);
 
-        return { filename, stat, durationMs, integrity, pruneResult };
-      },
-    );
+      return { filename, stat, durationMs, integrity, pruneResult };
+    });
   } catch (err) {
     console.error(`\n[ERROR] ${err.message}`);
     process.exit(1);

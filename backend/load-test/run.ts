@@ -68,9 +68,7 @@ const CONTENTION_WEIGHTS: [BehaviorName, number][] = [
  * of ANY run all "idle" regardless of total user count. Deterministic and
  * reproducible from (users, vuIndex) alone — no RNG.
  */
-function buildWeightedPattern(
-  weights: [BehaviorName, number][],
-): BehaviorName[] {
+function buildWeightedPattern(weights: [BehaviorName, number][]): BehaviorName[] {
   const total = weights.reduce((s, [, w]) => s + w, 0);
   const pattern: BehaviorName[] = [];
   const assigned = weights.map(() => 0);
@@ -94,11 +92,7 @@ function buildWeightedPattern(
 const WEIGHTED_PATTERN = buildWeightedPattern(BEHAVIOR_WEIGHTS);
 const CONTENTION_PATTERN = buildWeightedPattern(CONTENTION_WEIGHTS);
 
-function pickBehavior(
-  vuIndex: number,
-  contention: boolean,
-  collabOnly: boolean,
-): BehaviorName {
+function pickBehavior(vuIndex: number, contention: boolean, collabOnly: boolean): BehaviorName {
   if (collabOnly) return "rapid_typing";
   const pattern = contention ? CONTENTION_PATTERN : WEIGHTED_PATTERN;
   return pattern[vuIndex % pattern.length]!;
@@ -178,12 +172,8 @@ async function main(): Promise<void> {
   );
 
   const server = await bootstrapLoadTestServer({
-    ...(args.relaxAuthRateLimit
-      ? { authRateLimit: { max: 100_000, windowMs: 60_000 } }
-      : {}),
-    ...(args.yjsCoalesceMs !== undefined
-      ? { collabYjsCoalesceMs: args.yjsCoalesceMs }
-      : {}),
+    ...(args.relaxAuthRateLimit ? { authRateLimit: { max: 100_000, windowMs: 60_000 } } : {}),
+    ...(args.yjsCoalesceMs !== undefined ? { collabYjsCoalesceMs: args.yjsCoalesceMs } : {}),
   });
   console.log(`[load-test] server up at ${server.baseUrl}`);
 
@@ -206,11 +196,7 @@ async function main(): Promise<void> {
         password: "load-test-password-1234",
       }),
     }).then((r) => r.json())) as { token: string };
-    for (
-      let i = 0;
-      i < Math.min(3, Math.max(1, Math.ceil(args.users / 20)));
-      i++
-    ) {
+    for (let i = 0; i < Math.min(3, Math.max(1, Math.ceil(args.users / 20))); i++) {
       const proj = (await fetch(`${server.baseUrl}/api/projects`, {
         method: "POST",
         headers: {
@@ -302,11 +288,7 @@ async function main(): Promise<void> {
         sharedWriteTarget: args.writeBurst ? sharedWriteTarget : undefined,
       };
       vus.push(
-        runVirtualUser(
-          behavior,
-          ctx,
-          args.writeBurst ? seedToken : undefined,
-        ).catch(() => {}),
+        runVirtualUser(behavior, ctx, args.writeBurst ? seedToken : undefined).catch(() => {}),
       );
     }
     await new Promise((r) => setTimeout(r, args.steadySec * 1000));
@@ -391,11 +373,11 @@ export function renderMarkdown(report: any): string {
   lines.push("");
 
   const durationSec = report.durationMs / 1000;
-  const totalSuccess = Object.values<any>(
-    report.metrics.byEndpointClass,
-  ).reduce((s, d) => s + d.outcomes.success, 0);
-  const totalDbCalls =
-    report.finalObservabilitySnapshot?.dbCalls?.overall?.count ?? 0;
+  const totalSuccess = Object.values<any>(report.metrics.byEndpointClass).reduce(
+    (s, d) => s + d.outcomes.success,
+    0,
+  );
+  const totalDbCalls = report.finalObservabilitySnapshot?.dbCalls?.overall?.count ?? 0;
   lines.push("## Throughput");
   lines.push("");
   lines.push(
@@ -411,9 +393,7 @@ export function renderMarkdown(report: any): string {
     "| class | count | p50ms | p95ms | p99ms | success | quota_reject | timeout | conn_fail | crash |",
   );
   lines.push("|---|---|---|---|---|---|---|---|---|---|");
-  for (const [cls, data] of Object.entries<any>(
-    report.metrics.byEndpointClass,
-  )) {
+  for (const [cls, data] of Object.entries<any>(report.metrics.byEndpointClass)) {
     const l = data.latency;
     const o = data.outcomes;
     lines.push(
@@ -461,9 +441,7 @@ export function renderMarkdown(report: any): string {
     );
   }
   lines.push("");
-  lines.push(
-    "## Observability over time (event-loop lag p99 / DB p99 / gauges, sampled every 5s)",
-  );
+  lines.push("## Observability over time (event-loop lag p99 / DB p99 / gauges, sampled every 5s)");
   lines.push("");
   lines.push(
     "| t(s) | evloop p99ms | db p99ms | ws conns | rooms | broadcast sends | sandboxes | rss MB |",

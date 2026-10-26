@@ -51,9 +51,7 @@ export default function AttentionTray({
   const [focused, setFocused] = useState(false);
   // Per-id "sent" confirmations that self-hide.
   const [visibleSent, setVisibleSent] = useState<Set<string>>(new Set());
-  const sentTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
+  const sentTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | null = null;
@@ -83,10 +81,7 @@ export default function AttentionTray({
   );
 
   const sent = useMemo(
-    () =>
-      events.filter(
-        (e) => e.kind === "request" && e.author.userId === currentUserId,
-      ),
+    () => events.filter((e) => e.kind === "request" && e.author.userId === currentUserId),
     [events, currentUserId],
   );
 
@@ -156,9 +151,7 @@ export default function AttentionTray({
           <div className="attention-tray-loc">
             {basename(e.file)} · {rangeLabel(e)}
           </div>
-          {e.message && (
-            <div className="attention-tray-msg">{e.message}</div>
-          )}
+          {e.message && <div className="attention-tray-msg">{e.message}</div>}
           <div className="attention-tray-actions">
             <button
               type="button"
@@ -170,11 +163,7 @@ export default function AttentionTray({
               Go there
             </button>
             {onFollow && (
-              <button
-                type="button"
-                className="attention-tray-follow"
-                onClick={() => onFollow(e)}
-              >
+              <button type="button" className="attention-tray-follow" onClick={() => onFollow(e)}>
                 Follow
               </button>
             )}
@@ -186,11 +175,7 @@ export default function AttentionTray({
       ))}
 
       {hiddenCount > 0 && !expanded && (
-        <button
-          type="button"
-          className="attention-tray-more"
-          onClick={() => setExpanded(true)}
-        >
+        <button type="button" className="attention-tray-more" onClick={() => setExpanded(true)}>
           +{hiddenCount} earlier
         </button>
       )}
@@ -209,11 +194,7 @@ export default function AttentionTray({
               <span>
                 💬 {m.author.username} mentioned you — {m.filePath.split("/").pop()} L{m.line}
               </span>
-              {m.preview && (
-                <div className="mention-card-text">
-                  "{m.preview.slice(0, 100)}"
-                </div>
-              )}
+              {m.preview && <div className="mention-card-text">"{m.preview.slice(0, 100)}"</div>}
               <div className="mention-card-actions">
                 {onMentionGoTo && (
                   <button type="button" onClick={() => onMentionGoTo(m)}>

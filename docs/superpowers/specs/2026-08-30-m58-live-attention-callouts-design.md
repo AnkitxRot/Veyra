@@ -11,28 +11,28 @@ database persistence.
 
 ## 1. Product intent
 
-M57 answers *"where is Rahul and what is he doing?"*. M58 answers *"what does
-Rahul want me to look at, where, and how urgently?"* — so a remote collaborator
+M57 answers _"where is Rahul and what is he doing?"_. M58 answers _"what does
+Rahul want me to look at, where, and how urgently?"_ — so a remote collaborator
 can naturally say **"Yo, come look at this."**
 
 Three gestures, escalating in weight:
 
-| Gesture | Meaning | Weight |
-|---|---|---|
-| **Point** | "👉 look here" — a location, no words | tiny, transient, broadcast |
-| **Callout** | "📣 the race is here" — a range + a short message | visible near the code, short-lived, broadcast |
-| **Come look here** | "📣 Rahul wants *your* attention" — a targeted request with [Go there] / [Dismiss] | actionable, dismissible, targeted, survives a reconnect while valid |
+| Gesture            | Meaning                                                                            | Weight                                                              |
+| ------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Point**          | "👉 look here" — a location, no words                                              | tiny, transient, broadcast                                          |
+| **Callout**        | "📣 the race is here" — a range + a short message                                  | visible near the code, short-lived, broadcast                       |
+| **Come look here** | "📣 Rahul wants _your_ attention" — a targeted request with [Go there] / [Dismiss] | actionable, dismissible, targeted, survives a reconnect while valid |
 
 Plus one presence-derived awareness signal:
 
-| Signal | Meaning |
-|---|---|
+| Signal                        | Meaning                                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | **Nearby / overlapping edit** | "⚠ Rahul is editing the same lines" — derived from M57 presence, never a lock, never a semantic-conflict claim |
 
 The boundary M58 must cross:
 
-> M57: *"Rahul is working over there."*
-> M58: *"Rahul is working over there — and can point me to exactly what he wants me to see."*
+> M57: _"Rahul is working over there."_
+> M58: _"Rahul is working over there — and can point me to exactly what he wants me to see."_
 
 ---
 
@@ -45,11 +45,11 @@ ATTENTION STATE  → MESSAGE_CUSTOM transient events (M58 adds here)
 PERSISTENCE      → filesystem / Git                (attention is NEVER written here)
 ```
 
-| Concept | Owner | M58 stance |
-|---|---|---|
-| CRDT convergence (shared doc converges) | Yjs | untouched; regression-guarded |
-| Spatial awareness (who works near whom) | M57 presence → M58 derives tiers | consumed read-only |
-| Semantic conflict (incompatible intent) | — | **not built.** Overlap ≠ conflict. |
+| Concept                                 | Owner                            | M58 stance                         |
+| --------------------------------------- | -------------------------------- | ---------------------------------- |
+| CRDT convergence (shared doc converges) | Yjs                              | untouched; regression-guarded      |
+| Spatial awareness (who works near whom) | M57 presence → M58 derives tiers | consumed read-only                 |
+| Semantic conflict (incompatible intent) | —                                | **not built.** Overlap ≠ conflict. |
 
 ---
 
@@ -76,7 +76,7 @@ PERSISTENCE      → filesystem / Git                (attention is NEVER written
   server sets identity; the client never supplies it.
 - `CollaborationRoom.clients: Map<WebSocket, CollaboratorClientState>` where
   `CollaboratorClientState = { userId, username, role, activeFile?,
-  awarenessClientIds? }`. **Targeted delivery is a filter over this map** —
+awarenessClientIds? }`. **Targeted delivery is a filter over this map** —
   `for (const [sock, s] of this.clients) if (s.userId === targetUserId) sock.send(frame)`.
 - `disconnectUser(userId)` / `removeClient(ws)` / `updateUserRole` /
   `revokeUser` — existing live-authorization hooks. `removeClient` already
@@ -85,8 +85,8 @@ PERSISTENCE      → filesystem / Git                (attention is NEVER written
 ### 3.3 Presence (M57) — read-only inputs for M58
 
 - `frontend/src/collab/presence.ts` — `CollaboratorPresence { clientId, userId,
-  name, role, color, status, activity, activeFile?, workingFolder?, cursor?,
-  selection?, intent?, lastActive, activeFileDirty? }`; `readPresenceState`,
+name, role, color, status, activity, activeFile?, workingFolder?, cursor?,
+selection?, intent?, lastActive, activeFileDirty? }`; `readPresenceState`,
   `collaboratorsInFile`, `getUserColor`.
 - `backend/src/collab/presence.ts` — `sanitizeAwarenessFilePath` (bounded
   workspace-relative path: no absolute, no drive, no `..`, no C0/DEL, ≤512),
@@ -103,7 +103,7 @@ PERSISTENCE      → filesystem / Git                (attention is NEVER written
 ### 3.4 Navigation — the open-then-reveal primitive
 
 - `frontend/src/utils/revealLocation.ts` — `openAndRevealLocation(openFile,
-  target)`: `await openFile(target.filePath)` **then** dispatch
+target)`: `await openFile(target.filePath)` **then** dispatch
   `ide-reveal-location`. The comment is explicit: the open MUST precede the
   reveal or the reveal is dropped (closed file) or misapplied (wrong active
   file).
@@ -123,23 +123,23 @@ PERSISTENCE      → filesystem / Git                (attention is NEVER written
 
 ### 4.1 New modules
 
-| File | Create/Modify | Responsibility |
-|---|---|---|
-| `backend/src/collab/attention.ts` | **Create** | Pure: `ATTENTION_*` constants, `AttentionType`, `normalizeRange`, `validateAttentionInput`, `buildAttentionEvent` (server-authoritative construction), `newAttentionId`. Plus `AttentionRequestRegistry` (bounded in-memory Map + TTL timers). No `ws` / `Y.Doc` imports. |
-| `backend/src/collab/manager.ts` | Modify | One `handleAttentionMessage(ws, clientState, parsed)` branch inside the existing `case MESSAGE_CUSTOM`; `broadcastAttentionEvent()` / `sendAttentionEventTo(userId, ...)`; per-connection rate-limit bucket on `CollaboratorClientState`; registry wiring in `addClient` (recipient snapshot) and `removeClient` (author/target cleanup); registry cleared in `dispose()`. |
-| `frontend/src/collab/attention.ts` | **Create** | Pure: wire types, `normalizeRange`, `rangesOverlap`, `RANGE_NEAR_LINES`, TTL constants. `AttentionStore` (Map + expiry timers + change emitter). |
-| `frontend/src/collab/client.ts` | Modify | `sendAttentionPoint/Callout/Request` + `dismissAttentionRequest`; `MESSAGE_CUSTOM` receive branch for `attention_event` / `attention_cleared` → `attentionStore` → `emit("attention_change", ...)`; cleared in `resetLocalCollabState()` + `dispose()`. |
-| `frontend/src/components/Collab/AttentionTray.tsx` | **Create** | Bottom-right non-modal stack of incoming targeted-request cards + the sender's "✓ Sent" confirmation. |
-| `frontend/src/components/Editor/Editor.tsx` | Modify | Monaco editor actions (Call out / Point / Come look); point + callout decorations/widgets; three-tier nearby memo. |
-| `frontend/src/components/IDE/IDE.tsx` | Modify | `attention` state (throttled); `handleAttentionNavigate` via `openAndRevealLocation`; retrofit `handleJumpToCollaborator`; thread props to Editor + AttentionTray. |
-| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | Modify | Small incoming-attention count badge on the existing collaborator chip. |
-| `frontend/src/styles/collab.css` | Modify | Point / callout / tray / nearby-tier styles. Ambient, low-alpha, collaborator-colored, fade transitions. |
+| File                                                         | Create/Modify | Responsibility                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/src/collab/attention.ts`                            | **Create**    | Pure: `ATTENTION_*` constants, `AttentionType`, `normalizeRange`, `validateAttentionInput`, `buildAttentionEvent` (server-authoritative construction), `newAttentionId`. Plus `AttentionRequestRegistry` (bounded in-memory Map + TTL timers). No `ws` / `Y.Doc` imports.                                                                                                  |
+| `backend/src/collab/manager.ts`                              | Modify        | One `handleAttentionMessage(ws, clientState, parsed)` branch inside the existing `case MESSAGE_CUSTOM`; `broadcastAttentionEvent()` / `sendAttentionEventTo(userId, ...)`; per-connection rate-limit bucket on `CollaboratorClientState`; registry wiring in `addClient` (recipient snapshot) and `removeClient` (author/target cleanup); registry cleared in `dispose()`. |
+| `frontend/src/collab/attention.ts`                           | **Create**    | Pure: wire types, `normalizeRange`, `rangesOverlap`, `RANGE_NEAR_LINES`, TTL constants. `AttentionStore` (Map + expiry timers + change emitter).                                                                                                                                                                                                                           |
+| `frontend/src/collab/client.ts`                              | Modify        | `sendAttentionPoint/Callout/Request` + `dismissAttentionRequest`; `MESSAGE_CUSTOM` receive branch for `attention_event` / `attention_cleared` → `attentionStore` → `emit("attention_change", ...)`; cleared in `resetLocalCollabState()` + `dispose()`.                                                                                                                    |
+| `frontend/src/components/Collab/AttentionTray.tsx`           | **Create**    | Bottom-right non-modal stack of incoming targeted-request cards + the sender's "✓ Sent" confirmation.                                                                                                                                                                                                                                                                      |
+| `frontend/src/components/Editor/Editor.tsx`                  | Modify        | Monaco editor actions (Call out / Point / Come look); point + callout decorations/widgets; three-tier nearby memo.                                                                                                                                                                                                                                                         |
+| `frontend/src/components/IDE/IDE.tsx`                        | Modify        | `attention` state (throttled); `handleAttentionNavigate` via `openAndRevealLocation`; retrofit `handleJumpToCollaborator`; thread props to Editor + AttentionTray.                                                                                                                                                                                                         |
+| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | Modify        | Small incoming-attention count badge on the existing collaborator chip.                                                                                                                                                                                                                                                                                                    |
+| `frontend/src/styles/collab.css`                             | Modify        | Point / callout / tray / nearby-tier styles. Ambient, low-alpha, collaborator-colored, fade transitions.                                                                                                                                                                                                                                                                   |
 
 ### 4.2 Server/client responsibility split
 
 **Server (authoritative):** authentication; project scope; event-type
 allowlist; author identity (from `clientState`); target validation (member of
-*this* room, currently connected, not self); range/path/message validation;
+_this_ room, currently connected, not self); range/path/message validation;
 per-connection rate limiting; the request registry; request expiry; lifecycle
 cleanup on disconnect; `id`, `createdAt`, `expiresAt`, `color` construction.
 
@@ -193,15 +193,15 @@ event.
 
 ### 5.4 Validation (`validateAttentionInput`, server-side, never throws)
 
-| Field | Rule | On failure |
-|---|---|---|
-| `type` | ∈ the 4 authored types | drop silently |
-| `file` | `sanitizeAwarenessFilePath` → non-null string | drop |
-| `range` | `normalizeRange`: 4 coords via `isAwarenessCoord`; `(startLine,startColumn) ≤ (endLine,endColumn)`; reversed/NaN/Infinity/negative → `null` | drop |
-| `message` (callout/request) | clean like `sanitizeIntentText` but cap `ATTENTION_MAX_MESSAGE_LEN = 280`; C0/DEL→space; `\s+`→` `; trim; **empty after clean → drop** | drop |
-| `message` (point) | ignored entirely | — |
-| `targetUserId` (request) | integer; matches another **currently-connected** client's `userId` in this room; **not** the sender | drop silently (no error frame) |
-| frame | JSON parse in the existing `try/catch`; object depth/size bounded by the existing `DEFAULT_WS_MAX_PAYLOAD` (1 MiB) | drop |
+| Field                       | Rule                                                                                                                                        | On failure                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `type`                      | ∈ the 4 authored types                                                                                                                      | drop silently                  |
+| `file`                      | `sanitizeAwarenessFilePath` → non-null string                                                                                               | drop                           |
+| `range`                     | `normalizeRange`: 4 coords via `isAwarenessCoord`; `(startLine,startColumn) ≤ (endLine,endColumn)`; reversed/NaN/Infinity/negative → `null` | drop                           |
+| `message` (callout/request) | clean like `sanitizeIntentText` but cap `ATTENTION_MAX_MESSAGE_LEN = 280`; C0/DEL→space; `\s+`→` `; trim; **empty after clean → drop**      | drop                           |
+| `message` (point)           | ignored entirely                                                                                                                            | —                              |
+| `targetUserId` (request)    | integer; matches another **currently-connected** client's `userId` in this room; **not** the sender                                         | drop silently (no error frame) |
+| frame                       | JSON parse in the existing `try/catch`; object depth/size bounded by the existing `DEFAULT_WS_MAX_PAYLOAD` (1 MiB)                          | drop                           |
 
 ### 5.5 Rate limiting (`ATTENTION_RATE_*`)
 
@@ -295,6 +295,7 @@ Monaco is 1-based line/column; end column is exclusive of the caret's right
 edge. Ranges are `{ startLine, startColumn, endLine, endColumn }`.
 
 `normalizeRange(r)`:
+
 - every coord finite and `isAwarenessCoord` → else `null`;
 - if `(startLine, startColumn)` is after `(endLine, endColumn)` → `null`
   (reversed input is **rejected, not swapped** — a reversed range from a client
@@ -302,6 +303,7 @@ edge. Ranges are `{ startLine, startColumn, endLine, endColumn }`.
 - a zero-width range (`start === end`) is valid (a bare cursor position).
 
 `rangesOverlap(a, b)` (both already normalized):
+
 - different line spans that don't touch → `false`;
 - share ≥ 1 interior line → `true`;
 - same single line: `true` iff the column intervals `[aStart, aEnd)` and
@@ -326,11 +328,11 @@ computed from the local selection (or cursor) vs each collaborator's
 `selection ?? cursor` where `c.activeFile === activeFile` and
 `c.userId !== currentUserId`:
 
-| Tier | Condition | UI |
-|---|---|---|
-| **same file** | `c.activeFile === activeFile` (any activity) | the existing M57 same-file strip — **unchanged** |
-| **nearby** | `c.activity === "editing"`, ranges within `RANGE_NEAR_LINES` (5) lines but **not** overlapping | subtle badge: "Rahul editing nearby (within 5 lines)" — current badge, reworded |
-| **overlapping** | `c.activity === "editing"`, `rangesOverlap(local, theirs)` | stronger badge (warn color): "⚠ Rahul is editing the same lines" + `[View Rahul]` → `openAndRevealLocation` to their cursor |
+| Tier            | Condition                                                                                      | UI                                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **same file**   | `c.activeFile === activeFile` (any activity)                                                   | the existing M57 same-file strip — **unchanged**                                                                            |
+| **nearby**      | `c.activity === "editing"`, ranges within `RANGE_NEAR_LINES` (5) lines but **not** overlapping | subtle badge: "Rahul editing nearby (within 5 lines)" — current badge, reworded                                             |
+| **overlapping** | `c.activity === "editing"`, `rangesOverlap(local, theirs)`                                     | stronger badge (warn color): "⚠ Rahul is editing the same lines" + `[View Rahul]` → `openAndRevealLocation` to their cursor |
 
 - Still `role="status"`, `aria-live="polite"`. Never blocks, never locks, never
   claims semantic conflict.
@@ -345,11 +347,11 @@ computed from the local selection (or cursor) vs each collaborator's
 Registered once on editor mount, enabled only when
 `collabClientRef.current?.status === "connected"` and not read-only:
 
-| Action id | Label | Behavior |
-|---|---|---|
-| `cloudide.attention.point` | 👉 Point here | send `attention_point` with `activeFile` + `editor.getSelection()` immediately |
-| `cloudide.attention.callout` | 📣 Call out selection | open a small inline message input (Monaco overlay widget anchored to the selection, **not a modal**, ≤280 chars, Enter=send, Esc=cancel) → `attention_callout` |
-| `cloudide.attention.comeLook` | 📣 Come look here… | small collaborator picker (from `collaborators`, connected, minus self) → optional message input → `attention_request` |
+| Action id                     | Label                 | Behavior                                                                                                                                                       |
+| ----------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cloudide.attention.point`    | 👉 Point here         | send `attention_point` with `activeFile` + `editor.getSelection()` immediately                                                                                 |
+| `cloudide.attention.callout`  | 📣 Call out selection | open a small inline message input (Monaco overlay widget anchored to the selection, **not a modal**, ≤280 chars, Enter=send, Esc=cancel) → `attention_callout` |
+| `cloudide.attention.comeLook` | 📣 Come look here…    | small collaborator picker (from `collaborators`, connected, minus self) → optional message input → `attention_request`                                         |
 
 File path and range are captured automatically from editor state — the user
 never types a path or line number.
@@ -418,35 +420,35 @@ toggles the tray. No new toolbar button.
 
 ## 10. Security / trust model
 
-| Boundary | M58 stance |
-|---|---|
-| **Author identity** | Always `clientState` (authenticated WS session). Any `author` / `userId` in the payload is ignored. `buildAttentionEvent` never spreads the incoming object. |
-| **Project scope** | Events are only ever delivered inside the room, and a room is only joined after `requireProjectAccess(…, "viewer")`. No cross-room fan-out. Registry is room-owned. |
-| **Target authorization** | `targetUserId` must equal the `userId` of another **currently-connected** client in **this** room. No match → silent drop. Self-target dropped. A user revoked mid-session (`disconnectUser`) is gone from `this.clients`, so new requests to them fail and their outstanding entries are cleared by `removeClient`. |
-| **Forged / guessed ID** | IDs are `crypto` random, not derived from identity. A client can only *dismiss* an id whose registry entry targets that same client; it cannot create or address an event by id. Duplicate-id creation is impossible (server generates). |
-| **Replay / stale** | Only currently-valid, correctly-targeted requests are re-sent, and only to the target, only on their join. Expired = deleted = never replayed. Author/target disconnect deletes. |
-| **XSS / injection** | `message` is cleaned (C0/DEL stripped, newlines normalized, trimmed, ≤280) and rendered as **text only** (`textContent` / React child) everywhere — tray, callout bubble, tooltips. No `innerHTML`, no Markdown→HTML, no `dangerouslySetInnerHTML`. Test: a `<img onerror>` payload renders literally. |
-| **Path traversal** | `file` through `sanitizeAwarenessFilePath` — the same guard as `activeFile`/`workingFolder`. No filesystem access on the attention path at all (unlike `ensureFileLoaded`). |
-| **Malformed frames** | The whole branch is inside the existing `try { JSON.parse(...) } catch {}`. Validators return `null`/drop, never throw. No registry entry, no broadcast, no presence mutation, no doc mutation, no unbounded allocation (payload capped at 1 MiB by `DEFAULT_WS_MAX_PAYLOAD`; per-window event count capped at 10). |
-| **Event amplification / flooding** | Per-connection 10 / 10 s window; ≤3 outstanding requests per author; room registry cap 200 with oldest-eviction. Burst-tested. |
-| **Memory growth** | Registry is the only server-held state: bounded entry count, every entry has a TTL timer, entries deleted on expiry / dismiss / disconnect / dispose. No event history, no per-user log. |
-| **Cross-project leakage** | Tested: room B never receives room A's attention events; a third session in a different project sees nothing. |
-| **Secret / terminal / output leakage** | M58 adds no channel that carries file contents, diffs, stdout/stderr, env, or secrets. `message` is user free text; `range`/`file` are coordinates + a bounded path. |
-| **Document integrity** | No attention path opens a `Y.Doc` transaction or calls `doc.getText`. Concurrent-edit convergence is regression-tested with attention frames interleaved. |
+| Boundary                               | M58 stance                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Author identity**                    | Always `clientState` (authenticated WS session). Any `author` / `userId` in the payload is ignored. `buildAttentionEvent` never spreads the incoming object.                                                                                                                                                         |
+| **Project scope**                      | Events are only ever delivered inside the room, and a room is only joined after `requireProjectAccess(…, "viewer")`. No cross-room fan-out. Registry is room-owned.                                                                                                                                                  |
+| **Target authorization**               | `targetUserId` must equal the `userId` of another **currently-connected** client in **this** room. No match → silent drop. Self-target dropped. A user revoked mid-session (`disconnectUser`) is gone from `this.clients`, so new requests to them fail and their outstanding entries are cleared by `removeClient`. |
+| **Forged / guessed ID**                | IDs are `crypto` random, not derived from identity. A client can only _dismiss_ an id whose registry entry targets that same client; it cannot create or address an event by id. Duplicate-id creation is impossible (server generates).                                                                             |
+| **Replay / stale**                     | Only currently-valid, correctly-targeted requests are re-sent, and only to the target, only on their join. Expired = deleted = never replayed. Author/target disconnect deletes.                                                                                                                                     |
+| **XSS / injection**                    | `message` is cleaned (C0/DEL stripped, newlines normalized, trimmed, ≤280) and rendered as **text only** (`textContent` / React child) everywhere — tray, callout bubble, tooltips. No `innerHTML`, no Markdown→HTML, no `dangerouslySetInnerHTML`. Test: a `<img onerror>` payload renders literally.               |
+| **Path traversal**                     | `file` through `sanitizeAwarenessFilePath` — the same guard as `activeFile`/`workingFolder`. No filesystem access on the attention path at all (unlike `ensureFileLoaded`).                                                                                                                                          |
+| **Malformed frames**                   | The whole branch is inside the existing `try { JSON.parse(...) } catch {}`. Validators return `null`/drop, never throw. No registry entry, no broadcast, no presence mutation, no doc mutation, no unbounded allocation (payload capped at 1 MiB by `DEFAULT_WS_MAX_PAYLOAD`; per-window event count capped at 10).  |
+| **Event amplification / flooding**     | Per-connection 10 / 10 s window; ≤3 outstanding requests per author; room registry cap 200 with oldest-eviction. Burst-tested.                                                                                                                                                                                       |
+| **Memory growth**                      | Registry is the only server-held state: bounded entry count, every entry has a TTL timer, entries deleted on expiry / dismiss / disconnect / dispose. No event history, no per-user log.                                                                                                                             |
+| **Cross-project leakage**              | Tested: room B never receives room A's attention events; a third session in a different project sees nothing.                                                                                                                                                                                                        |
+| **Secret / terminal / output leakage** | M58 adds no channel that carries file contents, diffs, stdout/stderr, env, or secrets. `message` is user free text; `range`/`file` are coordinates + a bounded path.                                                                                                                                                 |
+| **Document integrity**                 | No attention path opens a `Y.Doc` transaction or calls `doc.getText`. Concurrent-edit convergence is regression-tested with attention frames interleaved.                                                                                                                                                            |
 
 ---
 
 ## 11. Performance model
 
-| Concern | Approach |
-|---|---|
-| IDE re-render on attention | `client.on("attention_change", throttleLatest(setAttention, 200))` — one throttled state, mirrors `setCollaborators`. No per-event global render. |
-| Editor decorations | One `createDecorationsCollection().set(...)` per attention-list change, keyed by id. Point/callout only. |
-| Client store timers | One `setTimeout` per point/callout; cleared on removal / unmount / dispose / project switch. Requests have no client timer. |
-| Server timers | One `setTimeout` per registry request, `unref()`, cleared on every exit path. No sweep interval needed (unlike runStatus, which can have a stuck "running"). |
-| Broadcast volume | Attention is human-frequency (seconds+), far below cursor awareness. No coalescing added — a point/callout is one frame; requests are targeted (1–2 sockets). |
-| DB / disk | None. |
-| Awareness updates | None — M58 never writes awareness. |
+| Concern                    | Approach                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IDE re-render on attention | `client.on("attention_change", throttleLatest(setAttention, 200))` — one throttled state, mirrors `setCollaborators`. No per-event global render.             |
+| Editor decorations         | One `createDecorationsCollection().set(...)` per attention-list change, keyed by id. Point/callout only.                                                      |
+| Client store timers        | One `setTimeout` per point/callout; cleared on removal / unmount / dispose / project switch. Requests have no client timer.                                   |
+| Server timers              | One `setTimeout` per registry request, `unref()`, cleared on every exit path. No sweep interval needed (unlike runStatus, which can have a stuck "running").  |
+| Broadcast volume           | Attention is human-frequency (seconds+), far below cursor awareness. No coalescing added — a point/callout is one frame; requests are targeted (1–2 sockets). |
+| DB / disk                  | None.                                                                                                                                                         |
+| Awareness updates          | None — M58 never writes awareness.                                                                                                                            |
 
 ---
 
@@ -458,36 +460,13 @@ A reverted essential change must fail a test.
 ### 12.1 Backend — `backend/test/m58-attention.test.ts` (real `CollaborationRoom`, `makeWs()` harness from `m57-presence.test.ts`)
 
 **Pure (`attention.ts`):**
+
 1. `normalizeRange` — ordered pass-through; reversed → null; NaN/Infinity/negative → null; zero-width valid.
 2. `rangesOverlap` — full matrix from §7 (different lines; same-line overlap; same-line adjacent/touching → false; same-line disjoint; multi-line overlap; identical; zero-width inside/outside/equal; reversed rejected).
 3. `buildAttentionEvent` — author forced from session; payload `author`/`userId` ignored; `id` present, opaque, differs across two calls, not derivable from userId/projectId.
 4. `newAttentionId` — uniqueness across N calls; hex/uuid shape.
 
-**Room pipeline:**
-5. valid `attention_point` → broadcast to peers, not to author; not registry-held.
-6. valid `attention_callout` with message → broadcast; message preserved.
-7. valid `attention_request` → delivered to target only; echoed to author; registry entry created.
-8. author identity server-authoritative (spoofed `author.userId` in payload → event carries the session identity).
-9. `attention_request` to a non-member userId → dropped, no registry entry, no frame.
-10. `attention_request` to an offline (not-connected) member → dropped.
-11. `attention_request` targeting self → dropped.
-12. `file` absolute / `..` / drive / control char → dropped.
-13. `range` reversed / non-finite / out-of-bounds → dropped.
-14. `message` — control chars stripped, `\n`/`\t` → space, trimmed; `>280` capped; empty-after-clean callout/request → dropped.
-15. malformed frame (non-JSON; unknown `type`; deeply nested object; 1 MiB string) → no throw, no registry entry, no broadcast, `doc.share` size unchanged.
-16. rate limit — 11th event in 10 s dropped; burst of 50 → ≤10 delivered in the window.
-17. outstanding-request cap — 4th concurrent request from one author dropped (assert cap = 3); a dismissed one frees a slot.
-18. room registry hard cap (lowered in the test) → oldest evicted with `attention_cleared {expired}`.
-19. **expiry** (fake timers) — request auto-`attention_cleared {expired}` at exactly `ATTENTION_REQUEST_TTL_MS`; never before; never re-delivered after.
-20. **callout hard ceiling** — server `expiresAt` = `createdAt + 90s` regardless of client behavior.
-21. **dismissal** — `attention_dismiss {id}` from the target → `attention_cleared {dismissed}` + entry gone; dismiss from a non-target → no-op.
-22. **author disconnect** — `removeClient(author)` → every authored request cleared `{author_gone}` to its target.
-23. **target disconnect** — `removeClient(target)` → their requests deleted; nothing sent; on their reconnect the snapshot is empty.
-24. **reconnect snapshot** — target reconnects while a request is valid → receives exactly that event; a bystander reconnect receives none; an expired request is not replayed; a request for another user is not sent.
-25. **project isolation** — two rooms; A's attention never reaches B.
-26. **no persistence** — after a full point/callout/request cycle: no new SQLite rows, no workspace file, `doc.share` unchanged.
-27. **concurrent Yjs edits converge** with attention frames interleaved (real `y-protocols/sync` edits from two simulated clients).
-28. forged/duplicate `id` on create — impossible (server generates); a client `id` on `attention_point`/`callout`/`request` is ignored.
+**Room pipeline:** 5. valid `attention_point` → broadcast to peers, not to author; not registry-held. 6. valid `attention_callout` with message → broadcast; message preserved. 7. valid `attention_request` → delivered to target only; echoed to author; registry entry created. 8. author identity server-authoritative (spoofed `author.userId` in payload → event carries the session identity). 9. `attention_request` to a non-member userId → dropped, no registry entry, no frame. 10. `attention_request` to an offline (not-connected) member → dropped. 11. `attention_request` targeting self → dropped. 12. `file` absolute / `..` / drive / control char → dropped. 13. `range` reversed / non-finite / out-of-bounds → dropped. 14. `message` — control chars stripped, `\n`/`\t` → space, trimmed; `>280` capped; empty-after-clean callout/request → dropped. 15. malformed frame (non-JSON; unknown `type`; deeply nested object; 1 MiB string) → no throw, no registry entry, no broadcast, `doc.share` size unchanged. 16. rate limit — 11th event in 10 s dropped; burst of 50 → ≤10 delivered in the window. 17. outstanding-request cap — 4th concurrent request from one author dropped (assert cap = 3); a dismissed one frees a slot. 18. room registry hard cap (lowered in the test) → oldest evicted with `attention_cleared {expired}`. 19. **expiry** (fake timers) — request auto-`attention_cleared {expired}` at exactly `ATTENTION_REQUEST_TTL_MS`; never before; never re-delivered after. 20. **callout hard ceiling** — server `expiresAt` = `createdAt + 90s` regardless of client behavior. 21. **dismissal** — `attention_dismiss {id}` from the target → `attention_cleared {dismissed}` + entry gone; dismiss from a non-target → no-op. 22. **author disconnect** — `removeClient(author)` → every authored request cleared `{author_gone}` to its target. 23. **target disconnect** — `removeClient(target)` → their requests deleted; nothing sent; on their reconnect the snapshot is empty. 24. **reconnect snapshot** — target reconnects while a request is valid → receives exactly that event; a bystander reconnect receives none; an expired request is not replayed; a request for another user is not sent. 25. **project isolation** — two rooms; A's attention never reaches B. 26. **no persistence** — after a full point/callout/request cycle: no new SQLite rows, no workspace file, `doc.share` unchanged. 27. **concurrent Yjs edits converge** with attention frames interleaved (real `y-protocols/sync` edits from two simulated clients). 28. forged/duplicate `id` on create — impossible (server generates); a client `id` on `attention_point`/`callout`/`request` is ignored.
 
 ### 12.2 Frontend
 
@@ -559,16 +538,16 @@ presence store; a new document-sync mechanism.
 
 ## 16. Risks / tradeoffs
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| Attention UI becomes notification spam | Medium | Point = 6 s fade; callout = 45 s (90 s hard cap); tray max 3 cards; count badge instead of stacked toasts; no sound; `role="status"` not `alert`. Non-goals (§14) guard the slide into chat/feed. |
-| The request registry grows or leaks timers | Low | Bounded entry count + oldest-eviction; every entry has one `unref()` timer cleared on every exit path; cleared in `dispose()`; tested (§12.1 #18, #19, #22, #23). |
-| Client fabricates / addresses an event by id | Low | IDs are `crypto` random; id is only accepted on `attention_dismiss` and only against an entry targeting the dismisser; create is always server-side. |
-| Closed-file navigation regresses to dispatch-only (the M57-fixed bug class) | Medium | All attention nav + retrofitted Jump go through `openAndRevealLocation`; a spy-order regression test pins it. |
-| Retrofitting `handleJumpToCollaborator` perturbs M57 follow behavior | Low | Follow's own effect already uses `handleOpenFile`; the retrofit only replaces the `setTimeout(dispatch)` tail with the primitive. `collab.follow.*` suites must pass unchanged. |
-| Overlap tier read as a semantic-conflict claim | Medium | Copy is "editing the same lines", never "conflict"; no blocking; §2 + §14 explicit; test asserts no edit/lock side effect. |
-| Rate-limit numbers wrong for real use | Low | Constants centralized in `attention.ts`; burst-tested; easy to tune. |
-| Landing on the uncommitted M56/M57 tree | Certain | M58 changes stay in new files + additive branches; the diff is separable. Do not revert M57. |
+| Risk                                                                        | Likelihood | Mitigation                                                                                                                                                                                        |
+| --------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attention UI becomes notification spam                                      | Medium     | Point = 6 s fade; callout = 45 s (90 s hard cap); tray max 3 cards; count badge instead of stacked toasts; no sound; `role="status"` not `alert`. Non-goals (§14) guard the slide into chat/feed. |
+| The request registry grows or leaks timers                                  | Low        | Bounded entry count + oldest-eviction; every entry has one `unref()` timer cleared on every exit path; cleared in `dispose()`; tested (§12.1 #18, #19, #22, #23).                                 |
+| Client fabricates / addresses an event by id                                | Low        | IDs are `crypto` random; id is only accepted on `attention_dismiss` and only against an entry targeting the dismisser; create is always server-side.                                              |
+| Closed-file navigation regresses to dispatch-only (the M57-fixed bug class) | Medium     | All attention nav + retrofitted Jump go through `openAndRevealLocation`; a spy-order regression test pins it.                                                                                     |
+| Retrofitting `handleJumpToCollaborator` perturbs M57 follow behavior        | Low        | Follow's own effect already uses `handleOpenFile`; the retrofit only replaces the `setTimeout(dispatch)` tail with the primitive. `collab.follow.*` suites must pass unchanged.                   |
+| Overlap tier read as a semantic-conflict claim                              | Medium     | Copy is "editing the same lines", never "conflict"; no blocking; §2 + §14 explicit; test asserts no edit/lock side effect.                                                                        |
+| Rate-limit numbers wrong for real use                                       | Low        | Constants centralized in `attention.ts`; burst-tested; easy to tune.                                                                                                                              |
+| Landing on the uncommitted M56/M57 tree                                     | Certain    | M58 changes stay in new files + additive branches; the diff is separable. Do not revert M57.                                                                                                      |
 
 ---
 

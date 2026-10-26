@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
-import { createProject, deleteProject, getProject, workspacePath } from "../src/projects/service.js";
+import {
+  createProject,
+  deleteProject,
+  getProject,
+  workspacePath,
+} from "../src/projects/service.js";
 import { uploadProjectFiles, parseMultipartFormData } from "../src/files/upload.js";
 import { readProjectFile, listFiles } from "../src/files/service.js";
 import { queryAuditLogs } from "../src/audit.js";
@@ -174,7 +179,10 @@ describe("Milestone 24 — Direct Workspace File & Folder Upload", () => {
 
   it("10. preserves full multi-level folder structure on folder upload", async () => {
     const folderFiles = [
-      { path: "components/Button/Button.tsx", buffer: Buffer.from("export const Button = () => null;") },
+      {
+        path: "components/Button/Button.tsx",
+        buffer: Buffer.from("export const Button = () => null;"),
+      },
       { path: "components/Button/Button.css", buffer: Buffer.from(".btn { color: red; }") },
       { path: "components/Card/Card.tsx", buffer: Buffer.from("export const Card = () => null;") },
       { path: "components/index.ts", buffer: Buffer.from("export * from './Button/Button';") },

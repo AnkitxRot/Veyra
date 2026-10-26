@@ -61,9 +61,7 @@ describe("M68 — timeline initial load does not leak across a project switch", 
       nextBefore: null,
     });
     render(<TimelineHarness pid="A" />);
-    await waitFor(() =>
-      expect(screen.getByTestId("tl").textContent).toBe("a1"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tl").textContent).toBe("a1"));
   });
 
   it("discards a slow project-A page that resolves after a switch to B", async () => {
@@ -76,9 +74,7 @@ describe("M68 — timeline initial load does not leak across a project switch", 
 
     const { rerender } = render(<TimelineHarness pid="A" />);
     rerender(<TimelineHarness pid="B" />);
-    await waitFor(() =>
-      expect(screen.getByTestId("tl").textContent).toBe("b1"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tl").textContent).toBe("b1"));
 
     // A resolves LATE — its events must not appear under B
     a.resolve({ events: [{ id: "STALE-A" }], nextBefore: null });

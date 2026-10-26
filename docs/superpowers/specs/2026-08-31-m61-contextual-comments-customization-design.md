@@ -19,13 +19,13 @@ Predecessors: `2026-08-29-m57-multiplayer-presence-design.md`,
 
 ## 1. Product intent
 
-| Milestone | Question it answers |
-|---|---|
-| M57 | Who is here? |
-| M58 | Get someone's attention. |
-| M59 | Enter / follow someone's context. |
-| M60 | Understand what happened. |
-| **M61** | **Discuss the code in context, make the IDE personally mine, and be a real person in the room.** |
+| Milestone | Question it answers                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| M57       | Who is here?                                                                                     |
+| M58       | Get someone's attention.                                                                         |
+| M59       | Enter / follow someone's context.                                                                |
+| M60       | Understand what happened.                                                                        |
+| **M61**   | **Discuss the code in context, make the IDE personally mine, and be a real person in the room.** |
 
 North star: CloudIDE should feel like a group of engineers sitting beside
 each other at highly personalized laptops — talking about exact code,
@@ -69,7 +69,7 @@ Non-negotiable philosophy (applies to all three tracks):
 5. Live preview is immediate — no edit→save→reload→discover.
 6. No arbitrary code / CSS / HTML / SVG injection anywhere.
 7. Preferences and profile data are **versioned**.
-8. The *profile* model (what others see) and the *preference* model (how I
+8. The _profile_ model (what others see) and the _preference_ model (how I
    experience the IDE) are **separate**.
 9. Customization never weakens security or authorization.
 10. Customization never breaks default usability; accessibility overrides
@@ -103,26 +103,26 @@ HISTORICAL            → M60 timeline.ts      (comment lifecycle events as a
    (derived, append)                           5th union source)
 ```
 
-| Concept | Owner | M61 stance |
-|---|---|---|
-| Document CRDT convergence | Yjs | untouched; regression-guarded |
-| Identity / role / authorization | server (`requireProjectAccess`, session) | untouched; the profile layer *reads* it, never overrides it |
-| Spatial / attention / focus | M57–M59 ephemeral | consumed read-only by profile activity surfaces |
-| Change history | M60 `collaboration_changes` + `timeline.ts` | comments add a source; nothing else changes |
-| Persistent discussion | **M61 Track A** | new tables + REST |
-| How I experience the IDE | **M61 Track B** | registry + tokens + versioned prefs |
-| How others see me | **M61 Track C** | profile tables + REST + a single awareness-fed identity primitive |
+| Concept                         | Owner                                       | M61 stance                                                        |
+| ------------------------------- | ------------------------------------------- | ----------------------------------------------------------------- |
+| Document CRDT convergence       | Yjs                                         | untouched; regression-guarded                                     |
+| Identity / role / authorization | server (`requireProjectAccess`, session)    | untouched; the profile layer _reads_ it, never overrides it       |
+| Spatial / attention / focus     | M57–M59 ephemeral                           | consumed read-only by profile activity surfaces                   |
+| Change history                  | M60 `collaboration_changes` + `timeline.ts` | comments add a source; nothing else changes                       |
+| Persistent discussion           | **M61 Track A**                             | new tables + REST                                                 |
+| How I experience the IDE        | **M61 Track B**                             | registry + tokens + versioned prefs                               |
+| How others see me               | **M61 Track C**                             | profile tables + REST + a single awareness-fed identity primitive |
 
 **Explicit separations that must remain coherent:**
 
 - A **preference** (Track B) is never persisted anywhere a preference could
   change authorization, and never carries a secret.
-- A **profile privacy flag** (Track C) hides *presentation* fields only —
+- A **profile privacy flag** (Track C) hides _presentation_ fields only —
   location, links, recent history, current-file activity. It can **never**
   hide identity, role, or authorization from an authorized collaborator,
   and the collaboration system keeps enforcing project access regardless.
 - A **comment** (Track A) is a persistent DB object. An **M58 callout** is
-  ephemeral. "Keep as comment" *creates a new* comment; the callout keeps
+  ephemeral. "Keep as comment" _creates a new_ comment; the callout keeps
   its ephemeral lifecycle and is never mutated into a DB row.
 - **Custom status** (Track C, human-authored, persistent, expiring) is
   distinct from **observed activity** (M57 presence, derived). Both are
@@ -148,7 +148,7 @@ HISTORICAL            → M60 timeline.ts      (comment lifecycle events as a
   client never supplies it.
 - REST: all project routes under `/api/projects/:id/…`, every handler
   opens with `requireProjectAccess(db, userOf(req).id, req.params.id,
-  minRole)` (`"viewer" | "editor" | "owner"`; owner + platform admin
+minRole)` (`"viewer" | "editor" | "owner"`; owner + platform admin
   resolve to `"owner"`). Error middleware → JSON `{error:{code,message}}`.
   Body limit 1 MiB; `api()` client wrapper carries `credentials:"include"`.
 
@@ -188,12 +188,12 @@ HISTORICAL            → M60 timeline.ts      (comment lifecycle events as a
   `USER_COLORS[|userId| % 8]`), selectors. **The single collaborator
   store.** `IDE.tsx` holds one `collaborators: CollaboratorPresence[]` fed
   by `client.on("awareness_change", throttleLatest(setCollaborators,
-  200))`.
+200))`.
 - Avatars today: **initials + `c.color`**, hand-rolled inline in
   `CollaboratorAvatarStack.tsx` (24 px button, 32 px popover ×1), the M58
   attention decorations, TeamPanel dots. **No `<Avatar>` primitive.**
 - `listProjectCollaborators(db, projectId)` → `{userId, username, role,
-  createdAt}[]`; `GET /api/projects/:id/collaborators` (viewer).
+createdAt}[]`; `GET /api/projects/:id/collaborators` (viewer).
   `ProjectSharingModal.tsx` is the membership UI.
 
 ### 3.4 M58 attention (reused patterns)
@@ -205,7 +205,7 @@ HISTORICAL            → M60 timeline.ts      (comment lifecycle events as a
 - `AttentionTray.tsx` — bottom-right non-modal stacked cards; the only
   notification surface in the app (no toast system). `role="status"`.
 - `frontend/src/utils/revealLocation.ts` `openAndRevealLocation(openFile,
-  target)` — **await open, then dispatch `ide-reveal-location`.** The
+target)` — **await open, then dispatch `ide-reveal-location`.** The
   canonical open-then-reveal primitive. `Editor.tsx` listens (~line 874).
 - `Editor.tsx` decoration patterns: `editor.createDecorationsCollection()`
   keyed by id, `glyphMarginClassName`, `editor.addContentWidget()` (bubble
@@ -247,7 +247,7 @@ HISTORICAL            → M60 timeline.ts      (comment lifecycle events as a
   `--bg-{deep,base,surface,surface-elevated,surface-hover}`, glass
   materials, `--accent{,-hover,-subtle,-glow,-gradient}`,
   `--secondary/--success/--warning/--error`, `--fg-{primary,secondary,
-  muted,subtle,inverse}`, `--shadow-{xs..lg,glass,glow}`,
+muted,subtle,inverse}`, `--shadow-{xs..lg,glass,glow}`,
   `--radius-{xs..xl,pill}`, `--space-{1..8}`, `--font-{sans,mono}`,
   `--text-{xs..2xl}`, `--spring-*`, `--duration-{fast,normal,slow}`. Has
   `@media (prefers-reduced-motion: reduce)` and
@@ -262,7 +262,7 @@ HISTORICAL            → M60 timeline.ts      (comment lifecycle events as a
 - `frontend/src/utils/commands.ts` `CommandRegistry` — singleton,
   `register`/`registerMany` → unsubscribe, `search(query)` via
   `fuzzyFilter`, `Command { id, title, description, category, shortcut?,
-  macShortcut?, available?, handler }`. **Shortcut strings are display-only.**
+macShortcut?, available?, handler }`. **Shortcut strings are display-only.**
 - `frontend/src/hooks/useKeyboardShortcuts.ts` — **hard-coded** chords:
   `Cmd/Ctrl+Shift+P`, `Cmd/Ctrl+P`, `Cmd/Ctrl+S`, `Cmd/Ctrl+B`,
   `Cmd/Ctrl+J`. A `ShortcutHandlers` callback bag. No registry, no
@@ -276,11 +276,11 @@ HISTORICAL            → M60 timeline.ts      (comment lifecycle events as a
 ### 3.7 Identity / profile infrastructure (Track C baseline)
 
 - **None.** `users` = `id INTEGER PK, username TEXT UNIQUE, password_hash,
-  role TEXT DEFAULT 'user', created_at`. No display name, avatar, bio,
+role TEXT DEFAULT 'user', created_at`. No display name, avatar, bio,
   pronouns, status, links, badges.
 - **No avatar/image upload.** The only image-adjacent code:
   `backend/src/files/upload.ts` `parseMultipartFormData(bodyBuffer,
-  contentType)` — a zero-dependency multipart parser (returns
+contentType)` — a zero-dependency multipart parser (returns
   `{fields, files:[{path,buffer}]}`), used by `rawZipParser` /
   `uploadParser`. Storage convention: `cfg.dataDir` with typed subdirs
   (`workspaces/`, `snapshots/`, `backups/`, `workspace-backups/`,
@@ -326,18 +326,18 @@ threaded one level, resolvable, mentionable, reactable. **Not chat.**
 blobs, client-resolved, with a validated line-range fallback and a content
 fingerprint for stale-detection and recovery.**
 
-| Phase | Where | What |
-|---|---|---|
-| **Create** | client | From the current selection: `Y.createRelativePositionFromTypeIndex(yText, startOffset)` and `…(yText, endOffset)` → `Y.encodeRelativePosition` → `base64`. Also capture `startLine`, `endLine` (1-based, current) and `prefixHash` = SHA-256 (first 16 hex) of the anchored slice, whitespace-collapsed, ≤256 chars. POST all five to the server. |
-| **Store** | server | `anchor_rel_start`/`anchor_rel_end` (BLOB, opaque — server never decodes), `anchor_start_line`/`anchor_end_line` (INT, advisory fallback), `anchor_prefix_hash` (TEXT, drift detection) + `anchor_prefix` (TEXT, the ≤256-char slice text for fuzzy recovery). |
-| **Resolve** | client, on render | `Y.decodeRelativePosition(blob)` → `Y.createAbsolutePositionFromRelativePosition(rel, doc)` for both ends. |
-| **Classify** | client | see table below |
+| Phase        | Where             | What                                                                                                                                                                                                                                                                                                                                              |
+| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Create**   | client            | From the current selection: `Y.createRelativePositionFromTypeIndex(yText, startOffset)` and `…(yText, endOffset)` → `Y.encodeRelativePosition` → `base64`. Also capture `startLine`, `endLine` (1-based, current) and `prefixHash` = SHA-256 (first 16 hex) of the anchored slice, whitespace-collapsed, ≤256 chars. POST all five to the server. |
+| **Store**    | server            | `anchor_rel_start`/`anchor_rel_end` (BLOB, opaque — server never decodes), `anchor_start_line`/`anchor_end_line` (INT, advisory fallback), `anchor_prefix_hash` (TEXT, drift detection) + `anchor_prefix` (TEXT, the ≤256-char slice text for fuzzy recovery).                                                                                    |
+| **Resolve**  | client, on render | `Y.decodeRelativePosition(blob)` → `Y.createAbsolutePositionFromRelativePosition(rel, doc)` for both ends.                                                                                                                                                                                                                                        |
+| **Classify** | client            | see table below                                                                                                                                                                                                                                                                                                                                   |
 
-| Both ends resolve? | Fingerprint of resolved slice | Anchor state | UI |
-|---|---|---|---|
-| yes | matches | **exact** | gutter marker at the resolved range, precise |
-| yes | drifted | **anchored (drifted)** | marker at resolved range, no warning (normal editing churn) |
-| either → `null` | — | **stale** | thread panel only: `⚠ Original code location changed` + `[Find nearby context]` + `[Open file]`. **Never rendered on unrelated code.** |
+| Both ends resolve? | Fingerprint of resolved slice | Anchor state           | UI                                                                                                                                     |
+| ------------------ | ----------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| yes                | matches                       | **exact**              | gutter marker at the resolved range, precise                                                                                           |
+| yes                | drifted                       | **anchored (drifted)** | marker at resolved range, no warning (normal editing churn)                                                                            |
+| either → `null`    | —                             | **stale**              | thread panel only: `⚠ Original code location changed` + `[Find nearby context]` + `[Open file]`. **Never rendered on unrelated code.** |
 
 - `[Find nearby context]` — fuzzy-match the stored ≤256-char slice against
   the current doc text (token-similarity ≥ 0.8) → if a hit, offer a jump to
@@ -349,7 +349,7 @@ fingerprint for stale-detection and recovery.**
   typically `null` → stale → fingerprint recovery offered.
 - The client reports the observed state back via
   `POST …/comments/:threadId/anchor-status {status}` (advisory; the server
-  stores it only so a *different* client / the timeline can show "stale"
+  stores it only so a _different_ client / the timeline can show "stale"
   without re-resolving. Never load-bearing for authorization or delivery).
 - **Rejected alternatives:** raw line numbers alone (don't survive edits —
   the explicit anti-pattern in the prompt); server-side Yjs resolution
@@ -440,18 +440,18 @@ Base `/api/projects/:id/comments`. Every handler: `requireProjectAccess(db,
 userOf(req).id, req.params.id, minRole)`. Author/actor identity is
 **always** `userOf(req)` — never a body field. All timestamps server-set.
 
-| Method + path | Min role | Body / notes |
-|---|---|---|
-| `GET  /comments?file=<path>&status=active\|resolved\|all&limit=&before=` | viewer | threads for a file (or `file` omitted → project-wide unresolved roll-up, capped). Returns `{threads:[{thread, root, replies, reactions, mentions:[{userId,username}]}], nextBefore}`. |
-| `POST /comments` | **editor** | `{ filePath, anchor:{ relStart, relEnd, startLine, endLine, prefixHash }, body, mentions:[userId] }` → creates thread + root comment. |
-| `POST /comments/:threadId/replies` | editor | `{ body, mentions:[userId] }`. `parent_comment_id` forced to root. |
-| `PATCH /comments/:commentId` | **author only** | `{ body, mentions? }` → sets `edited_at`, re-derives mentions. |
-| `DELETE /comments/:commentId` | **author OR project owner** | tombstone. |
-| `POST /comments/:threadId/resolve` | editor | sets `resolved_at`/`resolved_by`. Idempotent. |
-| `POST /comments/:threadId/reopen` | editor | clears `resolved_at`/`resolved_by`. |
-| `PUT  /comments/:commentId/reactions/:emoji` | editor | emoji ∈ fixed set → upsert `(comment,user,emoji)`; PK makes it idempotent. |
-| `DELETE /comments/:commentId/reactions/:emoji` | editor | remove own reaction. |
-| `POST /comments/:threadId/anchor-status` | editor | `{ status: 'ok'\|'stale' }` — advisory, updates `comment_threads.anchor_status`. |
+| Method + path                                                            | Min role                    | Body / notes                                                                                                                                                                          |
+| ------------------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET  /comments?file=<path>&status=active\|resolved\|all&limit=&before=` | viewer                      | threads for a file (or `file` omitted → project-wide unresolved roll-up, capped). Returns `{threads:[{thread, root, replies, reactions, mentions:[{userId,username}]}], nextBefore}`. |
+| `POST /comments`                                                         | **editor**                  | `{ filePath, anchor:{ relStart, relEnd, startLine, endLine, prefixHash }, body, mentions:[userId] }` → creates thread + root comment.                                                 |
+| `POST /comments/:threadId/replies`                                       | editor                      | `{ body, mentions:[userId] }`. `parent_comment_id` forced to root.                                                                                                                    |
+| `PATCH /comments/:commentId`                                             | **author only**             | `{ body, mentions? }` → sets `edited_at`, re-derives mentions.                                                                                                                        |
+| `DELETE /comments/:commentId`                                            | **author OR project owner** | tombstone.                                                                                                                                                                            |
+| `POST /comments/:threadId/resolve`                                       | editor                      | sets `resolved_at`/`resolved_by`. Idempotent.                                                                                                                                         |
+| `POST /comments/:threadId/reopen`                                        | editor                      | clears `resolved_at`/`resolved_by`.                                                                                                                                                   |
+| `PUT  /comments/:commentId/reactions/:emoji`                             | editor                      | emoji ∈ fixed set → upsert `(comment,user,emoji)`; PK makes it idempotent.                                                                                                            |
+| `DELETE /comments/:commentId/reactions/:emoji`                           | editor                      | remove own reaction.                                                                                                                                                                  |
+| `POST /comments/:threadId/anchor-status`                                 | editor                      | `{ status: 'ok'\|'stale' }` — advisory, updates `comment_threads.anchor_status`.                                                                                                      |
 
 Validation (server, never throws to the client beyond `ApiError`):
 
@@ -514,12 +514,16 @@ On **every** successful mutation the route calls
   `sendAttentionTo(userId, …)` filter over `this.clients`):
 
   ```jsonc
-  { "type": "comment_mention",
-    "threadId": "…", "commentId": "…",
-    "filePath": "auth/session.ts", "line": 42,
+  {
+    "type": "comment_mention",
+    "threadId": "…",
+    "commentId": "…",
+    "filePath": "auth/session.ts",
+    "line": 42,
     "author": { "userId": 7, "username": "rahul" },
-    "preview": "should this happen before the session write?",  // <= 120, textContent
-    "at": 1723900000000 }
+    "preview": "should this happen before the session write?", // <= 120, textContent
+    "at": 1723900000000,
+  }
   ```
 
 - **Surface:** the `AttentionTray` becomes **"Attention & Mentions"** — a
@@ -548,16 +552,16 @@ and unbounded spam; a user toggles their own reaction only; server checks
 
 ### 4.8 UI surfaces (`frontend/src/components/Comments/`)
 
-| Surface | Component | Behavior |
-|---|---|---|
-| **Gutter marker** | Editor decoration (M58 collection pattern) | `💬` on `anchor_start_line` for **active, non-stale** threads; `💬 N` when replies > 0; quiet neutral color (not collaborator-tinted); click → open thread popover. |
-| **Range tint** | Editor decoration | faint `--accent-subtle` background over the anchored range while the marker is hovered/focused. |
-| **Hover preview** | Monaco content widget | root author avatar + first line of `body` (textContent) + "N replies" + `[Open thread]`. No layout shift. |
-| **Thread popover** | `CommentThread.tsx` | content widget anchored above the range **or** docked in the Comments panel. Root + ordered replies; each row: `<CollaboratorAvatar>` + name + relative time + `edited`/`deleted` state + reaction chips + (author) edit/delete. Reply composer with `@` autocomplete. `[Resolve]` / `[Reopen]`. Focus-trapped, Esc closes, arrow-key navigation between comments. All text via React children. |
-| **Comments panel** | `CommentsPanel.tsx` | a **section in the right rail, sibling to TeamPanel** — not a new floating panel. Current file's threads (active + a "Resolved (N)" collapsible), a project-wide "Unresolved (N)" roll-up, click a row → `openAndRevealLocation` + open popover. |
-| **File-level indicator** | Explorer row + editor tab | unresolved-count badge (reuse the dirty-dot slot); Explorer only when the project has any comments. |
-| **Navigation commands** | `CommandRegistry` | "Comments: Next in file", "Comments: Previous in file", "Comments: Go to unresolved" (opens the panel roll-up). Bindable via Track B keyboard settings. |
-| **Callout → comment** | M58 callout card gains `[Keep as comment]` | client POSTs `/comments` with the callout's `file`, a fresh anchor computed from the callout `range`, `body = callout.message`, `mentions = []`. The callout keeps its ephemeral TTL and is untouched. A test asserts no M58 event mutation and a new row. |
+| Surface                  | Component                                  | Behavior                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Gutter marker**        | Editor decoration (M58 collection pattern) | `💬` on `anchor_start_line` for **active, non-stale** threads; `💬 N` when replies > 0; quiet neutral color (not collaborator-tinted); click → open thread popover.                                                                                                                                                                                                                             |
+| **Range tint**           | Editor decoration                          | faint `--accent-subtle` background over the anchored range while the marker is hovered/focused.                                                                                                                                                                                                                                                                                                 |
+| **Hover preview**        | Monaco content widget                      | root author avatar + first line of `body` (textContent) + "N replies" + `[Open thread]`. No layout shift.                                                                                                                                                                                                                                                                                       |
+| **Thread popover**       | `CommentThread.tsx`                        | content widget anchored above the range **or** docked in the Comments panel. Root + ordered replies; each row: `<CollaboratorAvatar>` + name + relative time + `edited`/`deleted` state + reaction chips + (author) edit/delete. Reply composer with `@` autocomplete. `[Resolve]` / `[Reopen]`. Focus-trapped, Esc closes, arrow-key navigation between comments. All text via React children. |
+| **Comments panel**       | `CommentsPanel.tsx`                        | a **section in the right rail, sibling to TeamPanel** — not a new floating panel. Current file's threads (active + a "Resolved (N)" collapsible), a project-wide "Unresolved (N)" roll-up, click a row → `openAndRevealLocation` + open popover.                                                                                                                                                |
+| **File-level indicator** | Explorer row + editor tab                  | unresolved-count badge (reuse the dirty-dot slot); Explorer only when the project has any comments.                                                                                                                                                                                                                                                                                             |
+| **Navigation commands**  | `CommandRegistry`                          | "Comments: Next in file", "Comments: Previous in file", "Comments: Go to unresolved" (opens the panel roll-up). Bindable via Track B keyboard settings.                                                                                                                                                                                                                                         |
+| **Callout → comment**    | M58 callout card gains `[Keep as comment]` | client POSTs `/comments` with the callout's `file`, a fresh anchor computed from the callout `range`, `body = callout.message`, `mentions = []`. The callout keeps its ephemeral TTL and is untouched. A test asserts no M58 event mutation and a new row.                                                                                                                                      |
 
 Reduced motion (Track B `accessibility.motion`): marker fade / popover
 open transitions collapse to instant.
@@ -568,12 +572,12 @@ open transitions collapse to instant.
 `comments` directly (safe columns, `(at,id)` cursor pushed in), emitting
 `kind: "comment"` `TimelineEvent`s:
 
-| Trigger | `title` | navigable |
-|---|---|---|
+| Trigger              | `title`                       | navigable                |
+| -------------------- | ----------------------------- | ------------------------ |
 | root comment created | `commented on <file> L<line>` | yes (file + anchor line) |
-| reply added | `replied on <file>` | yes |
-| thread resolved | `resolved a comment thread` | yes |
-| thread reopened | `reopened a comment thread` | yes |
+| reply added          | `replied on <file>`           | yes                      |
+| thread resolved      | `resolved a comment thread`   | yes                      |
+| thread reopened      | `reopened a comment thread`   | yes                      |
 
 - **Only these lifecycle events.** Not composer keystrokes, not edits, not
   reactions, not anchor-status pings.
@@ -581,7 +585,7 @@ open transitions collapse to instant.
   allowlist discipline as M60 callout `messagePreview`).
 - `at` = the comment's `created_at` (or thread `resolved_at`).
 - `queryWhileAway` adds `"comment"` to `MEANINGFUL_KINDS`.
-- **Live:** the `comment_event` broadcast is *also* the timeline
+- **Live:** the `comment_event` broadcast is _also_ the timeline
   live-merge trigger — `IDE.tsx` already refetches the timeline tail on
   `collab_change`; it does the same on `comment_event`.
 - New `AuditEventType` values `COMMENT_ADDED`, `COMMENT_RESOLVED` for admin
@@ -591,18 +595,18 @@ open transitions collapse to instant.
 
 ### 4.10 Track A security model (mirrors M58 §10)
 
-| Boundary | Stance |
-|---|---|
-| **Author identity** | Always `userOf(req)`. No body field is ever read for identity. Insert statements never spread the request body. |
-| **Project scope** | Every route opens with `requireProjectAccess`; every query is `WHERE project_id = ?` first; FKs cascade-scope. `comment_event` fan-out is room-only. |
-| **Mention authorization** | Each mention target validated with `requireProjectAccess(…, "viewer")`; cross-project / arbitrary / non-member IDs dropped silently. No global user lookup. Mention delivery is room-targeted. |
-| **Edit / delete / resolve authz** | Re-checked per row server-side: edit → `author_id === session`; delete → `author_id === session OR project.owner_id === session`; resolve/reopen → editor role. |
-| **XSS / injection** | `body` sanitized (C0/DEL stripped, length-capped) and rendered **text-only** everywhere (React children; mentions tokenized client-side by matching known usernames, rendered as `<span>`, never `innerHTML`, never Markdown→HTML). Test: `<img src=x onerror=…>` and `[x](javascript:…)` render literally. |
-| **Anchor blobs** | Stored opaque; server never `eval`s / decodes / executes them. Decode length-bounded on the client. A malformed blob → resolve returns `null` → stale (safe). |
-| **Rate / size** | Per-user-per-project `RateLimiter`; `body` ≤ 4000; mentions ≤ 20; reactions bounded by the fixed set + PK. `comment_event` is a tiny fixed-shape frame. |
-| **Cross-project isolation** | Tested: project B's room never receives project A's `comment_event`; `GET /comments` for a non-member → 404. |
-| **Secret / output leakage** | Comments carry only user free text + coordinates + a bounded path. No file content, diff, stdout/stderr, env, or secret is ever in a comment payload, the wire frame, or the timeline row. |
-| **Document integrity** | No comment path opens a `Y.Doc` transaction or calls `doc.getText` server-side. The client computes anchors from the already-bound `Y.Text`; comment rendering never edits the model. Concurrent-edit convergence regression-tested with comment traffic interleaved. |
+| Boundary                          | Stance                                                                                                                                                                                                                                                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Author identity**               | Always `userOf(req)`. No body field is ever read for identity. Insert statements never spread the request body.                                                                                                                                                                                             |
+| **Project scope**                 | Every route opens with `requireProjectAccess`; every query is `WHERE project_id = ?` first; FKs cascade-scope. `comment_event` fan-out is room-only.                                                                                                                                                        |
+| **Mention authorization**         | Each mention target validated with `requireProjectAccess(…, "viewer")`; cross-project / arbitrary / non-member IDs dropped silently. No global user lookup. Mention delivery is room-targeted.                                                                                                              |
+| **Edit / delete / resolve authz** | Re-checked per row server-side: edit → `author_id === session`; delete → `author_id === session OR project.owner_id === session`; resolve/reopen → editor role.                                                                                                                                             |
+| **XSS / injection**               | `body` sanitized (C0/DEL stripped, length-capped) and rendered **text-only** everywhere (React children; mentions tokenized client-side by matching known usernames, rendered as `<span>`, never `innerHTML`, never Markdown→HTML). Test: `<img src=x onerror=…>` and `[x](javascript:…)` render literally. |
+| **Anchor blobs**                  | Stored opaque; server never `eval`s / decodes / executes them. Decode length-bounded on the client. A malformed blob → resolve returns `null` → stale (safe).                                                                                                                                               |
+| **Rate / size**                   | Per-user-per-project `RateLimiter`; `body` ≤ 4000; mentions ≤ 20; reactions bounded by the fixed set + PK. `comment_event` is a tiny fixed-shape frame.                                                                                                                                                     |
+| **Cross-project isolation**       | Tested: project B's room never receives project A's `comment_event`; `GET /comments` for a non-member → 404.                                                                                                                                                                                                |
+| **Secret / output leakage**       | Comments carry only user free text + coordinates + a bounded path. No file content, diff, stdout/stderr, env, or secret is ever in a comment payload, the wire frame, or the timeline row.                                                                                                                  |
+| **Document integrity**            | No comment path opens a `Y.Doc` transaction or calls `doc.getText` server-side. The client computes anchors from the already-bound `Y.Text`; comment rendering never edits the model. Concurrent-edit convergence regression-tested with comment traffic interleaved.                                       |
 
 ---
 
@@ -615,27 +619,34 @@ open transitions collapse to instant.
 real.
 
 ```ts
-type SettingScope = 'global' | 'workspace' | 'session';
+type SettingScope = "global" | "workspace" | "session";
 type SettingCategory =
-  | 'appearance' | 'layout' | 'editor' | 'collaboration'
-  | 'notifications' | 'keyboard' | 'accessibility' | 'advanced';
-type ControlKind =
-  | 'toggle' | 'select' | 'segmented' | 'slider' | 'color' | 'shortcut';
+  | "appearance"
+  | "layout"
+  | "editor"
+  | "collaboration"
+  | "notifications"
+  | "keyboard"
+  | "accessibility"
+  | "advanced";
+type ControlKind = "toggle" | "select" | "segmented" | "slider" | "color" | "shortcut";
 
 interface SettingDef<T> {
-  id: string;                       // dotted, stable: "editor.fontSize"
+  id: string; // dotted, stable: "editor.fontSize"
   category: SettingCategory;
-  section: string;                  // sub-group label ("Font", "Remote cursors")
+  section: string; // sub-group label ("Font", "Remote cursors")
   label: string;
-  description: string;              // shown for non-obvious settings
-  keywords?: string[];              // extra search terms ("caret" for cursor)
+  description: string; // shown for non-obvious settings
+  keywords?: string[]; // extra search terms ("caret" for cursor)
   control: ControlKind;
-  options?: Array<{ value: T; label: string }>;   // select/segmented
-  min?: number; max?: number; step?: number;      // slider
+  options?: Array<{ value: T; label: string }>; // select/segmented
+  min?: number;
+  max?: number;
+  step?: number; // slider
   default: T;
   scope: SettingScope;
   validate: (v: unknown) => v is T; // EVERY read + import goes through this
-  apply: (v: T, ctx: ApplyContext) => void;       // set CSS var / Monaco opt / context flag
+  apply: (v: T, ctx: ApplyContext) => void; // set CSS var / Monaco opt / context flag
 }
 ```
 
@@ -653,8 +664,8 @@ singleton:
 
 - `get<T>(id): T` — resolve by **scope precedence: `session` > `workspace`
   > `global` > `default`** (documented; the common case is a single scope
-  so precedence rarely bites). Value is `validate`d on read; invalid →
-  `default` (and the bad value is dropped).
+  > so precedence rarely bites). Value is `validate`d on read; invalid →
+  > `default` (and the bad value is dropped).
 - `set(id, v)` — `validate` → persist to the setting's own scope → `apply`
   → notify. Rejected values throw a typed error surfaced inline in the UI.
 - `resetOne(id)` / `resetCategory(cat)` / `resetAll()` — delete from the
@@ -673,14 +684,14 @@ run the migration chain (§5.11), then `apply` every registered setting once
 
 ### 5.3 Scoping & persistence
 
-| Scope | Store | Examples |
-|---|---|---|
-| **global** | **server**: new `user_settings` table (`user_id` PK, `version` INT, `data` TEXT JSON ≤ 32 KiB, `updated_at`) via `GET/PUT /api/auth/settings` | theme, accent, density, motion, all editor prefs, keybindings, notification prefs, collaboration presentation |
-| **workspace** | `localStorage` key `cloudeee.ws.<projectId>.settings` (namespaced) | panel widths, terminal height, explorer width, which side-rail panels are open, activity-timeline visibility, "show resolved comments" |
-| **session** | React state / `sessionStorage` | transient toggles that should not persist across tabs |
+| Scope         | Store                                                                                                                                         | Examples                                                                                                                               |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **global**    | **server**: new `user_settings` table (`user_id` PK, `version` INT, `data` TEXT JSON ≤ 32 KiB, `updated_at`) via `GET/PUT /api/auth/settings` | theme, accent, density, motion, all editor prefs, keybindings, notification prefs, collaboration presentation                          |
+| **workspace** | `localStorage` key `cloudeee.ws.<projectId>.settings` (namespaced)                                                                            | panel widths, terminal height, explorer width, which side-rail panels are open, activity-timeline visibility, "show resolved comments" |
+| **session**   | React state / `sessionStorage`                                                                                                                | transient toggles that should not persist across tabs                                                                                  |
 
 - `user_settings.data` is **validated key-by-key against the registry on
-  read and on write** server-side is *not* possible (the registry is
+  read and on write** server-side is _not_ possible (the registry is
   frontend) — so the server stores the blob opaquely with a **hard 32 KiB
   cap, JSON-parse check, and key-count cap (200)**; the **client**
   validates every key against the registry on load and on import and drops
@@ -727,7 +738,7 @@ run the migration chain (§5.11), then `apply` every registered setting once
   (`name` / `initials` / `off`) and `collaboration.showRemoteCursors` /
   `showRemoteSelections` / `showRemoteLabels` — these affect **only their
   own view**. No setting lets one user redefine how another appears to
-  everyone. Profile accent (Track C) affects the *chooser's own* identity
+  everyone. Profile accent (Track C) affects the _chooser's own_ identity
   surfaces (their card border, their cursor label tint) — see §6.5 for the
   precise blast radius.
 - **Import can set theme/accent/density by validated enum or single
@@ -782,7 +793,7 @@ responsive down to ~720 wide):
   from the registry's `keyboard.*` shortcut settings (defaults defined in
   the registry, matching today's hard-coded chords exactly), then dispatch
   via `CommandRegistry.execute(commandId)` / the existing callback bag.
-  **Command dispatch is unchanged** — only the *source* of the map moves.
+  **Command dispatch is unchanged** — only the _source_ of the map moves.
 - The Keyboard category lists every `CommandRegistry` command + its current
   binding, a "record chord" control to rebind, **conflict detection**
   (two settings → same chord → inline warning, the second save is
@@ -867,10 +878,8 @@ change.
 const SETTINGS_MIGRATIONS: Array<{
   to: number;
   migrate: (data: Record<string, unknown>) => Record<string, unknown>;
-}> = [
-  { to: 2, migrate: (d) => /* rename / re-shape */ d },
-];
-export const CURRENT_SETTINGS_VERSION = 1;  // bumped as migrations are added
+}> = [{ to: 2, migrate: (d) => /* rename / re-shape */ d }];
+export const CURRENT_SETTINGS_VERSION = 1; // bumped as migrations are added
 ```
 
 - Runs on: server load, `localStorage` load, import.
@@ -882,14 +891,14 @@ export const CURRENT_SETTINGS_VERSION = 1;  // bumped as migrations are added
 
 ### 5.12 Track B security model
 
-| Boundary | Stance |
-|---|---|
+| Boundary                        | Stance                                                                                                                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Arbitrary code / CSS / HTML** | Impossible by construction: `apply` functions are a closed, reviewed set; no value is ever a CSS string, token map, markup, or script. Theme/accent/density are enums + one contrast-checked hex. |
-| **Import abuse** | Size / key-count capped; every value re-validated + clamped against the registry; unknown keys dropped; migration-versioned; diff-previewed. |
-| **Scope enforcement** | `user_settings.data` is per-user, only readable by its owner; `localStorage` is origin-scoped; no scope can hold or reference a secret. |
-| **Privilege escalation** | No setting maps to a role, permission, project membership, or server authorization decision. The registry is audited for this; a test asserts no setting id matches an authz-adjacent allowlist. |
-| **Secret persistence** | Nothing secret is ever a setting value; the server blob store rejects nothing by content but the client never writes a secret there. |
-| **DoS** | Blob 32 KiB / 200-key cap server-side; import 64 KiB / 300-key cap client-side; slider/hex writes debounced. |
+| **Import abuse**                | Size / key-count capped; every value re-validated + clamped against the registry; unknown keys dropped; migration-versioned; diff-previewed.                                                      |
+| **Scope enforcement**           | `user_settings.data` is per-user, only readable by its owner; `localStorage` is origin-scoped; no scope can hold or reference a secret.                                                           |
+| **Privilege escalation**        | No setting maps to a role, permission, project membership, or server authorization decision. The registry is audited for this; a test asserts no setting id matches an authz-adjacent allowlist.  |
+| **Secret persistence**          | Nothing secret is ever a setting value; the server blob store rejects nothing by content but the client never writes a secret there.                                                              |
+| **DoS**                         | Blob 32 KiB / 200-key cap server-side; import 64 KiB / 300-key cap client-side; slider/hex writes debounced.                                                                                      |
 
 ---
 
@@ -922,14 +931,14 @@ badges, etc. on top.
 
 ### 6.2 Separation of models (must stay coherent)
 
-| PROFILE CUSTOMIZATION (Track C) — *what others see* | USER PREFERENCES (Track B) — *how I experience the IDE* |
-|---|---|
-| display name, avatar, banner, bio, pronouns, location | theme, density, layout |
-| profile accent, profile effect | editor prefs |
-| custom status (+ expiry), availability default | collaboration *presentation* toggles |
-| badges (order + selection), featured projects, links | notifications, shortcuts, accessibility |
-| privacy flags | — |
-| **server-authoritative, versioned, per-user** | **server blob + local, versioned, per-user** |
+| PROFILE CUSTOMIZATION (Track C) — _what others see_   | USER PREFERENCES (Track B) — _how I experience the IDE_ |
+| ----------------------------------------------------- | ------------------------------------------------------- |
+| display name, avatar, banner, bio, pronouns, location | theme, density, layout                                  |
+| profile accent, profile effect                        | editor prefs                                            |
+| custom status (+ expiry), availability default        | collaboration _presentation_ toggles                    |
+| badges (order + selection), featured projects, links  | notifications, shortcuts, accessibility                 |
+| privacy flags                                         | —                                                       |
+| **server-authoritative, versioned, per-user**         | **server blob + local, versioned, per-user**            |
 
 These are **separate tables, separate endpoints, separate editors.** A
 profile field is never a "setting"; a setting is never a profile field.
@@ -939,7 +948,7 @@ profile field is never a "setting"; a setting is never a profile field.
 **Persistence decision (evidence-based, not the spec's first draft of seven
 tables).** Access patterns: `buildPublicProfile` (§6.4) reads **identity +
 appearance + privacy flags + custom status + badges + links + featured** on
-*every* profile render and *every* `/projects/:id/profiles` bundle build.
+_every_ profile render and _every_ `/projects/:id/profiles` bundle build.
 Privacy flags are read on every one of those reads to filter the response —
 they are a fixed set of scalars, always fetched with the profile, never
 queried independently. → **Privacy folds into `user_profiles`** (one row,
@@ -1032,27 +1041,27 @@ CREATE TABLE user_featured_projects (
   keyed by `user_id`; `username` / `role` stay authoritative in `users`.
 - Fallbacks: no `display_name` → `username`; no avatar → initials + color
   (the current `<CollaboratorAvatar>` behavior); `profile_accent =
-  'inherit'` → the deterministic `getUserColor`.
+'inherit'` → the deterministic `getUserColor`.
 
 ### 6.4 REST API
 
-| Method + path | Auth | Notes |
-|---|---|---|
-| `GET  /api/users/me/profile` | session | full own profile (all fields incl. privacy) for the editor |
-| `PUT  /api/users/me/profile` | session | identity + appearance sub-fields; per-field validation |
-| `PUT  /api/users/me/status` | session | `{ emoji?, text?, expiresAt? }` — custom status; server clamps `expiresAt` to ≤ 24 h; server sweep clears expired |
-| `DELETE /api/users/me/status` | session | clear |
-| `PUT  /api/users/me/badges` | session | `{ badges: [{badgeId, position}] }` — each must be **grantable to this user** (§6.6); ungrantable dropped |
-| `PUT  /api/users/me/links` | session | `{ links: [{kind,label,url,position}] }` — `url` `https://`, host allowlist for `github` (`github.com`), length caps |
-| `PUT  /api/users/me/featured` | session | `{ projectIds: [...] }` — each must be a project the user **owns or collaborates on** (`requireProjectAccess viewer`); others dropped |
-| `PUT  /api/users/me/privacy` | session | privacy flags |
-| `POST /api/users/me/avatar` \| `/banner` | session | `multipart/form-data`, one file — §6.7 |
-| `DELETE /api/users/me/avatar` \| `/banner` | session | revert to fallback |
-| `GET  /api/users/:id/avatar` \| `/banner` | session | streams the media file with a forced safe `Content-Type` (§6.7) — 404 if none or privacy hides it |
-| `GET  /api/projects/:id/profiles` | `requireProjectAccess viewer` | **the collaboration bundle**: for every member + currently-connected user, a **privacy-filtered** `PublicProfile` (display name, avatar id/version, accent, effect, badges, custom status, pronouns; location/links/history only if the viewer is allowed). This is what `identityStore` hydrates from. |
-| `GET  /api/users/:id/profile` | session | full profile *page* view, privacy-filtered relative to the requester; 404 if `profile_visibility = 'private'` and not self |
-| `GET  /api/users/me/profile/export` | session | versioned JSON of the customization (no media bytes — media by reference) |
-| `POST /api/users/me/profile/import` | session | validated re-import (§6.9) |
+| Method + path                              | Auth                          | Notes                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET  /api/users/me/profile`               | session                       | full own profile (all fields incl. privacy) for the editor                                                                                                                                                                                                                                              |
+| `PUT  /api/users/me/profile`               | session                       | identity + appearance sub-fields; per-field validation                                                                                                                                                                                                                                                  |
+| `PUT  /api/users/me/status`                | session                       | `{ emoji?, text?, expiresAt? }` — custom status; server clamps `expiresAt` to ≤ 24 h; server sweep clears expired                                                                                                                                                                                       |
+| `DELETE /api/users/me/status`              | session                       | clear                                                                                                                                                                                                                                                                                                   |
+| `PUT  /api/users/me/badges`                | session                       | `{ badges: [{badgeId, position}] }` — each must be **grantable to this user** (§6.6); ungrantable dropped                                                                                                                                                                                               |
+| `PUT  /api/users/me/links`                 | session                       | `{ links: [{kind,label,url,position}] }` — `url` `https://`, host allowlist for `github` (`github.com`), length caps                                                                                                                                                                                    |
+| `PUT  /api/users/me/featured`              | session                       | `{ projectIds: [...] }` — each must be a project the user **owns or collaborates on** (`requireProjectAccess viewer`); others dropped                                                                                                                                                                   |
+| `PUT  /api/users/me/privacy`               | session                       | privacy flags                                                                                                                                                                                                                                                                                           |
+| `POST /api/users/me/avatar` \| `/banner`   | session                       | `multipart/form-data`, one file — §6.7                                                                                                                                                                                                                                                                  |
+| `DELETE /api/users/me/avatar` \| `/banner` | session                       | revert to fallback                                                                                                                                                                                                                                                                                      |
+| `GET  /api/users/:id/avatar` \| `/banner`  | session                       | streams the media file with a forced safe `Content-Type` (§6.7) — 404 if none or privacy hides it                                                                                                                                                                                                       |
+| `GET  /api/projects/:id/profiles`          | `requireProjectAccess viewer` | **the collaboration bundle**: for every member + currently-connected user, a **privacy-filtered** `PublicProfile` (display name, avatar id/version, accent, effect, badges, custom status, pronouns; location/links/history only if the viewer is allowed). This is what `identityStore` hydrates from. |
+| `GET  /api/users/:id/profile`              | session                       | full profile _page_ view, privacy-filtered relative to the requester; 404 if `profile_visibility = 'private'` and not self                                                                                                                                                                              |
+| `GET  /api/users/me/profile/export`        | session                       | versioned JSON of the customization (no media bytes — media by reference)                                                                                                                                                                                                                               |
+| `POST /api/users/me/profile/import`        | session                       | validated re-import (§6.9)                                                                                                                                                                                                                                                                              |
 
 - **Identity/authorization is never in the profile response as
   authoritative** — `userId`, `username`, `role` in a `PublicProfile` are
@@ -1106,19 +1115,19 @@ CREATE TABLE user_featured_projects (
 Reuse `parseMultipartFormData`. **One** new pipeline
 (`backend/src/profile/media.ts`), no second uploader.
 
-| Check | Rule |
-|---|---|
-| Count | exactly one file part |
-| Size | avatar ≤ 512 KiB; banner ≤ 2 MiB (pre-decode, from `Content-Length` + actual buffer) |
-| MIME by **magic bytes** | PNG (`89 50 4E 47`), JPEG (`FF D8 FF`), WebP (`RIFF…WEBP`) only. The declared `Content-Type` is ignored. |
-| **SVG** | rejected outright (no sanitizer in the stack) |
-| Dimensions | parsed from the image header (small dedicated header readers for the 3 formats); avatar ≤ 1024×1024, banner ≤ 3840×1440; ≥ 32 px each side; reject if unparseable |
-| Bytes-after-header sanity | reject truncated / trailing-garbage beyond a small tolerance |
-| Storage | `<dataDir>/profile-media/<userId>/<uuid>.<ext>` — outside every workspace, so no path-traversal into project files; filename is a server UUID, never client-derived |
-| Serving | `GET /api/users/:id/avatar` → `res.sendFile` with **forced** `Content-Type` from the stored `mime`, `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: default-src 'none'`, `Cache-Control: private, max-age=300`. Never `text/html`, never executed. |
-| Replace | inserting a new avatar/banner row deletes the previous row + unlinks its file (best-effort) |
-| Rate | `RateLimiter` — a few uploads/minute/user |
-| Audit | `PROFILE_MEDIA_UPLOADED` |
+| Check                     | Rule                                                                                                                                                                                                                                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Count                     | exactly one file part                                                                                                                                                                                                                                                                          |
+| Size                      | avatar ≤ 512 KiB; banner ≤ 2 MiB (pre-decode, from `Content-Length` + actual buffer)                                                                                                                                                                                                           |
+| MIME by **magic bytes**   | PNG (`89 50 4E 47`), JPEG (`FF D8 FF`), WebP (`RIFF…WEBP`) only. The declared `Content-Type` is ignored.                                                                                                                                                                                       |
+| **SVG**                   | rejected outright (no sanitizer in the stack)                                                                                                                                                                                                                                                  |
+| Dimensions                | parsed from the image header (small dedicated header readers for the 3 formats); avatar ≤ 1024×1024, banner ≤ 3840×1440; ≥ 32 px each side; reject if unparseable                                                                                                                              |
+| Bytes-after-header sanity | reject truncated / trailing-garbage beyond a small tolerance                                                                                                                                                                                                                                   |
+| Storage                   | `<dataDir>/profile-media/<userId>/<uuid>.<ext>` — outside every workspace, so no path-traversal into project files; filename is a server UUID, never client-derived                                                                                                                            |
+| Serving                   | `GET /api/users/:id/avatar` → `res.sendFile` with **forced** `Content-Type` from the stored `mime`, `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: default-src 'none'`, `Cache-Control: private, max-age=300`. Never `text/html`, never executed. |
+| Replace                   | inserting a new avatar/banner row deletes the previous row + unlinks its file (best-effort)                                                                                                                                                                                                    |
+| Rate                      | `RateLimiter` — a few uploads/minute/user                                                                                                                                                                                                                                                      |
+| Audit                     | `PROFILE_MEDIA_UPLOADED`                                                                                                                                                                                                                                                                       |
 
 No image re-encoding (no library) — validation is strict-reject, not
 sanitize-and-accept. A file that passes all checks is stored verbatim and
@@ -1138,7 +1147,7 @@ only ever served as a fixed non-executable content type.
   project membership, and the fact that the user is present/active are
   **never** hidden from an authorized collaborator — the collaboration
   system's identity and authorization behavior is unchanged by any privacy
-  setting. `show_current_file = 0` hides the *file name on the card*; it
+  setting. `show_current_file = 0` hides the _file name on the card_; it
   does **not** stop M57 presence (which is how "who's here" and follow
   work) — it is a card-rendering choice, documented as such. (A future
   "invisible mode" is out of scope and explicitly noted as not delivered.)
@@ -1148,7 +1157,7 @@ only ever served as a fixed non-executable content type.
 ### 6.9 Profile export / import
 
 - `GET /users/me/profile/export` → `{ version, exportedAt, profile:{…},
-  status:{…}, badges:[…], links:[…], privacy:{…} }` — **customization
+status:{…}, badges:[…], links:[…], privacy:{…} }` — **customization
   only**, media by reference (id), never bytes.
 - `POST /users/me/profile/import` → parse (≤ 32 KiB), migrate to current
   `version`, **per-field re-validation** identical to the `PUT` endpoints
@@ -1176,7 +1185,7 @@ Profile
 └── Privacy      visibility + field flags
 ```
 
-- **Live preview is mandatory** and previews the *actual*
+- **Live preview is mandatory** and previews the _actual_
   `<CollaboratorCard>` / popover components the multiplayer UI uses — so
   "what will Rahul see" is answered without save→reload.
 - Save is explicit per section (`PUT` the section); the preview reflects
@@ -1189,12 +1198,12 @@ Profile
 ### 6.11 Shared identity architecture (implementation)
 
 - `frontend/src/collab/identity.ts` — `IdentityStore`: `Map<userId,
-  PublicProfile>`, hydrated by `GET /api/projects/:id/profiles` on room
+PublicProfile>`, hydrated by `GET /api/projects/:id/profiles` on room
   join, refreshed on a `profile_event` broadcast (receive-only
   `MESSAGE_CUSTOM`, `{type:'profile_event', userId}` → refetch that user
   or the bundle, throttled). `get(userId)` returns the profile or a
   synthetic fallback (`{displayName: username, accent: getUserColor(id),
-  avatar: null}`).
+avatar: null}`).
 - `frontend/src/components/common/identity/` —
   - `<CollaboratorAvatar userId size ring? />` — avatar image (via
     `/api/users/:id/avatar?v=<version>`) or initials+accent; **replaces
@@ -1205,7 +1214,7 @@ Profile
   - `<CollaboratorCard userId compact? />` — the full/compact card from
     the §1 mockup: banner, avatar, name, `@username`, badges, custom
     status, `🟢 availability`, **live** activity/file/intent (read from
-    the existing `collaborators` presence array — *not* a new store),
+    the existing `collaborators` presence array — _not_ a new store),
     `[View profile]`.
 - `CollaboratorAvatarStack.tsx`, `TeamPanel.tsx`, `FollowBanner.tsx`,
   `AttentionTray.tsx`, comment rows, `ActivityTimeline` actor cells are
@@ -1216,38 +1225,38 @@ Profile
   is durable `user_custom_status`, delivered via the `/projects/:id/profiles`
   bundle + a `profile_event` invalidation ping, and combined with ephemeral
   M57 presence **client-side** inside `<CollaboratorCard>` (`profile.customStatus`
-  + `presence.activity`). No second synchronization source; a performance
-  test (§9.7 #2) asserts no `customStatus` key appears in awareness.
+  - `presence.activity`). No second synchronization source; a performance
+    test (§9.7 #2) asserts no `customStatus` key appears in awareness.
 
 ### 6.12 Track C security model
 
-| Boundary | Stance |
-|---|---|
-| **Identity forgery** | `userId`/`username`/`role`/membership in any profile response come from `users` / `project_collaborators` server-side, never from `user_profiles`. `PUT /profile` cannot set them. |
-| **Role-badge forgery** | Role/system badges are render-time-derived from authoritative tables; `PUT /badges` drops non-catalog ids. |
-| **Image abuse** | Magic-byte MIME, dimension caps, size caps, SVG rejected, stored outside workspaces under server UUIDs, served as forced non-executable `Content-Type` with `nosniff` + restrictive CSP, never as HTML. |
-| **XSS** | `bio`, `display_name`, `location`, custom status `text`, link `label` — sanitized (C0/DEL stripped, length-capped) and rendered **text-only** (React children). No `innerHTML` / Markdown→HTML anywhere. `<script>`/`<img onerror>` payloads render literally (tested). |
-| **URL abuse** | Links `https://` only, length-capped, `javascript:`/`data:` rejected, `github` kind host-locked to `github.com`; rendered with `rel="noopener noreferrer nofollow"` `target="_blank"`. |
-| **Accent / effect injection** | Accent = enum or one contrast-checked `#rrggbb`; effect = enum. Never a CSS string. |
-| **Privacy vs security** | Privacy flags gate presentation fields only; a documented hard invariant keeps identity/role/authorization/presence visible to authorized collaborators. No flag changes a server authorization check. |
-| **Cross-user isolation** | `PUT /users/me/*` only ever writes the session user's rows; `/users/:id/*` GETs are privacy-filtered relative to the requester and require a shared project (or self). Featured projects / media ids that aren't the user's are dropped. |
-| **DoS** | All fields bounded; ≤6 badges / ≤5 links / ≤8 featured / 1 avatar / 1 banner; upload + write rate-limited; `profiles` bundle is O(members), cached client-side, refreshed on a throttled ping. |
-| **Custom status expiry** | Server clamps `expires_at` ≤ 24 h; a periodic sweep (mirrors M60's purge timer) clears expired rows and emits `profile_event`. The client also hides an expired status defensively. |
+| Boundary                      | Stance                                                                                                                                                                                                                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Identity forgery**          | `userId`/`username`/`role`/membership in any profile response come from `users` / `project_collaborators` server-side, never from `user_profiles`. `PUT /profile` cannot set them.                                                                                      |
+| **Role-badge forgery**        | Role/system badges are render-time-derived from authoritative tables; `PUT /badges` drops non-catalog ids.                                                                                                                                                              |
+| **Image abuse**               | Magic-byte MIME, dimension caps, size caps, SVG rejected, stored outside workspaces under server UUIDs, served as forced non-executable `Content-Type` with `nosniff` + restrictive CSP, never as HTML.                                                                 |
+| **XSS**                       | `bio`, `display_name`, `location`, custom status `text`, link `label` — sanitized (C0/DEL stripped, length-capped) and rendered **text-only** (React children). No `innerHTML` / Markdown→HTML anywhere. `<script>`/`<img onerror>` payloads render literally (tested). |
+| **URL abuse**                 | Links `https://` only, length-capped, `javascript:`/`data:` rejected, `github` kind host-locked to `github.com`; rendered with `rel="noopener noreferrer nofollow"` `target="_blank"`.                                                                                  |
+| **Accent / effect injection** | Accent = enum or one contrast-checked `#rrggbb`; effect = enum. Never a CSS string.                                                                                                                                                                                     |
+| **Privacy vs security**       | Privacy flags gate presentation fields only; a documented hard invariant keeps identity/role/authorization/presence visible to authorized collaborators. No flag changes a server authorization check.                                                                  |
+| **Cross-user isolation**      | `PUT /users/me/*` only ever writes the session user's rows; `/users/:id/*` GETs are privacy-filtered relative to the requester and require a shared project (or self). Featured projects / media ids that aren't the user's are dropped.                                |
+| **DoS**                       | All fields bounded; ≤6 badges / ≤5 links / ≤8 featured / 1 avatar / 1 banner; upload + write rate-limited; `profiles` bundle is O(members), cached client-side, refreshed on a throttled ping.                                                                          |
+| **Custom status expiry**      | Server clamps `expires_at` ≤ 24 h; a periodic sweep (mirrors M60's purge timer) clears expired rows and emits `profile_event`. The client also hides an expired status defensively.                                                                                     |
 
 ---
 
 ## 7. Cross-track integration points
 
-| Integration | Behavior |
-|---|---|
-| **Comment author rows** use `<CollaboratorAvatar>` / `<CollaboratorName>` (Track C) | one identity model |
-| **Mention chips** render the mentioned user's display name + accent (Track C) via `IdentityStore` | consistent identity |
-| **`accessibility.motion` (B)** gates M58 pulses, M59 follow transitions, **and** Track C profile effects | one motion switch |
-| **`collaboration.*` presentation toggles (B)** control remote cursors/labels/comment-indicator visibility for the viewer only | presentation, not security |
-| **Theme/accent (B)** and **profile accent (C)** are distinct: B = my whole-IDE view; C = how *my* identity tints for *everyone* | documented, non-overlapping |
-| **M60 timeline** gains `comment` events (A) and its actor cells use `<CollaboratorName>` (C) | history stays coherent |
-| **`WhileYouWereAway` (M60)** gains a "N mentions" grouping (A) | reuse, not a new surface |
-| **Profile "Recent history"** (C, privacy-gated) renders M60 `queryTimeline` filtered to that user | reuse, read-only |
+| Integration                                                                                                                     | Behavior                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| **Comment author rows** use `<CollaboratorAvatar>` / `<CollaboratorName>` (Track C)                                             | one identity model          |
+| **Mention chips** render the mentioned user's display name + accent (Track C) via `IdentityStore`                               | consistent identity         |
+| **`accessibility.motion` (B)** gates M58 pulses, M59 follow transitions, **and** Track C profile effects                        | one motion switch           |
+| **`collaboration.*` presentation toggles (B)** control remote cursors/labels/comment-indicator visibility for the viewer only   | presentation, not security  |
+| **Theme/accent (B)** and **profile accent (C)** are distinct: B = my whole-IDE view; C = how _my_ identity tints for _everyone_ | documented, non-overlapping |
+| **M60 timeline** gains `comment` events (A) and its actor cells use `<CollaboratorName>` (C)                                    | history stays coherent      |
+| **`WhileYouWereAway` (M60)** gains a "N mentions" grouping (A)                                                                  | reuse, not a new surface    |
+| **Profile "Recent history"** (C, privacy-gated) renders M60 `queryTimeline` filtered to that user                               | reuse, read-only            |
 
 ---
 
@@ -1429,7 +1438,7 @@ Each is a revert-failing assertion, not a benchmark:
    an open thread on the file → 0 comment-table writes; comments persist
    only on explicit submit.
 4. **A settings change does not re-render the whole IDE** — `set("editor.
-   fontSize", …)` → a render spy on `IDE` / `Sidebar` / `TeamPanel` shows 0
+fontSize", …)` → a render spy on `IDE` / `Sidebar` / `TeamPanel` shows 0
    re-renders; only the Editor's `updateOptions` fires.
 5. **`profile_event` / `comment_event` are invalidation, not broadcast** —
    assert the wire frame is a fixed small shape (`{type, userId}` /
@@ -1485,7 +1494,7 @@ an authz concept (asserted against a banned-substring list);
 4. A sees the reply.
 5. B **@mentions** A in a reply.
 6. A's "Attention & Mentions" tray shows the mention card; `[Go to
-   comment]` opens the file + thread.
+comment]` opens the file + thread.
 7. A adds a 👍 **reaction**; B sees the count.
 8. A **resolves** → the thread leaves both clients' active view, shows
    under "Resolved (N)".
@@ -1549,7 +1558,7 @@ an authz concept (asserted against a banned-substring list);
 1. A's **profile** (avatar, name, custom status) shows in B's collaborator
    card / avatar stack / popover.
 2. B's card also shows A's **live activity + current file** — visibly
-   *separate* from the custom status line.
+   _separate_ from the custom status line.
 3. A comments on code → the comment's **author row uses the same identity**
    (avatar + accent + name) as the collaborator card.
 4. A **@mentions** B → the mention chip + tray card render B's identity
@@ -1588,19 +1597,19 @@ second upload pipeline; a second design system; widening the `users` table.
 
 ## 12. Risks / tradeoffs
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| RelativePosition edge cases silently mis-anchor a comment | Medium | Dual-signal (RelativePosition + fingerprint); `null` → explicit stale; test matrix §9.1 incl. "never on unrelated code"; `[Find nearby]` never auto-rewrites. |
-| M61 is three subsystems — scope blowout | High | Strict phasing (A verified before B before C); shared primitives built once; non-goals §11; each track has its own test file + acceptance block; the plan checkpoints per phase with rollback. |
-| Awareness payload bloat from profile data | Medium | Profile data travels over REST (`/projects/:id/profiles`) + a throttled `profile_event` ping, **not** in awareness. Custom-status mirror into awareness is optional and bounded. |
-| Profile image upload as an attack surface | Medium | Magic-byte MIME, dimension/size caps, SVG rejected, stored outside workspaces under UUIDs, served forced-type + `nosniff` + CSP, never HTML, rate-limited, single pipeline. |
-| A privacy flag is read as a security control | Medium | Hard invariant §6.8 + tests: identity/role/authz/presence never hidden; privacy gates presentation fields only; no flag touches a server authz check. |
-| The settings blob becomes a dumping ground / desyncs from the registry | Medium | Client validates every key against the registry on load + import; unknown keys dropped; 32 KiB / 200-key server cap; versioned migrations in one file. |
-| Keyboard refactor perturbs existing shortcuts | Low | Registry defaults mirror today's chords exactly; regression test fires the same commands for the default map; dispatch path unchanged. |
-| Comment `comment_event` refetch storm under heavy editing | Low | The frame is a throttled/deduped invalidation ping (~250 ms), not data; refetch is one scoped `GET` per file; mirrors the M60 `collab_change` cadence which is proven. |
-| Landing on the uncommitted M57–M60 tree | Certain | M61 is new files + additive branches + one migration; the diff stays separable; do not revert M57–M60. |
-| Theme migration (`:root` → `[data-theme]`) breaks a component using a raw color | Medium | Enumerate raw-color / hard-coded-px components in the plan; migrate them to tokens as part of the density/theme task; visual regression pass in acceptance. |
-| `user_preferences` → `user_settings` migration drops a user's editor prefs | Low | v12 migration copies the 7 rows verbatim into the blob; `GET /preferences` projection keeps compat; tested with a seeded pre-v12 DB. |
+| Risk                                                                            | Likelihood | Mitigation                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RelativePosition edge cases silently mis-anchor a comment                       | Medium     | Dual-signal (RelativePosition + fingerprint); `null` → explicit stale; test matrix §9.1 incl. "never on unrelated code"; `[Find nearby]` never auto-rewrites.                                  |
+| M61 is three subsystems — scope blowout                                         | High       | Strict phasing (A verified before B before C); shared primitives built once; non-goals §11; each track has its own test file + acceptance block; the plan checkpoints per phase with rollback. |
+| Awareness payload bloat from profile data                                       | Medium     | Profile data travels over REST (`/projects/:id/profiles`) + a throttled `profile_event` ping, **not** in awareness. Custom-status mirror into awareness is optional and bounded.               |
+| Profile image upload as an attack surface                                       | Medium     | Magic-byte MIME, dimension/size caps, SVG rejected, stored outside workspaces under UUIDs, served forced-type + `nosniff` + CSP, never HTML, rate-limited, single pipeline.                    |
+| A privacy flag is read as a security control                                    | Medium     | Hard invariant §6.8 + tests: identity/role/authz/presence never hidden; privacy gates presentation fields only; no flag touches a server authz check.                                          |
+| The settings blob becomes a dumping ground / desyncs from the registry          | Medium     | Client validates every key against the registry on load + import; unknown keys dropped; 32 KiB / 200-key server cap; versioned migrations in one file.                                         |
+| Keyboard refactor perturbs existing shortcuts                                   | Low        | Registry defaults mirror today's chords exactly; regression test fires the same commands for the default map; dispatch path unchanged.                                                         |
+| Comment `comment_event` refetch storm under heavy editing                       | Low        | The frame is a throttled/deduped invalidation ping (~250 ms), not data; refetch is one scoped `GET` per file; mirrors the M60 `collab_change` cadence which is proven.                         |
+| Landing on the uncommitted M57–M60 tree                                         | Certain    | M61 is new files + additive branches + one migration; the diff stays separable; do not revert M57–M60.                                                                                         |
+| Theme migration (`:root` → `[data-theme]`) breaks a component using a raw color | Medium     | Enumerate raw-color / hard-coded-px components in the plan; migrate them to tokens as part of the density/theme task; visual regression pass in acceptance.                                    |
+| `user_preferences` → `user_settings` migration drops a user's editor prefs      | Low        | v12 migration copies the 7 rows verbatim into the blob; `GET /preferences` projection keeps compat; tested with a seeded pre-v12 DB.                                                           |
 
 ---
 
@@ -1707,7 +1716,8 @@ stop cleanly after any gate with a green, shippable subsystem.
 ```
 
 **Cross-workstream dependencies (the only ones):**
-- **B → A1** (schema) and **A2** is *not* needed by B.
+
+- **B → A1** (schema) and **A2** is _not_ needed by B.
 - **C → A1** (schema) + **A2** (the `broadcastProfileEvent` transport method).
 - **D → A-GATE + B-GATE + C-GATE** (all frozen interfaces).
 - Nothing in A depends on B or C. A ships with a **local initials-fallback**
@@ -1718,11 +1728,12 @@ stop cleanly after any gate with a green, shippable subsystem.
   cards unconditionally until D2 adds the gate.
 
 **A gate = ** A's full test suite green + `m57/m58/m59/m60` regression green
-+ Track-A browser acceptance (§10.1) PASS/PARTIAL recorded + these
-interfaces **frozen**: `comment_event` / `comment_mention` wire shapes,
-`CommentThreadDTO` / `CommentDTO`, the anchor payload
-(`{relStart,relEnd,slice,startLine,endLine,prefixHash}`), the
-`broadcast*Event` method signatures.
+
+- Track-A browser acceptance (§10.1) PASS/PARTIAL recorded + these
+  interfaces **frozen**: `comment_event` / `comment_mention` wire shapes,
+  `CommentThreadDTO` / `CommentDTO`, the anchor payload
+  (`{relStart,relEnd,slice,startLine,endLine,prefixHash}`), the
+  `broadcast*Event` method signatures.
 
 **B gate =** B's suite green + regression green + Track-B browser
 acceptance (§10.2) recorded + frozen: `SettingDef<T>`, `SettingsStore`

@@ -22,14 +22,7 @@ export function sidebarPresenceSignature(
     // Space-separated so adjacent numeric fields cannot collide
     // (clientId 1 + userId 23 must not read the same as clientId 12 + userId 3).
     parts.push(
-      [
-        c.clientId,
-        c.userId,
-        c.activeFile ?? "",
-        c.activity?.type ?? "",
-        c.name,
-        c.color,
-      ].join(" "),
+      [c.clientId, c.userId, c.activeFile ?? "", c.activity?.type ?? "", c.name, c.color].join(" "),
     );
   }
   // The awareness map has no guaranteed order; sort so a reorder alone is not

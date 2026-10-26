@@ -7,9 +7,7 @@ vi.mock("../src/api", () => ({
   updateProfile: () => Promise.resolve({}),
 }));
 
-import SettingsModal, {
-  DEFAULT_PREFERENCES,
-} from "../src/components/Settings/SettingsModal";
+import SettingsModal, { DEFAULT_PREFERENCES } from "../src/components/Settings/SettingsModal";
 
 afterEach(cleanup);
 
@@ -19,9 +17,7 @@ function renderModal(theme: "system" | "dark" | "light" = "system") {
     <SettingsModal
       isOpen
       preferences={{ ...DEFAULT_PREFERENCES, theme }}
-      onSave={
-        onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]
-      }
+      onSave={onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]}
       onClose={vi.fn()}
       username="ada99"
     />,

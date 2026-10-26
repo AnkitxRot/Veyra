@@ -24,10 +24,7 @@ function makeMockWs() {
 }
 
 /** A real MESSAGE_AWARENESS frame, exactly as a browser client sends it. */
-function buildAwarenessFrame(
-  ca: awarenessProtocol.Awareness,
-  user: Record<string, unknown>,
-) {
+function buildAwarenessFrame(ca: awarenessProtocol.Awareness, user: Record<string, unknown>) {
   ca.setLocalStateField("user", user);
   const update = awarenessProtocol.encodeAwarenessUpdate(ca, [ca.clientID]);
   const e = encoding.createEncoder();
@@ -59,10 +56,7 @@ interface HeadlessClient {
  * runtime, each publishing one distinct awareness `user` state through the
  * real `handleMessage` -> sanitize -> applyAwarenessUpdate path.
  */
-async function spawnClients(
-  room: CollaborationRoom,
-  count: number,
-): Promise<HeadlessClient[]> {
+async function spawnClients(room: CollaborationRoom, count: number): Promise<HeadlessClient[]> {
   const clients: HeadlessClient[] = [];
   for (let i = 0; i < count; i++) {
     const ws = makeMockWs();
@@ -92,9 +86,11 @@ describe("M74 — awareness + occupancy at 12 concurrent collaborators", () => {
     cfg = { ...resolveConfig(), workspacesDir: tmpWs, dataDir: tmpData };
     collaborationManager.init(cfg, db);
     for (let i = 1; i <= N; i++) {
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run(`scale_u${i}`, "h", "user");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        `scale_u${i}`,
+        "h",
+        "user",
+      );
     }
   });
 
@@ -171,75 +167,64 @@ describe("M74 — awareness + occupancy at 12 concurrent collaborators", () => {
   });
 });
 
-describe.skipIf(!isDockerRunning())(
-  "M74 — sandbox lifecycle under a 12-collaborator room",
-  () => {
-    const cleanup: Array<{ mgr: SandboxManager; projectId: string }> = [];
+describe.skipIf(!isDockerRunning())("M74 — sandbox lifecycle under a 12-collaborator room", () => {
+  const cleanup: Array<{ mgr: SandboxManager; projectId: string }> = [];
 
-    afterAll(async () => {
-      for (const { mgr, projectId } of cleanup) {
-        await mgr.stopProjectSandbox(projectId).catch(() => {});
-      }
+  afterAll(async () => {
+    for (const { mgr, projectId } of cleanup) {
+      await mgr.stopProjectSandbox(projectId).catch(() => {});
+    }
+  });
+
+  it("keeps the container warm while any collaborator is live, releases once all drop", async () => {
+    const cfg = makeTestConfig();
+    const db = openDb(":memory:");
+    for (let i = 1; i <= N; i++) {
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        `scale_u${i}`,
+        "h",
+        "user",
+      );
+    }
+    collaborationManager.init(cfg, db);
+
+    const mgr = new SandboxManager();
+    mgr.setRoomOccupancyProvider((pid) => collaborationManager.roomOccupancy(pid));
+    const projectId = `m74scale-${randomUUID()}`;
+    await mgr.ensureProjectSandbox(projectId, cfg, makeWorkspace(cfg), 1);
+    cleanup.push({ mgr, projectId });
+    const name = `ide-sandbox-${projectId}`;
+    const T0 = Date.now();
+
+    const room = collaborationManager.getOrCreateRoom(projectId);
+    const clients = await spawnClients(room, N);
+
+    // 12 distinct users share this one container.
+    const metrics = mgr.getRoomOccupancyMetrics();
+    expect(metrics.containers).toBe(1);
+    expect(metrics.containersWithMultipleUsers).toBe(1);
+    expect(metrics.provisionedContainerRoomOccupancy).toEqual({
+      totalLiveClients: N,
+      totalDistinctUsers: N,
     });
 
-    it("keeps the container warm while any collaborator is live, releases once all drop", async () => {
-      const cfg = makeTestConfig();
-      const db = openDb(":memory:");
-      for (let i = 1; i <= N; i++) {
-        db.prepare(
-          "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-        ).run(`scale_u${i}`, "h", "user");
-      }
-      collaborationManager.init(cfg, db);
+    // 1h "later", 1s idle timeout — kept warm because the room is occupied.
+    expect(await mgr.reapIdleSandboxes(1_000, 120_000, T0 + 3_600_000)).toEqual([]);
+    expect(await containerExists(name)).toBe(true);
 
-      const mgr = new SandboxManager();
-      mgr.setRoomOccupancyProvider((pid) =>
-        collaborationManager.roomOccupancy(pid),
-      );
-      const projectId = `m74scale-${randomUUID()}`;
-      await mgr.ensureProjectSandbox(projectId, cfg, makeWorkspace(cfg), 1);
-      cleanup.push({ mgr, projectId });
-      const name = `ide-sandbox-${projectId}`;
-      const T0 = Date.now();
+    // Churn: 9 die abruptly, 3 remain -> still warm.
+    for (let i = 0; i < 9; i++) clients[i]!.ws.readyState = 3;
+    expect(collaborationManager.roomOccupancy(projectId).liveClients).toBe(3);
+    expect(await mgr.reapIdleSandboxes(1_000, 120_000, T0 + 3_600_000)).toEqual([]);
+    expect(await containerExists(name)).toBe(true);
 
-      const room = collaborationManager.getOrCreateRoom(projectId);
-      const clients = await spawnClients(room, N);
+    // All remaining drop -> occupancy 0 -> the base idle rule reaps it.
+    for (let i = 9; i < N; i++) clients[i]!.ws.readyState = 3;
+    expect(collaborationManager.roomOccupancy(projectId).liveClients).toBe(0);
+    const reaped = await mgr.reapIdleSandboxes(1_000, Infinity, T0 + 3_600_000);
+    expect(reaped).toContain(projectId);
+    expect(await containerExists(name)).toBe(false);
 
-      // 12 distinct users share this one container.
-      const metrics = mgr.getRoomOccupancyMetrics();
-      expect(metrics.containers).toBe(1);
-      expect(metrics.containersWithMultipleUsers).toBe(1);
-      expect(metrics.provisionedContainerRoomOccupancy).toEqual({
-        totalLiveClients: N,
-        totalDistinctUsers: N,
-      });
-
-      // 1h "later", 1s idle timeout — kept warm because the room is occupied.
-      expect(
-        await mgr.reapIdleSandboxes(1_000, 120_000, T0 + 3_600_000),
-      ).toEqual([]);
-      expect(await containerExists(name)).toBe(true);
-
-      // Churn: 9 die abruptly, 3 remain -> still warm.
-      for (let i = 0; i < 9; i++) clients[i]!.ws.readyState = 3;
-      expect(collaborationManager.roomOccupancy(projectId).liveClients).toBe(3);
-      expect(
-        await mgr.reapIdleSandboxes(1_000, 120_000, T0 + 3_600_000),
-      ).toEqual([]);
-      expect(await containerExists(name)).toBe(true);
-
-      // All remaining drop -> occupancy 0 -> the base idle rule reaps it.
-      for (let i = 9; i < N; i++) clients[i]!.ws.readyState = 3;
-      expect(collaborationManager.roomOccupancy(projectId).liveClients).toBe(0);
-      const reaped = await mgr.reapIdleSandboxes(
-        1_000,
-        Infinity,
-        T0 + 3_600_000,
-      );
-      expect(reaped).toContain(projectId);
-      expect(await containerExists(name)).toBe(false);
-
-      room.dispose();
-    });
-  },
-);
+    room.dispose();
+  });
+});

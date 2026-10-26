@@ -11,16 +11,9 @@ import {
 } from "../projects/service.js";
 import { withProjectSnapshotLock } from "../projects/snapshots.js";
 import { recordAuditLog } from "../audit.js";
-import {
-  collaborationManager,
-  requireLiveEditsPersisted,
-} from "../collab/manager.js";
+import { collaborationManager, requireLiveEditsPersisted } from "../collab/manager.js";
 import type { MutationType } from "../collab/manager.js";
-import {
-  assertNotGitInternal,
-  invalidateTreeCache,
-  safeResolve,
-} from "../files/service.js";
+import { assertNotGitInternal, invalidateTreeCache, safeResolve } from "../files/service.js";
 import { readConfinedFile } from "../files/confined.js";
 import { toGenericSecretError } from "../projectsecrets/store.js";
 import * as git from "./service.js";
@@ -118,9 +111,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/:id/git/log", async (req, res, next) => {
     try {
       requireRead(req);
-      const limit = req.query.limit
-        ? parseInt(String(req.query.limit), 10)
-        : undefined;
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
       res.json({ commits: await git.getLog(cfg, req.params.id, limit) });
     } catch (err) {
       next(err);
@@ -171,7 +162,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     }
   });
 
-  router.post("/:id/git/stage", async (req, res,next) => {
+  router.post("/:id/git/stage", async (req, res, next) => {
     try {
       requireWrite(req);
       const user = userOf(req);
@@ -284,12 +275,11 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
         // checkout would overwrite blocks the switch unless `force` is set.
         // "editing" alone (dirty unknown) is surfaced to the client as
         // information but does not block here.
-        const collaboratorImpacts =
-          collaborationManager.getCollaboratorFileState(
-            req.params.id,
-            preview.changedPaths,
-            user.id,
-          );
+        const collaboratorImpacts = collaborationManager.getCollaboratorFileState(
+          req.params.id,
+          preview.changedPaths,
+          user.id,
+        );
         if (collaboratorImpacts.some((i) => i.dirty === true) && !force) {
           throw new ApiError(
             409,
@@ -313,8 +303,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
         res.status(409).json({
           error: {
             code: "checkout_conflict",
-            message:
-              "Checkout would overwrite uncommitted changes. Commit or discard them first.",
+            message: "Checkout would overwrite uncommitted changes. Commit or discard them first.",
           },
           blockingPaths: result.blockingPaths,
         });
@@ -381,13 +370,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
           replace: req.body?.replace === true,
         }),
       );
-      syncGitCredentialHost(
-        db,
-        cfg,
-        req.params.id,
-        result.url,
-        user.id,
-      );
+      syncGitCredentialHost(db, cfg, req.params.id, result.url, user.id);
       recordAuditLog(db, {
         userId: user.id,
         projectId: req.params.id,
@@ -421,11 +404,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
       if (userOf(req).username.startsWith("evaluator_")) {
-        throw new ApiError(
-          403,
-          "demo accounts cannot store secrets",
-          "demo_forbidden",
-        );
+        throw new ApiError(403, "demo accounts cannot store secrets", "demo_forbidden");
       }
       let originHost: string | undefined;
       try {
@@ -522,12 +501,11 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
         );
         if (preview.ok === false) return preview;
 
-        const collaboratorImpacts =
-          collaborationManager.getCollaboratorFileState(
-            req.params.id,
-            preview.changedPaths,
-            user.id,
-          );
+        const collaboratorImpacts = collaborationManager.getCollaboratorFileState(
+          req.params.id,
+          preview.changedPaths,
+          user.id,
+        );
         if (collaboratorImpacts.some((i) => i.dirty === true) && !force) {
           throw new ApiError(
             409,
@@ -547,8 +525,7 @@ export function gitRoutes(cfg: AppConfig, db: Db): Router {
         res.status(409).json({
           error: {
             code: "dirty_worktree",
-            message:
-              "Pull would overwrite uncommitted changes. Commit or discard them first.",
+            message: "Pull would overwrite uncommitted changes. Commit or discard them first.",
           },
           blockingPaths: result.blockingPaths,
         });

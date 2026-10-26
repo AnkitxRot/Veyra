@@ -31,10 +31,7 @@ const CANDIDATES = [
   "/opt/debug/js-debug/src/dapDebugServer.js",
   "/opt/debug/src/dapDebugServer.js",
 ];
-const TSC_CANDIDATES = [
-  "/usr/local/lib/node_modules/typescript/bin/tsc",
-  "/usr/local/bin/tsc",
-];
+const TSC_CANDIDATES = ["/usr/local/lib/node_modules/typescript/bin/tsc", "/usr/local/bin/tsc"];
 const ESBUILD_CANDIDATES = [
   "/usr/local/lib/node_modules/tsx/node_modules/esbuild/bin/esbuild",
   "/usr/local/lib/node_modules/esbuild/bin/esbuild",
@@ -229,7 +226,9 @@ export function rewriteSourceMapsUnder(outRoot, opts = {}) {
         mapDir: dirname(file).replace(/\\/g, "/"),
       });
       if (!Array.isArray(map.sources) || map.sources.length === 0) {
-        const relJs = relative(outRoot, file).replace(/\\/g, "/").replace(/\.map$/, "");
+        const relJs = relative(outRoot, file)
+          .replace(/\\/g, "/")
+          .replace(/\.map$/, "");
         const relTs = relJs.replace(/\.js$/i, ".ts");
         if (relTs && !relTs.includes("..") && !relTs.startsWith("/")) {
           map.sources = [`${alias}/${relTs}`];
@@ -259,10 +258,7 @@ export function prepareChildLaunchConfig(cfg, compiledProgram) {
     delete next.runtimeArgs;
     next.sourceMaps = true;
     next.stopOnEntry = true;
-    next.outFiles = [
-      "/workspace/.cloudide-build-debug/**/*.js",
-      "/tmp/veyra-debug/**/*.js",
-    ];
+    next.outFiles = ["/workspace/.cloudide-build-debug/**/*.js", "/tmp/veyra-debug/**/*.js"];
     next.sourceMapPathOverrides = {
       "/workspace/*": "/workspace/*",
     };
@@ -292,10 +288,7 @@ function resolveEsbuild() {
 
 export function compileTypeScriptProgram(program, opts = {}) {
   const allowHostPaths = opts.allowHostPaths === true;
-  const workspaceRoot = String(opts.workspaceRoot || "/workspace").replace(
-    /\\/g,
-    "/",
-  );
+  const workspaceRoot = String(opts.workspaceRoot || "/workspace").replace(/\\/g, "/");
   const outRoot = String(opts.outRoot || "").replace(/\\/g, "/");
   if (!outRoot) throw new Error("missing TypeScript outDir");
   if (!allowHostPaths) {
@@ -358,7 +351,9 @@ export function compileTypeScriptProgram(program, opts = {}) {
   let tscMajor = 0;
   try {
     tscMajor = Number(
-      JSON.parse(readFileSync(join(dirname(tsc), "..", "package.json"), "utf8")).version.split(".")[0],
+      JSON.parse(readFileSync(join(dirname(tsc), "..", "package.json"), "utf8")).version.split(
+        ".",
+      )[0],
     );
   } catch {
     /* unknown version: assume legacy */
@@ -399,7 +394,13 @@ export function compileTypeScriptProgram(program, opts = {}) {
     },
   );
   const js = allowHostPaths
-    ? join(outRoot, program.slice(workspaceRoot.length).replace(/^[/\\]/, "").replace(/\.ts$/i, ".js"))
+    ? join(
+        outRoot,
+        program
+          .slice(workspaceRoot.length)
+          .replace(/^[/\\]/, "")
+          .replace(/\.ts$/i, ".js"),
+      )
     : compiledJsPath(program, outRoot);
   if (!js || !existsSync(js)) {
     const err = String(result.stderr || result.stdout || "compile produced no output").slice(
@@ -417,20 +418,12 @@ export function compileTypeScriptProgram(program, opts = {}) {
 
 function encode(obj) {
   const body = Buffer.from(JSON.stringify(obj), "utf8");
-  return Buffer.concat([
-    Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"),
-    body,
-  ]);
+  return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"), body]);
 }
 
 function indexOfHeaderEnd(buf) {
   for (let i = 0; i + 3 < buf.length; i++) {
-    if (
-      buf[i] === 13 &&
-      buf[i + 1] === 10 &&
-      buf[i + 2] === 13 &&
-      buf[i + 3] === 10
-    ) {
+    if (buf[i] === 13 && buf[i + 1] === 10 && buf[i + 2] === 13 && buf[i + 3] === 10) {
       return i;
     }
   }
@@ -553,9 +546,7 @@ function start(port) {
       outRoot: compileRoot,
     });
     try {
-      process.stderr.write(
-        `veyra-js-debug compiled ${tsProgram} -> ${compiled}\n`,
-      );
+      process.stderr.write(`veyra-js-debug compiled ${tsProgram} -> ${compiled}\n`);
     } catch {}
     return prepareChildLaunchConfig(args, compiled);
   }
@@ -573,9 +564,7 @@ function start(port) {
           msg.arguments = rewriteLaunch(msg.arguments ?? {});
         } catch (err) {
           try {
-            process.stderr.write(
-              `veyra-js-debug compile failed: ${err?.stack || err}\n`,
-            );
+            process.stderr.write(`veyra-js-debug compile failed: ${err?.stack || err}\n`);
           } catch {}
           process.exit(1);
         }
@@ -696,16 +685,12 @@ function start(port) {
     });
 
     let launchArgs =
-      cfg && typeof cfg === "object"
-        ? { ...cfg }
-        : { type: "pwa-node", request: "launch" };
+      cfg && typeof cfg === "object" ? { ...cfg } : { type: "pwa-node", request: "launch" };
     try {
       launchArgs = rewriteLaunch(launchArgs);
     } catch (err) {
       try {
-        process.stderr.write(
-          `veyra-js-debug child compile failed: ${err?.stack || err}\n`,
-        );
+        process.stderr.write(`veyra-js-debug child compile failed: ${err?.stack || err}\n`);
       } catch {}
       process.exit(1);
     }
@@ -754,9 +739,7 @@ function start(port) {
       const cfg = msg.arguments?.configuration ?? {};
       attachChild(cfg).catch((err) => {
         try {
-          process.stderr.write(
-            `veyra-js-debug child attach failed: ${err?.stack || err}\n`,
-          );
+          process.stderr.write(`veyra-js-debug child attach failed: ${err?.stack || err}\n`);
         } catch {}
         process.exit(1);
       });

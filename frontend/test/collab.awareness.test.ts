@@ -158,24 +158,16 @@ describe("CollaborationClient — Ambient Presence, Activity State Machine & Pri
     } as any);
 
     client.setActivity("running", "Running python main.py");
-    expect((client.awareness.getLocalState() as any).activity.type).toBe(
-      "running",
-    );
+    expect((client.awareness.getLocalState() as any).activity.type).toBe("running");
 
     client.restoreActivity();
-    expect((client.awareness.getLocalState() as any).activity.type).toBe(
-      "viewing",
-    );
+    expect((client.awareness.getLocalState() as any).activity.type).toBe("viewing");
 
     client.setActivity("terminal");
-    expect((client.awareness.getLocalState() as any).activity.type).toBe(
-      "terminal",
-    );
+    expect((client.awareness.getLocalState() as any).activity.type).toBe("terminal");
 
     client.restoreActivity();
-    expect((client.awareness.getLocalState() as any).activity.type).toBe(
-      "viewing",
-    );
+    expect((client.awareness.getLocalState() as any).activity.type).toBe("viewing");
 
     client.dispose();
   });
@@ -215,23 +207,17 @@ describe("CollaborationClient — Ambient Presence, Activity State Machine & Pri
       username: "alice",
     } as any);
 
-    expect(
-      (client.awareness.getLocalState() as any).activeFileDirty,
-    ).toBeUndefined();
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBeUndefined();
 
     client.setActiveFileDirty(true);
-    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
-      true,
-    );
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(true);
 
     // No arbitrary path list is ever emitted — only the boolean.
     const st = client.awareness.getLocalState() as any;
     expect(st.dirtyPaths).toBeUndefined();
 
     client.setActiveFileDirty(false);
-    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
-      false,
-    );
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(false);
 
     client.dispose();
   });
@@ -244,14 +230,10 @@ describe("CollaborationClient — Ambient Presence, Activity State Machine & Pri
 
     client.notifyFileOpen("a.ts");
     client.setActiveFileDirty(true);
-    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
-      true,
-    );
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(true);
 
     client.notifyFileOpen("b.ts");
-    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(
-      false,
-    );
+    expect((client.awareness.getLocalState() as any).activeFileDirty).toBe(false);
 
     client.dispose();
   });
@@ -271,92 +253,91 @@ describe("CollaborationClient — Ambient Presence, Activity State Machine & Pri
 
   // --- M57: working folder, intent, navigating, away ---------------------
 
-  it('notifyFileOpen sets workingFolder to dirname(activeFile)', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    client.notifyFileOpen('src/auth/service.ts');
-    expect((client.awareness.getLocalState() as any).workingFolder).toBe('src/auth');
-    client.notifyFileOpen('main.py');
+  it("notifyFileOpen sets workingFolder to dirname(activeFile)", () => {
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    client.notifyFileOpen("src/auth/service.ts");
+    expect((client.awareness.getLocalState() as any).workingFolder).toBe("src/auth");
+    client.notifyFileOpen("main.py");
     expect((client.awareness.getLocalState() as any).workingFolder).toBeNull();
     client.dispose();
   });
 
   it('window blur transitions availability to "away" (not "idle")', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    window.dispatchEvent(new Event('blur'));
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    window.dispatchEvent(new Event("blur"));
     vi.advanceTimersByTime(60_000);
-    expect((client.awareness.getLocalState() as any).status).toBe('away');
+    expect((client.awareness.getLocalState() as any).status).toBe("away");
     client.dispose();
   });
 
-  it('window focus restores online from away', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    window.dispatchEvent(new Event('blur'));
+  it("window focus restores online from away", () => {
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    window.dispatchEvent(new Event("blur"));
     vi.advanceTimersByTime(60_000);
-    expect((client.awareness.getLocalState() as any).status).toBe('away');
-    window.dispatchEvent(new Event('focus'));
-    expect((client.awareness.getLocalState() as any).status).toBe('online');
+    expect((client.awareness.getLocalState() as any).status).toBe("away");
+    window.dispatchEvent(new Event("focus"));
+    expect((client.awareness.getLocalState() as any).status).toBe("online");
     client.dispose();
   });
 
   it('recordNavigation sets activity "navigating" then reverts to "viewing"', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    client.notifyFileOpen('a.ts');
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    client.notifyFileOpen("a.ts");
     client.recordNavigation();
-    expect((client.awareness.getLocalState() as any).activity.type).toBe('navigating');
+    expect((client.awareness.getLocalState() as any).activity.type).toBe("navigating");
     vi.advanceTimersByTime(2500);
-    expect((client.awareness.getLocalState() as any).activity.type).toBe('viewing');
+    expect((client.awareness.getLocalState() as any).activity.type).toBe("viewing");
     client.dispose();
   });
 
-  it('recordNavigation does not override an in-flight editing state', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    client.notifyFileOpen('a.ts');
+  it("recordNavigation does not override an in-flight editing state", () => {
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    client.notifyFileOpen("a.ts");
     client.recordEdit();
     client.recordNavigation();
-    expect((client.awareness.getLocalState() as any).activity.type).toBe('editing');
+    expect((client.awareness.getLocalState() as any).activity.type).toBe("editing");
     client.dispose();
   });
 
   it('setIntent sets a cleaned, bounded intent and setIntent("") clears it', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
     client.setIntent("  Implement\nJWT refresh  ");
     const st = client.awareness.getLocalState() as any;
-    expect(st.intent.text).toBe('Implement JWT refresh');
-    expect(typeof st.intent.updatedAt).toBe('number');
-    client.setIntent('');
+    expect(st.intent.text).toBe("Implement JWT refresh");
+    expect(typeof st.intent.updatedAt).toBe("number");
+    client.setIntent("");
     expect((client.awareness.getLocalState() as any).intent).toBeNull();
     client.dispose();
   });
 
-  it('setIntent is a no-op when the cleaned text is unchanged', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    client.setIntent('hello');
+  it("setIntent is a no-op when the cleaned text is unchanged", () => {
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    client.setIntent("hello");
     const first = (client.awareness.getLocalState() as any).intent.updatedAt;
     vi.advanceTimersByTime(5);
-    client.setIntent('hello');
+    client.setIntent("hello");
     expect((client.awareness.getLocalState() as any).intent.updatedAt).toBe(first);
     client.dispose();
   });
 
-  it('setIntent truncates to 120 chars', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    client.setIntent('x'.repeat(400));
+  it("setIntent truncates to 120 chars", () => {
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    client.setIntent("x".repeat(400));
     expect((client.awareness.getLocalState() as any).intent.text).toHaveLength(120);
     client.dispose();
   });
 
-  it('resetLocalCollabState clears workingFolder and intent', () => {
-    const client = new CollaborationClient('proj-1', { id: 1, username: 'a' } as any);
-    client.notifyFileOpen('src/x/y.ts');
-    client.setIntent('hello');
+  it("resetLocalCollabState clears workingFolder and intent", () => {
+    const client = new CollaborationClient("proj-1", { id: 1, username: "a" } as any);
+    client.notifyFileOpen("src/x/y.ts");
+    client.setIntent("hello");
     (client as any).resetLocalCollabState();
     const st = client.awareness.getLocalState() as any;
     expect(st.workingFolder ?? null).toBeNull();
     expect(st.intent ?? null).toBeNull();
     // tracker reset: same text re-emits
-    client.setIntent('hello');
-    expect((client.awareness.getLocalState() as any).intent.text).toBe('hello');
+    client.setIntent("hello");
+    expect((client.awareness.getLocalState() as any).intent.text).toBe("hello");
     client.dispose();
   });
-
 });

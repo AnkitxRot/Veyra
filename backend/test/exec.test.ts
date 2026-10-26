@@ -85,10 +85,7 @@ describe.skipIf(!isDockerRunning())("language execution", () => {
 
   it("node: captures stderr and a non-zero exit code", async () => {
     const ws = makeWorkspace(cfg);
-    writeFileSync(
-      join(ws, "main.js"),
-      'console.error("boom")\nprocess.exit(7)\n',
-    );
+    writeFileSync(join(ws, "main.js"), 'console.error("boom")\nprocess.exit(7)\n');
     const projectId = `test-${randomUUID()}`;
     activeProjectId = projectId;
     const r = await runProject(cfg, projectId, ws, { userId: 1 });

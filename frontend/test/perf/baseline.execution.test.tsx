@@ -25,13 +25,9 @@ vi.mock("../../src/api", () => ({
 }));
 
 import Output from "../../src/components/Output/Output";
-import {
-  ExecutionSessionProvider,
-  useExecutionSession,
-} from "../../src/hooks/useExecutionSession";
+import { ExecutionSessionProvider, useExecutionSession } from "../../src/hooks/useExecutionSession";
 
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 class FakeWebSocket {
   static OPEN = 1;
@@ -75,13 +71,7 @@ function ControlsOnlyProbe() {
   return <div data-testid="controls">{isRunning ? "run" : "idle"}</div>;
 }
 
-function Host({
-  recorder,
-  showOutput,
-}: {
-  recorder: RenderRecorder;
-  showOutput: boolean;
-}) {
+function Host({ recorder, showOutput }: { recorder: RenderRecorder; showOutput: boolean }) {
   return (
     <ExecutionSessionProvider projectId={project.id}>
       <Probe id="controls-only" recorder={recorder}>
@@ -124,9 +114,7 @@ describe("M71 BASELINE B — execution-log stream", () => {
           detail: { language: "python", activeFile: "m.py", langDisplay: "Python" },
         }),
       );
-      await waitFor(() =>
-        expect(FakeWebSocket.instances.length).toBeGreaterThan(0),
-      );
+      await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
       const ws = FakeWebSocket.latest();
       act(() => ws.open());
 
@@ -150,9 +138,7 @@ describe("M71 BASELINE B — execution-log stream", () => {
 
       controlsRuns.push(recorder.count("controls-only"));
       outputRuns.push(recorder.count("output"));
-      commitPerLine.push(
-        Math.round((recorder.count("output") / LINES) * 1000) / 1000,
-      );
+      commitPerLine.push(Math.round((recorder.count("output") / LINES) * 1000) / 1000);
 
       act(() => view.unmount());
     }

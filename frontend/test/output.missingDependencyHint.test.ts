@@ -6,8 +6,7 @@ import type { Project } from "../src/types";
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
 }));
 
 import Output from "../src/components/Output/Output";
@@ -19,8 +18,7 @@ import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 // jsdom does not implement Element.scrollIntoView; Output's own (unrelated,
 // pre-existing) auto-scroll effect calls it on every log-console render —
 // see output.installStream.test.ts for the same, more detailed note.
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 // A minimal controllable fake of the WebSocket the run effect constructs,
 // giving tests precise control over open/message/close timing without a
@@ -103,9 +101,7 @@ describe("Output — Milestone 44 inline missing-dependency install hint", () =>
         },
       }),
     );
-    await waitFor(() =>
-      expect(FakeWebSocket.instances.length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
     const ws = FakeWebSocket.latest();
     ws.simulateOpen();
     if (stderr) {
@@ -209,9 +205,7 @@ describe("Output — Milestone 44 inline missing-dependency install hint", () =>
     // The hint is cleared the moment install begins (M43's own console
     // reset also wipes the log that held it) — no duplicate/second
     // affordance is ever rendered alongside the fresh "Installing..." log.
-    await waitFor(() =>
-      expect(queryAllByText("Install Dependencies").length).toBe(0),
-    );
+    await waitFor(() => expect(queryAllByText("Install Dependencies").length).toBe(0));
   });
 
   it("9. multiple missing-module lines in one run's output still produce exactly one affordance", async () => {
@@ -222,18 +216,14 @@ describe("Output — Milestone 44 inline missing-dependency install hint", () =>
         "During handling of the above exception, another exception occurred:\n" +
         "ModuleNotFoundError: No module named 'six'\n",
     );
-    await waitFor(() =>
-      expect(getAllByText("Install Dependencies").length).toBe(1),
-    );
+    await waitFor(() => expect(getAllByText("Install Dependencies").length).toBe(1));
   });
 
   it("10. the affordance does not alter or replace the existing traceback content", async () => {
     const { container, getByText } = renderOutput();
     await runToExit(1, "ModuleNotFoundError: No module named 'requests'\n");
     await waitFor(() => expect(getByText("Install Dependencies")).toBeTruthy());
-    expect(container.textContent).toContain(
-      "ModuleNotFoundError: No module named 'requests'",
-    );
+    expect(container.textContent).toContain("ModuleNotFoundError: No module named 'requests'");
     expect(container.textContent).toContain("Process exited with code 1");
   });
 });

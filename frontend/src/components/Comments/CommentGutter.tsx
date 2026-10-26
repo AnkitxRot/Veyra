@@ -37,12 +37,8 @@ export default function CommentGutter({
   threads,
   onOpenThread,
 }: CommentGutterProps) {
-  const decoRef = useRef<MonacoNS.editor.IEditorDecorationsCollection | null>(
-    null,
-  );
-  const widgetsRef = useRef<Map<string, MonacoNS.editor.IContentWidget>>(
-    new Map(),
-  );
+  const decoRef = useRef<MonacoNS.editor.IEditorDecorationsCollection | null>(null);
+  const widgetsRef = useRef<Map<string, MonacoNS.editor.IContentWidget>>(new Map());
   const reportedRef = useRef<Map<string, AnchorState>>(new Map());
 
   useEffect(() => {
@@ -59,9 +55,7 @@ export default function CommentGutter({
       const cancelled = () => gen !== generation;
       const decos: MonacoNS.editor.IModelDeltaDecoration[] = [];
       const keep = new Set<string>();
-      const fileThreads = threads.filter(
-        (t) => t.filePath === activeFile && t.resolvedAt == null,
-      );
+      const fileThreads = threads.filter((t) => t.filePath === activeFile && t.resolvedAt == null);
 
       // The Y.Doc for this file is loaded asynchronously (server sync +
       // y-monaco). Resolving anchors against a not-yet-populated Y.Text makes
@@ -103,25 +97,16 @@ export default function CommentGutter({
           reportedRef.current.set(thread.id, resolved.state);
           const advisory = resolved.state === "stale" ? "stale" : "ok";
           if (advisory !== thread.anchorStatus) {
-            void reportAnchorStatus(projectId, thread.id, advisory).catch(
-              () => {},
-            );
+            void reportAnchorStatus(projectId, thread.id, advisory).catch(() => {});
           }
         }
 
         if (resolved.state === "stale" || !resolved.range) continue;
         const r = resolved.range;
-        const replyCount = thread.replies.filter(
-          (c) => c.deletedAt == null,
-        ).length;
+        const replyCount = thread.replies.filter((c) => c.deletedAt == null).length;
 
         decos.push({
-          range: new monaco.Range(
-            r.startLineNumber,
-            1,
-            r.endLineNumber,
-            1,
-          ),
+          range: new monaco.Range(r.startLineNumber, 1, r.endLineNumber, 1),
           options: {
             glyphMarginClassName: "comment-glyph",
             className: "comment-range",

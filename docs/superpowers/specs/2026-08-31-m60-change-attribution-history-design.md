@@ -19,8 +19,8 @@ Spec + plan:
 
 ## 1. Product intent
 
-M57: *"Rahul is here."* M58: *"Rahul can get my attention around this code."*
-M59: *"I can enter Rahul's context and work beside him."* M60:
+M57: _"Rahul is here."_ M58: _"Rahul can get my attention around this code."_
+M59: _"I can enter Rahul's context and work beside him."_ M60:
 
 > "I can see what Rahul changed, what the team did, and what happened while I
 > was away."
@@ -44,15 +44,15 @@ No AI summarisation anywhere (that is a later milestone, if ever).
 
 ### 2.1 Yjs transaction → identity (backend/src/collab/manager.ts)
 
-| Fact | Location | Detail |
-|---|---|---|
-| Doc update hook | `CollaborationRoom` ctor, `this.doc.on("update", (update, origin) => …)` | arms persistence + queues broadcast. `origin === transaction.origin`. |
-| Transaction hook | `this.doc.on("afterTransaction", (tr) => …)` | **already** iterates `tr.changed.keys()` (the changed `AbstractType`s), reverse-maps each to its top-level `doc.share` key (the file path), and calls `markFileDirty(key)`. Already skips `tr.origin === "external_mutation" \|\| "initial_disk_load"` and `tr.changed.size === 0`. |
-| Client-edit origin | `handleMessage` → `case MESSAGE_SYNC` → `syncProtocol.readSyncMessage(decoder, encoder, this.doc, ws)` | the 4th arg is the transaction origin. For a genuine client edit, **`tr.origin` is the `WebSocket` instance.** |
-| ws → user | `this.clients.get(ws)` → `CollaboratorClientState { userId, username, role, activeFile }` | identity is the **authenticated session**, forced server-side (M55). Reconnect = new `ws`, **same `userId`**. |
-| Viewer guard | `handleMessage` `case MESSAGE_SYNC` | edit updates from `role === "viewer"` are dropped before `readSyncMessage`. Every *applied* edit is from an editor/owner. |
-| Server-origin transactions | `ensureFileLoaded` → `doc.transact(fn, "initial_disk_load")`; `handleExternalFileMutation` → `doc.transact(fn, "external_mutation")` | string origins, **must be excluded** from attribution. |
-| Idempotent re-sync | Yjs 13.6.32 | re-applying already-known structs integrates nothing → `tr.changed.size === 0` → the existing guard returns. A reconnecting client re-sending its state vector / step-2 never produces spurious change events. |
+| Fact                       | Location                                                                                                                             | Detail                                                                                                                                                                                                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Doc update hook            | `CollaborationRoom` ctor, `this.doc.on("update", (update, origin) => …)`                                                             | arms persistence + queues broadcast. `origin === transaction.origin`.                                                                                                                                                                                                               |
+| Transaction hook           | `this.doc.on("afterTransaction", (tr) => …)`                                                                                         | **already** iterates `tr.changed.keys()` (the changed `AbstractType`s), reverse-maps each to its top-level `doc.share` key (the file path), and calls `markFileDirty(key)`. Already skips `tr.origin === "external_mutation" \|\| "initial_disk_load"` and `tr.changed.size === 0`. |
+| Client-edit origin         | `handleMessage` → `case MESSAGE_SYNC` → `syncProtocol.readSyncMessage(decoder, encoder, this.doc, ws)`                               | the 4th arg is the transaction origin. For a genuine client edit, **`tr.origin` is the `WebSocket` instance.**                                                                                                                                                                      |
+| ws → user                  | `this.clients.get(ws)` → `CollaboratorClientState { userId, username, role, activeFile }`                                            | identity is the **authenticated session**, forced server-side (M55). Reconnect = new `ws`, **same `userId`**.                                                                                                                                                                       |
+| Viewer guard               | `handleMessage` `case MESSAGE_SYNC`                                                                                                  | edit updates from `role === "viewer"` are dropped before `readSyncMessage`. Every _applied_ edit is from an editor/owner.                                                                                                                                                           |
+| Server-origin transactions | `ensureFileLoaded` → `doc.transact(fn, "initial_disk_load")`; `handleExternalFileMutation` → `doc.transact(fn, "external_mutation")` | string origins, **must be excluded** from attribution.                                                                                                                                                                                                                              |
+| Idempotent re-sync         | Yjs 13.6.32                                                                                                                          | re-applying already-known structs integrates nothing → `tr.changed.size === 0` → the existing guard returns. A reconnecting client re-sending its state vector / step-2 never produces spurious change events.                                                                      |
 
 ### 2.2 Yjs event order (yjs 13.6.32, `cleanupTransactions`, verified in `dist/yjs.cjs`)
 
@@ -202,7 +202,7 @@ if (!this.rangeObservedFiles.has(filePath)) {
   `dispose()` removes every observer; the room is then discarded.)
 - **Never attached to a detached Y.Text** — `ensureFileLoaded` returns a bare
   `new Y.Text()` for a path that escapes the workspace; that branch returns
-  *before* the observe block.
+  _before_ the observe block.
 - `stashRange(evt)` reverse-maps `evt.target` → filePath, computes the affected
   character span from `evt.delta` (Quill-style `{retain}|{insert}|{delete}`),
   converts offsets → 1-based line numbers against `evt.target.toString()`
@@ -224,8 +224,8 @@ present; when absent the burst still records `updateCount++` and
 
 `linesAdded` / `linesRemoved` per burst are summed from each transaction's
 delta: count `\n` in every `{insert}` string (→ added) and, for `{delete: n}`,
-the newline count in the *deleted* substring (captured in `stashRange` from
-`evt.target` state *before* the change is applied — Yjs `.observe` fires after
+the newline count in the _deleted_ substring (captured in `stashRange` from
+`evt.target` state _before_ the change is applied — Yjs `.observe` fires after
 apply, so deleted-substring newline counts are derived from
 `evt.changes.deleted` items where available, else the deleted char count only
 and `linesRemoved` is left approximate-but-bounded; when it cannot be derived
@@ -264,16 +264,16 @@ persistence) and a **new** burst is opened for the same key from this edit.
 
 ### 4.3 Close triggers (a burst is enqueued for persistence when)
 
-| Trigger | Mechanism |
-|---|---|
-| Idle gap exceeded | detected lazily on the next `recordEdit` for the key, **and** proactively by a sweep timer (`COLLAB_BURST_SWEEP_MS`, default `5000`) so a burst with no follow-up edit still closes ~one idle-window late |
-| Max burst age exceeded | same lazy + sweep detection |
-| **Different author** edits the same `filePath` | on `recordEdit`, before opening/extending this author's burst, any *other* author's open burst for the same `projectId:*:filePath` is closed and flagged `rangeContaminated = true` (see §5) |
-| Persistence / flush-to-disk boundary | `CollaborationRoom.flushToDisk()` and `flushBeforeDestructiveDispose()` call `collaborationHistorian.closeProjectBursts(projectId, "flush")` before/after writing — every open burst for the project is closed so history and disk agree |
-| Author disconnects | `CollaborationRoom.removeClient(ws)` → `collaborationHistorian.closeAuthorBursts(projectId, userId, "disconnect")` (only when that user has no other live socket in the room) |
-| Room disposes | `CollaborationRoom.dispose()` → `collaborationHistorian.closeProjectBursts(projectId, "dispose")` (synchronous, before `doc.destroy()`) |
-| Project disposes / deleted | `service.deleteProject` / `workspaceRestore` → `collaborationHistorian.disposeProject(projectId)` closes+flushes then drops in-memory state; the DB rows then cascade-delete with the project row |
-| Graceful shutdown | `collaborationHistorian.stop()` in `performGracefulShutdown` step 0 → close every open burst, drain the write queue synchronously |
+| Trigger                                        | Mechanism                                                                                                                                                                                                                                |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Idle gap exceeded                              | detected lazily on the next `recordEdit` for the key, **and** proactively by a sweep timer (`COLLAB_BURST_SWEEP_MS`, default `5000`) so a burst with no follow-up edit still closes ~one idle-window late                                |
+| Max burst age exceeded                         | same lazy + sweep detection                                                                                                                                                                                                              |
+| **Different author** edits the same `filePath` | on `recordEdit`, before opening/extending this author's burst, any _other_ author's open burst for the same `projectId:*:filePath` is closed and flagged `rangeContaminated = true` (see §5)                                             |
+| Persistence / flush-to-disk boundary           | `CollaborationRoom.flushToDisk()` and `flushBeforeDestructiveDispose()` call `collaborationHistorian.closeProjectBursts(projectId, "flush")` before/after writing — every open burst for the project is closed so history and disk agree |
+| Author disconnects                             | `CollaborationRoom.removeClient(ws)` → `collaborationHistorian.closeAuthorBursts(projectId, userId, "disconnect")` (only when that user has no other live socket in the room)                                                            |
+| Room disposes                                  | `CollaborationRoom.dispose()` → `collaborationHistorian.closeProjectBursts(projectId, "dispose")` (synchronous, before `doc.destroy()`)                                                                                                  |
+| Project disposes / deleted                     | `service.deleteProject` / `workspaceRestore` → `collaborationHistorian.disposeProject(projectId)` closes+flushes then drops in-memory state; the DB rows then cascade-delete with the project row                                        |
+| Graceful shutdown                              | `collaborationHistorian.stop()` in `performGracefulShutdown` step 0 → close every open burst, drain the write queue synchronously                                                                                                        |
 
 ### 4.4 Invariants (tested)
 
@@ -303,7 +303,7 @@ A closed burst persists `start_line` / `end_line` **only** when ALL hold:
    contiguous line interval** — `max(endLine) - min(startLine)` equals the
    covered set with no gap (tracked as a set of touched line intervals merged
    as we fold; if merge yields >1 interval ⇒ not contiguous).
-4. `rangeContaminated === false` — no *other* author edited this file while this
+4. `rangeContaminated === false` — no _other_ author edited this file while this
    burst was open (set by the different-author close trigger, §4.3; also set if
    an `external_mutation` / `initial_disk_load` transaction touched the file
    mid-burst).
@@ -403,7 +403,7 @@ is proven.
 `detail` limited to:
 
 - `kind='callout'`: `{ messagePreview: string (≤120, already sanitised by M58
-  parseAttentionInput), targeted: boolean }`.
+parseAttentionInput), targeted: boolean }`.
 - `kind='edit_burst'`: `detail` is `NULL` (all its data is in typed columns).
 
 ### 7.2 MUST NOT persist (anywhere in M60)
@@ -488,15 +488,15 @@ stable pagination (§9.3).
 
 ```ts
 type TimelineEvent = {
-  id: string;                       // "<source>:<sourceId>" — globally unique
+  id: string; // "<source>:<sourceId>" — globally unique
   kind: "edit_burst" | "callout" | "run" | "commit" | "snapshot";
-  at: string;                       // ISO ms — the sort key (ended_at / created_at)
+  at: string; // ISO ms — the sort key (ended_at / created_at)
   actor: { userId: number; username: string };
   filePath?: string;
   lineRange?: { startLine: number; endLine: number };
-  title: string;                    // server-composed, deterministic, safe
+  title: string; // server-composed, deterministic, safe
   subtitle?: string;
-  navigable: boolean;               // true ⇒ has filePath (± lineRange)
+  navigable: boolean; // true ⇒ has filePath (± lineRange)
 };
 ```
 
@@ -548,11 +548,11 @@ of a broad result set.
 
 **Update points (never per-heartbeat):**
 
-| When | Value |
-|---|---|
-| `CollaborationRoom.removeClient(ws)` — and that `userId` now has **no** other live socket in the room | `last_seen_at = now` (definitive session-end boundary) |
-| `POST /collab/while-away/ack { upTo }` | `last_seen_at = max(current, upTo)` — the user acknowledged the card |
-| First ever connect to a project (no row) | insert `last_seen_at = now` on `addClient` **only if the row is absent** — a first-time collaborator has no "away" backlog |
+| When                                                                                                  | Value                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `CollaborationRoom.removeClient(ws)` — and that `userId` now has **no** other live socket in the room | `last_seen_at = now` (definitive session-end boundary)                                                                     |
+| `POST /collab/while-away/ack { upTo }`                                                                | `last_seen_at = max(current, upTo)` — the user acknowledged the card                                                       |
+| First ever connect to a project (no row)                                                              | insert `last_seen_at = now` on `addClient` **only if the row is absent** — a first-time collaborator has no "away" backlog |
 
 Not updated on `addClient` when a row exists (that would erase the boundary
 before the client can read it), not on ws ping/pong, not on awareness updates.
@@ -583,7 +583,7 @@ On the transition back to `connected`, if
 `now - disconnectedAt > COLLAB_AWAY_THRESHOLD_MS` (default `180000` = 3 min),
 emit `reconnected_after_gap`. `IDE.tsx` listens → `GET /collab/while-away` →
 if `events.length` mount `<WhileYouWereAway>`. The **client gap** is only the
-*trigger*; the **server `last_seen`** is the authoritative content boundary.
+_trigger_; the **server `last_seen`** is the authoritative content boundary.
 
 ### 10.4 No duplicate after repeated refresh/reconnect
 
@@ -603,7 +603,7 @@ if `events.length` mount `<WhileYouWereAway>`. The **client gap** is only the
 
 A new collapsible section **below** the people roster and the `WORKING IN`
 folders in `TeamPanel.tsx` (no new panel, no new toolbar button — TeamPanel
-stays the single multiplayer hub: *people + context + activity*).
+stays the single multiplayer hub: _people + context + activity_).
 
 ```
 TEAM ACTIVITY
@@ -621,7 +621,7 @@ TEAM ACTIVITY
 - 1 Hz relative-time ticker local to the mounted panel (same pattern as the
   existing `TeamPanel` `now` state).
 - Row click: `navigable ? openAndRevealLocation(handleOpenFile, { filePath,
-  line: lineRange?.startLine ?? 1, column: 1 }) : no-op`. Exact path — open
+line: lineRange?.startLine ?? 1, column: 1 }) : no-op`. Exact path — open
   strictly before reveal, closed-file safe.
 
 ### 11.2 `WhileYouWereAway.tsx` — dismissible reconnect card
@@ -656,18 +656,18 @@ Absent entirely when the user has no change in the loaded window.
 
 ## 12. Security / privacy model
 
-| Concern | Mitigation |
-|---|---|
-| Wrong author on a change | Author is **always** `this.clients.get(tr.origin).userId` — the authenticated WS session (M55-forced). `tr.origin` is the `ws` for real client edits; string origins are excluded; a missing `clients` entry ⇒ no event. Never a client-asserted identity, never a `clientId`. |
-| Forged `collab_change` from a peer | Receive-only on the client (like `run_status`); the client has no code path that sends this type. Server only emits from `CollaborationHistorian`. |
-| Sensitive content in history | §7 allowlist — typed columns + a 3-field `detail` for callouts. No content, diff, output, secret, cursor, or selection is written. Source queries select explicit safe columns (§7.3), never `SELECT *`. |
-| Cross-project leak | Every query is `WHERE project_id = ?` first, indexed; union is per-project; no broad-then-filter. |
-| Unauthorized read | `requireProjectAccess(db, callerId, projectId, "viewer")` on all three endpoints; 403/404 for non-members; revoked collaborator loses access on the next request. No frontend-only filtering. |
-| Project deletion | `ON DELETE CASCADE` on both new tables; `disposeProject` clears memory; audit-sourced timeline rows stop returning once the project row is gone. |
-| Deleted user | `author_user_id` cascades to delete of `collaboration_changes` rows; audit rows keep `user_id` NULL (existing SET NULL) → rendered `"(removed user)"`. |
-| Callout → chat creep | callout history is a single immutable metadata row (`messagePreview ≤120`), no reply, no thread, no edit. Persistent comments are M61. |
-| Surveillance | Nothing sub-"meaningful engineering event" is recorded. No keystroke/cursor/selection/heartbeat/navigation is a source. Retention is 14 days. |
-| Hot-path DB write | `afterTransaction` does **zero** I/O — it routes to an in-memory accumulator. DB writes are batched every 5 s / 100 rows. No per-keystroke, per-transaction, or per-cursor write anywhere. |
+| Concern                            | Mitigation                                                                                                                                                                                                                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Wrong author on a change           | Author is **always** `this.clients.get(tr.origin).userId` — the authenticated WS session (M55-forced). `tr.origin` is the `ws` for real client edits; string origins are excluded; a missing `clients` entry ⇒ no event. Never a client-asserted identity, never a `clientId`. |
+| Forged `collab_change` from a peer | Receive-only on the client (like `run_status`); the client has no code path that sends this type. Server only emits from `CollaborationHistorian`.                                                                                                                             |
+| Sensitive content in history       | §7 allowlist — typed columns + a 3-field `detail` for callouts. No content, diff, output, secret, cursor, or selection is written. Source queries select explicit safe columns (§7.3), never `SELECT *`.                                                                       |
+| Cross-project leak                 | Every query is `WHERE project_id = ?` first, indexed; union is per-project; no broad-then-filter.                                                                                                                                                                              |
+| Unauthorized read                  | `requireProjectAccess(db, callerId, projectId, "viewer")` on all three endpoints; 403/404 for non-members; revoked collaborator loses access on the next request. No frontend-only filtering.                                                                                  |
+| Project deletion                   | `ON DELETE CASCADE` on both new tables; `disposeProject` clears memory; audit-sourced timeline rows stop returning once the project row is gone.                                                                                                                               |
+| Deleted user                       | `author_user_id` cascades to delete of `collaboration_changes` rows; audit rows keep `user_id` NULL (existing SET NULL) → rendered `"(removed user)"`.                                                                                                                         |
+| Callout → chat creep               | callout history is a single immutable metadata row (`messagePreview ≤120`), no reply, no thread, no edit. Persistent comments are M61.                                                                                                                                         |
+| Surveillance                       | Nothing sub-"meaningful engineering event" is recorded. No keystroke/cursor/selection/heartbeat/navigation is a source. Retention is 14 days.                                                                                                                                  |
+| Hot-path DB write                  | `afterTransaction` does **zero** I/O — it routes to an in-memory accumulator. DB writes are batched every 5 s / 100 rows. No per-keystroke, per-transaction, or per-cursor write anywhere.                                                                                     |
 
 ---
 
@@ -685,19 +685,19 @@ Absent entirely when the user has no change in the loaded window.
 
 ## 14. Config knobs (backend/src/config.ts, `overrides.X ?? Number(process.env.X ?? default)`)
 
-| Key | Env | Default |
-|---|---|---|
-| `collabBurstIdleMs` | `COLLAB_BURST_IDLE_MS` | `15000` |
-| `collabBurstMaxMs` | `COLLAB_BURST_MAX_MS` | `300000` |
-| `collabBurstSweepMs` | `COLLAB_BURST_SWEEP_MS` | `5000` |
-| `collabHistoryFlushIntervalMs` | `COLLAB_HISTORY_FLUSH_INTERVAL_MS` | `5000` |
-| `collabHistoryRetentionDays` | `COLLAB_HISTORY_RETENTION_DAYS` | `14` |
-| `collabHistoryMaxPerProject` | `COLLAB_HISTORY_MAX_PER_PROJECT` | `2000` |
-| `collabAwayThresholdMs` | `COLLAB_AWAY_THRESHOLD_MS` | `180000` |
-| `collabAwayMaxLookbackMs` | `COLLAB_AWAY_MAX_LOOKBACK_MS` | `86400000` |
-| `collabAwayMaxEvents` | `COLLAB_AWAY_MAX_EVENTS` | `50` |
-| `collabAwayNoticeMs` | `COLLAB_AWAY_NOTICE_MS` | `20000` |
-| `collabOpenBurstsMax` | `COLLAB_OPEN_BURSTS_MAX` | `5000` |
+| Key                            | Env                                | Default    |
+| ------------------------------ | ---------------------------------- | ---------- |
+| `collabBurstIdleMs`            | `COLLAB_BURST_IDLE_MS`             | `15000`    |
+| `collabBurstMaxMs`             | `COLLAB_BURST_MAX_MS`              | `300000`   |
+| `collabBurstSweepMs`           | `COLLAB_BURST_SWEEP_MS`            | `5000`     |
+| `collabHistoryFlushIntervalMs` | `COLLAB_HISTORY_FLUSH_INTERVAL_MS` | `5000`     |
+| `collabHistoryRetentionDays`   | `COLLAB_HISTORY_RETENTION_DAYS`    | `14`       |
+| `collabHistoryMaxPerProject`   | `COLLAB_HISTORY_MAX_PER_PROJECT`   | `2000`     |
+| `collabAwayThresholdMs`        | `COLLAB_AWAY_THRESHOLD_MS`         | `180000`   |
+| `collabAwayMaxLookbackMs`      | `COLLAB_AWAY_MAX_LOOKBACK_MS`      | `86400000` |
+| `collabAwayMaxEvents`          | `COLLAB_AWAY_MAX_EVENTS`           | `50`       |
+| `collabAwayNoticeMs`           | `COLLAB_AWAY_NOTICE_MS`            | `20000`    |
+| `collabOpenBurstsMax`          | `COLLAB_OPEN_BURSTS_MAX`           | `5000`     |
 
 ---
 
@@ -715,29 +715,30 @@ awareness change. Any write on the typing hot path.
 
 ## 16. Edge-case matrix (attribution — constraint #1)
 
-| Scenario | Behaviour |
-|---|---|
-| Multiple files in one transaction | `tr.changed` loop → one `recordEdit` per file, same author. Each file's burst independent. |
-| Concurrent collaborators, different files | Separate `burstKey`s (different file, different author) — fully independent. |
-| Concurrent collaborators, same file | Two `burstKey`s (different author). First author's burst is closed with `rangeContaminated=true` when the second author's edit arrives → that burst persists file-level (range NULL). Second author's burst opens fresh. |
-| Rapid successive edits (one author, one file) | Fold into one burst until idle gap or max age; `updateCount` counts transactions. |
-| Interleaved authors on one file (A,B,A,B…) | Each switch closes the other's open burst (`rangeContaminated`). Result: a sequence of short file-level bursts, correctly attributed, no merged/contaminated ranges. |
-| Disconnect mid-burst | `removeClient` (last socket for that user) → `closeAuthorBursts` → burst persists with data so far. |
-| Reconnect, same user, within idle window | New socket, same `userId` → next edit finds the still-open burst (if within `COLLAB_BURST_IDLE_MS` of `lastEditAt`) and extends it; else opens a fresh burst. Never duplicates. |
-| Reconnect after idle window | Fresh burst. Previous burst already closed by the sweep timer or the disconnect trigger. |
-| Document initialization / initial disk load | `doc.transact(fn, "initial_disk_load")` → `tr.origin` is a string → excluded. No event. Also excluded from `rangeContaminated`? No — an `initial_disk_load` mid-session (shouldn't happen; `ensureFileLoaded` only seeds an empty Y.Text once) would still be treated as contamination for safety. |
+| Scenario                                                                                        | Behaviour                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multiple files in one transaction                                                               | `tr.changed` loop → one `recordEdit` per file, same author. Each file's burst independent.                                                                                                                                                                                                                                                                                |
+| Concurrent collaborators, different files                                                       | Separate `burstKey`s (different file, different author) — fully independent.                                                                                                                                                                                                                                                                                              |
+| Concurrent collaborators, same file                                                             | Two `burstKey`s (different author). First author's burst is closed with `rangeContaminated=true` when the second author's edit arrives → that burst persists file-level (range NULL). Second author's burst opens fresh.                                                                                                                                                  |
+| Rapid successive edits (one author, one file)                                                   | Fold into one burst until idle gap or max age; `updateCount` counts transactions.                                                                                                                                                                                                                                                                                         |
+| Interleaved authors on one file (A,B,A,B…)                                                      | Each switch closes the other's open burst (`rangeContaminated`). Result: a sequence of short file-level bursts, correctly attributed, no merged/contaminated ranges.                                                                                                                                                                                                      |
+| Disconnect mid-burst                                                                            | `removeClient` (last socket for that user) → `closeAuthorBursts` → burst persists with data so far.                                                                                                                                                                                                                                                                       |
+| Reconnect, same user, within idle window                                                        | New socket, same `userId` → next edit finds the still-open burst (if within `COLLAB_BURST_IDLE_MS` of `lastEditAt`) and extends it; else opens a fresh burst. Never duplicates.                                                                                                                                                                                           |
+| Reconnect after idle window                                                                     | Fresh burst. Previous burst already closed by the sweep timer or the disconnect trigger.                                                                                                                                                                                                                                                                                  |
+| Document initialization / initial disk load                                                     | `doc.transact(fn, "initial_disk_load")` → `tr.origin` is a string → excluded. No event. Also excluded from `rangeContaminated`? No — an `initial_disk_load` mid-session (shouldn't happen; `ensureFileLoaded` only seeds an empty Y.Text once) would still be treated as contamination for safety.                                                                        |
 | External filesystem mutation (REST save, Replace-All, Git checkout, AI apply, snapshot restore) | `doc.transact(fn, "external_mutation")` → excluded from attribution; **sets `rangeContaminated=true`** on any open burst for that file (a bystander's disk write changed the file under the author). The mutation is separately surfaced by the existing M56 `external_mutation_notice` and, if it was a Git checkout / snapshot restore, by the timeline's audit source. |
-| Room disposal (idle, forbidden, destructive) | `dispose()` → synchronous `closeProjectBursts(projectId,"dispose")` before `doc.destroy()`. Queue drained on the next flush / shutdown. |
-| Project deletion | `disposeProject` closes+flushes+drops; DB rows cascade. |
-| Viewer attempts an edit | Blocked in `handleMessage` before `readSyncMessage` — never reaches attribution. |
-| Awareness-only update (cursor move, presence) | Not a doc transaction — `afterTransaction` never fires. Zero history impact. |
-| `tr.changed.size === 0` (idempotent re-sync) | Existing guard returns early. No event. |
+| Room disposal (idle, forbidden, destructive)                                                    | `dispose()` → synchronous `closeProjectBursts(projectId,"dispose")` before `doc.destroy()`. Queue drained on the next flush / shutdown.                                                                                                                                                                                                                                   |
+| Project deletion                                                                                | `disposeProject` closes+flushes+drops; DB rows cascade.                                                                                                                                                                                                                                                                                                                   |
+| Viewer attempts an edit                                                                         | Blocked in `handleMessage` before `readSyncMessage` — never reaches attribution.                                                                                                                                                                                                                                                                                          |
+| Awareness-only update (cursor move, presence)                                                   | Not a doc transaction — `afterTransaction` never fires. Zero history impact.                                                                                                                                                                                                                                                                                              |
+| `tr.changed.size === 0` (idempotent re-sync)                                                    | Existing guard returns early. No event.                                                                                                                                                                                                                                                                                                                                   |
 
 ---
 
 ## 17. Test strategy (behavioural, defined before implementation)
 
 ### 17.1 `changeAttribution.ts` (pure unit — `backend/test/m60-change-attribution.test.ts`)
+
 - correct authenticated author on the burst
 - same author + same file within idle window ⇒ one burst; `updateCount` accurate
 - idle-gap exceeded ⇒ split into two bursts
@@ -752,6 +753,7 @@ awareness change. Any write on the typing hot path.
 - no observer stash for a transaction in the burst ⇒ range NULL, event still valid
 
 ### 17.2 `CollaborationHistorian` (`backend/test/m60-historian.test.ts`, in-memory `:memory:` db)
+
 - `recordEdit` routes to burst; close enqueues exactly one row
 - batched write: N closes in a window ⇒ one `BEGIN..COMMIT`
 - queue ≥ 100 ⇒ immediate flush
@@ -763,6 +765,7 @@ awareness change. Any write on the typing hot path.
 - `recordCallout` writes a `kind='callout'` row with only allowlisted `detail`
 
 ### 17.3 Room integration (`backend/test/m60-room-attribution.test.ts`, real `CollaborationRoom` + fake sockets)
+
 - two authenticated sockets edit → correct per-user bursts
 - viewer edit blocked ⇒ no history
 - `external_mutation` ⇒ no attributed event, open burst contaminated
@@ -771,6 +774,7 @@ awareness change. Any write on the typing hot path.
 - `dispose()` closes all synchronously
 
 ### 17.4 `timeline.ts` (`backend/test/m60-timeline.test.ts`)
+
 - union of all five sources, one project
 - deterministic `(at DESC, id DESC)` ordering; identical timestamps stable
 - pagination: `before` cursor, no entry appears on two pages, none skipped
@@ -781,6 +785,7 @@ awareness change. Any write on the typing hot path.
 - deleted user ⇒ `"(removed user)"`, event retained
 
 ### 17.5 Last-seen + while-away (`backend/test/m60-while-away.test.ts`)
+
 - `last_seen` set on `removeClient` (last socket only), on `ack`, on first connect
 - **not** set on `addClient` when a row exists, not on repeated pings
 - `while-away` `since` = last_seen, clamped to `COLLAB_AWAY_MAX_LOOKBACK_MS`
@@ -790,6 +795,7 @@ awareness change. Any write on the typing hot path.
 - repeated reconnect within threshold ⇒ no re-trigger
 
 ### 17.6 Authorization (`backend/test/m60-authz.test.ts`)
+
 - non-member ⇒ 403/404 on all three endpoints
 - viewer ⇒ allowed
 - revoked collaborator ⇒ denied on the next call
@@ -797,14 +803,16 @@ awareness change. Any write on the typing hot path.
 - project delete ⇒ rows gone (cascade), endpoint 404
 
 ### 17.7 Wire (`backend/test/m60-wire.test.ts` + `frontend/test/collab.change.client.test.ts`)
+
 - server broadcasts `collab_change` on burst close, shape correct, no content
 - client `collab_change` is receive-only — client has no send path; a crafted
   inbound frame with a spoofed author is accepted only as data (server is the
   only writer) and the client renders `actor` verbatim from the server frame
-- forged `type:"collab_change"` from a *peer* is impossible (peers can't
+- forged `type:"collab_change"` from a _peer_ is impossible (peers can't
   broadcast `MESSAGE_CUSTOM` to the room — only the server fans out)
 
 ### 17.8 Frontend (`frontend/test/*`)
+
 - `timeline.ts`: `formatTimelineEvent`, `groupWhileAway`, `mergeTimeline`
   (de-dupe by id, sort, cap), no excessive re-renders
 - `ActivityTimeline.test.tsx`: render rows, relative time, `[Show more]` paging,
@@ -815,6 +823,7 @@ awareness change. Any write on the typing hot path.
 - live "last change" line on popover/row from `timeline` state
 
 ### 17.9 Regression gates (must stay green)
+
 `m57-presence`, `m58-attention`, M59 `collab.focus*` / `Editor.viewstate` /
 `collab.follow`, `Editor.eol`, `collab-initialization` (M52), external-mutation
 conflict tests, `m4-collab`, run-status tests, git tests, snapshot tests;
@@ -825,19 +834,19 @@ full backend + full frontend suites; both typechecks; both lints; frontend build
 ## 18. Browser acceptance (two authenticated sessions)
 
 1. Rahul edits a file → 2. meaningful change appears in Team Activity →
-3. rapid edits group into one sensible burst → 4. Ankit edits → separate,
-correctly-attributed event → 5. click an event → correct file (± range) opens
-via `openAndRevealLocation` → 6. Rahul creates an M58 callout → 7. it appears
-live (M58 unchanged) → 8. a historical `callout` row appears in Team Activity →
-9. Rahul runs code → 10. a safe `ran … — exit N` event appears → 11. **no
-stdout/stderr anywhere in history** → 12. a Git commit appears → 13. a
-snapshot create/restore appears (if exercised) → 14. Ankit disconnects > 3 min
-(real time) then reconnects → a real `last_seen` boundary is established →
-15. **While You Were Away** shows only meaningful events since that boundary,
-grouped by author → 16. dismiss, reopen (manual) or reconnect again → **no
-duplicate events** → 17. a non-member session cannot read
-`/api/projects/:id/collab/timeline` (403) → 18. live multiplayer editing
-(M57/M58/M59) works throughout.
+2. rapid edits group into one sensible burst → 4. Ankit edits → separate,
+   correctly-attributed event → 5. click an event → correct file (± range) opens
+   via `openAndRevealLocation` → 6. Rahul creates an M58 callout → 7. it appears
+   live (M58 unchanged) → 8. a historical `callout` row appears in Team Activity →
+3. Rahul runs code → 10. a safe `ran … — exit N` event appears → 11. **no
+   stdout/stderr anywhere in history** → 12. a Git commit appears → 13. a
+   snapshot create/restore appears (if exercised) → 14. Ankit disconnects > 3 min
+   (real time) then reconnects → a real `last_seen` boundary is established →
+4. **While You Were Away** shows only meaningful events since that boundary,
+   grouped by author → 16. dismiss, reopen (manual) or reconnect again → **no
+   duplicate events** → 17. a non-member session cannot read
+   `/api/projects/:id/collab/timeline` (403) → 18. live multiplayer editing
+   (M57/M58/M59) works throughout.
 
 If the browser tooling blocks a step (e.g. the ghosted-presence / no-WS-disconnect
 limitations seen in the M59 closeout), fall back to the §17.3 / §17.5 real
@@ -848,27 +857,27 @@ concrete blocker — never claim it green.
 
 ## 19. Self-review (constraint #25 — every challenge answered)
 
-| Challenge | Answer |
-|---|---|
-| Can the Yjs transaction origin ever be the wrong user? | For a client edit `tr.origin` is the exact `ws` that delivered the `MESSAGE_SYNC`; `clients.get(ws)` is the authenticated session set at upgrade (M55). No client input influences it. String/`null`/absent origins are excluded. The only failure mode is "can't attribute" (skip), never "misattribute". |
-| Can one transaction generate an incorrectly attributed range? | Range is attached per `(tr, filePath)` from that file's own observer delta. A multi-file transaction gets per-file ranges. Ambiguity (multi-region, observer miss, contamination) ⇒ NULL, not a guess. |
-| Can observers be duplicated / leaked? | `rangeObservedFiles: Set<string>` guard ⇒ one observer per file per room. `doc.destroy()` in `dispose()` removes all; room is then GC'd. The `WeakMap<Y.Transaction, …>` stash is drained + `delete`d synchronously in `afterTransaction`. |
-| Can bursts merge separate logical work? | Key is `project:user:file`; max age caps a burst at 5 min; idle gap splits at 15 s. A genuinely separate later edit session opens a new burst. |
-| Can two authors merge into one burst? | Impossible — different `authorUserId` ⇒ different key. The different-author close trigger additionally closes the *other* author's open burst on the same file. |
-| Can a burst stay open forever? | No — `COLLAB_BURST_MAX_MS` + the `COLLAB_BURST_SWEEP_MS` timer force closure regardless of edit continuity; `dispose`/`shutdown`/`disconnect`/`flush` also close. |
-| Can historian queues grow without bound? | `writeQueue` flushed every 5 s / at 100; open-burst map capped at `COLLAB_OPEN_BURSTS_MAX` with oldest-force-close; per-project row cap 2000; time retention 14 d. |
-| Can shutdown lose buffered history? | `stop()` in `performGracefulShutdown` step 0 closes every open burst and drains the queue synchronously (node:sqlite `DatabaseSync` is synchronous) before the DB is closed in step 4. |
-| Can reconnect duplicate events? | Attribution by `userId`; a closed burst is removed from the open map when enqueued and never re-touched; a reconnecting author extends the open burst or opens a new one. `while-away` dedupe is the `ack` → `last_seen` advance. |
-| Can last-seen produce repeated While-You-Were-Away? | `ack` advances `last_seen` past everything shown; `removeClient` sets it on disconnect; the client trigger also requires a > 3-min gap. All three independently prevent repeats. |
-| Can a timeline query leak another project's data? | `WHERE project_id = ?` first predicate on every source, indexed; union is per-project; no broad-then-filter. Test 17.4 asserts it. |
-| Can sensitive fields leak from `runs` / `audit_logs`? | Explicit column projections (§7.3) — `stdout*`/`stderr*`/`signal`/secrets are never in the `SELECT`. Test 17.4 asserts the column lists and that the mapper cannot read them. |
-| Can callout history become persistent chat? | One immutable row, `messagePreview ≤ 120`, no reply/thread/edit surface. M61 owns comments. |
-| Can exact line ranges be falsely claimed? | Four AND-conditions (§5); any doubt ⇒ NULL. Multi-region ⇒ NULL (not min..max). Contamination ⇒ NULL. |
-| Can timeline pagination be unstable? | Total order `(at DESC, id DESC)`; immutable rows; cursor is `(at,id)`; retention only trims the tail. Test 17.4 asserts no straddle / skip. |
-| Can historical navigation bypass open-before-reveal? | All navigation routes through the single `openAndRevealLocation(handleOpenFile, …)` primitive — unchanged, closed-file safe. |
-| Can M60 introduce meaningful DB writes into the typing hot path? | `afterTransaction` does zero I/O — pure in-memory routing. All writes batched off-path. |
-| Does TeamPanel remain the coherent hub? | Activity is a section *inside* TeamPanel; no third panel, no new toolbar button. |
-| Surveillance vs meaningful collaboration? | Sources are edit-bursts / runs / commits / callouts / snapshots only. No keystroke/cursor/selection/heartbeat/navigation is recorded. 14-day retention. |
+| Challenge                                                        | Answer                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Can the Yjs transaction origin ever be the wrong user?           | For a client edit `tr.origin` is the exact `ws` that delivered the `MESSAGE_SYNC`; `clients.get(ws)` is the authenticated session set at upgrade (M55). No client input influences it. String/`null`/absent origins are excluded. The only failure mode is "can't attribute" (skip), never "misattribute". |
+| Can one transaction generate an incorrectly attributed range?    | Range is attached per `(tr, filePath)` from that file's own observer delta. A multi-file transaction gets per-file ranges. Ambiguity (multi-region, observer miss, contamination) ⇒ NULL, not a guess.                                                                                                     |
+| Can observers be duplicated / leaked?                            | `rangeObservedFiles: Set<string>` guard ⇒ one observer per file per room. `doc.destroy()` in `dispose()` removes all; room is then GC'd. The `WeakMap<Y.Transaction, …>` stash is drained + `delete`d synchronously in `afterTransaction`.                                                                 |
+| Can bursts merge separate logical work?                          | Key is `project:user:file`; max age caps a burst at 5 min; idle gap splits at 15 s. A genuinely separate later edit session opens a new burst.                                                                                                                                                             |
+| Can two authors merge into one burst?                            | Impossible — different `authorUserId` ⇒ different key. The different-author close trigger additionally closes the _other_ author's open burst on the same file.                                                                                                                                            |
+| Can a burst stay open forever?                                   | No — `COLLAB_BURST_MAX_MS` + the `COLLAB_BURST_SWEEP_MS` timer force closure regardless of edit continuity; `dispose`/`shutdown`/`disconnect`/`flush` also close.                                                                                                                                          |
+| Can historian queues grow without bound?                         | `writeQueue` flushed every 5 s / at 100; open-burst map capped at `COLLAB_OPEN_BURSTS_MAX` with oldest-force-close; per-project row cap 2000; time retention 14 d.                                                                                                                                         |
+| Can shutdown lose buffered history?                              | `stop()` in `performGracefulShutdown` step 0 closes every open burst and drains the queue synchronously (node:sqlite `DatabaseSync` is synchronous) before the DB is closed in step 4.                                                                                                                     |
+| Can reconnect duplicate events?                                  | Attribution by `userId`; a closed burst is removed from the open map when enqueued and never re-touched; a reconnecting author extends the open burst or opens a new one. `while-away` dedupe is the `ack` → `last_seen` advance.                                                                          |
+| Can last-seen produce repeated While-You-Were-Away?              | `ack` advances `last_seen` past everything shown; `removeClient` sets it on disconnect; the client trigger also requires a > 3-min gap. All three independently prevent repeats.                                                                                                                           |
+| Can a timeline query leak another project's data?                | `WHERE project_id = ?` first predicate on every source, indexed; union is per-project; no broad-then-filter. Test 17.4 asserts it.                                                                                                                                                                         |
+| Can sensitive fields leak from `runs` / `audit_logs`?            | Explicit column projections (§7.3) — `stdout*`/`stderr*`/`signal`/secrets are never in the `SELECT`. Test 17.4 asserts the column lists and that the mapper cannot read them.                                                                                                                              |
+| Can callout history become persistent chat?                      | One immutable row, `messagePreview ≤ 120`, no reply/thread/edit surface. M61 owns comments.                                                                                                                                                                                                                |
+| Can exact line ranges be falsely claimed?                        | Four AND-conditions (§5); any doubt ⇒ NULL. Multi-region ⇒ NULL (not min..max). Contamination ⇒ NULL.                                                                                                                                                                                                      |
+| Can timeline pagination be unstable?                             | Total order `(at DESC, id DESC)`; immutable rows; cursor is `(at,id)`; retention only trims the tail. Test 17.4 asserts no straddle / skip.                                                                                                                                                                |
+| Can historical navigation bypass open-before-reveal?             | All navigation routes through the single `openAndRevealLocation(handleOpenFile, …)` primitive — unchanged, closed-file safe.                                                                                                                                                                               |
+| Can M60 introduce meaningful DB writes into the typing hot path? | `afterTransaction` does zero I/O — pure in-memory routing. All writes batched off-path.                                                                                                                                                                                                                    |
+| Does TeamPanel remain the coherent hub?                          | Activity is a section _inside_ TeamPanel; no third panel, no new toolbar button.                                                                                                                                                                                                                           |
+| Surveillance vs meaningful collaboration?                        | Sources are edit-bursts / runs / commits / callouts / snapshots only. No keystroke/cursor/selection/heartbeat/navigation is recorded. 14-day retention.                                                                                                                                                    |
 
 No challenge is unresolved. Proceed to the implementation plan.
 
@@ -877,6 +886,7 @@ No challenge is unresolved. Proceed to the implementation plan.
 ## 20. Files
 
 ### Added — backend
+
 - `backend/src/collab/changeAttribution.ts` (pure)
 - `backend/src/collab/historian.ts` (`CollaborationHistorian`)
 - `backend/src/collab/timeline.ts` (read-side union)
@@ -890,6 +900,7 @@ No challenge is unresolved. Proceed to the implementation plan.
 - `backend/test/m60-wire.test.ts`
 
 ### Changed — backend
+
 - `backend/src/db.ts` — migration `version: 11` + inline `CREATE TABLE IF NOT EXISTS`
 - `backend/src/config.ts` — 11 config knobs (§14)
 - `backend/src/collab/manager.ts` — `afterTransaction` attribution hook;
@@ -909,6 +920,7 @@ No challenge is unresolved. Proceed to the implementation plan.
   `telemetryHistorian.disposeProject` call sites
 
 ### Added — frontend
+
 - `frontend/src/collab/timeline.ts` (pure)
 - `frontend/src/components/Collab/ActivityTimeline.tsx`
 - `frontend/src/components/Collab/WhileYouWereAway.tsx`
@@ -918,6 +930,7 @@ No challenge is unresolved. Proceed to the implementation plan.
 - `frontend/test/WhileYouWereAway.test.tsx`
 
 ### Changed — frontend
+
 - `frontend/src/collab/client.ts` — `collab_change` receive branch + `emit`;
   `disconnectedAt` tracking + `reconnected_after_gap` emit
 - `frontend/src/types.ts` — `TimelineEvent` (hand-synced)
@@ -930,4 +943,5 @@ No challenge is unresolved. Proceed to the implementation plan.
 - `frontend/src/styles/collab.css` — timeline + while-away styles
 
 ### Changed — docs
+
 - `STATUS.md` — M60 section on completion (not in this step)

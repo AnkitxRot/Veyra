@@ -30,9 +30,7 @@ describe("M11 Optimizations: Docker Checks Coalescing", () => {
   });
 
   it("coalesces concurrent isRunnerImageAvailableAsync calls into a single flight", async () => {
-    const promises = Array.from({ length: 20 }, () =>
-      isRunnerImageAvailableAsync(),
-    );
+    const promises = Array.from({ length: 20 }, () => isRunnerImageAvailableAsync());
     const results = await Promise.all(promises);
     expect(results).toHaveLength(20);
     const first = results[0];

@@ -96,9 +96,7 @@ function mapThread(r: Record<string, unknown>): ThreadRow {
 }
 
 function bumpThread(db: Db, threadId: string): void {
-  db.prepare(
-    "UPDATE comment_threads SET updated_at = datetime('now') WHERE id = ?",
-  ).run(threadId);
+  db.prepare("UPDATE comment_threads SET updated_at = datetime('now') WHERE id = ?").run(threadId);
 }
 function bumpThreadByComment(db: Db, commentId: string): void {
   db.prepare(
@@ -196,15 +194,14 @@ export function editComment(
 ): boolean {
   const row = db
     .prepare("SELECT author_id, deleted_at FROM comments WHERE id = ?")
-    .get(input.commentId) as
-    | { author_id: number; deleted_at: string | null }
-    | undefined;
+    .get(input.commentId) as { author_id: number; deleted_at: string | null } | undefined;
   if (!row || row.author_id !== input.authorId || row.deleted_at != null) {
     return false;
   }
-  db.prepare(
-    "UPDATE comments SET body = ?, edited_at = datetime('now') WHERE id = ?",
-  ).run(input.body, input.commentId);
+  db.prepare("UPDATE comments SET body = ?, edited_at = datetime('now') WHERE id = ?").run(
+    input.body,
+    input.commentId,
+  );
   bumpThreadByComment(db, input.commentId);
   return true;
 }
@@ -215,28 +212,19 @@ export function tombstoneComment(
 ): boolean {
   const row = db
     .prepare("SELECT author_id, deleted_at FROM comments WHERE id = ?")
-    .get(input.commentId) as
-    | { author_id: number; deleted_at: string | null }
-    | undefined;
+    .get(input.commentId) as { author_id: number; deleted_at: string | null } | undefined;
   if (!row) return false;
-  if (
-    input.actorId !== row.author_id &&
-    input.actorId !== input.projectOwnerId
-  ) {
+  if (input.actorId !== row.author_id && input.actorId !== input.projectOwnerId) {
     return false;
   }
   if (row.deleted_at != null) return true; // already tombstoned — idempotent
   db.exec("BEGIN");
   try {
-    db.prepare(
-      "UPDATE comments SET deleted_at = datetime('now'), body = '' WHERE id = ?",
-    ).run(input.commentId);
-    db.prepare("DELETE FROM comment_mentions WHERE comment_id = ?").run(
+    db.prepare("UPDATE comments SET deleted_at = datetime('now'), body = '' WHERE id = ?").run(
       input.commentId,
     );
-    db.prepare("DELETE FROM comment_reactions WHERE comment_id = ?").run(
-      input.commentId,
-    );
+    db.prepare("DELETE FROM comment_mentions WHERE comment_id = ?").run(input.commentId);
+    db.prepare("DELETE FROM comment_reactions WHERE comment_id = ?").run(input.commentId);
     db.exec("COMMIT");
   } catch (err) {
     try {
@@ -248,10 +236,7 @@ export function tombstoneComment(
   return true;
 }
 
-export function resolveThread(
-  db: Db,
-  input: { threadId: string; actorId: number },
-): void {
+export function resolveThread(db: Db, input: { threadId: string; actorId: number }): void {
   db.prepare(
     `UPDATE comment_threads
        SET resolved_at = datetime('now'), resolved_by = ?, updated_at = datetime('now')
@@ -267,27 +252,14 @@ export function reopenThread(db: Db, input: { threadId: string }): void {
   ).run(input.threadId);
 }
 
-export function setThreadAnchorStatus(
-  db: Db,
-  threadId: string,
-  status: "ok" | "stale",
-): void {
-  db.prepare("UPDATE comment_threads SET anchor_status = ? WHERE id = ?").run(
-    status,
-    threadId,
-  );
+export function setThreadAnchorStatus(db: Db, threadId: string, status: "ok" | "stale"): void {
+  db.prepare("UPDATE comment_threads SET anchor_status = ? WHERE id = ?").run(status, threadId);
 }
 
-export function replaceMentions(
-  db: Db,
-  commentId: string,
-  userIds: number[],
-): void {
+export function replaceMentions(db: Db, commentId: string, userIds: number[]): void {
   db.exec("BEGIN");
   try {
-    db.prepare("DELETE FROM comment_mentions WHERE comment_id = ?").run(
-      commentId,
-    );
+    db.prepare("DELETE FROM comment_mentions WHERE comment_id = ?").run(commentId);
     const ins = db.prepare(
       "INSERT INTO comment_mentions (comment_id, mentioned_user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
     );
@@ -301,24 +273,14 @@ export function replaceMentions(
   }
 }
 
-export function upsertReaction(
-  db: Db,
-  commentId: string,
-  userId: number,
-  emoji: string,
-): void {
+export function upsertReaction(db: Db, commentId: string, userId: number, emoji: string): void {
   db.prepare(
     "INSERT INTO comment_reactions (comment_id, user_id, emoji) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
   ).run(commentId, userId, emoji);
   bumpThreadByComment(db, commentId);
 }
 
-export function removeReaction(
-  db: Db,
-  commentId: string,
-  userId: number,
-  emoji: string,
-): void {
+export function removeReaction(db: Db, commentId: string, userId: number, emoji: string): void {
   db.prepare(
     "DELETE FROM comment_reactions WHERE comment_id = ? AND user_id = ? AND emoji = ?",
   ).run(commentId, userId, emoji);
@@ -471,10 +433,7 @@ export function listUnresolved(
   const page = mapped.slice(0, lim);
   const nextBefore =
     mapped.length > lim && page.length > 0
-      ? encodeCursor(
-          page[page.length - 1]!.updated_at,
-          page[page.length - 1]!.id,
-        )
+      ? encodeCursor(page[page.length - 1]!.updated_at, page[page.length - 1]!.id)
       : null;
   return { threads: assemble(db, page), nextBefore };
 }

@@ -80,12 +80,11 @@ describe("M58 — AttentionStore", () => {
     type: "attention_event",
     id: (over.id as string) ?? Math.random().toString(16).slice(2),
     kind: (over.kind as string) ?? "point",
-    author:
-      (over.author as unknown) ?? {
-        userId: 7,
-        username: "rahul",
-        color: "#89b4fa",
-      },
+    author: (over.author as unknown) ?? {
+      userId: 7,
+      username: "rahul",
+      color: "#89b4fa",
+    },
     file: "a.ts",
     range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
     message: over.message,

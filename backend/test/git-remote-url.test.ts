@@ -25,25 +25,25 @@ describe("M80 — HTTPS remote URL validator", () => {
     expect(validateHttpsGitRemoteUrl("https://gitlab.com/org/repo.git")).toBe(
       "https://gitlab.com/org/repo.git",
     );
-    expect(
-      validateHttpsGitRemoteUrl("https://git.example.com:8443/group/sub/repo.git"),
-    ).toBe("https://git.example.com:8443/group/sub/repo.git");
+    expect(validateHttpsGitRemoteUrl("https://git.example.com:8443/group/sub/repo.git")).toBe(
+      "https://git.example.com:8443/group/sub/repo.git",
+    );
     expect(validateHttpsGitRemoteUrl("https://127.0.0.1/repo.git")).toBe(
       "https://127.0.0.1/repo.git",
     );
     expect(validateHttpsGitRemoteUrl("https://[::1]/org/repo.git")).toBe(
       "https://[::1]/org/repo.git",
     );
-    expect(
-      validateHttpsGitRemoteUrl("https://[::1]:8443/org/repo.git"),
-    ).toBe("https://[::1]:8443/org/repo.git");
+    expect(validateHttpsGitRemoteUrl("https://[::1]:8443/org/repo.git")).toBe(
+      "https://[::1]:8443/org/repo.git",
+    );
     expect(httpsRemoteHost("https://[::1]:8443/org/repo.git")).toBe("::1");
   });
 
   it("trims surrounding whitespace but does not rewrite schemes", () => {
-    expect(
-      validateHttpsGitRemoteUrl("  https://github.com/org/repo.git  "),
-    ).toBe("https://github.com/org/repo.git");
+    expect(validateHttpsGitRemoteUrl("  https://github.com/org/repo.git  ")).toBe(
+      "https://github.com/org/repo.git",
+    );
   });
 
   it("rejects git://", () => {
@@ -68,29 +68,18 @@ describe("M80 — HTTPS remote URL validator", () => {
   });
 
   it("rejects file://", () => {
-    expectCode(
-      () => validateHttpsGitRemoteUrl("file:///tmp/repo"),
-      "unsupported_protocol",
-    );
+    expectCode(() => validateHttpsGitRemoteUrl("file:///tmp/repo"), "unsupported_protocol");
   });
 
   it("rejects local filesystem paths", () => {
-    for (const p of [
-      "/tmp/repo",
-      "C:\\repo",
-      "\\\\server\\share",
-      "./repo",
-      "../repo",
-      "~/repo",
-    ]) {
+    for (const p of ["/tmp/repo", "C:\\repo", "\\\\server\\share", "./repo", "../repo", "~/repo"]) {
       expectCode(() => validateHttpsGitRemoteUrl(p), "invalid_remote_url", p);
     }
   });
 
   it("rejects credential-bearing URLs", () => {
     expectCode(
-      () =>
-        validateHttpsGitRemoteUrl("https://user:token@github.com/org/repo.git"),
+      () => validateHttpsGitRemoteUrl("https://user:token@github.com/org/repo.git"),
       "credential_bearing_url",
     );
     expectCode(
@@ -102,10 +91,7 @@ describe("M80 — HTTPS remote URL validator", () => {
       "credential_bearing_url",
     );
     expectCode(
-      () =>
-        validateHttpsGitRemoteUrl(
-          "https://user%3Atoken@github.com/org/repo.git",
-        ),
+      () => validateHttpsGitRemoteUrl("https://user%3Atoken@github.com/org/repo.git"),
       "credential_bearing_url",
     );
   });
@@ -134,29 +120,18 @@ describe("M80 — HTTPS remote URL validator", () => {
       "https://github.com/org/repo.git\u0000.git",
       "https://github.com\\org\\repo.git",
     ]) {
-      expectCode(
-        () => validateHttpsGitRemoteUrl(p),
-        "invalid_remote_url",
-        JSON.stringify(p),
-      );
+      expectCode(() => validateHttpsGitRemoteUrl(p), "invalid_remote_url", JSON.stringify(p));
     }
   });
 
   it("does not coerce an unsafe URL into an allowed one", () => {
-    expect(() =>
-      validateHttpsGitRemoteUrl("ssh://git@github.com/org/repo.git"),
-    ).toThrow();
-    expect(() =>
-      validateHttpsGitRemoteUrl("git@github.com:org/repo.git"),
-    ).toThrow();
+    expect(() => validateHttpsGitRemoteUrl("ssh://git@github.com/org/repo.git")).toThrow();
+    expect(() => validateHttpsGitRemoteUrl("git@github.com:org/repo.git")).toThrow();
   });
 
   it("treats trailing .git / slash as equivalent remotes", () => {
     expect(
-      httpsRemotesEquivalent(
-        "https://github.com/org/repo.git",
-        "https://github.com/org/repo",
-      ),
+      httpsRemotesEquivalent("https://github.com/org/repo.git", "https://github.com/org/repo"),
     ).toBe(true);
   });
 
@@ -168,35 +143,20 @@ describe("M80 — HTTPS remote URL validator", () => {
       sanitizeRemoteUrlForClient("https://user:supersecret@github.com/org/repo.git"),
     ).not.toContain("user:");
     expect(
-      sanitizeRemoteUrlForClient(
-        "https://github.com/org/repo.git?access_token=supersecret",
-      ),
+      sanitizeRemoteUrlForClient("https://github.com/org/repo.git?access_token=supersecret"),
     ).not.toContain("supersecret");
     expect(
-      sanitizeRemoteUrlForClient(
-        "https://github.com/org/repo.git?access_token=supersecret",
-      ),
+      sanitizeRemoteUrlForClient("https://github.com/org/repo.git?access_token=supersecret"),
     ).not.toContain("?");
   });
 });
 
 describe("M80 — askpass host binding", () => {
   it("releases credentials only for the validated HTTPS host", () => {
-    expect(
-      askpassAllowsPrompt("Password for 'https://github.com':", "github.com"),
-    ).toBe(true);
-    expect(
-      askpassAllowsPrompt(
-        "Password for 'https://git@github.com':",
-        "github.com",
-      ),
-    ).toBe(true);
-    expect(
-      askpassAllowsPrompt("Password for 'https://[::1]:8443':", "::1"),
-    ).toBe(true);
-    expect(
-      askpassAllowsPrompt("Password for 'https://evil.test':", "github.com"),
-    ).toBe(false);
+    expect(askpassAllowsPrompt("Password for 'https://github.com':", "github.com")).toBe(true);
+    expect(askpassAllowsPrompt("Password for 'https://git@github.com':", "github.com")).toBe(true);
+    expect(askpassAllowsPrompt("Password for 'https://[::1]:8443':", "::1")).toBe(true);
+    expect(askpassAllowsPrompt("Password for 'https://evil.test':", "github.com")).toBe(false);
     expect(askpassAllowsPrompt("Password:", "github.com")).toBe(false);
   });
 });

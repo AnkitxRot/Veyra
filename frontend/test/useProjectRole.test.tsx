@@ -111,10 +111,9 @@ describe("useProjectRole", () => {
     const second = deferred<{ role: string }>();
     apiMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
 
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string }) => useProjectRole(id),
-      { initialProps: { id: "p1" } },
-    );
+    const { result, rerender } = renderHook(({ id }: { id: string }) => useProjectRole(id), {
+      initialProps: { id: "p1" },
+    });
     rerender({ id: "p2" });
 
     // p1's request resolves LATE with owner — it must not win.
@@ -131,10 +130,9 @@ describe("useProjectRole", () => {
 
   it("resets to viewer + loading when the project id changes", async () => {
     apiMock.mockResolvedValueOnce({ role: "owner" });
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string | null }) => useProjectRole(id),
-      { initialProps: { id: "p1" as string | null } },
-    );
+    const { result, rerender } = renderHook(({ id }: { id: string | null }) => useProjectRole(id), {
+      initialProps: { id: "p1" as string | null },
+    });
     await waitFor(() => expect(result.current.role).toBe("owner"));
 
     const d = deferred<{ role: string }>();

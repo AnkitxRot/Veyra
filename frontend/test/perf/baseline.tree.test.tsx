@@ -88,13 +88,9 @@ describe("M71 BASELINE C — workspace tree", () => {
         recorder.reset();
         // one unrelated parent re-render (same tree ref, changed bump)
         act(() => {
-          view!.rerender(
-            <TreeHost recorder={recorder} tree={tree} bump={1} />,
-          );
+          view!.rerender(<TreeHost recorder={recorder} tree={tree} bump={1} />);
         });
-        rerenderMs.push(
-          Math.round(recorder.totalDuration("sidebar") * 100) / 100,
-        );
+        rerenderMs.push(Math.round(recorder.totalDuration("sidebar") * 100) / 100);
 
         act(() => view!.unmount());
       }
@@ -109,8 +105,7 @@ describe("M71 BASELINE C — workspace tree", () => {
     }
 
     console.log(
-      "\n=== M71 BASELINE C: workspace tree (5 repeats) ===\n" +
-        JSON.stringify(results, null, 2),
+      "\n=== M71 BASELINE C: workspace tree (5 repeats) ===\n" + JSON.stringify(results, null, 2),
     );
 
     // Deterministic invariants.

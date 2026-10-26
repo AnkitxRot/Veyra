@@ -11,9 +11,7 @@ function seed(): Db {
 }
 
 function rawRow(db: Db, userId: number): any {
-  return db
-    .prepare("SELECT * FROM user_profiles WHERE user_id = ?")
-    .get(userId);
+  return db.prepare("SELECT * FROM user_profiles WHERE user_id = ?").get(userId);
 }
 
 describe("M62-2 profile store", () => {

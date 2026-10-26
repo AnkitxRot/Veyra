@@ -41,10 +41,7 @@ export function fromWorkspaceLocation(value: unknown): string | null {
   let rel: string | null = null;
   if (trimmed.startsWith("file:")) {
     rel = fromWorkspaceUri(trimmed);
-  } else if (
-    trimmed === WORKSPACE_FS_ROOT ||
-    trimmed === `${WORKSPACE_FS_ROOT}/`
-  ) {
+  } else if (trimmed === WORKSPACE_FS_ROOT || trimmed === `${WORKSPACE_FS_ROOT}/`) {
     rel = "";
   } else if (trimmed.startsWith(WORKSPACE_FS_PREFIX)) {
     rel = normalizeRelPath(trimmed.slice(WORKSPACE_FS_PREFIX.length));

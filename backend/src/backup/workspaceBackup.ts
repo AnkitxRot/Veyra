@@ -9,11 +9,7 @@ import { getProject, workspacePath } from "../projects/service.js";
 import { listFiles } from "../files/service.js";
 import { readConfinedBytes } from "../files/confined.js";
 import { withProjectSnapshotLock, snapshotDir } from "../projects/snapshots.js";
-import {
-  createZipArchive,
-  extractZipArchive,
-  type ZipFileEntry,
-} from "../projects/zip.js";
+import { createZipArchive, extractZipArchive, type ZipFileEntry } from "../projects/zip.js";
 import { ensureBackupDir, secureBackupFilePermissions } from "./shared.js";
 
 /**
@@ -61,8 +57,7 @@ import { ensureBackupDir, secureBackupFilePermissions } from "./shared.js";
  */
 
 const WORKSPACE_BACKUP_FILENAME_RE = /^[a-zA-Z0-9_-]+\.zip$/;
-export const PROJECT_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface WorkspaceBackupMetadata {
   filename: string;
@@ -96,16 +91,12 @@ export interface WorkspaceBackupSnapshotEntry {
   createdAt: string;
 }
 
-export interface WorkspaceBackupManifestV2 extends Omit<
-  WorkspaceBackupManifestV1,
-  "version"
-> {
+export interface WorkspaceBackupManifestV2 extends Omit<WorkspaceBackupManifestV1, "version"> {
   version: 2;
   snapshots: WorkspaceBackupSnapshotEntry[];
 }
 
-export type WorkspaceBackupManifest =
-  WorkspaceBackupManifestV1 | WorkspaceBackupManifestV2;
+export type WorkspaceBackupManifest = WorkspaceBackupManifestV1 | WorkspaceBackupManifestV2;
 
 /**
  * The archive-size limits (`maxArchiveUploadBytes` etc.) exist to bound
@@ -142,11 +133,7 @@ export function assertValidWorkspaceBackupFilename(filename: string): void {
     filename.includes("\\") ||
     filename.includes("\0")
   ) {
-    throw new ApiError(
-      400,
-      "Invalid workspace backup filename",
-      "invalid_filename",
-    );
+    throw new ApiError(400, "Invalid workspace backup filename", "invalid_filename");
   }
 }
 
@@ -206,9 +193,7 @@ export async function listWorkspaceBackups(
     }
   }
 
-  list.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  );
+  list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return list;
 }
 
@@ -264,21 +249,11 @@ async function pruneWorkspaceBackups(
  * construction disaster-recovery artifact — reusing the MECHANISM, not the
  * user-facing POLICY, is the point.
  */
-async function verifyArchiveExtractable(
-  zipBuffer: Buffer,
-  cfg: AppConfig,
-): Promise<number> {
-  const scratchDir = join(
-    cfg.dataDir,
-    `tmp_workspace_backup_verify_${randomUUID()}`,
-  );
+async function verifyArchiveExtractable(zipBuffer: Buffer, cfg: AppConfig): Promise<number> {
+  const scratchDir = join(cfg.dataDir, `tmp_workspace_backup_verify_${randomUUID()}`);
   await fs.mkdir(scratchDir, { recursive: true });
   try {
-    const extracted = await extractZipArchive(
-      zipBuffer,
-      scratchDir,
-      generousArchiveConfig(cfg),
-    );
+    const extracted = await extractZipArchive(zipBuffer, scratchDir, generousArchiveConfig(cfg));
     return extracted.filter((e) => !e.isDir).length;
   } finally {
     try {
@@ -415,10 +390,7 @@ export async function createWorkspaceBackup(
 
     const filename = generateWorkspaceBackupFilename();
     const finalPath = join(dir, filename);
-    const tempPath = join(
-      dir,
-      `.creating-${process.pid}-${randomBytes(3).toString("hex")}.zip`,
-    );
+    const tempPath = join(dir, `.creating-${process.pid}-${randomBytes(3).toString("hex")}.zip`);
     try {
       await fs.writeFile(tempPath, zipBuffer);
       await fs.rename(tempPath, finalPath);
@@ -494,11 +466,7 @@ export async function deleteWorkspaceBackup(
     try {
       await fs.rm(filePath, { force: true });
     } catch (err: any) {
-      throw new ApiError(
-        500,
-        `Failed to delete workspace backup: ${err.message}`,
-        "delete_failed",
-      );
+      throw new ApiError(500, `Failed to delete workspace backup: ${err.message}`, "delete_failed");
     }
 
     // audit_logs.project_id is a foreign key with ON DELETE CASCADE — a

@@ -141,9 +141,7 @@ describe("M65 — shared run output (server-authoritative, ephemeral)", () => {
 
     const live = editor.liveOutputs();
     expect(live).toHaveLength(1);
-    expect(live[0].chunks).toEqual([
-      { stream: "stderr", data: "Traceback...\n" },
-    ]);
+    expect(live[0].chunks).toEqual([{ stream: "stderr", data: "Traceback...\n" }]);
   });
 
   it("delivers to the owner too", async () => {
@@ -188,9 +186,7 @@ describe("M65 — shared run output (server-authoritative, ephemeral)", () => {
     const live = editor.liveOutputs();
     expect(live.length).toBeLessThan(25);
     expect(live.length).toBeGreaterThanOrEqual(2);
-    expect(live.map((b) => b.seq)).toEqual(
-      [...live.map((_, i) => i + 1)],
-    );
+    expect(live.map((b) => b.seq)).toEqual([...live.map((_, i) => i + 1)]);
   });
 
   it("bounds the server buffer to 256 KB, dropping oldest and latching truncated", async () => {
@@ -236,9 +232,7 @@ describe("M65 — shared run output (server-authoritative, ephemeral)", () => {
     expect(snaps).toHaveLength(1);
     expect(snaps[0].executionId).toBe("exec-1");
     expect(snaps[0].snapshot).toBe(true);
-    expect(snaps[0].chunks).toEqual([
-      { stream: "stdout", data: "already printed\n" },
-    ]);
+    expect(snaps[0].chunks).toEqual([{ stream: "stdout", data: "already printed\n" }]);
     expect(typeof snaps[0].seq).toBe("number");
   });
 
@@ -283,9 +277,7 @@ describe("M65 — shared run output (server-authoritative, ephemeral)", () => {
   it("drops output when the stale-run sweep reaps a stuck running entry", async () => {
     const room = makeRoom();
     await addClient(room, "editor");
-    room.handleRunStatus(
-      statusEntry({ startedAt: Date.now() - 31 * 60 * 1000 }),
-    );
+    room.handleRunStatus(statusEntry({ startedAt: Date.now() - 31 * 60 * 1000 }));
     emit(room, "stdout", "stuck\n");
     flush();
     expect(room.getRunOutputSnapshotForTest("exec-1")).not.toBeNull();

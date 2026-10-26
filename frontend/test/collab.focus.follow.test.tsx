@@ -29,22 +29,10 @@ import type { AttentionEvent } from "../src/collab/attention";
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ideSrc = readFileSync(
-  join(here, "../src/components/IDE/IDE.tsx"),
-  "utf-8",
-);
-const editorSrc = readFileSync(
-  join(here, "../src/components/Editor/Editor.tsx"),
-  "utf-8",
-);
-const bannerSrc = readFileSync(
-  join(here, "../src/components/Collab/FollowBanner.tsx"),
-  "utf-8",
-);
-const traySrc = readFileSync(
-  join(here, "../src/components/Collab/AttentionTray.tsx"),
-  "utf-8",
-);
+const ideSrc = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
+const editorSrc = readFileSync(join(here, "../src/components/Editor/Editor.tsx"), "utf-8");
+const bannerSrc = readFileSync(join(here, "../src/components/Collab/FollowBanner.tsx"), "utf-8");
+const traySrc = readFileSync(join(here, "../src/components/Collab/AttentionTray.tsx"), "utf-8");
 
 function block(src: string, anchor: string, len = 900): string {
   const i = src.indexOf(anchor);
@@ -84,11 +72,7 @@ describe("M59 — FocusContext derivation", () => {
     expect(deriveFocusState(user(), evt({}), true)).toBe("following");
     expect(deriveFocusState(user(), evt({}), false)).toBe("focused");
     expect(
-      deriveFocusState(
-        user({ activity: { type: "editing", timestamp: 0 } }),
-        null,
-        false,
-      ),
+      deriveFocusState(user({ activity: { type: "editing", timestamp: 0 } }), null, false),
     ).toBe("viewing");
     expect(deriveFocusState(user({ status: "away" }), null, false)).toBe("idle");
   });
@@ -123,9 +107,7 @@ describe("M59 — FocusContext derivation", () => {
     });
     expect(fc.state).toBe("focused");
     expect(fc.attention?.message).toBe("race here");
-    expect(buildFocusContext(user({ userId: 2 }), [], 9, 2).state).toBe(
-      "following",
-    );
+    expect(buildFocusContext(user({ userId: 2 }), [], 9, 2).state).toBe("following");
   });
 });
 
@@ -137,9 +119,7 @@ describe("M59 — FollowAnchor helpers", () => {
     capturedAt: 1,
   });
   it("anchorFilePresent = membership over fileIndex ∪ openFiles", () => {
-    expect(anchorFilePresent(anchor("src/a.ts"), ["src/a.ts", "src/b.ts"])).toBe(
-      true,
-    );
+    expect(anchorFilePresent(anchor("src/a.ts"), ["src/a.ts", "src/b.ts"])).toBe(true);
     expect(anchorFilePresent(anchor("src/gone.ts"), ["src/a.ts"])).toBe(false);
   });
   it("anchorFileBasename is the last path segment (missing-file toast text)", () => {
@@ -169,10 +149,7 @@ describe("M59 — one Follow target, one controller (Decisions 1, 2)", () => {
   it("focusOn ends a DIFFERENT current follow before acting", () => {
     const blk = block(ideSrc, "const focusOn = useCallback");
     expect(blk).toMatch(/cur !== null && cur !== userId/);
-    const switchBranch = blk.slice(
-      blk.indexOf("cur !== null"),
-      blk.indexOf("if (opts.follow)"),
-    );
+    const switchBranch = blk.slice(blk.indexOf("cur !== null"), blk.indexOf("if (opts.follow)"));
     expect(switchBranch).toContain("setFollowedUserId(null)");
   });
 });
@@ -186,10 +163,7 @@ describe("M59 — anchor captured once, preserved on switch (Decisions 3, 4, 5)"
 
   it("the focusOn target-switch branch never captures or clears the anchor", () => {
     const blk = block(ideSrc, "const focusOn = useCallback");
-    const switchBranch = blk.slice(
-      blk.indexOf("cur !== null"),
-      blk.indexOf("if (opts.follow)"),
-    );
+    const switchBranch = blk.slice(blk.indexOf("cur !== null"), blk.indexOf("if (opts.follow)"));
     expect(switchBranch).not.toContain("captureAnchor");
     expect(switchBranch).not.toContain("followAnchorRef.current = null");
   });
@@ -253,9 +227,7 @@ describe("M59 — userId-keyed absence grace (Decisions 8, 9, 10)", () => {
   it("the tracking effect has NO cleanup that clears the absence timer", () => {
     // it must survive `collaborators` churn (effect re-runs on awareness change)
     const effectTail = graceBlk;
-    expect(ideSrc).toContain(
-      "no cleanup that clears followAbsenceTimerRef",
-    );
+    expect(ideSrc).toContain("no cleanup that clears followAbsenceTimerRef");
     expect(effectTail).not.toMatch(/return \(\) => \{[\s\S]*clearFollowAbsenceTimer/);
   });
 
@@ -269,10 +241,7 @@ describe("M59 — userId-keyed absence grace (Decisions 8, 9, 10)", () => {
     // via onExpire — never synchronously when the notice is raised
     const beforeNotify = graceBlk.slice(0, graceBlk.indexOf("notify({"));
     expect(beforeNotify).not.toContain("followAnchorRef.current = null");
-    const onExpire = notice.slice(
-      notice.indexOf("onExpire:"),
-      notice.indexOf("actions:"),
-    );
+    const onExpire = notice.slice(notice.indexOf("onExpire:"), notice.indexOf("actions:"));
     expect(onExpire).toContain("followAnchorRef.current = null");
   });
 
@@ -293,9 +262,7 @@ describe("M59 — lifecycle resets (Decision 11)", () => {
   });
 
   it("connection_change 'forbidden' clears Follow", () => {
-    expect(ideSrc).toMatch(
-      /status === "forbidden"\)\s*resetFollowStateRef\.current\(\)/,
-    );
+    expect(ideSrc).toMatch(/status === "forbidden"\)\s*resetFollowStateRef\.current\(\)/);
   });
 
   it("resetFollowState clears target + anchor + absence timer + notice", () => {
@@ -335,8 +302,7 @@ describe("M59 — dirty safety & navigation primitive (Decisions 12, 13)", () =>
     // the tracking effect depends on followedUser (presence), not on `attention`
     const deps = ideSrc.slice(
       ideSrc.indexOf("}, [followedUser, activeFile, openFiles, followedUserId"),
-      ideSrc.indexOf("}, [followedUser, activeFile, openFiles, followedUserId") +
-        160,
+      ideSrc.indexOf("}, [followedUser, activeFile, openFiles, followedUserId") + 160,
     );
     expect(deps).not.toContain("attention,");
   });
@@ -424,16 +390,14 @@ describe("M59 — FollowBanner + 'left' notice", () => {
 
   it("IDE derives hasAnchor (following or just-left) — no ref read in render", () => {
     const render = block(ideSrc, "<FollowBanner", 400);
-    expect(render).toContain(
-      'hasAnchor={followedUserId != null || hasNotice("follow-left")}',
-    );
+    expect(render).toContain('hasAnchor={followedUserId != null || hasNotice("follow-left")}');
     expect(render).toContain("onReturnToLocation={handleReturnToMyLocation}");
   });
 
   it("the 'left' notice is rendered in the editor region with its actions", () => {
     // render site: still the .follow-left-notice element, driven by the
     // editor-surface notice slice
-    const render = block(ideSrc, "surface === \"editor\"", 400);
+    const render = block(ideSrc, 'surface === "editor"', 400);
     expect(render).toContain('className="follow-left-notice"');
     expect(render).toContain("n.actions?.map");
   });
@@ -455,10 +419,7 @@ describe("M59 — FollowBanner + 'left' notice", () => {
 
 describe("M59 — no new transport / store / Yjs / awareness write", () => {
   it("focus.ts is pure — no React, no store, no wire type", () => {
-    const focusSrc = readFileSync(
-      join(here, "../src/collab/focus.ts"),
-      "utf-8",
-    );
+    const focusSrc = readFileSync(join(here, "../src/collab/focus.ts"), "utf-8");
     expect(focusSrc).not.toMatch(/from "react"/);
     expect(focusSrc).not.toContain("useState");
     expect(focusSrc).not.toContain("setLocalStateField");
@@ -470,10 +431,7 @@ describe("M59 — no new transport / store / Yjs / awareness write", () => {
   });
 
   it("FocusState is UI-only — not exported from any wire/presence module", () => {
-    const presenceSrc = readFileSync(
-      join(here, "../src/collab/presence.ts"),
-      "utf-8",
-    );
+    const presenceSrc = readFileSync(join(here, "../src/collab/presence.ts"), "utf-8");
     expect(presenceSrc).not.toContain("FocusState");
   });
 });
@@ -484,9 +442,7 @@ describe("M59 — no new transport / store / Yjs / awareness write", () => {
 
 describe("M73 — the follow lifecycle is generation-token guarded", () => {
   it("IDE holds a FollowGeneration, not a bare counter ref", () => {
-    expect(ideSrc).toContain(
-      'import { FollowGeneration } from "../../collab/followGeneration"',
-    );
+    expect(ideSrc).toContain('import { FollowGeneration } from "../../collab/followGeneration"');
     expect(ideSrc).toContain("useRef(new FollowGeneration())");
     // no ad-hoc numeric increment survived the refactor
     expect(ideSrc).not.toMatch(/followGenRef\.current\s*\+=/);
@@ -506,9 +462,9 @@ describe("M73 — the follow lifecycle is generation-token guarded", () => {
       "followGenRef.current.bump()",
     );
     // return
-    expect(
-      block(ideSrc, "const handleReturnToMyLocation = useCallback"),
-    ).toContain("followGenRef.current.bump()");
+    expect(block(ideSrc, "const handleReturnToMyLocation = useCallback")).toContain(
+      "followGenRef.current.bump()",
+    );
   });
 
   it("the async return re-checks its generation after the file open resolves", () => {

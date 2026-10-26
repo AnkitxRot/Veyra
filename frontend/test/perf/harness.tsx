@@ -99,9 +99,7 @@ export function profiledMemo<P extends object>(
     );
   });
   Memoized.displayName = `profiledMemo(${id})`;
-  return Memoized as unknown as React.ComponentType<
-    P & { recorder: RenderRecorder }
-  >;
+  return Memoized as unknown as React.ComponentType<P & { recorder: RenderRecorder }>;
 }
 
 // --- repeatability ---------------------------------------------------------
@@ -116,10 +114,7 @@ export interface Stat {
 export function summarize(runs: number[]): Stat {
   const sorted = [...runs].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  const median =
-    sorted.length % 2 === 0
-      ? (sorted[mid - 1]! + sorted[mid]!) / 2
-      : sorted[mid]!;
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
   return { min: sorted[0]!, median, max: sorted[sorted.length - 1]!, runs };
 }
 
@@ -194,9 +189,7 @@ export function countFiles(nodes: TreeNode[]): number {
 
 let clientSeq = 100;
 
-export function makePresence(
-  over: Partial<CollaboratorPresence> = {},
-): CollaboratorPresence {
+export function makePresence(over: Partial<CollaboratorPresence> = {}): CollaboratorPresence {
   const clientId = over.clientId ?? clientSeq++;
   const userId = over.userId ?? clientId;
   return {

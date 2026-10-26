@@ -1,11 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import * as React from "react";
-import {
-  monaco,
-  __resetMonacoMocks,
-  __getLastEditorInstance,
-} from "./mocks/monaco";
+import { monaco, __resetMonacoMocks, __getLastEditorInstance } from "./mocks/monaco";
 
 vi.mock("../src/monacoSetup", () => ({ monaco }));
 
@@ -66,9 +62,7 @@ describe("Editor — save truthfulness (M1 regression: BUG-1) and read-only sync
     model.setValue("print('live edit, never synced to React state')");
     editorInstance._fireContentChange();
 
-    expect(getLiveContent("main.py")).toBe(
-      "print('live edit, never synced to React state')",
-    );
+    expect(getLiveContent("main.py")).toBe("print('live edit, never synced to React state')");
     expect(liveApiRef.current!.get("main.py")).toBe(
       "print('live edit, never synced to React state')",
     );
@@ -121,12 +115,12 @@ describe("Editor — save truthfulness (M1 regression: BUG-1) and read-only sync
     expect(inst.actions.has("cloudeee.action.save")).toBe(true);
     const kb1 = (inst.actions.get("cloudeee.action.save") as any).keybindings;
 
-    rerender(
-      React.createElement(Editor, { ...props, saveChord: "mod+alt+s" } as any),
-    );
+    rerender(React.createElement(Editor, { ...props, saveChord: "mod+alt+s" } as any));
     // still exactly one save action, re-registered with a new keybinding
     expect(inst.actions.has("cloudeee.action.save")).toBe(true);
-    expect(inst.disposedActions.filter((id) => id === "cloudeee.action.save").length).toBeGreaterThanOrEqual(1);
+    expect(
+      inst.disposedActions.filter((id) => id === "cloudeee.action.save").length,
+    ).toBeGreaterThanOrEqual(1);
     const kb2 = (inst.actions.get("cloudeee.action.save") as any).keybindings;
     expect(kb2).not.toEqual(kb1);
   });
@@ -158,8 +152,6 @@ describe("Editor — save truthfulness (M1 regression: BUG-1) and read-only sync
       }),
     );
 
-    expect(
-      editorInstance.updateOptionsCalls.some((c) => c.readOnly === true),
-    ).toBe(true);
+    expect(editorInstance.updateOptionsCalls.some((c) => c.readOnly === true)).toBe(true);
   });
 });

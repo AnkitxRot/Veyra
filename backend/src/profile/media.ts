@@ -4,12 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
-import {
-  extForMime,
-  validateImage,
-  type AvatarMime,
-  type ValidatedImage,
-} from "./image.js";
+import { extForMime, validateImage, type AvatarMime, type ValidatedImage } from "./image.js";
 
 /**
  * M72 — one live avatar per user. Files live at
@@ -50,11 +45,7 @@ export function profileMediaUserDir(cfg: AppConfig, userId: number): string {
 function assertInsideUserDir(userDir: string, absPath: string): void {
   const rel = relative(userDir, absPath);
   if (rel === "" || rel === ".." || rel.startsWith(`..`) || isAbsolute(rel)) {
-    throw new ApiError(
-      500,
-      "avatar path escaped its storage directory",
-      "invalid_storage_path",
-    );
+    throw new ApiError(500, "avatar path escaped its storage directory", "invalid_storage_path");
   }
 }
 
@@ -68,11 +59,7 @@ export function avatarLimits(cfg: AppConfig) {
 }
 
 /** True when both users own or collaborate on at least one common project. */
-export function usersShareAProject(
-  db: Db,
-  userA: number,
-  userB: number,
-): boolean {
+export function usersShareAProject(db: Db, userA: number, userB: number): boolean {
   if (userA === userB) return true;
   const row = db
     .prepare(
@@ -92,15 +79,10 @@ export function usersShareAProject(
 }
 
 /** Self, a platform admin, or someone who shares a project may view. */
-export function canViewAvatar(
-  db: Db,
-  viewerId: number,
-  targetId: number,
-): boolean {
+export function canViewAvatar(db: Db, viewerId: number, targetId: number): boolean {
   if (viewerId === targetId) return true;
-  const viewer = db
-    .prepare("SELECT role FROM users WHERE id = ?")
-    .get(viewerId) as { role?: string } | undefined;
+  const viewer = db.prepare("SELECT role FROM users WHERE id = ?").get(viewerId) as
+    { role?: string } | undefined;
   if (viewer?.role === "admin") return true;
   return usersShareAProject(db, viewerId, targetId);
 }
@@ -140,11 +122,7 @@ export async function storeAvatar(
   buf: Buffer,
   declaredMime?: string,
 ): Promise<StoredAvatar> {
-  const info: ValidatedImage = validateImage(
-    buf,
-    avatarLimits(cfg),
-    declaredMime,
-  );
+  const info: ValidatedImage = validateImage(buf, avatarLimits(cfg), declaredMime);
   const id = randomUUID();
   const ext = extForMime(info.mime);
   const userDir = profileMediaUserDir(cfg, userId);
@@ -164,15 +142,7 @@ export async function storeAvatar(
       `INSERT INTO profile_media
          (id, user_id, kind, mime, width, height, bytes, storage_path)
        VALUES (?, ?, 'avatar', ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      userId,
-      info.mime,
-      info.width,
-      info.height,
-      info.bytes,
-      storagePath,
-    );
+    ).run(id, userId, info.mime, info.width, info.height, info.bytes, storagePath);
 
     db.prepare(
       `INSERT INTO user_profiles (user_id, avatar_media_id, version, updated_at)
@@ -187,9 +157,9 @@ export async function storeAvatar(
       db.prepare("DELETE FROM profile_media WHERE id = ?").run(previous.id);
     }
 
-    const ver = db
-      .prepare("SELECT version FROM user_profiles WHERE user_id = ?")
-      .get(userId) as { version: number };
+    const ver = db.prepare("SELECT version FROM user_profiles WHERE user_id = ?").get(userId) as {
+      version: number;
+    };
     avatarVersion = ver.version;
     db.exec("COMMIT");
   } catch (err) {
@@ -217,11 +187,7 @@ export async function storeAvatar(
 }
 
 /** Clear the user's avatar. Returns false when there was none. */
-export async function deleteAvatar(
-  db: Db,
-  cfg: AppConfig,
-  userId: number,
-): Promise<boolean> {
+export async function deleteAvatar(db: Db, cfg: AppConfig, userId: number): Promise<boolean> {
   const previous = currentAvatarRow(db, userId);
   if (!previous) return false;
 
@@ -250,11 +216,7 @@ export async function deleteAvatar(
 }
 
 /** The on-disk avatar for `userId`, or null. MIME comes from the stored row. */
-export function getAvatarFile(
-  db: Db,
-  cfg: AppConfig,
-  userId: number,
-): AvatarFile | null {
+export function getAvatarFile(db: Db, cfg: AppConfig, userId: number): AvatarFile | null {
   const row = db
     .prepare(
       `SELECT pm.mime, pm.bytes, pm.storage_path
@@ -262,9 +224,7 @@ export function getAvatarFile(
        JOIN profile_media pm ON pm.id = up.avatar_media_id
        WHERE up.user_id = ? AND pm.kind = 'avatar'`,
     )
-    .get(userId) as
-    | { mime: AvatarMime; bytes: number; storage_path: string }
-    | undefined;
+    .get(userId) as { mime: AvatarMime; bytes: number; storage_path: string } | undefined;
   if (!row) return null;
   const absPath = resolve(cfg.dataDir, row.storage_path);
   assertInsideUserDir(profileMediaUserDir(cfg, userId), absPath);
@@ -272,10 +232,7 @@ export function getAvatarFile(
 }
 
 /** Best-effort wipe of a user's profile-media directory (on user deletion). */
-export async function removeUserMediaDir(
-  cfg: AppConfig,
-  userId: number,
-): Promise<void> {
+export async function removeUserMediaDir(cfg: AppConfig, userId: number): Promise<void> {
   try {
     await fs.rm(profileMediaUserDir(cfg, userId), {
       recursive: true,

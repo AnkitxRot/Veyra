@@ -38,7 +38,7 @@ describe("M69 — theme preference", () => {
     await api.close();
   });
 
-  it("1. defaults to \"system\"", async () => {
+  it('1. defaults to "system"', async () => {
     expect(DEFAULT_USER_PREFERENCES.theme).toBe("system");
     const res = await api.request("GET", "/api/auth/preferences", { token });
     expect(res.status).toBe(200);
@@ -173,13 +173,9 @@ describe("M69 — theme preference", () => {
         raw.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(v);
       }
       raw
-        .prepare(
-          "INSERT INTO users (id, username, password_hash) VALUES (1, 'legacy', 'hash')",
-        )
+        .prepare("INSERT INTO users (id, username, password_hash) VALUES (1, 'legacy', 'hash')")
         .run();
-      raw
-        .prepare("INSERT INTO user_preferences (user_id, font_size) VALUES (1, 16)")
-        .run();
+      raw.prepare("INSERT INTO user_preferences (user_id, font_size) VALUES (1, 16)").run();
       raw.close();
 
       const migrated = openDb(dbPath);
@@ -203,9 +199,7 @@ describe("M69 — theme preference", () => {
           .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
           .all() as Array<{ version: number }>
       ).map((r) => r.version);
-      expect(versions).toEqual([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-      ]);
+      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
       reopened.close();
     } finally {
       try {

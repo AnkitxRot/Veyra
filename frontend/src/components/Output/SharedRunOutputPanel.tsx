@@ -54,8 +54,7 @@ export default function SharedRunOutputPanel({
 }: SharedRunOutputPanelProps) {
   const phase = phaseOf(status);
   const username = status?.username?.trim() || "";
-  const id =
-    status?.userId != null ? actorIdentity?.get(status.userId) : undefined;
+  const id = status?.userId != null ? actorIdentity?.get(status.userId) : undefined;
   const who = username
     ? displayLabel({ name: username, displayName: id?.displayName ?? null })
     : "A collaborator";

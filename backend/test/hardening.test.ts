@@ -1,9 +1,9 @@
-import { describe, it, expect, afterAll } from 'vitest';
-import { makeTestConfig, startTestApi } from './helpers.js';
-import { openDb } from '../src/db.js';
-import { issueSession, deleteExpiredSessions } from '../src/auth/middleware.js';
-import { runGate } from '../src/execution/runGate.js';
-import type { ConfigOverrides } from '../src/config';
+import { describe, it, expect, afterAll } from "vitest";
+import { makeTestConfig, startTestApi } from "./helpers.js";
+import { openDb } from "../src/db.js";
+import { issueSession, deleteExpiredSessions } from "../src/auth/middleware.js";
+import { runGate } from "../src/execution/runGate.js";
+import type { ConfigOverrides } from "../src/config";
 
 const closers: Array<() => Promise<void>> = [];
 
@@ -18,13 +18,13 @@ async function boot(overrides: ConfigOverrides = {}) {
   return { cfg, api };
 }
 
-describe('auth rate limiting', () => {
-  it('returns 429 after the configured number of attempts', async () => {
+describe("auth rate limiting", () => {
+  it("returns 429 after the configured number of attempts", async () => {
     const { api } = await boot({ authRateLimit: { max: 3, windowMs: 60_000 } });
     const statuses: number[] = [];
     for (let i = 0; i < 4; i++) {
-      const r = await api.request('POST', '/api/auth/login', {
-        body: { username: 'nobody', password: 'wrongpass1' },
+      const r = await api.request("POST", "/api/auth/login", {
+        body: { username: "nobody", password: "wrongpass1" },
       });
       statuses.push(r.status);
     }
@@ -32,64 +32,64 @@ describe('auth rate limiting', () => {
     expect(statuses[3]).toBe(429);
   });
 
-  it('applies the limit to register as well', async () => {
+  it("applies the limit to register as well", async () => {
     const { api } = await boot({ authRateLimit: { max: 1, windowMs: 60_000 } });
-    const first = await api.request('POST', '/api/auth/register', {
-      body: { username: 'user_rl', password: 'secret123' },
+    const first = await api.request("POST", "/api/auth/register", {
+      body: { username: "user_rl", password: "secret123" },
     });
     expect(first.status).toBe(201);
-    const second = await api.request('POST', '/api/auth/register', {
-      body: { username: 'user_rl2', password: 'secret123' },
+    const second = await api.request("POST", "/api/auth/register", {
+      body: { username: "user_rl2", password: "secret123" },
     });
     expect(second.status).toBe(429);
-    expect(second.data.error.code).toBe('rate_limited');
+    expect(second.data.error.code).toBe("rate_limited");
   });
 
-  it('rejects X-Forwarded-For spoofing when trustProxy is disabled (default)', async () => {
+  it("rejects X-Forwarded-For spoofing when trustProxy is disabled (default)", async () => {
     const { api } = await boot({
       trustProxy: false,
       authRateLimit: { max: 2, windowMs: 60_000 },
     });
 
     // Attacker sends different spoofed X-Forwarded-For headers on each request
-    const r1 = await api.request('POST', '/api/auth/login', {
-      body: { username: 'nobody', password: 'wrongpass1' },
-      headers: { 'X-Forwarded-For': '198.51.100.1' },
+    const r1 = await api.request("POST", "/api/auth/login", {
+      body: { username: "nobody", password: "wrongpass1" },
+      headers: { "X-Forwarded-For": "198.51.100.1" },
     });
-    const r2 = await api.request('POST', '/api/auth/login', {
-      body: { username: 'nobody', password: 'wrongpass2' },
-      headers: { 'X-Forwarded-For': '198.51.100.2' },
+    const r2 = await api.request("POST", "/api/auth/login", {
+      body: { username: "nobody", password: "wrongpass2" },
+      headers: { "X-Forwarded-For": "198.51.100.2" },
     });
-    const r3 = await api.request('POST', '/api/auth/login', {
-      body: { username: 'nobody', password: 'wrongpass3' },
-      headers: { 'X-Forwarded-For': '198.51.100.3' },
+    const r3 = await api.request("POST", "/api/auth/login", {
+      body: { username: "nobody", password: "wrongpass3" },
+      headers: { "X-Forwarded-For": "198.51.100.3" },
     });
 
     expect(r1.status).toBe(401);
     expect(r2.status).toBe(401);
     // 3rd attempt is rate limited because trustProxy=false keys on real socket IP
     expect(r3.status).toBe(429);
-    expect(r3.data.error.code).toBe('rate_limited');
+    expect(r3.data.error.code).toBe("rate_limited");
   });
 
-  it('honors X-Forwarded-For when trustProxy is explicitly enabled', async () => {
+  it("honors X-Forwarded-For when trustProxy is explicitly enabled", async () => {
     const { api } = await boot({
       trustProxy: true,
       authRateLimit: { max: 2, windowMs: 60_000 },
     });
 
     // Behind trusted proxy, distinct client IPs get distinct buckets
-    const r1 = await api.request('POST', '/api/auth/login', {
-      body: { username: 'nobody', password: 'wrongpass1' },
-      headers: { 'X-Forwarded-For': '203.0.113.10' },
+    const r1 = await api.request("POST", "/api/auth/login", {
+      body: { username: "nobody", password: "wrongpass1" },
+      headers: { "X-Forwarded-For": "203.0.113.10" },
     });
-    const r2 = await api.request('POST', '/api/auth/login', {
-      body: { username: 'nobody', password: 'wrongpass2' },
-      headers: { 'X-Forwarded-For': '203.0.113.20' },
+    const r2 = await api.request("POST", "/api/auth/login", {
+      body: { username: "nobody", password: "wrongpass2" },
+      headers: { "X-Forwarded-For": "203.0.113.20" },
     });
-    const r3 = await api.request('POST', '/api/auth/login', {
-      body: { username: 'nobody', password: 'wrongpass3' },
-      headers: { 'X-Forwarded-For': '203.0.113.30' },
+    const r3 = await api.request("POST", "/api/auth/login", {
+      body: { username: "nobody", password: "wrongpass3" },
+      headers: { "X-Forwarded-For": "203.0.113.30" },
     });
 
     expect(r1.status).toBe(401);
@@ -98,95 +98,95 @@ describe('auth rate limiting', () => {
   });
 });
 
-describe('session cookie security flags', () => {
-  it('sets Secure cookie attribute when cookieSecure is true', async () => {
+describe("session cookie security flags", () => {
+  it("sets Secure cookie attribute when cookieSecure is true", async () => {
     const { api } = await boot({ cookieSecure: true });
-    const r = await api.request('POST', '/api/auth/register', {
-      body: { username: 'secure_cookie_user', password: 'password123' },
+    const r = await api.request("POST", "/api/auth/register", {
+      body: { username: "secure_cookie_user", password: "password123" },
     });
     expect(r.status).toBe(201);
-    const setCookie = r.headers.get('set-cookie') ?? '';
-    expect(setCookie.toLowerCase()).toContain('secure');
-    expect(setCookie.toLowerCase()).toContain('httponly');
+    const setCookie = r.headers.get("set-cookie") ?? "";
+    expect(setCookie.toLowerCase()).toContain("secure");
+    expect(setCookie.toLowerCase()).toContain("httponly");
   });
 
-  it('omits Secure cookie attribute when cookieSecure is false (dev mode)', async () => {
+  it("omits Secure cookie attribute when cookieSecure is false (dev mode)", async () => {
     const { api } = await boot({ cookieSecure: false });
-    const r = await api.request('POST', '/api/auth/register', {
-      body: { username: 'insecure_cookie_user', password: 'password123' },
+    const r = await api.request("POST", "/api/auth/register", {
+      body: { username: "insecure_cookie_user", password: "password123" },
     });
     expect(r.status).toBe(201);
-    const setCookie = r.headers.get('set-cookie') ?? '';
-    expect(setCookie.toLowerCase()).not.toContain('secure');
-    expect(setCookie.toLowerCase()).toContain('httponly');
+    const setCookie = r.headers.get("set-cookie") ?? "";
+    expect(setCookie.toLowerCase()).not.toContain("secure");
+    expect(setCookie.toLowerCase()).toContain("httponly");
   });
 });
 
-describe('password policy', () => {
-  it('rejects passwords below the default minimum of 8', async () => {
+describe("password policy", () => {
+  it("rejects passwords below the default minimum of 8", async () => {
     const { api } = await boot();
-    const r = await api.request('POST', '/api/auth/register', {
-      body: { username: 'user_pw', password: 'short12' },
+    const r = await api.request("POST", "/api/auth/register", {
+      body: { username: "user_pw", password: "short12" },
     });
     expect(r.status).toBe(400);
-    expect(r.data.error.code).toBe('invalid_password');
+    expect(r.data.error.code).toBe("invalid_password");
   });
 
-  it('honors a custom minimum length', async () => {
+  it("honors a custom minimum length", async () => {
     const { api } = await boot({ minPasswordLength: 12 });
-    const weak = await api.request('POST', '/api/auth/register', {
-      body: { username: 'user_pw2', password: 'elevenchars' },
+    const weak = await api.request("POST", "/api/auth/register", {
+      body: { username: "user_pw2", password: "elevenchars" },
     });
     expect(weak.status).toBe(400);
-    const ok = await api.request('POST', '/api/auth/register', {
-      body: { username: 'user_pw2', password: 'twelvechars!' },
+    const ok = await api.request("POST", "/api/auth/register", {
+      body: { username: "user_pw2", password: "twelvechars!" },
     });
     expect(ok.status).toBe(201);
   });
 });
 
-describe('project quota', () => {
-  it('blocks project creation past the per-user quota', async () => {
+describe("project quota", () => {
+  it("blocks project creation past the per-user quota", async () => {
     const { api } = await boot({ projectQuota: 2 });
-    const reg = await api.request('POST', '/api/auth/register', {
-      body: { username: 'user_quota', password: 'secret123' },
+    const reg = await api.request("POST", "/api/auth/register", {
+      body: { username: "user_quota", password: "secret123" },
     });
     const token = reg.data.token;
-    const p1 = await api.request('POST', '/api/projects', { token, body: { name: 'a' } });
-    const p2 = await api.request('POST', '/api/projects', { token, body: { name: 'b' } });
+    const p1 = await api.request("POST", "/api/projects", { token, body: { name: "a" } });
+    const p2 = await api.request("POST", "/api/projects", { token, body: { name: "b" } });
     expect(p1.status).toBeLessThan(300);
     expect(p2.status).toBeLessThan(300);
-    const p3 = await api.request('POST', '/api/projects', { token, body: { name: 'c' } });
+    const p3 = await api.request("POST", "/api/projects", { token, body: { name: "c" } });
     expect(p3.status).toBe(403);
-    expect(p3.data.error.code).toBe('quota_exceeded');
+    expect(p3.data.error.code).toBe("quota_exceeded");
   });
 });
 
-describe('session garbage collection', () => {
-  it('deletes expired sessions and keeps valid ones', () => {
-    const db = openDb(':memory:');
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('gcuser', 'x');
+describe("session garbage collection", () => {
+  it("deletes expired sessions and keeps valid ones", () => {
+    const db = openDb(":memory:");
+    db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)").run("gcuser", "x");
     issueSession(db, 1, -1000); // already expired
     issueSession(db, 1, 60_000); // valid
     const removed = deleteExpiredSessions(db);
     expect(removed).toBe(1);
-    const row = db.prepare('SELECT COUNT(*) AS c FROM sessions').get() as { c: number };
+    const row = db.prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
     expect(row.c).toBe(1);
   });
 
-  it('rejects an expired session token at the API', async () => {
+  it("rejects an expired session token at the API", async () => {
     const { api } = await boot();
-    const reg = await api.request('POST', '/api/auth/register', {
-      body: { username: 'user_gc', password: 'secret123' },
+    const reg = await api.request("POST", "/api/auth/register", {
+      body: { username: "user_gc", password: "secret123" },
     });
     const expired = issueSession(api.db, reg.data.user.id, -1000);
-    const me = await api.request('GET', '/api/auth/me', { token: expired });
+    const me = await api.request("GET", "/api/auth/me", { token: expired });
     expect(me.status).toBe(401);
   });
 });
 
-describe('concurrent execution gate', () => {
-  it('enforces the per-user limit and releases slots', () => {
+describe("concurrent execution gate", () => {
+  it("enforces the per-user limit and releases slots", () => {
     const userId = 900001;
     expect(runGate.acquire(userId, 1)).toBe(true);
     expect(runGate.acquire(userId, 1)).toBe(false);
@@ -197,7 +197,7 @@ describe('concurrent execution gate', () => {
     runGate.release(userId);
   });
 
-  it('tracks users independently', () => {
+  it("tracks users independently", () => {
     const a = 900002;
     const b = 900003;
     expect(runGate.acquire(a, 1)).toBe(true);
@@ -207,7 +207,7 @@ describe('concurrent execution gate', () => {
     runGate.release(b);
   });
 
-  it('never counts below zero', () => {
+  it("never counts below zero", () => {
     const userId = 900004;
     runGate.release(userId);
     expect(runGate.activeCount(userId)).toBe(0);
@@ -216,13 +216,15 @@ describe('concurrent execution gate', () => {
   });
 });
 
-describe('db indexes', () => {
-  it('creates ownership and session indexes', () => {
-    const db = openDb(':memory:');
-    const rows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>;
+describe("db indexes", () => {
+  it("creates ownership and session indexes", () => {
+    const db = openDb(":memory:");
+    const rows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
+      name: string;
+    }>;
     const names = rows.map((r) => r.name);
-    expect(names).toContain('idx_projects_owner');
-    expect(names).toContain('idx_sessions_user');
-    expect(names).toContain('idx_sessions_expires');
+    expect(names).toContain("idx_projects_owner");
+    expect(names).toContain("idx_sessions_user");
+    expect(names).toContain("idx_sessions_expires");
   });
 });

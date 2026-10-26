@@ -116,9 +116,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
     await findByText(/No database backups yet/);
 
     let resolveCreate: (v: any) => void = () => {};
-    apiMock.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveCreate = resolve)),
-    );
+    apiMock.mockImplementationOnce(() => new Promise((resolve) => (resolveCreate = resolve)));
     const createButton = getByText("Create Backup");
     fireEvent.click(createButton);
     fireEvent.click(createButton);
@@ -129,9 +127,8 @@ describe("AdminBackupsPanel — Milestone 46", () => {
 
     await waitFor(() =>
       expect(
-        apiMock.mock.calls.filter(
-          (c) => c[0] === "/api/admin/backups" && c[1]?.method === "POST",
-        ).length,
+        apiMock.mock.calls.filter((c) => c[0] === "/api/admin/backups" && c[1]?.method === "POST")
+          .length,
       ).toBe(1),
     );
   });
@@ -148,8 +145,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
 
   it("7. cancelling the delete confirmation makes no DELETE request", async () => {
     apiMock.mockResolvedValueOnce({ backups: [dbBackup()] });
-    const { findByText, getByLabelText, getByText, queryByText } =
-      renderPanel();
+    const { findByText, getByLabelText, getByText, queryByText } = renderPanel();
     await findByText("backup-2026-01-01.db");
 
     fireEvent.click(getByLabelText("Delete backup-2026-01-01.db"));
@@ -157,9 +153,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
     fireEvent.click(getByText("Cancel"));
 
     await waitFor(() => expect(queryByText("Delete Backup")).toBeNull());
-    expect(apiMock.mock.calls.some((c) => c[1]?.method === "DELETE")).toBe(
-      false,
-    );
+    expect(apiMock.mock.calls.some((c) => c[1]?.method === "DELETE")).toBe(false);
   });
 
   it("8. confirming delete sends the exact DELETE URL and refreshes the list", async () => {
@@ -248,9 +242,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
     fireEvent.change(select, { target: { value: "proj-1" } });
 
     await waitFor(() =>
-      expect(apiMock).toHaveBeenCalledWith(
-        "/api/admin/workspace-backups/proj-1",
-      ),
+      expect(apiMock).toHaveBeenCalledWith("/api/admin/workspace-backups/proj-1"),
     );
   });
 
@@ -324,17 +316,14 @@ describe("AdminBackupsPanel — Milestone 46", () => {
     fireEvent.click(getByLabelText("Restore workspace-proj-1-2026-01-01.zip"));
 
     expect(await findByText("Restore Workspace Backup")).toBeTruthy();
-    const dialog = await findByText(
-      /This will replace the project's current workspace contents/,
-    );
+    const dialog = await findByText(/This will replace the project's current workspace contents/);
     expect(dialog.textContent).toContain("workspace-proj-1-2026-01-01.zip");
     expect(dialog.textContent).toContain("My Project");
   });
 
   it("16. cancelling restore makes no POST", async () => {
     apiMock.mockResolvedValueOnce({ backups: [] });
-    const { findByText, getByRole, getByLabelText, getByText, queryByText } =
-      renderPanel();
+    const { findByText, getByRole, getByLabelText, getByText, queryByText } = renderPanel();
     await findByText(/No database backups yet/);
 
     apiMock.mockResolvedValueOnce({ backups: [wsBackup()] });
@@ -345,12 +334,8 @@ describe("AdminBackupsPanel — Milestone 46", () => {
     await findByText("Restore Workspace Backup");
     fireEvent.click(getByText("Cancel"));
 
-    await waitFor(() =>
-      expect(queryByText("Restore Workspace Backup")).toBeNull(),
-    );
-    expect(
-      apiMock.mock.calls.some((c) => String(c[0]).includes("/restore")),
-    ).toBe(false);
+    await waitFor(() => expect(queryByText("Restore Workspace Backup")).toBeNull());
+    expect(apiMock.mock.calls.some((c) => String(c[0]).includes("/restore"))).toBe(false);
   });
 
   it("17. confirming restore sends the exact restore endpoint", async () => {
@@ -390,9 +375,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
     await findByText("Restore Workspace Backup");
 
     let resolveRestore: (v: any) => void = () => {};
-    apiMock.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveRestore = resolve)),
-    );
+    apiMock.mockImplementationOnce(() => new Promise((resolve) => (resolveRestore = resolve)));
     const restoreButton = getByText("Restore Workspace");
     fireEvent.click(restoreButton);
     fireEvent.click(restoreButton);
@@ -402,10 +385,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
     apiMock.mockResolvedValueOnce({ backups: [wsBackup()] });
 
     await waitFor(() =>
-      expect(
-        apiMock.mock.calls.filter((c) => String(c[0]).includes("/restore"))
-          .length,
-      ).toBe(1),
+      expect(apiMock.mock.calls.filter((c) => String(c[0]).includes("/restore")).length).toBe(1),
     );
   });
 
@@ -427,9 +407,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
 
     await waitFor(() =>
       expect(
-        apiMock.mock.calls.filter(
-          (c) => c[0] === "/api/admin/workspace-backups/proj-1",
-        ).length,
+        apiMock.mock.calls.filter((c) => c[0] === "/api/admin/workspace-backups/proj-1").length,
       ).toBeGreaterThanOrEqual(2),
     );
   });
@@ -466,9 +444,7 @@ describe("AdminBackupsPanel — Milestone 46", () => {
 
     // proj-1's request never resolves before we switch away from it.
     let resolveProj1: (v: any) => void = () => {};
-    apiMock.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveProj1 = resolve)),
-    );
+    apiMock.mockImplementationOnce(() => new Promise((resolve) => (resolveProj1 = resolve)));
     fireEvent.change(getByRole("combobox"), { target: { value: "proj-1" } });
 
     apiMock.mockResolvedValueOnce({ backups: [] });

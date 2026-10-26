@@ -38,9 +38,7 @@ export function encodeCursor(at: string, id: string): string {
   return `${at}|${id}`;
 }
 
-export function decodeCursor(
-  c: string,
-): { at: string; id: string } | null {
+export function decodeCursor(c: string): { at: string; id: string } | null {
   const i = c.indexOf("|");
   if (i < 0) return null;
   return { at: c.slice(0, i), id: c.slice(i + 1) };
@@ -54,8 +52,7 @@ function cmp(a: TimelineEvent, b: TimelineEvent): number {
 }
 
 function beforePred(cur: { at: string; id: string } | null) {
-  return (e: TimelineEvent): boolean =>
-    !cur || e.at < cur.at || (e.at === cur.at && e.id < cur.id);
+  return (e: TimelineEvent): boolean => !cur || e.at < cur.at || (e.at === cur.at && e.id < cur.id);
 }
 
 function relFile(p: string): string {
@@ -161,10 +158,7 @@ export function queryTimeline(
       `SELECT r.id, r.user_id, r.language, r.file_path, r.status, r.exit_code,
               r.created_at, u.username
        FROM runs r LEFT JOIN users u ON u.id = r.user_id
-       WHERE r.project_id = ? AND r.created_at > ?${curClause(
-         "r.created_at",
-         "('run:' || r.id)",
-       )}
+       WHERE r.project_id = ? AND r.created_at > ?${curClause("r.created_at", "('run:' || r.id)")}
        ORDER BY r.created_at DESC, r.id DESC
        LIMIT ?`,
     )
@@ -230,8 +224,7 @@ export function queryTimeline(
         username: r.username ?? "(removed user)",
       },
       title: subject ? `committed "${subject}"` : "committed",
-      subtitle:
-        typeof d.shortHash === "string" ? (d.shortHash as string) : undefined,
+      subtitle: typeof d.shortHash === "string" ? (d.shortHash as string) : undefined,
       navigable: false,
     });
   }
@@ -258,10 +251,7 @@ export function queryTimeline(
   for (const r of snapRows) {
     const d = safeParse(r.details) ?? {};
     const restored = r.event_type === "SNAPSHOT_RESTORED";
-    const name =
-      typeof d.snapshotName === "string"
-        ? String(d.snapshotName).slice(0, 80)
-        : "";
+    const name = typeof d.snapshotName === "string" ? String(d.snapshotName).slice(0, 80) : "";
     out.push({
       id: `snap:${r.id}`,
       kind: "snapshot",
@@ -316,8 +306,6 @@ export function queryWhileAway(
   });
   return {
     since,
-    events: events.filter(
-      (e) => e.actor.userId !== callerUserId && MEANINGFUL_KINDS.has(e.kind),
-    ),
+    events: events.filter((e) => e.actor.userId !== callerUserId && MEANINGFUL_KINDS.has(e.kind)),
   };
 }

@@ -162,13 +162,10 @@ export async function triggerAIAction(
     providerId?: string;
   },
 ): Promise<{ response: AIResponsePayload }> {
-  return api<{ response: AIResponsePayload }>(
-    `/api/projects/${projectId}/ai/action`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
+  return api<{ response: AIResponsePayload }>(`/api/projects/${projectId}/ai/action`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function applyAIPatch(
@@ -181,13 +178,10 @@ export async function applyAIPatch(
     baseRevision: string;
   },
 ): Promise<{ ok: boolean; snapshotId?: string }> {
-  return api<{ ok: boolean; snapshotId?: string }>(
-    `/api/projects/${projectId}/ai/apply-patch`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
+  return api<{ ok: boolean; snapshotId?: string }>(`/api/projects/${projectId}/ai/apply-patch`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function verifyAIPatch(
@@ -203,13 +197,10 @@ export async function verifyAIPatch(
     skipVerification?: boolean;
   },
 ): Promise<{ verification: AIVerificationRecord }> {
-  return api<{ verification: AIVerificationRecord }>(
-    `/api/projects/${projectId}/ai/verify`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
+  return api<{ verification: AIVerificationRecord }>(`/api/projects/${projectId}/ai/verify`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function listAIVerifications(
@@ -230,27 +221,18 @@ export async function fetchCollabTimeline(
   if (opts.limit) q.set("limit", String(opts.limit));
   if (opts.before) q.set("before", opts.before);
   const qs = q.toString();
-  return api<TimelinePage>(
-    `/api/projects/${projectId}/collab/timeline${qs ? `?${qs}` : ""}`,
-  );
+  return api<TimelinePage>(`/api/projects/${projectId}/collab/timeline${qs ? `?${qs}` : ""}`);
 }
 
-export async function fetchWhileAway(
-  projectId: string,
-): Promise<WhileAwayResponse> {
-  return api<WhileAwayResponse>(
-    `/api/projects/${projectId}/collab/while-away`,
-  );
+export async function fetchWhileAway(projectId: string): Promise<WhileAwayResponse> {
+  return api<WhileAwayResponse>(`/api/projects/${projectId}/collab/while-away`);
 }
 
-export async function ackWhileAway(
-  projectId: string,
-  upTo: string,
-): Promise<void> {
-  await api<{ ok: true }>(
-    `/api/projects/${projectId}/collab/while-away/ack`,
-    { method: "POST", body: JSON.stringify({ upTo }) },
-  );
+export async function ackWhileAway(projectId: string, upTo: string): Promise<void> {
+  await api<{ ok: true }>(`/api/projects/${projectId}/collab/while-away/ack`, {
+    method: "POST",
+    body: JSON.stringify({ upTo }),
+  });
 }
 
 // --- M62: self-service profile identity -----------------------------------
@@ -277,14 +259,8 @@ export async function updateProfile(patch: {
 }
 
 /** M72: cache-busted avatar URL. `self` targets the caller's own route. */
-export function avatarUrl(
-  userId: number,
-  avatarVersion: number,
-  self = false,
-): string {
-  const path = self
-    ? "/api/auth/profile/avatar"
-    : `/api/auth/profile/${userId}/avatar`;
+export function avatarUrl(userId: number, avatarVersion: number, self = false): string {
+  const path = self ? "/api/auth/profile/avatar" : `/api/auth/profile/${userId}/avatar`;
   return `${path}?v=${avatarVersion}`;
 }
 
@@ -309,13 +285,10 @@ export async function uploadAvatar(file: File): Promise<AvatarUploadResult> {
     credentials: "include",
     body: form,
   });
-  const data = (await res.json().catch(() => ({}))) as
-    | AvatarUploadResult
-    | ApiErrorBody;
+  const data = (await res.json().catch(() => ({}))) as AvatarUploadResult | ApiErrorBody;
   if (!res.ok) {
     const err = new Error(
-      (data as ApiErrorBody)?.error?.message ??
-        `avatar upload failed (${res.status})`,
+      (data as ApiErrorBody)?.error?.message ?? `avatar upload failed (${res.status})`,
     );
     (err as any).code = (data as ApiErrorBody)?.error?.code;
     (err as any).status = res.status;

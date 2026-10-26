@@ -90,33 +90,42 @@ frontend/
 ## Key Architecture Patterns
 
 ### Backend Routing
+
 All routes are under `/api/`. Auth middleware (`requireAuth`) verifies session cookies or Bearer tokens. Project routes enforce ownership via `requireOwnedProject()`. Error middleware converts unhandled errors to JSON. The `/api/projects/:id/proxy/:port` route uses `http-proxy-middleware` to reverse-proxy to mapped container ports, requiring auth for each request. The `scratch-test.js` in `backend/` is a standalone e2e script that exercises the full flow (register → create project → write file → WebSocket execute → stdin → exit).
 
 ### Docker Sandbox Execution
+
 Each project gets a persistent Docker container (`ide-sandbox-{projectId}`) mounted with the workspace directory. The `SandboxManager` singleton handles container lifecycle — creation, port mapping (for preview ports 3000,4173,5173,8000,8080), stop, and cleanup. Code execution uses `docker exec` inside this container (not `docker run`), which has Python, Node.js, TypeScript (tsx), GCC, G++, and JDK pre-installed per `docker/Dockerfile.runner` (based on `node:24-bookworm-slim`).
 
 ### Language Execution Pipeline
+
 `runProject()` in `execution/pipeline.ts` orchestrates: language detection → main file resolution → compilation (if applicable) → execution. Each step can short-circuit with specific outcome types (`no_language`, `no_main_file`, `compile_error`, `not_runnable`, etc.).
 
 ### WebSocket Protocol
+
 WebSocket endpoints:
+
 - `/ws/terminal` — bidirectional shell session (messages: `{type: 'data'|'resize'}` → server, `{type: 'data'}` ← server)
 - `/ws/execute` — one-way execution stream (messages: `{type: 'start'|'stdin'|'stop'}` → server, `{type: 'stdout'|'stderr'|'status'|'exit'|'error'}` ← server)
 - `/ws/lsp` — language intelligence (JSON-RPC framed by the backend)
 - `/ws/debug` — mediated debugger (launch / breakpoints / continue / pause / step / stack / variables / terminate). Not raw DAP.
 
 ### File Service Path Traversal Protection
+
 `safeResolve()` validates relative paths against workspace root. `assertInsideWorkspace()` resolves symlinks to confirm paths stay within workspace boundaries.
 
 ### Frontend Communication Pattern
+
 The IDE uses custom DOM events (`ide-save`, `ide-run`, `ide-run-confirmed`, `ide-stop`, `run-started`, `run-stopped`) for component-to-component communication. The API layer (`api.ts`) handles both REST (Bearer token + cookie) and WebSocket connections.
 
 ### Monaco Worker Configuration
+
 `monacoSetup.ts` sets `self.MonacoEnvironment.getWorker` to route language workers (JSON, CSS, HTML, TypeScript/JavaScript) to bundled Vite workers. Without it, Monaco renders all files as plain text. The `monaco` global is exposed on `window`.
 
 ## Commands
 
 ### Development
+
 ```bash
 # Install dependencies
 npm install
@@ -141,6 +150,7 @@ cd frontend && npm run dev
 If `npm run dev` fails with `Port 5173 is already in use`: frontend/vite.config.ts sets `server.strictPort`, so Vite now fails fast instead of silently moving to another port — which previously masked a stale dev server still holding 5173 with a dead /api proxy (login calls returning `request failed (404)`). Stop the process listening on 5173, or start this instance elsewhere with `npm run dev -- --port <n>`. On Windows/Docker Desktop, 5173 can also fall inside a reserved range (`netsh interface ipv4 show excludedportrange protocol=tcp`) even with nothing listening — pick another port or restart WinNAT (`net stop winnat && net start winnat`).
 
 ### Building & Preview
+
 ```bash
 # Type-check backend
 cd backend && npm run typecheck
@@ -153,6 +163,7 @@ cd frontend && npm run preview
 ```
 
 ### Testing
+
 ```bash
 # Run all backend tests
 npm run test
@@ -166,7 +177,9 @@ npm run test:watch
 Tests use Vitest with `singleThread` pool. Docker-dependent tests are auto-skipped when Docker is not available (`skipIf(!isDockerRunning())`). Test helper `makeTestConfig()` uses in-memory SQLite and temp directories.
 
 ### Configuration
+
 Environment variables:
+
 - `PORT` — backend listen port (default: 3000)
 - `DATA_DIR` — workspace/data directory (default: `~/.cloud-ide` on Windows, `/var/lib/cloud-ide` on Linux)
 - `DATABASE_PATH` — SQLite database path

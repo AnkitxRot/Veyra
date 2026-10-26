@@ -83,9 +83,9 @@ describe("M69 → M79 — terminal theme sync (in place, session-preserving)", (
   it("opens the terminal with the dark palette by default", () => {
     render(<Terminal projectId="p1" resolvedTheme="dark" visible />);
     expect(FakeXTerm.instances).toHaveLength(1);
-    expect(
-      (FakeXTerm.instances[0]!.options.theme as any).background,
-    ).toBe(TERMINAL_THEMES.dark.background);
+    expect((FakeXTerm.instances[0]!.options.theme as any).background).toBe(
+      TERMINAL_THEMES.dark.background,
+    );
   });
 
   it("opens the terminal with the light palette when resolvedTheme is light", () => {
@@ -96,9 +96,7 @@ describe("M69 → M79 — terminal theme sync (in place, session-preserving)", (
   });
 
   it("updates the live terminal theme in place — no new xterm, no new socket", () => {
-    const view = render(
-      <Terminal projectId="p1" resolvedTheme="dark" visible />,
-    );
+    const view = render(<Terminal projectId="p1" resolvedTheme="dark" visible />);
     const term = FakeXTerm.instances[0]!;
     expect(FakeWS.instances).toHaveLength(1);
 
@@ -111,15 +109,11 @@ describe("M69 → M79 — terminal theme sync (in place, session-preserving)", (
     expect(term.disposed).toBe(false);
     expect(FakeWS.instances).toHaveLength(1);
     expect(FakeWS.instances[0]!.closed).toBe(false);
-    expect((term.options.theme as any).background).toBe(
-      TERMINAL_THEMES.light.background,
-    );
+    expect((term.options.theme as any).background).toBe(TERMINAL_THEMES.light.background);
   });
 
   it("still recreates the session when the project changes", () => {
-    const view = render(
-      <Terminal projectId="p1" resolvedTheme="dark" visible />,
-    );
+    const view = render(<Terminal projectId="p1" resolvedTheme="dark" visible />);
     expect(FakeXTerm.instances).toHaveLength(1);
     act(() => {
       view.rerender(<Terminal projectId="p2" resolvedTheme="dark" visible />);

@@ -1,10 +1,14 @@
-import { extname } from 'node:path';
-import type { LanguageRuntime } from './languages.js';
-import { registry } from './languages.js';
+import { extname } from "node:path";
+import type { LanguageRuntime } from "./languages.js";
+import { registry } from "./languages.js";
 
-export function detectLanguage(files: string[], explicit?: string | null, activeFile?: string | null): LanguageRuntime | null {
-  if (explicit && explicit !== 'auto') return registry.find((l) => l.id === explicit) ?? null;
-  
+export function detectLanguage(
+  files: string[],
+  explicit?: string | null,
+  activeFile?: string | null,
+): LanguageRuntime | null {
+  if (explicit && explicit !== "auto") return registry.find((l) => l.id === explicit) ?? null;
+
   if (activeFile) {
     const ext = extname(activeFile).slice(1);
     const activeLang = registry.find((l) => l.extensions.includes(ext));
@@ -26,7 +30,11 @@ export function detectLanguage(files: string[], explicit?: string | null, active
   return bestCount > 0 ? best : null;
 }
 
-export function resolveMainFile(lang: LanguageRuntime, files: string[], activeFile?: string | null): string | null {
+export function resolveMainFile(
+  lang: LanguageRuntime,
+  files: string[],
+  activeFile?: string | null,
+): string | null {
   if (activeFile && lang.extensions.includes(extname(activeFile).slice(1))) {
     return activeFile;
   }

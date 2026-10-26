@@ -1,11 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  symlinkSync,
-  existsSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createZipArchive, extractZipArchive } from "../src/projects/zip.js";
@@ -24,24 +18,18 @@ afterEach(() => {
 
 describe("M97 — zip bomb: inflate is bounded by the declared size", () => {
   it("rejects an entry that inflates beyond its declared size without buffering it", async () => {
-    const zip = createZipArchive([
-      { path: "bomb.txt", content: Buffer.alloc(64 * 1024 * 1024) },
-    ]);
+    const zip = createZipArchive([{ path: "bomb.txt", content: Buffer.alloc(64 * 1024 * 1024) }]);
     // Central directory entry: uncompressedSize lives at +24. Lie: claim 1 byte.
     const cd = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
     zip.writeUInt32LE(1, cd + 24);
-    await expect(
-      extractZipArchive(zip, tmp(), makeTestConfig()),
-    ).rejects.toMatchObject({
+    await expect(extractZipArchive(zip, tmp(), makeTestConfig())).rejects.toMatchObject({
       status: 400,
       message: expect.stringMatching(/beyond|exceeds its declared/i),
     });
   });
 
   it("still extracts an honest archive", async () => {
-    const zip = createZipArchive([
-      { path: "a.txt", content: Buffer.from("hello") },
-    ]);
+    const zip = createZipArchive([{ path: "a.txt", content: Buffer.from("hello") }]);
     const files = await extractZipArchive(zip, tmp(), makeTestConfig());
     expect(files.length).toBeGreaterThan(0);
   });
@@ -59,9 +47,9 @@ describe("M97 — dangling symlink cannot be used to create files outside the wo
     } catch {
       return; // symlink creation not permitted on this host (Windows w/o privilege)
     }
-    await expect(
-      assertInsideWorkspace(ws, join(ws, "evil")),
-    ).rejects.toMatchObject({ status: 400 });
+    await expect(assertInsideWorkspace(ws, join(ws, "evil"))).rejects.toMatchObject({
+      status: 400,
+    });
     expect(existsSync(join(out, "x"))).toBe(false);
   });
 });

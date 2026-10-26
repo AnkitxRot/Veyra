@@ -3,11 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import {
-  openDb,
-  getSchemaVersion,
-  BASELINE_SCHEMA_VERSION,
-} from "../src/db.js";
+import { openDb, getSchemaVersion, BASELINE_SCHEMA_VERSION } from "../src/db.js";
 import type { Db } from "../src/db.js";
 
 const require = createRequire(import.meta.url);
@@ -70,9 +66,7 @@ describe("Database Schema & Migrations", () => {
     const db = openDb(":memory:");
     expect(getSchemaVersion(db)).toBe(17);
     const names = (
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all() as { name: string }[]
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
     ).map((t) => t.name);
     for (const t of [
       "comment_threads",
@@ -88,12 +82,11 @@ describe("Database Schema & Migrations", () => {
       "user_featured_projects",
     ])
       expect(names).toContain(t);
-    const fk = db
-      .prepare("PRAGMA foreign_key_list(comments)")
-      .all() as { table: string; on_delete: string }[];
-    expect(fk.find((r) => r.table === "comment_threads")!.on_delete).toBe(
-      "CASCADE",
-    );
+    const fk = db.prepare("PRAGMA foreign_key_list(comments)").all() as {
+      table: string;
+      on_delete: string;
+    }[];
+    expect(fk.find((r) => r.table === "comment_threads")!.on_delete).toBe("CASCADE");
     const cols = (
       db.prepare("PRAGMA table_info(comment_threads)").all() as {
         name: string;
@@ -144,22 +137,17 @@ describe("Database Schema & Migrations", () => {
         raw.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(v);
       }
       raw
-        .prepare(
-          "INSERT INTO users (id, username, password_hash) VALUES (1, 'prefs_user', 'hash')",
-        )
+        .prepare("INSERT INTO users (id, username, password_hash) VALUES (1, 'prefs_user', 'hash')")
         .run();
       raw
-        .prepare(
-          "INSERT INTO user_preferences (user_id, font_size, tab_size) VALUES (1, 16, 2)",
-        )
+        .prepare("INSERT INTO user_preferences (user_id, font_size, tab_size) VALUES (1, 16, 2)")
         .run();
       raw.close();
 
       const migrated = openDb(dbPath);
       expect(getSchemaVersion(migrated)).toBe(17);
-      const row = migrated
-        .prepare("SELECT data FROM user_settings WHERE user_id = 1")
-        .get() as { data: string } | undefined;
+      const row = migrated.prepare("SELECT data FROM user_settings WHERE user_id = 1").get() as
+        { data: string } | undefined;
       expect(row).toBeDefined();
       const data = JSON.parse(row!.data);
       expect(data["editor.fontSize"]).toBe(16);
@@ -180,22 +168,16 @@ describe("Database Schema & Migrations", () => {
   describe("Milestone 33 — audit_logs.project_id ON DELETE SET NULL migration", () => {
     it("a fresh database gets the corrected FK directly from the baseline schema (no migration replay needed)", () => {
       const db = openDb(":memory:");
-      const fkRows = db
-        .prepare("PRAGMA foreign_key_list(audit_logs)")
-        .all() as Array<{
+      const fkRows = db.prepare("PRAGMA foreign_key_list(audit_logs)").all() as Array<{
         table: string;
         from: string;
         on_delete: string;
       }>;
-      const projectFk = fkRows.find(
-        (r) => r.from === "project_id" && r.table === "projects",
-      );
+      const projectFk = fkRows.find((r) => r.from === "project_id" && r.table === "projects");
       expect(projectFk).toBeDefined();
       expect(projectFk!.on_delete).toBe("SET NULL");
 
-      const userFk = fkRows.find(
-        (r) => r.from === "user_id" && r.table === "users",
-      );
+      const userFk = fkRows.find((r) => r.from === "user_id" && r.table === "users");
       expect(userFk).toBeDefined();
       expect(userFk!.on_delete).toBe("SET NULL");
     });
@@ -247,9 +229,7 @@ describe("Database Schema & Migrations", () => {
           );
         `);
         for (let v = 1; v <= 8; v++) {
-          raw
-            .prepare("INSERT INTO schema_migrations (version) VALUES (?)")
-            .run(v);
+          raw.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(v);
         }
 
         raw
@@ -310,23 +290,17 @@ describe("Database Schema & Migrations", () => {
         ).c;
         expect(postMigrationCount).toBe(2);
         const preservedRow = migrated
-          .prepare(
-            "SELECT * FROM audit_logs WHERE event_type = 'PROJECT_CREATED'",
-          )
+          .prepare("SELECT * FROM audit_logs WHERE event_type = 'PROJECT_CREATED'")
           .get() as any;
         expect(preservedRow.project_id).toBe("proj-to-delete");
         expect(preservedRow.user_id).toBe(1);
 
         // The FK is now corrected.
-        const fkRows = migrated
-          .prepare("PRAGMA foreign_key_list(audit_logs)")
-          .all() as Array<{
+        const fkRows = migrated.prepare("PRAGMA foreign_key_list(audit_logs)").all() as Array<{
           from: string;
           on_delete: string;
         }>;
-        expect(fkRows.find((r) => r.from === "project_id")!.on_delete).toBe(
-          "SET NULL",
-        );
+        expect(fkRows.find((r) => r.from === "project_id")!.on_delete).toBe("SET NULL");
 
         // Indexes survived the recreate.
         const indexes = migrated
@@ -340,13 +314,9 @@ describe("Database Schema & Migrations", () => {
 
         // Project deletion now sets project_id NULL instead of cascading
         // the audit row away -- the actual defect this migration fixes.
-        migrated
-          .prepare("DELETE FROM projects WHERE id = 'proj-to-delete'")
-          .run();
+        migrated.prepare("DELETE FROM projects WHERE id = 'proj-to-delete'").run();
         const afterProjectDelete = migrated
-          .prepare(
-            "SELECT * FROM audit_logs WHERE event_type = 'PROJECT_CREATED'",
-          )
+          .prepare("SELECT * FROM audit_logs WHERE event_type = 'PROJECT_CREATED'")
           .get() as any;
         expect(afterProjectDelete).toBeDefined(); // row survives
         expect(afterProjectDelete.project_id).toBeNull();

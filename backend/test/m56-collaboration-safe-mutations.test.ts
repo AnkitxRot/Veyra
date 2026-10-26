@@ -7,20 +7,14 @@ import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
-import {
-  collaborationManager,
-  CollaborationRoom,
-} from "../src/collab/manager.js";
+import { collaborationManager, CollaborationRoom } from "../src/collab/manager.js";
 import { createProject, projectDir } from "../src/projects/service.js";
 import { writeProjectFile } from "../src/files/service.js";
 import { importProjectZip } from "../src/projects/archive.js";
 import { createZipArchive } from "../src/projects/zip.js";
 import { createWorkspaceBackup } from "../src/backup/workspaceBackup.js";
 import { restoreWorkspaceBackup } from "../src/backup/workspaceRestore.js";
-import {
-  controlWriteFile,
-  resetWriteControl,
-} from "./confinedWriteMock.js";
+import { controlWriteFile, resetWriteControl } from "./confinedWriteMock.js";
 
 const MESSAGE_CUSTOM = 3;
 const MESSAGE_AWARENESS = 1;
@@ -62,9 +56,7 @@ function awarenessFrame(
 }
 
 function externalNotices(ws: any) {
-  return (ws.notices as any[]).filter(
-    (n) => n.type === "external_mutation_notice",
-  );
+  return (ws.notices as any[]).filter((n) => n.type === "external_mutation_notice");
 }
 
 describe("M56 — collaboration-safe destructive operations", () => {
@@ -86,12 +78,16 @@ describe("M56 — collaboration-safe destructive operations", () => {
     db = openDb(":memory:");
     cfg = { ...resolveConfig(), workspacesDir: tmpWs, dataDir: tmpData };
     collaborationManager.init(cfg, db);
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "admin"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "admin",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
   });
 
   afterEach(() => {
@@ -135,9 +131,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
 
       const res = await room.flushBeforeDestructiveDispose();
       expect(res).toEqual({ flushed: true, remainingDirty: [] });
-      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe(
-        "IN MEMORY EDIT\n",
-      );
+      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe("IN MEMORY EDIT\n");
     });
 
     it("2. a room with nothing dirty and nothing loaded performs no write", async () => {
@@ -235,9 +229,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
       // M90: flushToDisk() uses writeConfinedFile (handle-based I/O), so
       // fs.writeFile mocks are silently bypassed. Use controlWriteFile to
       // hang the confined write indefinitely.
-      const cleanup5 = controlWriteFile(
-        () => new Promise(() => {}) as Promise<void>,
-      );
+      const cleanup5 = controlWriteFile(() => new Promise(() => {}) as Promise<void>);
 
       const start = Date.now();
       const res = await room.flushBeforeDestructiveDispose({ timeoutMs: 200 });
@@ -315,12 +307,8 @@ describe("M56 — collaboration-safe destructive operations", () => {
       r1.markFileDirty("x.txt");
 
       await r1.flushBeforeDestructiveDispose();
-      expect(
-        await fs.readFile(join(projectDir(cfg, p1.id), "x.txt"), "utf-8"),
-      ).toBe("1!");
-      expect(
-        await fs.readFile(join(projectDir(cfg, p2.id), "x.txt"), "utf-8"),
-      ).toBe("2");
+      expect(await fs.readFile(join(projectDir(cfg, p1.id), "x.txt"), "utf-8")).toBe("1!");
+      expect(await fs.readFile(join(projectDir(cfg, p2.id), "x.txt"), "utf-8")).toBe("2");
     });
   });
 
@@ -347,18 +335,12 @@ describe("M56 — collaboration-safe destructive operations", () => {
       });
       room.markFileDirty("main.py");
 
-      const flushSpy = vi.spyOn(
-        collaborationManager,
-        "flushRoomBeforeDestruction",
-      );
+      const flushSpy = vi.spyOn(collaborationManager, "flushRoomBeforeDestruction");
 
-      const result = await restoreWorkspaceBackup(
-        cfg,
-        db,
-        project.id,
-        backup.filename,
-        { actorUserId: 1, actorUsername: "alice" },
-      );
+      const result = await restoreWorkspaceBackup(cfg, db, project.id, backup.filename, {
+        actorUserId: 1,
+        actorUsername: "alice",
+      });
       expect(result.workspaceFileCount).toBeGreaterThan(0);
       expect(flushSpy).toHaveBeenCalledWith(project.id);
 
@@ -384,10 +366,10 @@ describe("M56 — collaboration-safe destructive operations", () => {
       room.doc.transact(() => room.doc.getText("main.py").insert(0, "x"));
       room.markFileDirty("main.py");
 
-      vi.spyOn(
-        collaborationManager,
-        "flushRoomBeforeDestruction",
-      ).mockResolvedValue({ flushed: false, remainingDirty: ["main.py"] });
+      vi.spyOn(collaborationManager, "flushRoomBeforeDestruction").mockResolvedValue({
+        flushed: false,
+        remainingDirty: ["main.py"],
+      });
 
       await expect(
         restoreWorkspaceBackup(cfg, db, project.id, backup.filename, {
@@ -397,9 +379,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
 
       // Room still alive, workspace file untouched.
       expect(collaborationManager.getRoom(project.id)).toBeDefined();
-      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe(
-        "LIVE DISK\n",
-      );
+      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe("LIVE DISK\n");
     });
 
     it("11. force:true proceeds past an un-flushable room", async () => {
@@ -416,18 +396,15 @@ describe("M56 — collaboration-safe destructive operations", () => {
         role: "editor",
       });
 
-      vi.spyOn(
-        collaborationManager,
-        "flushRoomBeforeDestruction",
-      ).mockResolvedValue({ flushed: false, remainingDirty: ["main.py"] });
+      vi.spyOn(collaborationManager, "flushRoomBeforeDestruction").mockResolvedValue({
+        flushed: false,
+        remainingDirty: ["main.py"],
+      });
 
-      const result = await restoreWorkspaceBackup(
-        cfg,
-        db,
-        project.id,
-        backup.filename,
-        { actorUserId: 1, force: true },
-      );
+      const result = await restoreWorkspaceBackup(cfg, db, project.id, backup.filename, {
+        actorUserId: 1,
+        force: true,
+      });
       expect(result.workspaceFileCount).toBeGreaterThan(0);
       expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe("BACKUP\n");
     });
@@ -446,22 +423,15 @@ describe("M56 — collaboration-safe destructive operations", () => {
       room.doc.transact(() => room.doc.getText("main.py").insert(0, "EDIT "));
       room.markFileDirty("main.py");
 
-      const flushSpy = vi.spyOn(
-        collaborationManager,
-        "flushRoomBeforeDestruction",
-      );
-      const zip = createZipArchive([
-        { path: "main.py", content: Buffer.from("IMPORTED\n") },
-      ]);
+      const flushSpy = vi.spyOn(collaborationManager, "flushRoomBeforeDestruction");
+      const zip = createZipArchive([{ path: "main.py", content: Buffer.from("IMPORTED\n") }]);
       const res = await importProjectZip(cfg, db, 1, project.id, zip, {
         replace: true,
         actorUsername: "alice",
       });
       expect(res.ok).toBe(true);
       expect(flushSpy).toHaveBeenCalledWith(project.id);
-      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe(
-        "IMPORTED\n",
-      );
+      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe("IMPORTED\n");
     });
 
     it("13. a rolled-back restore still restores the original workspace", async () => {
@@ -481,9 +451,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
       ).rejects.toBeTruthy();
 
       // ROLLBACK restored the pre-restore live workspace.
-      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe(
-        "MODIFIED\n",
-      );
+      expect(await fs.readFile(join(cwd, "main.py"), "utf-8")).toBe("MODIFIED\n");
     });
 
     it("14. restore registers a destructive mutation replayed to a reconnecting non-actor", async () => {
@@ -569,11 +537,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
       const project = await createProject(cfg, db, 1, { name });
       for (const c of clients) {
         if (c.activeFile) {
-          await writeProjectFile(
-            projectDir(cfg, project.id),
-            c.activeFile,
-            "x",
-          );
+          await writeProjectFile(projectDir(cfg, project.id), c.activeFile, "x");
         }
       }
       const room = makeRoom(project.id);
@@ -591,10 +555,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
           if (c.activeFile) state.activeFile = c.activeFile;
           if (c.activity) state.activity = { type: c.activity, timestamp: 1 };
           if (c.dirty !== undefined) state.activeFileDirty = c.dirty;
-          room.handleMessage(
-            c.ws,
-            awarenessFrame([{ clientId: c.clientId, clock: 1, state }]),
-          );
+          room.handleMessage(c.ws, awarenessFrame([{ clientId: c.clientId, clock: 1, state }]));
         }
       }
       return room;
@@ -712,17 +673,13 @@ describe("M56 — collaboration-safe destructive operations", () => {
           clientId: 20,
         },
       ]);
-      expect(room!.getCollaboratorFileState(["src/a.ts"])[0]!.role).toBe(
-        "viewer",
-      );
+      expect(room!.getCollaboratorFileState(["src/a.ts"])[0]!.role).toBe("viewer");
     });
 
     it("22. project isolation: the manager returns [] for a project with no room", () => {
-      expect(
-        collaborationManager.getCollaboratorFileState("no-such-project", [
-          "a.ts",
-        ]),
-      ).toEqual([]);
+      expect(collaborationManager.getCollaboratorFileState("no-such-project", ["a.ts"])).toEqual(
+        [],
+      );
     });
 
     it("23. a disconnected collaborator is no longer reported", async () => {
@@ -878,22 +835,11 @@ describe("M56 — collaboration-safe destructive operations", () => {
 
     it("29. a fresh destructive-mutation record expires after its TTL", async () => {
       const project = await createProject(cfg, db, 1, { name: "N29" });
-      collaborationManager.registerDestructiveMutation(
-        project.id,
-        "workspace_import",
-        1,
-        "alice",
-      );
-      expect(
-        collaborationManager.getRecentDestructiveMutation(project.id),
-      ).toBeDefined();
-      const rec = (collaborationManager as any).recentDestructiveMutations.get(
-        project.id,
-      );
+      collaborationManager.registerDestructiveMutation(project.id, "workspace_import", 1, "alice");
+      expect(collaborationManager.getRecentDestructiveMutation(project.id)).toBeDefined();
+      const rec = (collaborationManager as any).recentDestructiveMutations.get(project.id);
       rec.timestamp = Date.now() - 61_000;
-      expect(
-        collaborationManager.getRecentDestructiveMutation(project.id),
-      ).toBeUndefined();
+      expect(collaborationManager.getRecentDestructiveMutation(project.id)).toBeUndefined();
     });
 
     it("30. registerDestructiveMutation ignores an unknown actor", async () => {
@@ -904,9 +850,7 @@ describe("M56 — collaboration-safe destructive operations", () => {
         undefined,
         undefined,
       );
-      expect(
-        collaborationManager.getRecentDestructiveMutation(project.id),
-      ).toBeUndefined();
+      expect(collaborationManager.getRecentDestructiveMutation(project.id)).toBeUndefined();
     });
   });
 });

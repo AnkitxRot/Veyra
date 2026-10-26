@@ -35,7 +35,7 @@ export function addRecentFile(projectId: string, filePath: string): void {
 
 export function getRecentProjects(): RecentProject[] {
   try {
-    const raw = localStorage.getItem('cloudeee_recent_projects');
+    const raw = localStorage.getItem("cloudeee_recent_projects");
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -58,6 +58,6 @@ export function addRecentProject(project: { id: string; name: string; language?:
       },
       ...filtered,
     ].slice(0, MAX_RECENT_ITEMS);
-    localStorage.setItem('cloudeee_recent_projects', JSON.stringify(updated));
+    localStorage.setItem("cloudeee_recent_projects", JSON.stringify(updated));
   } catch {}
 }

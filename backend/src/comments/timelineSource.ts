@@ -135,10 +135,7 @@ export function queryCommentTimeline(
        LEFT JOIN users u ON u.id = t.resolved_by
        LEFT JOIN comments rc ON rc.id = t.root_comment_id
        WHERE t.project_id = ? AND t.resolved_at IS NOT NULL
-         AND t.resolved_at > ?${curClause(
-           "t.resolved_at",
-           "('comment:res:' || t.id)",
-         )}
+         AND t.resolved_at > ?${curClause("t.resolved_at", "('comment:res:' || t.id)")}
        ORDER BY t.resolved_at DESC, t.id DESC
        LIMIT ?`,
     )

@@ -22,11 +22,7 @@ export interface NoticeStackProps {
 
 const DEFAULT_MAX = 3;
 
-export default function NoticeStack({
-  notices,
-  onDismiss,
-  max = DEFAULT_MAX,
-}: NoticeStackProps) {
+export default function NoticeStack({ notices, onDismiss, max = DEFAULT_MAX }: NoticeStackProps) {
   const [expanded, setExpanded] = React.useState(false);
 
   if (notices.length === 0) {
@@ -43,12 +39,8 @@ export default function NoticeStack({
     const transient = notices.filter((n) => n.ttl !== null);
     const shownPersistent = persistent.slice(Math.max(0, persistent.length - max));
     const slots = Math.max(0, max - shownPersistent.length);
-    const shownTransient = transient.slice(
-      Math.max(0, transient.length - slots),
-    );
-    const shownIds = new Set(
-      [...shownPersistent, ...shownTransient].map((n) => n.id),
-    );
+    const shownTransient = transient.slice(Math.max(0, transient.length - slots));
+    const shownIds = new Set([...shownPersistent, ...shownTransient].map((n) => n.id));
     visible = notices.filter((n) => shownIds.has(n.id));
   }
   const hiddenCount = notices.length - visible.length;
@@ -64,12 +56,7 @@ export default function NoticeStack({
         >
           <span className="notice-text">{n.text}</span>
           {n.actions?.map((a) => (
-            <button
-              key={a.label}
-              type="button"
-              className="notice-action"
-              onClick={a.onClick}
-            >
+            <button key={a.label} type="button" className="notice-action" onClick={a.onClick}>
               {a.label}
             </button>
           ))}
@@ -84,11 +71,7 @@ export default function NoticeStack({
         </div>
       ))}
       {(hiddenCount > 0 || expanded) && notices.length > max && (
-        <button
-          type="button"
-          className="notice-more"
-          onClick={() => setExpanded((v) => !v)}
-        >
+        <button type="button" className="notice-more" onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Show less" : `+${hiddenCount} more`}
         </button>
       )}

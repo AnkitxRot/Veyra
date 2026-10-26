@@ -112,9 +112,7 @@ export function PromptModal({
             autoFocus
           />
 
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}
-          >
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
             <button type="button" className="glass-btn" onClick={onCancel}>
               Cancel
             </button>

@@ -46,9 +46,9 @@ describe("M86 /ws/execute honors a stop that arrives before the process exists",
   beforeEach(() => {
     vi.resetModules();
     db = openDb(":memory:");
-    db.prepare(
-      "INSERT INTO users (id, username, password_hash) VALUES (?, 'stopper', 'x')",
-    ).run(USER_ID);
+    db.prepare("INSERT INTO users (id, username, password_hash) VALUES (?, 'stopper', 'x')").run(
+      USER_ID,
+    );
     db.prepare(
       "INSERT INTO projects (id, owner_id, name, language) VALUES (?, ?, 'Stop', 'python')",
     ).run(PROJECT_ID, USER_ID);
@@ -71,10 +71,28 @@ describe("M86 /ws/execute honors a stop that arrives before the process exists",
       // Sandbox startup in progress: the process does not exist yet.
       await spawnPoint;
       if (opts.isCancelled?.()) {
-        return { type: "success", exitCode: null, signal: null, timedOut: false, oom: false, durationMs: 1, stdout: "", stderr: "cancelled" };
+        return {
+          type: "success",
+          exitCode: null,
+          signal: null,
+          timedOut: false,
+          oom: false,
+          durationMs: 1,
+          stdout: "",
+          stderr: "cancelled",
+        };
       }
       opts.onController?.({ kill, writeStdin: vi.fn() });
-      return { type: "success", exitCode: 0, signal: null, timedOut: false, oom: false, durationMs: 1, stdout: "", stderr: "" };
+      return {
+        type: "success",
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        oom: false,
+        durationMs: 1,
+        stdout: "",
+        stderr: "",
+      };
     });
     vi.doMock("../src/execution/pipeline.js", () => ({ runProject }));
     vi.doMock("../src/projects/service.js", async (orig) => ({
@@ -83,13 +101,23 @@ describe("M86 /ws/execute honors a stop that arrives before the process exists",
     }));
     const { handleExecutionConnection } = await import("../src/ws/execution.js");
     const ws = makeFakeWs();
-    await handleExecutionConnection(ws as any, PROJECT_ID, USER_ID, "stopper", makeTestConfig(), db);
+    await handleExecutionConnection(
+      ws as any,
+      PROJECT_ID,
+      USER_ID,
+      "stopper",
+      makeTestConfig(),
+      db,
+    );
     return { ws, runProject, kill, releaseSpawn, opts: () => captured };
   }
 
   it("a stop before spawn cancels the run instead of letting it start", async () => {
     const { ws, runProject, kill, releaseSpawn, opts } = await boot();
-    ws.emit("message", Buffer.from(JSON.stringify({ type: "start", language: "python", activeFile: "main.py" })));
+    ws.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "start", language: "python", activeFile: "main.py" })),
+    );
     await tick();
     expect(runProject).toHaveBeenCalledTimes(1);
     expect(opts().isCancelled()).toBe(false);
@@ -104,7 +132,10 @@ describe("M86 /ws/execute honors a stop that arrives before the process exists",
 
   it("a controller handed out after a stop is killed immediately", async () => {
     const { ws, kill, opts } = await boot();
-    ws.emit("message", Buffer.from(JSON.stringify({ type: "start", language: "python", activeFile: "main.py" })));
+    ws.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "start", language: "python", activeFile: "main.py" })),
+    );
     await tick();
     ws.emit("message", Buffer.from(JSON.stringify({ type: "stop" })));
     // The process appeared after the pre-spawn check but before any kill.

@@ -87,11 +87,7 @@ function applyServerMessage(
     // about what the room delivered, not the client's own outbound traffic.
   } else if (messageType === MESSAGE_AWARENESS && clientAwareness) {
     const update = decoding.readVarUint8Array(decoder);
-    awarenessProtocol.applyAwarenessUpdate(
-      clientAwareness,
-      update,
-      "test-client",
-    );
+    awarenessProtocol.applyAwarenessUpdate(clientAwareness, update, "test-client");
   }
 }
 
@@ -99,9 +95,11 @@ function setup() {
   const tempWorkspacesDir = mkdtempSync(join(tmpdir(), "cloudide-m6-test-"));
   const tempDataDir = mkdtempSync(join(tmpdir(), "cloudide-m6-data-"));
   const db = openDb(":memory:");
-  db.prepare(
-    "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-  ).run("m6owner", "h", "user"); // id 1, the owner every test's createProject() uses
+  db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+    "m6owner",
+    "h",
+    "user",
+  ); // id 1, the owner every test's createProject() uses
   const cfg = {
     ...resolveConfig(),
     workspacesDir: tempWorkspacesDir,
@@ -169,14 +167,9 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
 
       // Exactly one physical send delivered all 8 keystrokes' operations.
       expect(observerWs.send).toHaveBeenCalledTimes(1);
-      applyServerMessage(
-        observerWs!.send.mock.calls[0]![0] as Uint8Array,
-        observerDoc,
-      );
+      applyServerMessage(observerWs!.send.mock.calls[0]![0] as Uint8Array, observerDoc);
       expect(observerDoc.getText(filePath).toString()).toBe("print(1)");
-      expect(observerDoc.getText(filePath).toString()).toBe(
-        room.doc.getText(filePath).toString(),
-      );
+      expect(observerDoc.getText(filePath).toString()).toBe(room.doc.getText(filePath).toString());
 
       room.dispose();
     } finally {
@@ -225,10 +218,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       await vi.advanceTimersByTimeAsync(DEFAULT_YJS_COALESCE_MS);
 
       expect(observerWs.send).toHaveBeenCalledTimes(1);
-      applyServerMessage(
-        observerWs!.send.mock.calls[0]![0] as Uint8Array,
-        observerDoc,
-      );
+      applyServerMessage(observerWs!.send.mock.calls[0]![0] as Uint8Array, observerDoc);
       // Independently reproduce the same three edits against a fresh doc,
       // uncoalesced (three real applyUpdate calls), and compare final text —
       // this is the "equals the non-coalesced result" proof, not just
@@ -472,21 +462,14 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       // doc.clientID, so awareness.getStates().size > 0 even with no real
       // peers connected).
       expect(slowWs.send).toHaveBeenCalledTimes(2);
-      const decoder = decoding.createDecoder(
-        slowWs!.send.mock.calls[0]![0] as Uint8Array,
-      );
+      const decoder = decoding.createDecoder(slowWs!.send.mock.calls[0]![0] as Uint8Array);
       expect(decoding.readVarUint(decoder)).toBe(MESSAGE_SYNC);
       const recoveredDoc = new Y.Doc();
-      applyServerMessage(
-        slowWs!.send.mock.calls[0]![0] as Uint8Array,
-        recoveredDoc,
-      );
+      applyServerMessage(slowWs!.send.mock.calls[0]![0] as Uint8Array, recoveredDoc);
       // The catch-up carried the FULL document, not just what was missed
       // since backpressure started — this client had nothing at all before.
       expect(recoveredDoc.getText(filePath).toString()).toBe("print(1)");
-      expect(recoveredDoc.getText(filePath).toString()).toBe(
-        room.doc.getText(filePath).toString(),
-      );
+      expect(recoveredDoc.getText(filePath).toString()).toBe(room.doc.getText(filePath).toString());
 
       room.dispose();
     } finally {
@@ -552,9 +535,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       });
 
       // Already far over the high watermark before it even joins.
-      const overloadedWs = makeControllableWs(
-        DEFAULT_HIGH_WATERMARK_BYTES * 10,
-      );
+      const overloadedWs = makeControllableWs(DEFAULT_HIGH_WATERMARK_BYTES * 10);
 
       vi.useFakeTimers();
       await room.addClient(overloadedWs as any, {
@@ -571,9 +552,7 @@ describe("M6 collaboration broadcast coalescing + backpressure", () => {
       // a non-empty state for doc.clientID). Both are unconditional
       // handshake sends, neither routed through the coalescer/backpressure.
       expect(overloadedWs.send).toHaveBeenCalledTimes(2);
-      const decoder = decoding.createDecoder(
-        overloadedWs!.send.mock.calls[0]![0] as Uint8Array,
-      );
+      const decoder = decoding.createDecoder(overloadedWs!.send.mock.calls[0]![0] as Uint8Array);
       expect(decoding.readVarUint(decoder)).toBe(MESSAGE_SYNC);
 
       room.dispose();

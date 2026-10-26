@@ -8,19 +8,12 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 import { projectDir } from "../projects/service.js";
-import {
-  assertInsideWorkspace,
-  assertNotGitInternal,
-  safeResolve,
-} from "../files/service.js";
+import { assertInsideWorkspace, assertNotGitInternal, safeResolve } from "../files/service.js";
 import { readConfinedFile, writeConfinedFile } from "../files/confined.js";
 import { buildAuthoritativeAwarenessState } from "./presence.js";
 import { getDisplayName, getAvatarVersion, getPronouns } from "../profile/store.js";
 import { recordAuditLog } from "../audit.js";
-import {
-  effectiveDisplayName,
-  sanitizeStoredPronouns,
-} from "../profile/identity.js";
+import { effectiveDisplayName, sanitizeStoredPronouns } from "../profile/identity.js";
 import {
   parseAttentionInput,
   buildAttentionEvent,
@@ -33,10 +26,7 @@ import {
   type AttentionEvent,
   type AttentionClearedReason,
 } from "./attention.js";
-import {
-  collaborationHistorian,
-  type CollaborationHistorian,
-} from "./historian.js";
+import { collaborationHistorian, type CollaborationHistorian } from "./historian.js";
 import { touchLastSeen } from "./lastSeen.js";
 
 const MESSAGE_SYNC = 0;
@@ -148,11 +138,8 @@ export interface LiveEditsPersistResult {
 
 /** Bounded, user-facing sentence naming the files that did not persist. */
 export function describeUnpersistedLiveEdits(paths: string[]): string {
-  const shown = paths
-    .slice(0, 5)
-    .map((p) => (p.length > 120 ? `${p.slice(0, 117)}...` : p));
-  const more =
-    paths.length > shown.length ? ` and ${paths.length - shown.length} more` : "";
+  const shown = paths.slice(0, 5).map((p) => (p.length > 120 ? `${p.slice(0, 117)}...` : p));
+  const more = paths.length > shown.length ? ` and ${paths.length - shown.length} more` : "";
   return `Latest edits to ${shown.join(", ") || "the workspace"}${more} could not be saved to disk`;
 }
 
@@ -197,9 +184,7 @@ export const MUTATION_TYPES = [
 export type MutationType = (typeof MUTATION_TYPES)[number];
 
 function isMutationType(v: unknown): v is MutationType {
-  return (
-    typeof v === "string" && (MUTATION_TYPES as readonly string[]).includes(v)
-  );
+  return typeof v === "string" && (MUTATION_TYPES as readonly string[]).includes(v);
 }
 
 /**
@@ -400,11 +385,7 @@ class VTimer implements ITimer {
     this.clock.cancel(this);
   }
 }
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(`${label} timed out after ${ms}ms`));
@@ -604,14 +585,10 @@ export class CollaborationRoom {
     this.db = db;
     this.onDisposeCallback = onDispose;
     this.yjsCoalesceMs = options.yjsCoalesceMs ?? DEFAULT_YJS_COALESCE_MS;
-    this.awarenessCoalesceMs =
-      options.awarenessCoalesceMs ?? DEFAULT_AWARENESS_COALESCE_MS;
-    this.awarenessReconcileMs =
-      options.awarenessReconcileMs ?? DEFAULT_AWARENESS_RECONCILE_MS;
-    this.highWatermarkBytes =
-      options.highWatermarkBytes ?? DEFAULT_HIGH_WATERMARK_BYTES;
-    this.lowWatermarkBytes =
-      options.lowWatermarkBytes ?? DEFAULT_LOW_WATERMARK_BYTES;
+    this.awarenessCoalesceMs = options.awarenessCoalesceMs ?? DEFAULT_AWARENESS_COALESCE_MS;
+    this.awarenessReconcileMs = options.awarenessReconcileMs ?? DEFAULT_AWARENESS_RECONCILE_MS;
+    this.highWatermarkBytes = options.highWatermarkBytes ?? DEFAULT_HIGH_WATERMARK_BYTES;
+    this.lowWatermarkBytes = options.lowWatermarkBytes ?? DEFAULT_LOW_WATERMARK_BYTES;
 
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
@@ -654,10 +631,7 @@ export class CollaborationRoom {
       // case would resurrect the just-deleted file as an empty file on the
       // next flush. "initial_disk_load" seeds a Y.Text from the very file it
       // just read.
-      if (
-        tr.origin === "external_mutation" ||
-        tr.origin === "initial_disk_load"
-      ) {
+      if (tr.origin === "external_mutation" || tr.origin === "initial_disk_load") {
         return;
       }
       if (tr.changed.size === 0) return;
@@ -714,10 +688,7 @@ export class CollaborationRoom {
         return;
       }
 
-      const isWs =
-        !!origin &&
-        typeof origin === "object" &&
-        this.clients.has(origin as WebSocket);
+      const isWs = !!origin && typeof origin === "object" && this.clients.has(origin as WebSocket);
       if (!isWs || tr.changed.size === 0) {
         this.rangeStash.delete(tr);
         return;
@@ -756,13 +727,10 @@ export class CollaborationRoom {
     // Track awareness changes and queue the broadcast for coalescing —
     // ephemeral, so it is fine (by design) for a burst to collapse into one
     // send of the latest state rather than one send per change.
-    this.awareness.on(
-      "update",
-      ({ added, updated, removed }: any, origin: any) => {
-        const changedClients = added.concat(updated, removed);
-        this.queueAwarenessUpdate(changedClients, origin);
-      },
-    );
+    this.awareness.on("update", ({ added, updated, removed }: any, origin: any) => {
+      const changedClients = added.concat(updated, removed);
+      this.queueAwarenessUpdate(changedClients, origin);
+    });
   }
 
   // --- M6: Yjs update coalescing ------------------------------------------
@@ -799,9 +767,7 @@ export class CollaborationRoom {
     // still correct either way since Y.applyUpdate is idempotent for any
     // operations a recipient already has.
     const soleOrigin =
-      this.pendingYjsOrigins.size === 1
-        ? this.pendingYjsOrigins.values().next().value
-        : undefined;
+      this.pendingYjsOrigins.size === 1 ? this.pendingYjsOrigins.values().next().value : undefined;
     this.pendingYjsUpdates = [];
     this.pendingYjsOrigins = new Set();
 
@@ -969,10 +935,7 @@ export class CollaborationRoom {
         encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
         encoding.writeVarUint8Array(
           encoder,
-          awarenessProtocol.encodeAwarenessUpdate(
-            this.awareness,
-            Array.from(states.keys()),
-          ),
+          awarenessProtocol.encodeAwarenessUpdate(this.awareness, Array.from(states.keys())),
         );
         client.send(encoding.toUint8Array(encoder));
         this.broadcastSendCount++;
@@ -1045,10 +1008,7 @@ export class CollaborationRoom {
     this.runStatusSweepTimer = this.clock.setInterval(() => {
       const now = Date.now();
       for (const [id, entry] of Array.from(this.runStatus.entries())) {
-        if (
-          entry.state === "running" &&
-          now - entry.startedAt > RUN_STATUS_MAX_AGE_MS
-        ) {
+        if (entry.state === "running" && now - entry.startedAt > RUN_STATUS_MAX_AGE_MS) {
           this.runStatus.delete(id);
           this.deleteRunOutput(id); // M65
           const linger = this.runStatusLingerTimers.get(id);
@@ -1064,9 +1024,7 @@ export class CollaborationRoom {
           });
         }
       }
-      const stillRunning = Array.from(this.runStatus.values()).some(
-        (e) => e.state === "running",
-      );
+      const stillRunning = Array.from(this.runStatus.values()).some((e) => e.state === "running");
       if (!stillRunning && this.runStatusSweepTimer) {
         this.runStatusSweepTimer.clear();
         this.runStatusSweepTimer = null;
@@ -1148,9 +1106,7 @@ export class CollaborationRoom {
 
     for (const [ws] of this.clients.entries()) {
       if (ws.readyState !== 1) continue;
-      const forThisSocket = refreshed.filter(
-        (id) => ownerByClientId.get(id) !== ws,
-      );
+      const forThisSocket = refreshed.filter((id) => ownerByClientId.get(id) !== ws);
       if (forThisSocket.length === 0) continue;
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
@@ -1172,11 +1128,7 @@ export class CollaborationRoom {
    * the run has a live M54 status entry, so a buffer can never outlive — or
    * predate — its run.
    */
-  public handleRunOutput(
-    executionId: string,
-    stream: "stdout" | "stderr",
-    data: string,
-  ): void {
+  public handleRunOutput(executionId: string, stream: "stdout" | "stderr", data: string): void {
     if (this.disposed) return;
     if (typeof data !== "string" || data.length === 0) return;
     if (!this.runStatus.has(executionId)) return;
@@ -1222,9 +1174,7 @@ export class CollaborationRoom {
     if (entry.bytes > RUN_OUTPUT_MAX_BYTES && entry.chunks.length === 1) {
       const only = entry.chunks[0]!;
       const buf = Buffer.from(only.data, "utf8");
-      const tail = buf
-        .subarray(buf.length - RUN_OUTPUT_MAX_BYTES)
-        .toString("utf8");
+      const tail = buf.subarray(buf.length - RUN_OUTPUT_MAX_BYTES).toString("utf8");
       entry.chunks[0] = { stream: only.stream, data: tail };
       entry.bytes = Buffer.byteLength(tail, "utf8");
       entry.truncated = true;
@@ -1315,10 +1265,7 @@ export class CollaborationRoom {
   private attentionRateLimiterFor(ws: WebSocket): RateLimiter {
     let rl = this.attentionRateLimiters.get(ws);
     if (!rl) {
-      rl = new RateLimiter(
-        ATTENTION_RATE_WINDOW_MS,
-        ATTENTION_MAX_EVENTS_PER_WINDOW,
-      );
+      rl = new RateLimiter(ATTENTION_RATE_WINDOW_MS, ATTENTION_MAX_EVENTS_PER_WINDOW);
       this.attentionRateLimiters.set(ws, rl);
     }
     return rl;
@@ -1337,8 +1284,7 @@ export class CollaborationRoom {
     if (ids) {
       for (const cid of ids) {
         const st = this.awareness.getStates().get(cid) as
-          | { user?: { color?: unknown } }
-          | undefined;
+          { user?: { color?: unknown } } | undefined;
         const c = st?.user?.color;
         if (typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c)) {
           color = c;
@@ -1491,9 +1437,7 @@ export class CollaborationRoom {
   }
 
   /** The client state of any one live connection for `userId` in this room. */
-  private findClientStateForUser(
-    userId: number,
-  ): CollaboratorClientState | undefined {
+  private findClientStateForUser(userId: number): CollaboratorClientState | undefined {
     for (const s of this.clients.values()) {
       if (s.userId === userId) return s;
     }
@@ -1545,10 +1489,7 @@ export class CollaborationRoom {
    * and notifies both the target and the author with an `attention_cleared`.
    * A no-op if the id is unknown (already expired / dismissed).
    */
-  private clearAttentionRequest(
-    id: string,
-    reason: AttentionClearedReason,
-  ): void {
+  private clearAttentionRequest(id: string, reason: AttentionClearedReason): void {
     const timer = this.attentionExpiryTimers.get(id);
     if (timer) {
       timer.clear();
@@ -1580,10 +1521,7 @@ export class CollaborationRoom {
       // Authorization: the entry must exist AND target the dismisser's user.
       // A client-supplied `reason`/`acted` is never proof of anything.
       if (!event || event.targetUserId !== clientState.userId) return;
-      this.clearAttentionRequest(
-        id,
-        parsed.acted === true ? "acted" : "dismissed",
-      );
+      this.clearAttentionRequest(id, parsed.acted === true ? "acted" : "dismissed");
       return;
     }
 
@@ -1670,10 +1608,7 @@ export class CollaborationRoom {
    */
   private stashRange(filePath: string, evt: Y.YTextEvent): void {
     const tr = evt.transaction;
-    if (
-      tr.origin === "external_mutation" ||
-      tr.origin === "initial_disk_load"
-    ) {
+    if (tr.origin === "external_mutation" || tr.origin === "initial_disk_load") {
       return;
     }
     let offset = 0;
@@ -1687,8 +1622,7 @@ export class CollaborationRoom {
     // yjs's YTextEvent.changes.deleted carries the removed items when available.
     try {
       for (const item of evt.changes.deleted) {
-        const c = (item as { content?: { getContent?: () => unknown[] } })
-          .content;
+        const c = (item as { content?: { getContent?: () => unknown[] } }).content;
         const parts = c?.getContent?.() ?? [];
         for (const p of parts) {
           if (typeof p === "string") {
@@ -1893,10 +1827,7 @@ export class CollaborationRoom {
   /**
    * Adds an authenticated collaborator to the room and sends initial state vectors.
    */
-  public async addClient(
-    ws: WebSocket,
-    clientState: CollaboratorClientState,
-  ): Promise<void> {
+  public async addClient(ws: WebSocket, clientState: CollaboratorClientState): Promise<void> {
     if (this.disposed) {
       try {
         ws.close(1001, "Room disposed");
@@ -1964,10 +1895,7 @@ export class CollaborationRoom {
       for (const entry of this.runStatus.values()) {
         const enc = encoding.createEncoder();
         encoding.writeVarUint(enc, MESSAGE_CUSTOM);
-        encoding.writeVarString(
-          enc,
-          JSON.stringify({ type: "run_status", ...entry }),
-        );
+        encoding.writeVarString(enc, JSON.stringify({ type: "run_status", ...entry }));
         try {
           ws.send(encoding.toUint8Array(enc));
         } catch {}
@@ -1989,9 +1917,7 @@ export class CollaborationRoom {
     // collaborator was force-disconnected. A non-actor reconnecting within
     // the TTL window gets a one-off notice explaining why their session
     // dropped and their content changed.
-    const destructive = collaborationManager.getRecentDestructiveMutation(
-      this.projectId,
-    );
+    const destructive = collaborationManager.getRecentDestructiveMutation(this.projectId);
     if (destructive && destructive.actor.userId !== clientState.userId) {
       this.sendDestructiveMutationNotice(destructive);
     }
@@ -2047,8 +1973,7 @@ export class CollaborationRoom {
           // restart the room's disk-seeded doc has different structs, so that
           // bulk apply would otherwise be misattributed as a fresh edit burst
           // per file. Suppress attribution for the duration of this apply.
-          this.m60SuppressAttribution =
-            syncType !== syncProtocol.messageYjsUpdate;
+          this.m60SuppressAttribution = syncType !== syncProtocol.messageYjsUpdate;
           try {
             syncProtocol.readSyncMessage(decoder, encoder, this.doc, ws);
           } finally {
@@ -2069,17 +1994,9 @@ export class CollaborationRoom {
           // hijacked or griefed), and the ephemeral fields are bounded. The
           // clientID attribution needed for precise disconnect cleanup
           // happens inside this same pass.
-          const sanitized = this.sanitizeIncomingAwarenessUpdate(
-            rawUpdate,
-            ws,
-            clientState,
-          );
+          const sanitized = this.sanitizeIncomingAwarenessUpdate(rawUpdate, ws, clientState);
           if (sanitized) {
-            awarenessProtocol.applyAwarenessUpdate(
-              this.awareness,
-              sanitized,
-              ws,
-            );
+            awarenessProtocol.applyAwarenessUpdate(this.awareness, sanitized, ws);
           }
           break;
         }
@@ -2089,10 +2006,7 @@ export class CollaborationRoom {
           const jsonStr = decoding.readVarString(decoder);
           try {
             const parsed = JSON.parse(jsonStr);
-            if (
-              parsed.type === "file_open" &&
-              typeof parsed.path === "string"
-            ) {
+            if (parsed.type === "file_open" && typeof parsed.path === "string") {
               const openedPath = parsed.path;
               clientState.activeFile = openedPath;
               // M52: the client no longer seeds its empty Y.Text from the
@@ -2132,21 +2046,14 @@ export class CollaborationRoom {
             ) {
               // M58: transient attention events. Server-authoritative author,
               // bounded, targeted where applicable — see handleAttentionMessage.
-              this.handleAttentionMessage(
-                ws,
-                clientState,
-                parsed as Record<string, unknown>,
-              );
+              this.handleAttentionMessage(ws, clientState, parsed as Record<string, unknown>);
             }
           } catch {}
           break;
         }
       }
     } catch (err) {
-      console.error(
-        `[CollabRoom:${this.projectId}] Error handling message:`,
-        err,
-      );
+      console.error(`[CollabRoom:${this.projectId}] Error handling message:`, err);
     }
   }
 
@@ -2178,11 +2085,7 @@ export class CollaborationRoom {
     // If it never sent an awareness update, there is nothing to remove.
     const ownedIds = clientState?.awarenessClientIds;
     if (ownedIds && ownedIds.size > 0) {
-      awarenessProtocol.removeAwarenessStates(
-        this.awareness,
-        Array.from(ownedIds),
-        null,
-      );
+      awarenessProtocol.removeAwarenessStates(this.awareness, Array.from(ownedIds), null);
       // Drop the attribution so a repeated removeClient() is a no-op.
       ownedIds.clear();
     }
@@ -2200,9 +2103,7 @@ export class CollaborationRoom {
     // (never persisted, never replayed — silent). Runs AFTER clients.delete so
     // the leaver is not counted as a member, and BEFORE scheduleIdleDisposal.
     if (clientState) {
-      for (const e of this.attentionRegistry.deleteByAuthor(
-        clientState.userId,
-      )) {
+      for (const e of this.attentionRegistry.deleteByAuthor(clientState.userId)) {
         const t = this.attentionExpiryTimers.get(e.id);
         if (t) {
           t.clear();
@@ -2216,9 +2117,7 @@ export class CollaborationRoom {
           });
         }
       }
-      for (const e of this.attentionRegistry.deleteByTarget(
-        clientState.userId,
-      )) {
+      for (const e of this.attentionRegistry.deleteByTarget(clientState.userId)) {
         const t2 = this.attentionExpiryTimers.get(e.id);
         if (t2) {
           t2.clear();
@@ -2231,11 +2130,7 @@ export class CollaborationRoom {
       // open bursts and stamp the last-seen boundary. A reconnect opens a
       // fresh burst; history is never duplicated (attribution is by userId).
       if (!this.hasOtherSocketForUser(clientState.userId)) {
-        this.historian.closeAuthorBursts(
-          this.projectId,
-          clientState.userId,
-          "disconnect",
-        );
+        this.historian.closeAuthorBursts(this.projectId, clientState.userId, "disconnect");
         try {
           touchLastSeen(this.db, this.projectId, clientState.userId);
         } catch {
@@ -2408,25 +2303,18 @@ export class CollaborationRoom {
         // then silently drop it. This connection already owns `clientId` and
         // the identity is rebuilt below regardless, so forcing the clock
         // forward is safe and only ever loses a duplicate/replayed frame.
-        clock: Math.max(
-          clock,
-          (this.awareness.meta.get(clientId)?.clock ?? -1) + 1,
-        ),
+        clock: Math.max(clock, (this.awareness.meta.get(clientId)?.clock ?? -1) + 1),
         state: buildAuthoritativeAwarenessState(parsed as Record<string, unknown>, {
           userId: clientState.userId,
           username: clientState.username,
           role: clientState.role,
           // M62-3: cached effective display name — no DB read here. Miss
           // (should not happen: addClient always populates) => username.
-          displayName:
-            this.displayNameByUser.get(clientState.userId) ??
-            clientState.username,
+          displayName: this.displayNameByUser.get(clientState.userId) ?? clientState.username,
           // M72: cached avatar cache-buster — no DB read here. Miss => 0.
-          avatarVersion:
-            this.avatarVersionByUser.get(clientState.userId) ?? 0,
+          avatarVersion: this.avatarVersionByUser.get(clientState.userId) ?? 0,
           // M73: cached sanitized pronouns — no DB read here. Miss => null.
-          pronouns:
-            this.pronounsByUser.get(clientState.userId) ?? null,
+          pronouns: this.pronounsByUser.get(clientState.userId) ?? null,
         }),
       });
     }
@@ -2448,10 +2336,7 @@ export class CollaborationRoom {
    * connection in this room — that peer's presence must not be writable by
    * `ws` (identity spoof / high-clock overwrite grief).
    */
-  private awarenessClientIdOwnedByOther(
-    clientId: number,
-    ws: WebSocket,
-  ): boolean {
+  private awarenessClientIdOwnedByOther(clientId: number, ws: WebSocket): boolean {
     for (const [otherWs, otherState] of this.clients.entries()) {
       if (otherWs !== ws && otherState.awarenessClientIds?.has(clientId)) {
         return true;
@@ -2463,7 +2348,6 @@ export class CollaborationRoom {
   // buildAuthoritativeAwarenessState / sanitizeAwarenessFilePath / isAwarenessCoord
   // moved to ./presence.ts (M57). sanitizeIncomingAwarenessUpdate above still
   // owns the frame decode + clientID ownership/claim — the security boundary.
-
 
   /**
    * Disconnects a specific user immediately upon role revocation.
@@ -2485,10 +2369,7 @@ export class CollaborationRoom {
    * without this, a downgraded editor keeps write access (bypassing the
    * viewer read-only enforcement in handleMessage) until they reconnect.
    */
-  public updateUserRole(
-    userId: number,
-    role: "owner" | "editor" | "viewer",
-  ): void {
+  public updateUserRole(userId: number, role: "owner" | "editor" | "viewer"): void {
     for (const state of this.clients.values()) {
       if (state.userId === userId) {
         state.role = role;
@@ -2575,9 +2456,7 @@ export class CollaborationRoom {
    *   successful persist into a refusal.
    * - A disposed room has nothing authoritative left to write (M41).
    */
-  public async persistLiveEdits(opts?: {
-    timeoutMs?: number;
-  }): Promise<LiveEditsPersistResult> {
+  public async persistLiveEdits(opts?: { timeoutMs?: number }): Promise<LiveEditsPersistResult> {
     if (this.disposed) return { ok: true, unpersisted: [] };
     const timeoutMs = opts?.timeoutMs ?? PERSIST_LIVE_EDITS_TIMEOUT_MS;
 
@@ -2598,14 +2477,8 @@ export class CollaborationRoom {
       const unpersisted = failed.slice(0, UNPERSISTED_REPORT_MAX);
       return { ok: unpersisted.length === 0, unpersisted };
     } catch (err) {
-      console.error(
-        `[CollabRoom:${this.projectId}] persistLiveEdits did not complete:`,
-        err,
-      );
-      const unpersisted = Array.from(this.dirtyFiles).slice(
-        0,
-        UNPERSISTED_REPORT_MAX,
-      );
+      console.error(`[CollabRoom:${this.projectId}] persistLiveEdits did not complete:`, err);
+      const unpersisted = Array.from(this.dirtyFiles).slice(0, UNPERSISTED_REPORT_MAX);
       return { ok: false, unpersisted };
     }
   }
@@ -2644,10 +2517,7 @@ export class CollaborationRoom {
       this.flushQueued = null;
       // Started synchronously in the same reaction that cleared
       // `flushRunning`, so no other caller can slip a concurrent pass in.
-      this.startFlushPass(queued.writeCleanKeys).then(
-        queued.resolve,
-        queued.reject,
-      );
+      this.startFlushPass(queued.writeCleanKeys).then(queued.resolve, queued.reject);
     };
     pass.then(settle, settle);
     return pass;
@@ -2691,9 +2561,7 @@ export class CollaborationRoom {
     // M86: the read-your-writes barrier opts out, so a consumer never
     // rewrites (and re-timestamps) files that are already persisted.
     if (filesToFlush.length === 0 && writeCleanKeys) {
-      for (const [key, type] of (
-        this.doc.share as Map<string, any>
-      ).entries()) {
+      for (const [key, type] of (this.doc.share as Map<string, any>).entries()) {
         if (type instanceof Y.Text && type.length > 0) {
           filesToFlush.push(key);
         }
@@ -2767,10 +2635,7 @@ export class CollaborationRoom {
           continue;
         }
         failed.push(filePath);
-        console.error(
-          `[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`,
-          err,
-        );
+        console.error(`[CollabRoom:${this.projectId}] Failed to persist ${filePath}:`, err);
       }
     }
 
@@ -2860,17 +2725,12 @@ export class CollaborationRoom {
     for (const [ws, cs] of this.clients.entries()) {
       if (cs.userId === input.actor.userId) continue;
       if (ws.readyState !== 1 /* OPEN */) continue;
-      const active = cs.activeFile
-        ? this.normalizeRelPath(cs.activeFile)
-        : null;
+      const active = cs.activeFile ? this.normalizeRelPath(cs.activeFile) : null;
       if (!active || !pathSet.has(active)) continue;
 
       const dedupKey = `${cs.userId}:${active}`;
       const last = this.externalMutationDedup.get(dedupKey);
-      if (
-        last !== undefined &&
-        now - last < EXTERNAL_MUTATION_NOTICE_DEDUP_MS
-      ) {
+      if (last !== undefined && now - last < EXTERNAL_MUTATION_NOTICE_DEDUP_MS) {
         continue;
       }
       this.externalMutationDedup.set(dedupKey, now);
@@ -2924,10 +2784,7 @@ export class CollaborationRoom {
         this.externalMutationDedup.delete(k);
       }
     }
-    if (
-      this.externalMutationDedup.size >
-      EXTERNAL_MUTATION_NOTICE_DEDUP_MAX_ENTRIES
-    ) {
+    if (this.externalMutationDedup.size > EXTERNAL_MUTATION_NOTICE_DEDUP_MAX_ENTRIES) {
       this.externalMutationDedup.clear();
     }
   }
@@ -2990,9 +2847,7 @@ export class CollaborationRoom {
   private static readonly IDLE_DISPOSE_BASE_MS = 10000;
   private static readonly IDLE_DISPOSE_RETRY_CAP_MS = 5 * 60 * 1000;
 
-  private scheduleIdleDisposal(
-    delayMs: number = CollaborationRoom.IDLE_DISPOSE_BASE_MS,
-  ): void {
+  private scheduleIdleDisposal(delayMs: number = CollaborationRoom.IDLE_DISPOSE_BASE_MS): void {
     // M41: once disposed, a room must never arm another idle-dispose timer
     // (invariant A) — belt-and-suspenders alongside removeClient()'s own
     // disposed guard, in case some future caller invokes this directly.
@@ -3047,10 +2902,7 @@ export class CollaborationRoom {
           // Disposing here would destroy the Y.Doc holding the only remaining
           // copy of content that failed to persist. Retry after a
           // (back-off-capped) grace period instead.
-          const nextDelay = Math.min(
-            delayMs * 2,
-            CollaborationRoom.IDLE_DISPOSE_RETRY_CAP_MS,
-          );
+          const nextDelay = Math.min(delayMs * 2, CollaborationRoom.IDLE_DISPOSE_RETRY_CAP_MS);
           console.error(
             `[CollabRoom:${this.projectId}] idle disposal deferred: ${this.dirtyFiles.size} file(s) failed to flush, retrying in ${nextDelay}ms`,
           );
@@ -3182,18 +3034,12 @@ export class CollaborationManager {
       room = undefined;
     }
     if (!room) {
-      room = new CollaborationRoom(
-        projectId,
-        this.cfg,
-        this.db,
-        (pid) => this.rooms.delete(pid),
-        {
-          yjsCoalesceMs: this.cfg.collabYjsCoalesceMs,
-          awarenessCoalesceMs: this.cfg.collabAwarenessCoalesceMs,
-          highWatermarkBytes: this.cfg.collabHighWatermarkBytes,
-          lowWatermarkBytes: this.cfg.collabLowWatermarkBytes,
-        },
-      );
+      room = new CollaborationRoom(projectId, this.cfg, this.db, (pid) => this.rooms.delete(pid), {
+        yjsCoalesceMs: this.cfg.collabYjsCoalesceMs,
+        awarenessCoalesceMs: this.cfg.collabAwarenessCoalesceMs,
+        highWatermarkBytes: this.cfg.collabHighWatermarkBytes,
+        lowWatermarkBytes: this.cfg.collabLowWatermarkBytes,
+      });
       if (this.db) {
         try {
           recordAuditLog(this.db, {
@@ -3244,10 +3090,7 @@ export class CollaborationManager {
    * room. Wired as the `CollaborationHistorian` broadcaster in index.ts. A
    * no-op when no room is live (nobody to notify). Server-built payload only.
    */
-  public broadcastCollabChange(
-    projectId: string,
-    ev: Record<string, unknown>,
-  ): void {
+  public broadcastCollabChange(projectId: string, ev: Record<string, unknown>): void {
     this.rooms.get(projectId)?.broadcastCollabChange(ev);
   }
 
@@ -3255,10 +3098,7 @@ export class CollaborationManager {
    * M61-A: fan out a comment-lifecycle invalidation ping to a project's live
    * room. No-op when no room is live. Server-built payload only.
    */
-  public broadcastCommentEvent(
-    projectId: string,
-    ev: Record<string, unknown>,
-  ): void {
+  public broadcastCommentEvent(projectId: string, ev: Record<string, unknown>): void {
     this.rooms.get(projectId)?.broadcastCommentEvent(ev);
   }
 
@@ -3272,10 +3112,7 @@ export class CollaborationManager {
   }
 
   /** M61-C: fan out a `profile_event` invalidation ping to a project room. */
-  public broadcastProfileEvent(
-    projectId: string,
-    ev: Record<string, unknown>,
-  ): void {
+  public broadcastProfileEvent(projectId: string, ev: Record<string, unknown>): void {
     this.rooms.get(projectId)?.broadcastProfileEvent(ev);
   }
 
@@ -3352,11 +3189,7 @@ export class CollaborationManager {
     paths: string[],
     excludeUserId?: number,
   ): CollaboratorFileState[] {
-    return (
-      this.rooms
-        .get(projectId)
-        ?.getCollaboratorFileState(paths, excludeUserId) ?? []
-    );
+    return this.rooms.get(projectId)?.getCollaboratorFileState(paths, excludeUserId) ?? [];
   }
 
   /**
@@ -3390,10 +3223,7 @@ export class CollaborationManager {
   // M56: bounded, TTL'd record of the most recent whole-workspace
   // replacement per project. Replayed to non-actor collaborators when they
   // reconnect after being force-disconnected by the dispose. Never persisted.
-  private readonly recentDestructiveMutations = new Map<
-    string,
-    DestructiveMutationRecord
-  >();
+  private readonly recentDestructiveMutations = new Map<string, DestructiveMutationRecord>();
 
   public registerDestructiveMutation(
     projectId: string,
@@ -3411,9 +3241,7 @@ export class CollaborationManager {
     });
   }
 
-  public getRecentDestructiveMutation(
-    projectId: string,
-  ): DestructiveMutationRecord | undefined {
+  public getRecentDestructiveMutation(projectId: string): DestructiveMutationRecord | undefined {
     const rec = this.recentDestructiveMutations.get(projectId);
     if (!rec) return undefined;
     if (Date.now() - rec.timestamp > DESTRUCTIVE_MUTATION_TTL_MS) {
@@ -3430,9 +3258,7 @@ export class CollaborationManager {
         this.recentDestructiveMutations.delete(k);
       }
     }
-    if (
-      this.recentDestructiveMutations.size > DESTRUCTIVE_MUTATION_MAX_ENTRIES
-    ) {
+    if (this.recentDestructiveMutations.size > DESTRUCTIVE_MUTATION_MAX_ENTRIES) {
       // Evict oldest.
       const oldest = [...this.recentDestructiveMutations.entries()].sort(
         (a, b) => a[1].timestamp - b[1].timestamp,
@@ -3523,12 +3349,9 @@ export class CollaborationManager {
    * whereas promise-caching dedupe would let one hung room block every future
    * caller forever — the worse failure mode by far.
    */
-  public flushAllRooms(
-    options: { perRoomTimeoutMs?: number } = {},
-  ): Promise<void> {
+  public flushAllRooms(options: { perRoomTimeoutMs?: number } = {}): Promise<void> {
     const perRoomTimeoutMs =
-      options.perRoomTimeoutMs ??
-      CollaborationManager.PER_ROOM_FLUSH_TIMEOUT_MS;
+      options.perRoomTimeoutMs ?? CollaborationManager.PER_ROOM_FLUSH_TIMEOUT_MS;
     return this.runFlushAllRooms(perRoomTimeoutMs);
   }
 
@@ -3546,10 +3369,7 @@ export class CollaborationManager {
               // flushToDisk() already contains per-file error handling; this
               // catch exists so an unexpected throw in the room-level plumbing
               // is attributed and contained rather than aborting siblings.
-              console.error(
-                `[CollabManager] room ${room.projectId} failed to flush:`,
-                err,
-              );
+              console.error(`[CollabManager] room ${room.projectId} failed to flush:`, err);
               throw err;
             }
           })(),

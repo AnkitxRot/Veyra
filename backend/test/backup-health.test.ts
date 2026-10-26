@@ -1,13 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFileSync } from "node:fs";
-import {
-  createDatabaseBackup,
-  listDatabaseBackups,
-} from "../src/backup/service.js";
-import {
-  createWorkspaceBackup,
-  listWorkspaceBackups,
-} from "../src/backup/workspaceBackup.js";
+import { createDatabaseBackup, listDatabaseBackups } from "../src/backup/service.js";
+import { createWorkspaceBackup, listWorkspaceBackups } from "../src/backup/workspaceBackup.js";
 import {
   getDatabaseBackupHealth,
   getWorkspaceBackupHealth,
@@ -84,10 +78,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
     it("2. ok: exactly at the warning boundary (inclusive)", async () => {
       await createDatabaseBackup(db, cfg);
       const createdAtMs = await latestListedCreatedAtMs();
-      const health = await getDatabaseBackupHealth(
-        cfg,
-        createdAtMs + WARNING_MS,
-      );
+      const health = await getDatabaseBackupHealth(cfg, createdAtMs + WARNING_MS);
       expect(health.status).toBe("ok");
       expect(health.latestBackupAgeMs).toBe(WARNING_MS);
     });
@@ -95,20 +86,14 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
     it("3. stale: just beyond the warning boundary", async () => {
       await createDatabaseBackup(db, cfg);
       const createdAtMs = await latestListedCreatedAtMs();
-      const health = await getDatabaseBackupHealth(
-        cfg,
-        createdAtMs + WARNING_MS + 1,
-      );
+      const health = await getDatabaseBackupHealth(cfg, createdAtMs + WARNING_MS + 1);
       expect(health.status).toBe("stale");
     });
 
     it("4. stale: exactly at the critical boundary (inclusive of stale, not yet critical)", async () => {
       await createDatabaseBackup(db, cfg);
       const createdAtMs = await latestListedCreatedAtMs();
-      const health = await getDatabaseBackupHealth(
-        cfg,
-        createdAtMs + CRITICAL_MS,
-      );
+      const health = await getDatabaseBackupHealth(cfg, createdAtMs + CRITICAL_MS);
       expect(health.status).toBe("stale");
       expect(health.latestBackupAgeMs).toBe(CRITICAL_MS);
     });
@@ -116,10 +101,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
     it("5. critical: just beyond the critical boundary", async () => {
       await createDatabaseBackup(db, cfg);
       const createdAtMs = await latestListedCreatedAtMs();
-      const health = await getDatabaseBackupHealth(
-        cfg,
-        createdAtMs + CRITICAL_MS + 1,
-      );
+      const health = await getDatabaseBackupHealth(cfg, createdAtMs + CRITICAL_MS + 1);
       expect(health.status).toBe("critical");
     });
 
@@ -189,9 +171,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
     // returned `createdAt` is also `new Date().toISOString()`, not the
     // listed value listWorkspaceBackups() (and the health function) derive
     // from stat.birthtime -- boundary tests must use the listed value.
-    async function latestListedWorkspaceCreatedAtMs(
-      projectId: string,
-    ): Promise<number> {
+    async function latestListedWorkspaceCreatedAtMs(projectId: string): Promise<number> {
       const backups = await listWorkspaceBackups(cfg, projectId);
       return new Date(backups[0]!.createdAt).getTime();
     }
@@ -201,11 +181,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
       await createWorkspaceBackup(cfg, db, p1.id);
       const createdAtMs = await latestListedWorkspaceCreatedAtMs(p1.id);
 
-      const health = await getWorkspaceBackupHealth(
-        cfg,
-        db,
-        createdAtMs + WARNING_MS + 1,
-      );
+      const health = await getWorkspaceBackupHealth(cfg, db, createdAtMs + WARNING_MS + 1);
       expect(health.uncoveredProjects).toBe(0);
       expect(health.status).toBe("stale");
       expect(health.oldestLatestBackupProjectId).toBe(p1.id);
@@ -216,11 +192,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
       await createWorkspaceBackup(cfg, db, p1.id);
       const createdAtMs = await latestListedWorkspaceCreatedAtMs(p1.id);
 
-      const health = await getWorkspaceBackupHealth(
-        cfg,
-        db,
-        createdAtMs + CRITICAL_MS + 1,
-      );
+      const health = await getWorkspaceBackupHealth(cfg, db, createdAtMs + CRITICAL_MS + 1);
       expect(health.uncoveredProjects).toBe(0);
       expect(health.status).toBe("critical");
     });
@@ -230,18 +202,10 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
       await createWorkspaceBackup(cfg, db, p1.id);
       const createdAtMs = await latestListedWorkspaceCreatedAtMs(p1.id);
 
-      const atWarning = await getWorkspaceBackupHealth(
-        cfg,
-        db,
-        createdAtMs + WARNING_MS,
-      );
+      const atWarning = await getWorkspaceBackupHealth(cfg, db, createdAtMs + WARNING_MS);
       expect(atWarning.status).toBe("ok");
 
-      const atCritical = await getWorkspaceBackupHealth(
-        cfg,
-        db,
-        createdAtMs + CRITICAL_MS,
-      );
+      const atCritical = await getWorkspaceBackupHealth(cfg, db, createdAtMs + CRITICAL_MS);
       expect(atCritical.status).toBe("stale");
     });
 
@@ -288,9 +252,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
 
       // No filenames/paths/secrets leaked into the aggregate summary.
       const serialized = JSON.stringify(res.data.backups);
-      expect(serialized).not.toMatch(
-        /\.zip|\.db|workspace-backups|backups[\\/]/i,
-      );
+      expect(serialized).not.toMatch(/\.zip|\.db|workspace-backups|backups[\\/]/i);
     });
 
     it("16. anonymous and non-admin requests to /health are still rejected exactly as before", async () => {
@@ -332,10 +294,7 @@ describe("Milestone 34 — Backup & Restore Operational Health Observability", (
 
   it("19. getBackupHealthSummary aggregates both dimensions in one call", async () => {
     const project = await createProject(cfg, db, ownerId, { name: "P" });
-    const cwd = (await import("../src/projects/service.js")).projectDir(
-      cfg,
-      project.id,
-    );
+    const cwd = (await import("../src/projects/service.js")).projectDir(cfg, project.id);
     await writeProjectFile(cwd, "a.txt", "content");
     await createWorkspaceBackup(cfg, db, project.id);
     await createDatabaseBackup(db, cfg);

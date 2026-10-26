@@ -1,12 +1,7 @@
 import { chmodSync, chownSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  resolveConfig,
-  IS_WINDOWS,
-  type AppConfig,
-  type ConfigOverrides,
-} from "../src/config";
+import { resolveConfig, IS_WINDOWS, type AppConfig, type ConfigOverrides } from "../src/config";
 import type { Db } from "../src/db";
 import { isDockerRunning, isRunnerImageAvailable } from "../src/tools";
 
@@ -25,10 +20,7 @@ export function makeTestConfig(overrides: ConfigOverrides = {}): AppConfig {
 }
 
 export function makeWorkspace(cfg: AppConfig): string {
-  const dir = join(
-    cfg.workspacesDir,
-    `ws-${Math.random().toString(36).slice(2)}`,
-  );
+  const dir = join(cfg.workspacesDir, `ws-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   if (!IS_WINDOWS) {
     // chown to the sandbox run user requires root/CAP_CHOWN, which an
@@ -70,10 +62,7 @@ export interface TestApi {
   close: () => Promise<void>;
 }
 
-export async function startTestApi(
-  cfg: AppConfig,
-  existingDb?: Db,
-): Promise<TestApi> {
+export async function startTestApi(cfg: AppConfig, existingDb?: Db): Promise<TestApi> {
   const { createApp } = await import("../src/app.js");
   const { createServer } = await import("node:http");
   const { openDb } = await import("../src/db.js");

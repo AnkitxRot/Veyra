@@ -207,7 +207,11 @@ function registerProvidersFor(lang: string): void {
         textDocument: { uri },
         position: toLspPosition(position),
       })) as {
-        signatures?: { label?: string; documentation?: unknown; parameters?: { label?: string | [number, number] }[] }[];
+        signatures?: {
+          label?: string;
+          documentation?: unknown;
+          parameters?: { label?: string | [number, number] }[];
+        }[];
         activeSignature?: number;
         activeParameter?: number;
       } | null;
@@ -218,10 +222,7 @@ function registerProvidersFor(lang: string): void {
             label: String(s.label ?? ""),
             documentation: markupToString(s.documentation),
             parameters: (s.parameters ?? []).map((p) => ({
-              label:
-                typeof p.label === "string"
-                  ? p.label
-                  : String(p.label ?? ""),
+              label: typeof p.label === "string" ? p.label : String(p.label ?? ""),
             })),
           })),
           activeSignature: result.activeSignature ?? 0,
@@ -234,9 +235,7 @@ function registerProvidersFor(lang: string): void {
 }
 
 function modelPath(model: monaco.editor.ITextModel): string | null {
-  const path = model.uri.path.startsWith("/")
-    ? model.uri.path.slice(1)
-    : model.uri.path;
+  const path = model.uri.path.startsWith("/") ? model.uri.path.slice(1) : model.uri.path;
   return path || null;
 }
 
@@ -300,7 +299,10 @@ function markupToString(contents: unknown): string | undefined {
   if (!contents) return undefined;
   if (typeof contents === "string") return contents;
   if (Array.isArray(contents)) {
-    return contents.map((c) => markupToString(c) ?? "").filter(Boolean).join("\n\n");
+    return contents
+      .map((c) => markupToString(c) ?? "")
+      .filter(Boolean)
+      .join("\n\n");
   }
   if (typeof contents === "object" && contents && "value" in contents) {
     return String((contents as { value: unknown }).value);
@@ -316,10 +318,7 @@ interface LocationLike {
   targetSelectionRange?: LspRange;
 }
 
-function mapLocations(
-  result: unknown,
-  revealFirst = false,
-): monaco.languages.Location[] {
+function mapLocations(result: unknown, revealFirst = false): monaco.languages.Location[] {
   const list = Array.isArray(result) ? result : result ? [result] : [];
   const out: monaco.languages.Location[] = [];
   let revealed = false;
@@ -358,9 +357,7 @@ interface DocumentSymbolLike {
   children?: DocumentSymbolLike[];
 }
 
-function mapDocumentSymbol(
-  s: DocumentSymbolLike,
-): monaco.languages.DocumentSymbol | null {
+function mapDocumentSymbol(s: DocumentSymbolLike): monaco.languages.DocumentSymbol | null {
   const range = s.range ?? s.location?.range;
   const selection = s.selectionRange ?? range;
   if (!range || !selection || !s.name) return null;

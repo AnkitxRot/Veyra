@@ -58,43 +58,29 @@ describe("changeAttribution", () => {
   });
 
   it("contiguous single-region burst keeps an exact range", () => {
-    const b = openBurst(
-      mk({ at: 1, range: { startLine: 40, endLine: 44, contiguous: true } }),
-    );
-    extendBurst(
-      b,
-      mk({ at: 2, range: { startLine: 44, endLine: 52, contiguous: true } }),
-    );
+    const b = openBurst(mk({ at: 1, range: { startLine: 40, endLine: 44, contiguous: true } }));
+    extendBurst(b, mk({ at: 2, range: { startLine: 44, endLine: 52, contiguous: true } }));
     const c = closeBurst(b, "idle");
     expect(c.startLine).toBe(40);
     expect(c.endLine).toBe(52);
   });
 
   it("non-contiguous folded regions => null range (not min..max)", () => {
-    const b = openBurst(
-      mk({ at: 1, range: { startLine: 10, endLine: 12, contiguous: true } }),
-    );
-    extendBurst(
-      b,
-      mk({ at: 2, range: { startLine: 80, endLine: 82, contiguous: true } }),
-    );
+    const b = openBurst(mk({ at: 1, range: { startLine: 10, endLine: 12, contiguous: true } }));
+    extendBurst(b, mk({ at: 2, range: { startLine: 80, endLine: 82, contiguous: true } }));
     const c = closeBurst(b, "idle");
     expect(c.startLine).toBeNull();
     expect(c.endLine).toBeNull();
   });
 
   it("a single non-contiguous transaction => null range", () => {
-    const b = openBurst(
-      mk({ at: 1, range: { startLine: 10, endLine: 40, contiguous: false } }),
-    );
+    const b = openBurst(mk({ at: 1, range: { startLine: 10, endLine: 40, contiguous: false } }));
     const c = closeBurst(b, "idle");
     expect(c.startLine).toBeNull();
   });
 
   it("observer miss anywhere in the burst => null range, event still valid", () => {
-    const b = openBurst(
-      mk({ at: 1, range: { startLine: 5, endLine: 6, contiguous: true } }),
-    );
+    const b = openBurst(mk({ at: 1, range: { startLine: 5, endLine: 6, contiguous: true } }));
     extendBurst(b, mk({ at: 2, range: null }));
     const c = closeBurst(b, "idle");
     expect(c.startLine).toBeNull();
@@ -121,13 +107,8 @@ describe("changeAttribution", () => {
   });
 
   it("adjacent contiguous regions merge into one interval", () => {
-    const b = openBurst(
-      mk({ at: 1, range: { startLine: 10, endLine: 12, contiguous: true } }),
-    );
-    extendBurst(
-      b,
-      mk({ at: 2, range: { startLine: 13, endLine: 15, contiguous: true } }),
-    );
+    const b = openBurst(mk({ at: 1, range: { startLine: 10, endLine: 12, contiguous: true } }));
+    extendBurst(b, mk({ at: 2, range: { startLine: 13, endLine: 15, contiguous: true } }));
     const c = closeBurst(b, "idle");
     expect(c.startLine).toBe(10);
     expect(c.endLine).toBe(15);

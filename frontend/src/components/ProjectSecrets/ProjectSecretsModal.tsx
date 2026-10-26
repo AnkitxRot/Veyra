@@ -88,9 +88,7 @@ export default function ProjectSecretsModal({
     setError(null);
     setSuccessMsg(null);
     if (!NAME_RE.test(newName)) {
-      setError(
-        "Name must be letters, digits and underscores, and cannot start with a digit.",
-      );
+      setError("Name must be letters, digits and underscores, and cannot start with a digit.");
       return;
     }
     if (newValue.length === 0) {
@@ -135,9 +133,7 @@ export default function ProjectSecretsModal({
     }
     setSaving(true);
     try {
-      const qs = s.environment
-        ? `?environment=${encodeURIComponent(s.environment)}`
-        : "";
+      const qs = s.environment ? `?environment=${encodeURIComponent(s.environment)}` : "";
       const res = await fetch(
         `/api/projects/${projectId}/secrets/${encodeURIComponent(s.name)}${qs}`,
         {
@@ -176,9 +172,7 @@ export default function ProjectSecretsModal({
     setSuccessMsg(null);
     setSaving(true);
     try {
-      const qs = s.environment
-        ? `?environment=${encodeURIComponent(s.environment)}`
-        : "";
+      const qs = s.environment ? `?environment=${encodeURIComponent(s.environment)}` : "";
       const res = await fetch(
         `/api/projects/${projectId}/secrets/${encodeURIComponent(s.name)}${qs}`,
         { method: "DELETE", credentials: "include" },
@@ -431,13 +425,11 @@ export default function ProjectSecretsModal({
                   color: "#a6adc8",
                 }}
               >
-                No variables yet. Add one above — it is injected into runs and
-                terminals as an environment variable.
+                No variables yet. Add one above — it is injected into runs and terminals as an
+                environment variable.
               </div>
             ) : (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: "6px" }}
-              >
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {secrets.map((s) => {
                   const k = rowKey(s);
                   return (
@@ -547,9 +539,7 @@ export default function ProjectSecretsModal({
                           <span>
                             ••••••••
                             {s.fingerprint ? (
-                              <span style={{ fontFamily: "monospace" }}>
-                                {s.fingerprint}
-                              </span>
+                              <span style={{ fontFamily: "monospace" }}>{s.fingerprint}</span>
                             ) : null}
                           </span>
                         ) : (

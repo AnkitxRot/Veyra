@@ -36,12 +36,7 @@ function jsonResponse(body: any, ok = true, status = 200) {
 
 function renderModal() {
   return render(
-    <ProjectSecretsModal
-      projectId="p1"
-      projectName="Demo"
-      isOpen
-      onClose={() => {}}
-    />,
+    <ProjectSecretsModal projectId="p1" projectName="Demo" isOpen onClose={() => {}} />,
   );
 }
 
@@ -116,9 +111,7 @@ describe("ProjectSecretsModal", () => {
   it("uses a password field for secret values", async () => {
     const { getByLabelText, findByText } = renderModal();
     await findByText("API_KEY");
-    expect((getByLabelText("Secret value") as HTMLInputElement).type).toBe(
-      "password",
-    );
+    expect((getByLabelText("Secret value") as HTMLInputElement).type).toBe("password");
   });
 
   it("rejects an invalid name without calling the API", async () => {
@@ -132,14 +125,11 @@ describe("ProjectSecretsModal", () => {
     });
     fireEvent.click(getByText("Add"));
     await waitFor(() => expect(getByText(/Name must be/i)).toBeTruthy());
-    expect(
-      fetchMock.mock.calls.filter((c) => c[1]?.method === "POST").length,
-    ).toBe(0);
+    expect(fetchMock.mock.calls.filter((c) => c[1]?.method === "POST").length).toBe(0);
   });
 
   it("updates a secret value via PUT", async () => {
-    const { getAllByText, getByLabelText, getByText, findByText } =
-      renderModal();
+    const { getAllByText, getByLabelText, getByText, findByText } = renderModal();
     await findByText("API_KEY");
     fireEvent.click(getAllByText("Update")[0]!);
     fireEvent.change(getByLabelText("New value for API_KEY"), {
@@ -168,8 +158,7 @@ describe("ProjectSecretsModal", () => {
 
   it("surfaces a server error on create", async () => {
     fetchMock.mockImplementation((url: string, opts?: any) => {
-      if ((opts?.method ?? "GET") === "GET")
-        return jsonResponse({ secrets: META });
+      if ((opts?.method ?? "GET") === "GET") return jsonResponse({ secrets: META });
       return jsonResponse(
         { error: { message: "a secret with this name already exists" } },
         false,
@@ -203,7 +192,8 @@ describe("ProjectSecretsModal", () => {
       if (method === "GET") return jsonResponse({ secrets: META });
       if (method === "POST") {
         return new Promise((r) => {
-          resolvePost = () => r({ ok: true, status: 201, json: () => Promise.resolve({ secret: META[0] }) });
+          resolvePost = () =>
+            r({ ok: true, status: 201, json: () => Promise.resolve({ secret: META[0] }) });
         });
       }
       return jsonResponse({});
@@ -219,9 +209,7 @@ describe("ProjectSecretsModal", () => {
     const addBtn = getByText("Add");
     fireEvent.click(addBtn);
     fireEvent.click(addBtn); // duplicate rapid click
-    expect(
-      fetchMock.mock.calls.filter((c) => c[1]?.method === "POST").length,
-    ).toBe(1);
+    expect(fetchMock.mock.calls.filter((c) => c[1]?.method === "POST").length).toBe(1);
     resolvePost();
   });
 });

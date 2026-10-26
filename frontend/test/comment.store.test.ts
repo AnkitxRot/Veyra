@@ -12,9 +12,7 @@ describe("M61-A CommentStore", () => {
   });
 
   it("applyEvent triggers one throttled scoped refetch per file", async () => {
-    const spy = vi
-      .spyOn(api, "fetchThreads")
-      .mockResolvedValue({ threads: [], nextBefore: null });
+    const spy = vi.spyOn(api, "fetchThreads").mockResolvedValue({ threads: [], nextBefore: null });
     const s = new CommentStore("p");
     s.applyEvent({
       type: "comment_event",
@@ -62,9 +60,7 @@ describe("M61-A CommentStore", () => {
   });
 
   it("dispose() cancels pending refetches", async () => {
-    const spy = vi
-      .spyOn(api, "fetchThreads")
-      .mockResolvedValue({ threads: [], nextBefore: null });
+    const spy = vi.spyOn(api, "fetchThreads").mockResolvedValue({ threads: [], nextBefore: null });
     const s = new CommentStore("p");
     s.applyEvent({
       type: "comment_event",

@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import {
-  resolveCanonicalText,
-  yjsDocumentSource,
-} from "../src/lsp/canonical.js";
+import { resolveCanonicalText, yjsDocumentSource } from "../src/lsp/canonical.js";
 
 describe("lsp canonical document source", () => {
   it("does not materialize empty Y.Text keys on read", () => {
@@ -17,9 +14,7 @@ describe("lsp canonical document source", () => {
     const doc = new Y.Doc();
     doc.getText("main.py").insert(0, "undefined_name\n");
     const source = yjsDocumentSource(() => doc);
-    expect(resolveCanonicalText(source, "main.py", "x = 1\n")).toBe(
-      "undefined_name\n",
-    );
+    expect(resolveCanonicalText(source, "main.py", "x = 1\n")).toBe("undefined_name\n");
   });
 
   it("attaches an observer after the room and share key appear", async () => {
@@ -40,10 +35,7 @@ describe("lsp canonical document source", () => {
 
     doc.getText("main.py").insert(5, " world");
     const start2 = Date.now();
-    while (
-      !seen.some((t) => t.includes("world")) &&
-      Date.now() - start2 < 2000
-    ) {
+    while (!seen.some((t) => t.includes("world")) && Date.now() - start2 < 2000) {
       await new Promise((r) => setTimeout(r, 20));
     }
     expect(seen.some((t) => t.includes("hello world"))).toBe(true);

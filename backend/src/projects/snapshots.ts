@@ -132,26 +132,18 @@ export async function createSnapshot(
 
     // Query existing snapshots for this project ordered by created_at ASC (oldest first)
     const existingSnapshots = db
-      .prepare(
-        "SELECT id, size_bytes FROM snapshots WHERE project_id = ? ORDER BY created_at ASC",
-      )
+      .prepare("SELECT id, size_bytes FROM snapshots WHERE project_id = ? ORDER BY created_at ASC")
       .all(project.id) as unknown as Array<{ id: string; size_bytes: number }>;
 
     let currentCount = existingSnapshots.length;
-    let currentTotalBytes = existingSnapshots.reduce(
-      (sum, s) => sum + (s.size_bytes || 0),
-      0,
-    );
+    let currentTotalBytes = existingSnapshots.reduce((sum, s) => sum + (s.size_bytes || 0), 0);
 
     const toEvict: string[] = [];
 
     for (const s of existingSnapshots) {
       // If adding 1 new snapshot exceeds maxCount OR adding newSizeBytes exceeds maxTotalBytes,
       // evict this oldest snapshot.
-      if (
-        currentCount + 1 > maxCount ||
-        currentTotalBytes + newSizeBytes > maxTotalBytes
-      ) {
+      if (currentCount + 1 > maxCount || currentTotalBytes + newSizeBytes > maxTotalBytes) {
         toEvict.push(s.id);
         currentCount--;
         currentTotalBytes -= s.size_bytes || 0;
@@ -221,11 +213,7 @@ export async function createSnapshot(
   });
 }
 
-export function listSnapshots(
-  db: Db,
-  userId: number,
-  projectId: string,
-): SnapshotRecord[] {
+export function listSnapshots(db: Db, userId: number, projectId: string): SnapshotRecord[] {
   return db
     .prepare(
       "SELECT * FROM snapshots WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC",
@@ -243,9 +231,7 @@ export async function restoreSnapshot(
   return withProjectSnapshotLock(projectId, async () => {
     const project = requireOwnedProject(db, userId, projectId);
     const row = db
-      .prepare(
-        "SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
-      )
+      .prepare("SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?")
       .get(snapshotId, project.id, userId) as SnapshotRecord | undefined;
 
     if (!row) throw new ApiError(404, "snapshot not found", "not_found");
@@ -255,11 +241,7 @@ export async function restoreSnapshot(
     try {
       compressed = await fs.readFile(archivePath);
     } catch {
-      throw new ApiError(
-        404,
-        "snapshot archive file missing on disk",
-        "not_found",
-      );
+      throw new ApiError(404, "snapshot archive file missing on disk", "not_found");
     }
 
     const decompressed = gunzipSync(compressed);
@@ -295,19 +277,14 @@ export async function restoreSnapshot(
       if (snapshotPaths.has(f)) continue;
       try {
         await deleteProjectPath(cwd, f);
-        await collaborationManager.notifyExternalFileMutation(
-          project.id,
-          f,
-          "",
-        );
+        await collaborationManager.notifyExternalFileMutation(project.id, f, "");
         mutatedPaths.push(f);
       } catch {}
     }
 
     // M56: metadata-only notice to affected non-initiating collaborators.
-    const actor = db
-      .prepare("SELECT username FROM users WHERE id = ?")
-      .get(userId) as { username: string } | undefined;
+    const actor = db.prepare("SELECT username FROM users WHERE id = ?").get(userId) as
+      { username: string } | undefined;
     if (actor && mutatedPaths.length > 0) {
       collaborationManager.emitExternalMutationNotice(project.id, {
         paths: mutatedPaths,
@@ -338,23 +315,20 @@ export async function deleteSnapshot(
   return withProjectSnapshotLock(projectId, async () => {
     const project = requireOwnedProject(db, userId, projectId);
     const row = db
-      .prepare(
-        "SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
-      )
+      .prepare("SELECT * FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?")
       .get(snapshotId, project.id, userId) as SnapshotRecord | undefined;
 
     if (!row) throw new ApiError(404, "snapshot not found", "not_found");
 
-    const archivePath = safeResolve(
-      snapshotDir(cfg, project.id),
-      `${snapshotId}.gz`,
-    );
+    const archivePath = safeResolve(snapshotDir(cfg, project.id), `${snapshotId}.gz`);
     try {
       await fs.rm(archivePath, { force: true });
     } catch {}
-    db.prepare(
-      "DELETE FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?",
-    ).run(snapshotId, project.id, userId);
+    db.prepare("DELETE FROM snapshots WHERE id = ? AND project_id = ? AND user_id = ?").run(
+      snapshotId,
+      project.id,
+      userId,
+    );
 
     recordAuditLog(db, {
       userId,

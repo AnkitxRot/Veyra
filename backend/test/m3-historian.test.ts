@@ -28,12 +28,16 @@ describe("M3 Cloud Resource Intelligence: Telemetry Historian & Buffers", () => 
     historian.init(db, cfg);
 
     // Insert user and project for foreign keys
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("hist_user", "hash", "user");
-    db.prepare(
-      "INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)",
-    ).run("proj-hist-1", 1, "HistProject");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "hist_user",
+      "hash",
+      "user",
+    );
+    db.prepare("INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)").run(
+      "proj-hist-1",
+      1,
+      "HistProject",
+    );
 
     const projId = "proj-hist-1";
 
@@ -70,9 +74,7 @@ describe("M3 Cloud Resource Intelligence: Telemetry Historian & Buffers", () => 
     // Flush to SQLite
     historian.flushQueue();
     const rows = db
-      .prepare(
-        "SELECT COUNT(*) as count FROM telemetry_samples WHERE project_id = ?",
-      )
+      .prepare("SELECT COUNT(*) as count FROM telemetry_samples WHERE project_id = ?")
       .get(projId) as { count: number };
     expect(rows.count).toBe(2);
 
@@ -85,12 +87,16 @@ describe("M3 Cloud Resource Intelligence: Telemetry Historian & Buffers", () => 
     const historian = TelemetryHistorian.getInstance();
     historian.init(db, cfg);
 
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("dispose_user", "hash", "user");
-    db.prepare(
-      "INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)",
-    ).run("proj-dispose-1", 1, "DisposeProject");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "dispose_user",
+      "hash",
+      "user",
+    );
+    db.prepare("INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)").run(
+      "proj-dispose-1",
+      1,
+      "DisposeProject",
+    );
 
     const projId = "proj-dispose-1";
     const internals = historian as unknown as {
@@ -115,9 +121,7 @@ describe("M3 Cloud Resource Intelligence: Telemetry Historian & Buffers", () => 
     expect(internals.hotBuffers.has(projId)).toBe(true);
     expect(internals.highCpuStreaks.has(projId)).toBe(true);
     expect(internals.activeExecutions.has(projId)).toBe(true);
-    expect(
-      historian.queryProjectTelemetry(projId, { range: "5m" }).samples.length,
-    ).toBe(1);
+    expect(historian.queryProjectTelemetry(projId, { range: "5m" }).samples.length).toBe(1);
 
     historian.disposeProject(projId);
 
@@ -125,9 +129,7 @@ describe("M3 Cloud Resource Intelligence: Telemetry Historian & Buffers", () => 
     expect(internals.hotBuffers.has(projId)).toBe(false);
     expect(internals.highCpuStreaks.has(projId)).toBe(false);
     expect(internals.activeExecutions.has(projId)).toBe(false);
-    expect(
-      historian.queryProjectTelemetry(projId, { range: "5m" }).samples.length,
-    ).toBe(0);
+    expect(historian.queryProjectTelemetry(projId, { range: "5m" }).samples.length).toBe(0);
 
     historian.stop();
   });
@@ -141,12 +143,16 @@ describe("M3 Cloud Resource Intelligence: Anomaly Engine & Health Center", () =>
     historian.init(db, cfg);
 
     // Insert user and project for foreign keys
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("anom_user", "hash", "user");
-    db.prepare(
-      "INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)",
-    ).run("proj-anom-1", 1, "AnomProject");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "anom_user",
+      "hash",
+      "user",
+    );
+    db.prepare("INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)").run(
+      "proj-anom-1",
+      1,
+      "AnomProject",
+    );
 
     const projId = "proj-anom-1";
 
@@ -189,9 +195,7 @@ describe("M3 Cloud Resource Intelligence: Anomaly Engine & Health Center", () =>
       blockIO: "0B / 0B",
     });
     expect(
-      historian
-        .getProjectHealth(projId)
-        .anomalies.some((a) => a.anomalyType === "pid_pressure"),
+      historian.getProjectHealth(projId).anomalies.some((a) => a.anomalyType === "pid_pressure"),
     ).toBe(false);
 
     // Trigger PID pressure (>= ~78% of the configured sandbox limit)
@@ -209,12 +213,8 @@ describe("M3 Cloud Resource Intelligence: Anomaly Engine & Health Center", () =>
     const health = historian.getProjectHealth(projId);
     expect(health.status).toBe("critical"); // Memory critical anomaly triggered
     expect(health.anomalies.length).toBeGreaterThanOrEqual(3);
-    expect(health.anomalies.some((a) => a.anomalyType === "high_cpu")).toBe(
-      true,
-    );
-    expect(
-      health.anomalies.some((a) => a.anomalyType === "memory_pressure"),
-    ).toBe(true);
+    expect(health.anomalies.some((a) => a.anomalyType === "high_cpu")).toBe(true);
+    expect(health.anomalies.some((a) => a.anomalyType === "memory_pressure")).toBe(true);
     const pid = health.anomalies.find((a) => a.anomalyType === "pid_pressure");
     expect(pid).toBeTruthy();
     expect(pid!.reason).toContain(`limit is ${cfg.limits.pidsLimit}`);
@@ -280,13 +280,9 @@ describe("M3 Cloud Resource Intelligence: Historical API & Multi-Tenant Authoriz
       blockIO: "10KB / 5KB",
     });
 
-    const res = await api.request(
-      "GET",
-      `/api/projects/${proj1Id}/telemetry?range=5m`,
-      {
-        token: user1Token,
-      },
-    );
+    const res = await api.request("GET", `/api/projects/${proj1Id}/telemetry?range=5m`, {
+      token: user1Token,
+    });
 
     expect(res.status).toBe(200);
     expect(res.data.samples.length).toBeGreaterThanOrEqual(1);
@@ -342,23 +338,15 @@ describe("M3 Cloud Resource Intelligence: Historical API & Multi-Tenant Authoriz
 
   it("GET /api/admin/telemetry/historical requires admin role and returns aggregate timeline", async () => {
     // Forbidden for normal user token
-    const forbiddenRes = await api.request(
-      "GET",
-      "/api/admin/telemetry/historical",
-      {
-        token: user1Token,
-      },
-    );
+    const forbiddenRes = await api.request("GET", "/api/admin/telemetry/historical", {
+      token: user1Token,
+    });
     expect(forbiddenRes.status).toBe(403);
 
     // Allowed for admin token
-    const adminRes = await api.request(
-      "GET",
-      "/api/admin/telemetry/historical?range=15m",
-      {
-        token: adminToken,
-      },
-    );
+    const adminRes = await api.request("GET", "/api/admin/telemetry/historical?range=15m", {
+      token: adminToken,
+    });
     expect(adminRes.status).toBe(200);
     expect(Array.isArray(adminRes.data.timeline)).toBe(true);
     expect(Array.isArray(adminRes.data.anomalies)).toBe(true);

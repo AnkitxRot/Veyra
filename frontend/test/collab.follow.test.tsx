@@ -40,11 +40,7 @@ describe("Milestone 48 — Follow Mode & UI Presence Indicators", () => {
       };
 
       render(
-        <FollowBanner
-          followedUser={followedUser}
-          isPaused={false}
-          onStopFollowing={onStop}
-        />,
+        <FollowBanner followedUser={followedUser} isPaused={false} onStopFollowing={onStop} />,
       );
 
       expect(screen.getByText("Following Bob")).toBeDefined();
@@ -102,9 +98,7 @@ describe("Milestone 48 — Follow Mode & UI Presence Indicators", () => {
           onReturnToLocation={onReturn}
         />,
       );
-      expect(
-        screen.queryByRole("button", { name: /return to my location/i }),
-      ).toBeNull();
+      expect(screen.queryByRole("button", { name: /return to my location/i })).toBeNull();
 
       rerender(
         <FollowBanner
@@ -114,9 +108,7 @@ describe("Milestone 48 — Follow Mode & UI Presence Indicators", () => {
           onReturnToLocation={onReturn}
         />,
       );
-      fireEvent.click(
-        screen.getByRole("button", { name: /return to my location/i }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: /return to my location/i }));
       expect(onReturn).toHaveBeenCalledTimes(1);
     });
 
@@ -157,11 +149,7 @@ describe("Milestone 48 — Follow Mode & UI Presence Indicators", () => {
       };
 
       render(
-        <FollowBanner
-          followedUser={followedUser}
-          isPaused={false}
-          onStopFollowing={onStop}
-        />,
+        <FollowBanner followedUser={followedUser} isPaused={false} onStopFollowing={onStop} />,
       );
 
       fireEvent.keyDown(window, { key: "Escape" });
@@ -350,9 +338,7 @@ describe("Milestone 48 — Follow Mode & UI Presence Indicators", () => {
       expect(document.querySelector(".spatial-nearby")).not.toBeNull();
       // M57: the same-file collaborator strip also renders for Bob (distinct
       // surface, distinct aria-label).
-      expect(
-        screen.getByLabelText("Collaborators in this file").textContent,
-      ).toContain("Bob");
+      expect(screen.getByLabelText("Collaborators in this file").textContent).toContain("Bob");
     });
   });
 });

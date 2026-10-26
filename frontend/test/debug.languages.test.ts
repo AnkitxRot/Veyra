@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  canDebugPath,
-  debugLanguageForPath,
-  isDebuggablePath,
-} from "../src/debug/languages";
+import { canDebugPath, debugLanguageForPath, isDebuggablePath } from "../src/debug/languages";
 
 describe("debug language allowlist", () => {
   it("maps python and node/ts entry files", () => {
@@ -29,11 +25,7 @@ describe("debug language allowlist", () => {
     };
     expect(canDebugPath("main.py", caps)).toBe(true);
     expect(canDebugPath("main.js", caps)).toBe(false);
-    expect(canDebugPath("main.py", { docker: false, runnerImage: true })).toBe(
-      false,
-    );
-    expect(canDebugPath("main.py", { docker: true, runnerImage: false })).toBe(
-      false,
-    );
+    expect(canDebugPath("main.py", { docker: false, runnerImage: true })).toBe(false);
+    expect(canDebugPath("main.py", { docker: true, runnerImage: false })).toBe(false);
   });
 });

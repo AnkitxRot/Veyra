@@ -49,9 +49,7 @@ function customFrame(obj: unknown): Uint8Array {
 }
 
 function feed(client: CollaborationClient, obj: unknown): void {
-  (client as unknown as { handleMessage: (m: Uint8Array) => void }).handleMessage(
-    customFrame(obj),
-  );
+  (client as unknown as { handleMessage: (m: Uint8Array) => void }).handleMessage(customFrame(obj));
 }
 
 describe("CollaborationClient — M58 attention", () => {
@@ -74,8 +72,7 @@ describe("CollaborationClient — M58 attention", () => {
     lastWs = null;
   });
 
-  const mk = () =>
-    new CollaborationClient("p", { id: 1, username: "a" } as never);
+  const mk = () => new CollaborationClient("p", { id: 1, username: "a" } as never);
 
   it("sendAttentionPoint emits a well-formed MESSAGE_CUSTOM frame", async () => {
     const client = mk();
@@ -110,11 +107,9 @@ describe("CollaborationClient — M58 attention", () => {
       expiresAt: Date.now() + 90_000,
     });
     expect(client.getAttention().map((e) => e.id)).toContain("abc0000000000000");
-    expect(
-      (changes.at(-1) as { id: string }[]).some(
-        (e) => e.id === "abc0000000000000",
-      ),
-    ).toBe(true);
+    expect((changes.at(-1) as { id: string }[]).some((e) => e.id === "abc0000000000000")).toBe(
+      true,
+    );
     client.dispose();
   });
 
@@ -156,9 +151,7 @@ describe("CollaborationClient — M58 attention", () => {
       createdAt: Date.now(),
       expiresAt: Date.now() + 6_000,
     });
-    (
-      client as unknown as { resetLocalCollabState: () => void }
-    ).resetLocalCollabState();
+    (client as unknown as { resetLocalCollabState: () => void }).resetLocalCollabState();
     expect(client.getAttention()).toEqual([]);
     client.dispose();
   });

@@ -1,18 +1,6 @@
-import React, {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  Suspense,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { api } from "../../api";
-import {
-  IconTrash,
-  IconCheck,
-  IconClose,
-  IconRefresh,
-  IconDownload,
-} from "../common/Icons";
+import { IconTrash, IconCheck, IconClose, IconRefresh, IconDownload } from "../common/Icons";
 import { getLanguageIcon } from "../common/iconUtils";
 import {
   type RunRecord,
@@ -25,9 +13,7 @@ import { useExecutionSession } from "../../hooks/useExecutionSession";
 import { bulkConflictSummary } from "../../utils/collabConflict";
 import { emitNotice, emitErrorNotice } from "../../utils/notices";
 import SharedRunOutputPanel from "./SharedRunOutputPanel";
-const ExecutionTelemetryModal = React.lazy(
-  () => import("./ExecutionTelemetryModal"),
-);
+const ExecutionTelemetryModal = React.lazy(() => import("./ExecutionTelemetryModal"));
 
 export interface OutputProps {
   project: any;
@@ -50,9 +36,7 @@ export default function Output({
   collabConnected = false,
   actorIdentity,
 }: OutputProps) {
-  const [activeTab, setActiveTab] = useState<
-    "console" | "history" | "snapshots"
-  >("console");
+  const [activeTab, setActiveTab] = useState<"console" | "history" | "snapshots">("console");
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
 
@@ -73,8 +57,7 @@ export default function Output({
   // History state
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(false);
-  const [selectedRunForTelemetry, setSelectedRunForTelemetry] =
-    useState<RunRecord | null>(null);
+  const [selectedRunForTelemetry, setSelectedRunForTelemetry] = useState<RunRecord | null>(null);
 
   // Snapshots state
   const [snapshots, setSnapshots] = useState<SnapshotRecord[]>([]);
@@ -92,9 +75,7 @@ export default function Output({
       output: o,
       status: runStatuses.find((s) => s.executionId === o.executionId),
     }))
-    .filter(
-      ({ status }) => status != null && status.userId !== currentUserId,
-    );
+    .filter(({ status }) => status != null && status.userId !== currentUserId);
 
   const scrollToBottom = () => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -108,9 +89,7 @@ export default function Output({
     if (!project) return;
     setLoadingRuns(true);
     try {
-      const res = await api<{ runs: RunRecord[] }>(
-        `/api/projects/${project.id}/runs?limit=25`,
-      );
+      const res = await api<{ runs: RunRecord[] }>(`/api/projects/${project.id}/runs?limit=25`);
       setRuns(res.runs || []);
     } catch {
       // ignore fetch errors
@@ -192,10 +171,7 @@ export default function Output({
         },
       );
       if (onRefreshTree) onRefreshTree();
-      const conflictNote = bulkConflictSummary(
-        res.conflictedPaths,
-        "Snapshot restore",
-      );
+      const conflictNote = bulkConflictSummary(res.conflictedPaths, "Snapshot restore");
       emitNotice(
         conflictNote
           ? { kind: "warning", text: conflictNote, ttl: 8000 }
@@ -211,12 +187,9 @@ export default function Output({
   const handleDeleteSnapshot = async () => {
     if (!project || !modalState.snapshot) return;
     try {
-      await api(
-        `/api/projects/${project.id}/snapshots/${modalState.snapshot.id}`,
-        {
-          method: "DELETE",
-        },
-      );
+      await api(`/api/projects/${project.id}/snapshots/${modalState.snapshot.id}`, {
+        method: "DELETE",
+      });
       loadSnapshots();
       emitNotice({ kind: "success", text: "Snapshot deleted", ttl: 3000 });
     } catch (err: any) {
@@ -277,9 +250,7 @@ export default function Output({
             <span
               className={`glass-badge glass-badge-${statusBadge.type === "running" ? "accent" : statusBadge.type === "success" ? "success" : statusBadge.type === "error" ? "error" : "warning"}`}
             >
-              {statusBadge.type === "running" && (
-                <span className="capability-dot ready" />
-              )}
+              {statusBadge.type === "running" && <span className="capability-dot ready" />}
               {statusBadge.type === "success" && <IconCheck size={10} />}
               {statusBadge.type === "error" && <IconClose size={10} />}
               <span>{statusBadge.text}</span>
@@ -296,11 +267,7 @@ export default function Output({
         )}
 
         {activeTab === "history" && (
-          <button
-            className="glass-btn glass-btn-icon"
-            onClick={loadRuns}
-            title="Refresh History"
-          >
+          <button className="glass-btn glass-btn-icon" onClick={loadRuns} title="Refresh History">
             <IconRefresh size={12} />
           </button>
         )}
@@ -363,10 +330,7 @@ export default function Output({
                 alters it. Reuses the exact M43 ide-install event; the
                 execution session owns everything after the click. */}
             {missingDependencyHint && (
-              <div
-                className="output-missing-dependency-hint"
-                style={{ padding: "6px 0 2px" }}
-              >
+              <div className="output-missing-dependency-hint" style={{ padding: "6px 0 2px" }}>
                 <button
                   type="button"
                   className="glass-btn glass-btn-primary"
@@ -452,9 +416,7 @@ export default function Output({
                   <th style={{ padding: "6px 8px" }}>Peak RAM</th>
                   <th style={{ padding: "6px 8px" }}>Exit Code</th>
                   <th style={{ padding: "6px 8px" }}>Timestamp</th>
-                  <th style={{ padding: "6px 8px", textAlign: "right" }}>
-                    Profile
-                  </th>
+                  <th style={{ padding: "6px 8px", textAlign: "right" }}>Profile</th>
                 </tr>
               </thead>
               <tbody>
@@ -479,10 +441,7 @@ export default function Output({
                       >
                         {getLanguageIcon(r.file_path, 13)}
                         <span>{r.file_path}</span>
-                        <span
-                          className="glass-badge"
-                          style={{ fontSize: "9px", padding: "0 4px" }}
-                        >
+                        <span className="glass-badge" style={{ fontSize: "9px", padding: "0 4px" }}>
                           {r.language}
                         </span>
                       </td>
@@ -494,9 +453,7 @@ export default function Output({
                           {r.status}
                         </span>
                       </td>
-                      <td
-                        style={{ padding: "8px", color: "var(--fg-secondary)" }}
-                      >
+                      <td style={{ padding: "8px", color: "var(--fg-secondary)" }}>
                         {r.duration_ms} ms
                       </td>
                       <td
@@ -511,10 +468,7 @@ export default function Output({
                       <td
                         style={{
                           padding: "8px",
-                          color:
-                            r.exit_code === 0
-                              ? "var(--accent-green)"
-                              : "var(--accent-red)",
+                          color: r.exit_code === 0 ? "var(--accent-green)" : "var(--accent-red)",
                         }}
                       >
                         {r.exit_code ?? "-"}
@@ -563,13 +517,10 @@ export default function Output({
                 fontStyle: "italic",
               }}
             >
-              No snapshots created yet. Create a snapshot to preserve this
-              workspace state!
+              No snapshots created yet. Create a snapshot to preserve this workspace state!
             </div>
           ) : (
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {snapshots.map((s) => (
                 <div
                   key={s.id}
@@ -589,14 +540,8 @@ export default function Output({
                       gap: "2px",
                     }}
                   >
-                    <span
-                      style={{ fontWeight: 600, color: "var(--fg-primary)" }}
-                    >
-                      {s.name}
-                    </span>
-                    <span
-                      style={{ fontSize: "10px", color: "var(--fg-muted)" }}
-                    >
+                    <span style={{ fontWeight: 600, color: "var(--fg-primary)" }}>{s.name}</span>
+                    <span style={{ fontSize: "10px", color: "var(--fg-muted)" }}>
                       Size: {Math.round(s.size_bytes / 1024)} KB • Created:{" "}
                       {new Date(s.created_at).toLocaleString()}
                     </span>
@@ -605,18 +550,14 @@ export default function Output({
                     <button
                       className="glass-btn glass-btn-primary"
                       style={{ fontSize: "11px", padding: "3px 8px" }}
-                      onClick={() =>
-                        setModalState({ type: "restore_snapshot", snapshot: s })
-                      }
+                      onClick={() => setModalState({ type: "restore_snapshot", snapshot: s })}
                     >
                       Restore
                     </button>
                     <button
                       className="glass-btn glass-btn-icon"
                       style={{ color: "var(--accent-red)" }}
-                      onClick={() =>
-                        setModalState({ type: "delete_snapshot", snapshot: s })
-                      }
+                      onClick={() => setModalState({ type: "delete_snapshot", snapshot: s })}
                       title="Delete Snapshot"
                     >
                       <IconTrash size={12} />

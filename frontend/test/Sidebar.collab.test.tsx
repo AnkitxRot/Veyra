@@ -23,9 +23,7 @@ const tree: TreeNode[] = [
         name: "auth",
         path: "src/auth",
         type: "dir",
-        children: [
-          { name: "service.ts", path: "src/auth/service.ts", type: "file" },
-        ],
+        children: [{ name: "service.ts", path: "src/auth/service.ts", type: "file" }],
       },
     ],
   },
@@ -64,32 +62,23 @@ function props(collaborators: CollaboratorPresence[]) {
 
 describe("Sidebar — M57 folder-level collaborator indicators", () => {
   it("shows a collaborator dot on the ancestor folder rows of a collaborator's active file", () => {
-    const { container, getByText } = render(
-      React.createElement(Sidebar, props([rahul()]) as any),
-    );
+    const { container, getByText } = render(React.createElement(Sidebar, props([rahul()]) as any));
     // both "src" and "src/auth" rows should carry a collab badge
     const badges = container.querySelectorAll(".tree-node-collab-badge");
     expect(badges.length).toBeGreaterThanOrEqual(2);
     // the badge titles name Rahul
-    expect(
-      [...badges].some((b) => (b.getAttribute("title") || "").includes("Rahul")),
-    ).toBe(true);
+    expect([...badges].some((b) => (b.getAttribute("title") || "").includes("Rahul"))).toBe(true);
     expect(getByText("auth")).toBeTruthy();
   });
 
   it("shows no folder indicators when there are no collaborators", () => {
-    const { container } = render(
-      React.createElement(Sidebar, props([]) as any),
-    );
+    const { container } = render(React.createElement(Sidebar, props([]) as any));
     expect(container.querySelectorAll(".tree-node-collab-badge").length).toBe(0);
   });
 
   it("excludes the current user from folder indicators", () => {
     const { container } = render(
-      React.createElement(
-        Sidebar,
-        props([rahul({ userId: 1, name: "alice" })]) as any,
-      ),
+      React.createElement(Sidebar, props([rahul({ userId: 1, name: "alice" })]) as any),
     );
     expect(container.querySelectorAll(".tree-node-collab-badge").length).toBe(0);
   });

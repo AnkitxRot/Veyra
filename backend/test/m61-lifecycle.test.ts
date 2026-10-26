@@ -62,9 +62,7 @@ describe("M61-A comment lifecycle — migration v12 FK cascades", () => {
       `INSERT INTO users (id,username,password_hash) VALUES
          (1,'owner','h'),(2,'author','h'),(3,'resolver','h'),(9,'other','h')`,
     ).run();
-    db.prepare(
-      "INSERT INTO projects (id,owner_id,name) VALUES ('p1',1,'P1'),('p2',9,'P2')",
-    ).run();
+    db.prepare("INSERT INTO projects (id,owner_id,name) VALUES ('p1',1,'P1'),('p2',9,'P2')").run();
 
     const t = createThread(db, {
       projectId: "p1",
@@ -111,12 +109,8 @@ describe("M61-A comment lifecycle — migration v12 FK cascades", () => {
     db.prepare("DELETE FROM projects WHERE id = ?").run("p1");
 
     // p1-scoped rows gone
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comment_threads WHERE project_id='p1'"),
-    ).toBe(0);
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p1'"),
-    ).toBe(0);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_threads WHERE project_id='p1'")).toBe(0);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p1'")).toBe(0);
     // comment_mentions / comment_reactions have no project_id column: they must
     // have gone via comment_id CASCADE
     expect(count(db, "SELECT COUNT(*) c FROM comment_mentions")).toBe(0);
@@ -153,21 +147,17 @@ describe("M61-A comment lifecycle — migration v12 FK cascades", () => {
     ).toBe(0);
 
     // the unrelated project's thread + comment are untouched
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comment_threads WHERE project_id='p2'"),
-    ).toBe(1);
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p2'"),
-    ).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_threads WHERE project_id='p2'")).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p2'")).toBe(1);
   });
 
   it("deleting a member who only RESOLVED a thread nulls resolved_by (SET NULL) and keeps the thread, its comments, and other members' rows", () => {
     resolveThread(db, { threadId, actorId: 3 });
     expect(
       (
-        db
-          .prepare("SELECT resolved_by FROM comment_threads WHERE id=?")
-          .get(threadId) as { resolved_by: number | null }
+        db.prepare("SELECT resolved_by FROM comment_threads WHERE id=?").get(threadId) as {
+          resolved_by: number | null;
+        }
       ).resolved_by,
     ).toBe(3);
 
@@ -176,40 +166,20 @@ describe("M61-A comment lifecycle — migration v12 FK cascades", () => {
     db.prepare("DELETE FROM users WHERE id = ?").run(3);
 
     const row = db
-      .prepare(
-        "SELECT resolved_at, resolved_by FROM comment_threads WHERE id=?",
-      )
+      .prepare("SELECT resolved_at, resolved_by FROM comment_threads WHERE id=?")
       .get(threadId) as { resolved_at: string | null; resolved_by: number | null };
     expect(row.resolved_by).toBeNull(); // ON DELETE SET NULL
     expect(row.resolved_at).not.toBeNull(); // still resolved, just author-less
 
     // thread + both comments survive
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comment_threads WHERE id=?", threadId),
-    ).toBe(1);
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE thread_id=?", threadId),
-    ).toBe(2);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_threads WHERE id=?", threadId)).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE thread_id=?", threadId)).toBe(2);
 
     // user 3's mention + reaction rows cascade away; user 1's / user 2's remain
-    expect(
-      count(
-        db,
-        "SELECT COUNT(*) c FROM comment_mentions WHERE mentioned_user_id=3",
-      ),
-    ).toBe(0);
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comment_reactions WHERE user_id=3"),
-    ).toBe(0);
-    expect(
-      count(
-        db,
-        "SELECT COUNT(*) c FROM comment_mentions WHERE mentioned_user_id=2",
-      ),
-    ).toBe(1);
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comment_reactions WHERE user_id=1"),
-    ).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_mentions WHERE mentioned_user_id=3")).toBe(0);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_reactions WHERE user_id=3")).toBe(0);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_mentions WHERE mentioned_user_id=2")).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_reactions WHERE user_id=1")).toBe(1);
 
     // no dangling mention/reaction rows
     expect(
@@ -233,14 +203,10 @@ describe("M61-A comment lifecycle — migration v12 FK cascades", () => {
     db.prepare("DELETE FROM users WHERE id = ?").run(2);
 
     // comment_threads.created_by -> users ON DELETE CASCADE
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comment_threads WHERE id=?", threadId),
-    ).toBe(0);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_threads WHERE id=?", threadId)).toBe(0);
     // comments cascade (via thread_id and/or author_id) — reply included even
     // though user 1 authored it
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE thread_id=?", threadId),
-    ).toBe(0);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE thread_id=?", threadId)).toBe(0);
     expect(count(db, "SELECT COUNT(*) c FROM comment_mentions")).toBe(0);
     expect(count(db, "SELECT COUNT(*) c FROM comment_reactions")).toBe(0);
 
@@ -261,25 +227,17 @@ describe("M61-A comment lifecycle — migration v12 FK cascades", () => {
     ).toBe(0);
 
     // the p2 thread (created by user 9) is untouched
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comment_threads WHERE project_id='p2'"),
-    ).toBe(1);
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p2'"),
-    ).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comment_threads WHERE project_id='p2'")).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p2'")).toBe(1);
   });
 
   it("deleting a root comment cascade-deletes its replies (comments.parent_comment_id CASCADE) and their mention/reaction rows", () => {
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE thread_id=?", threadId),
-    ).toBe(2);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE thread_id=?", threadId)).toBe(2);
 
     db.prepare("DELETE FROM comments WHERE id = ?").run(rootCommentId);
 
     // the reply's parent_comment_id pointed at rootCommentId -> CASCADE
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE id=?", replyId),
-    ).toBe(0);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE id=?", replyId)).toBe(0);
     // reply's mention/reaction rows go with it
     expect(
       count(
@@ -296,8 +254,6 @@ describe("M61-A comment lifecycle — migration v12 FK cascades", () => {
       ),
     ).toBe(0);
     // p2's independent root comment is untouched
-    expect(
-      count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p2'"),
-    ).toBe(1);
+    expect(count(db, "SELECT COUNT(*) c FROM comments WHERE project_id='p2'")).toBe(1);
   });
 });

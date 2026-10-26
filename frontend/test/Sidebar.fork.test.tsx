@@ -10,9 +10,7 @@ vi.mock("../src/api", () => ({
 
 import Sidebar from "../src/components/Sidebar/Sidebar";
 
-function baseProps(
-  overrides: Partial<React.ComponentProps<typeof Sidebar>> = {},
-) {
+function baseProps(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
   const user: User = { id: 1, username: "alice" };
   const project: Project = { id: "proj-1", name: "My Project" };
   return {
@@ -32,8 +30,7 @@ function baseProps(
 
 describe("Sidebar — Milestone 28 Fork Project UI", () => {
   let noticeEvents: any[] = [];
-  const captureNotice = (e: Event) =>
-    noticeEvents.push((e as CustomEvent).detail);
+  const captureNotice = (e: Event) => noticeEvents.push((e as CustomEvent).detail);
 
   beforeEach(() => {
     apiMock.mockReset();
@@ -55,9 +52,7 @@ describe("Sidebar — Milestone 28 Fork Project UI", () => {
 
   it("clicking Fork Project opens a name prompt pre-filled with a suggested fork name", () => {
     const props = baseProps();
-    const { getByTitle, getByDisplayValue } = render(
-      React.createElement(Sidebar, props as any),
-    );
+    const { getByTitle, getByDisplayValue } = render(React.createElement(Sidebar, props as any));
     fireEvent.click(getByTitle("Fork Project"));
     expect(getByDisplayValue("My Project (Fork)")).toBeTruthy();
   });
@@ -97,19 +92,14 @@ describe("Sidebar — Milestone 28 Fork Project UI", () => {
     apiMock.mockRejectedValueOnce(new Error("workspace too large"));
 
     const props = baseProps();
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, props as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, props as any));
     fireEvent.click(getByTitle("Fork Project"));
     fireEvent.click(getByText("Fork"));
 
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(
-        noticeEvents.some(
-          (n) =>
-            n.kind === "error" && /workspace too large/.test(n.text ?? ""),
-        ),
+        noticeEvents.some((n) => n.kind === "error" && /workspace too large/.test(n.text ?? "")),
       ).toBe(true),
     );
     expect(props.onCreateProject).not.toHaveBeenCalled();
@@ -125,9 +115,7 @@ describe("Sidebar — Milestone 28 Fork Project UI", () => {
     );
 
     const props = baseProps();
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, props as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, props as any));
     fireEvent.click(getByTitle("Fork Project"));
     // Same button node clicked twice before the request resolves — the
     // `isForking` guard in handleForkProject must make the second click a

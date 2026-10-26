@@ -7,10 +7,7 @@
 import { createServer } from "node:http";
 import { openDb, ensureAdminUser, type Db } from "../src/db.js";
 import { createApp } from "../src/app.js";
-import {
-  setupWebSocketServer,
-  getHeartbeatController,
-} from "../src/ws/index.js";
+import { setupWebSocketServer, getHeartbeatController } from "../src/ws/index.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import {
   instrumentDb,
@@ -49,11 +46,7 @@ export async function bootstrapLoadTestServer(
   startEventLoopMonitor();
   startGcObserver();
   const db = instrumentDb(openDb(cfg.dbPath));
-  ensureAdminUser(
-    db,
-    LOAD_TEST_ADMIN_USERNAME,
-    await hashPassword(LOAD_TEST_ADMIN_PASSWORD),
-  );
+  ensureAdminUser(db, LOAD_TEST_ADMIN_USERNAME, await hashPassword(LOAD_TEST_ADMIN_PASSWORD));
 
   const app = createApp(cfg, db);
   const server = createServer(app);
@@ -85,8 +78,7 @@ export async function bootstrapLoadTestServer(
         activeConnectionCount,
         getActiveRoomCount: () => collaborationManager.getActiveRoomCount(),
         getActiveSandboxCount: () => sandboxManager.getActiveSandboxCount(),
-        getTotalCollabBroadcastSends: () =>
-          collaborationManager.getTotalBroadcastSendCount(),
+        getTotalCollabBroadcastSends: () => collaborationManager.getTotalBroadcastSendCount(),
       }),
     close: async () => {
       stopEventLoopMonitor();

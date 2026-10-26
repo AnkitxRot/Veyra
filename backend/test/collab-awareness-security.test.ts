@@ -7,10 +7,7 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
-import {
-  collaborationManager,
-  CollaborationRoom,
-} from "../src/collab/manager.js";
+import { collaborationManager, CollaborationRoom } from "../src/collab/manager.js";
 
 /**
  * M55 — Server-authoritative collaboration identity & awareness integrity.
@@ -110,14 +107,8 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     await room.addClient(wsA, { userId: 1, username: "alice", role: "owner" });
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
 
-    room.handleMessage(
-      wsA,
-      awarenessFrame([{ clientId: 1001, clock: 1, state: { user: {} } }]),
-    );
-    room.handleMessage(
-      wsB,
-      awarenessFrame([{ clientId: 2002, clock: 1, state: { user: {} } }]),
-    );
+    room.handleMessage(wsA, awarenessFrame([{ clientId: 1001, clock: 1, state: { user: {} } }]));
+    room.handleMessage(wsB, awarenessFrame([{ clientId: 2002, clock: 1, state: { user: {} } }]));
 
     expect(storedState(room, 1001).user).toMatchObject({
       id: 1,
@@ -185,10 +176,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     });
 
     // Victim establishes presence on clientID 500.
-    room.handleMessage(
-      victim,
-      awarenessFrame([{ clientId: 500, clock: 1, state: FULL_STATE }]),
-    );
+    room.handleMessage(victim, awarenessFrame([{ clientId: 500, clock: 1, state: FULL_STATE }]));
     expect(storedState(room, 500).user).toMatchObject({
       id: 1,
       name: "victim",
@@ -219,10 +207,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     await room.addClient(a, { userId: 1, username: "a", role: "editor" });
     await room.addClient(b, { userId: 2, username: "b", role: "editor" });
 
-    room.handleMessage(
-      a,
-      awarenessFrame([{ clientId: 900, clock: 1, state: { user: {} } }]),
-    );
+    room.handleMessage(a, awarenessFrame([{ clientId: 900, clock: 1, state: { user: {} } }]));
     // b tries to write a's clientID
     room.handleMessage(
       b,
@@ -246,10 +231,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     const ws = makeWs();
     await room.addClient(ws, { userId: 1, username: "alice", role: "editor" });
 
-    room.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 1, state: FULL_STATE }]),
-    );
+    room.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 1, state: FULL_STATE }]));
 
     const s = storedState(room, 10);
     expect(s.status).toBe("online");
@@ -273,14 +255,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     const room = makeRoom("p1");
     const ws = makeWs();
     await room.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    const activities = [
-      "viewing",
-      "editing",
-      "running",
-      "terminal",
-      "searching",
-      "reviewing",
-    ];
+    const activities = ["viewing", "editing", "running", "terminal", "searching", "reviewing"];
     activities.forEach((type, i) => {
       room.handleMessage(
         ws,
@@ -295,10 +270,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       expect(storedState(room, 10).activity.type).toBe(type);
     });
     ["online", "idle", "dnd"].forEach((status, i) => {
-      room.handleMessage(
-        ws,
-        awarenessFrame([{ clientId: 10, clock: 100 + i, state: { status } }]),
-      );
+      room.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 100 + i, state: { status } }]));
       expect(storedState(room, 10).status).toBe(status);
     });
   });
@@ -427,9 +399,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
         return encoding.toUint8Array(e);
       })(),
     );
-    expect(() =>
-      room.handleMessage(ws, encoding.toUint8Array(huge)),
-    ).not.toThrow();
+    expect(() => room.handleMessage(ws, encoding.toUint8Array(huge))).not.toThrow();
 
     // non-JSON state string
     const badJson = encoding.createEncoder();
@@ -445,22 +415,14 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
         return encoding.toUint8Array(e);
       })(),
     );
-    expect(() =>
-      room.handleMessage(ws, encoding.toUint8Array(badJson)),
-    ).not.toThrow();
+    expect(() => room.handleMessage(ws, encoding.toUint8Array(badJson))).not.toThrow();
 
     // primitive (non-object, non-null) state
-    room.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 11, clock: 1, state: 42 }]),
-    );
+    room.handleMessage(ws, awarenessFrame([{ clientId: 11, clock: 1, state: 42 }]));
     expect(room.awareness.getStates().has(11)).toBe(false);
 
     // room still healthy — a good frame after the bad ones still works
-    room.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 12, clock: 1, state: { user: {} } }]),
-    );
+    room.handleMessage(ws, awarenessFrame([{ clientId: 12, clock: 1, state: { user: {} } }]));
     expect(storedState(room, 12).user).toMatchObject({ name: "alice" });
   });
 
@@ -505,17 +467,11 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       username: "dave",
       role: "editor",
     });
-    room.handleMessage(
-      first,
-      awarenessFrame([{ clientId: 111, clock: 1, state: { user: {} } }]),
-    );
+    room.handleMessage(first, awarenessFrame([{ clientId: 111, clock: 1, state: { user: {} } }]));
 
     const peer = makeWs();
     await room.addClient(peer, { userId: 6, username: "erin", role: "editor" });
-    room.handleMessage(
-      peer,
-      awarenessFrame([{ clientId: 222, clock: 1, state: { user: {} } }]),
-    );
+    room.handleMessage(peer, awarenessFrame([{ clientId: 222, clock: 1, state: { user: {} } }]));
 
     room.removeClient(first);
     expect(room.awareness.getStates().has(111)).toBe(false);
@@ -552,19 +508,13 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     const room = makeRoom("p-disp");
     const ws = makeWs();
     await room.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    room.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 1, clock: 1, state: FULL_STATE }]),
-    );
+    room.handleMessage(ws, awarenessFrame([{ clientId: 1, clock: 1, state: FULL_STATE }]));
     expect(room.awareness.getStates().size).toBeGreaterThan(0);
 
     room.dispose();
 
     expect(() =>
-      room.handleMessage(
-        ws,
-        awarenessFrame([{ clientId: 1, clock: 2, state: FULL_STATE }]),
-      ),
+      room.handleMessage(ws, awarenessFrame([{ clientId: 1, clock: 2, state: FULL_STATE }])),
     ).not.toThrow();
   });
 
@@ -589,14 +539,8 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
         },
       ]),
     );
-    roomA.handleMessage(
-      wsA2,
-      awarenessFrame([{ clientId: 2, clock: 1, state: { user: {} } }]),
-    );
-    roomB.handleMessage(
-      wsB1,
-      awarenessFrame([{ clientId: 1, clock: 1, state: { user: {} } }]),
-    );
+    roomA.handleMessage(wsA2, awarenessFrame([{ clientId: 2, clock: 1, state: { user: {} } }]));
+    roomB.handleMessage(wsB1, awarenessFrame([{ clientId: 1, clock: 1, state: { user: {} } }]));
 
     expect(storedState(roomA, 1).user).toMatchObject({ id: 1, name: "a1" });
     expect(storedState(roomA, 2).user).toMatchObject({ id: 2, name: "a2" });
@@ -619,20 +563,11 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       role: "editor",
     });
 
-    room.handleMessage(
-      tab1,
-      awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]),
-    );
-    room.handleMessage(
-      tab2,
-      awarenessFrame([{ clientId: 20, clock: 1, state: { user: {} } }]),
-    );
+    room.handleMessage(tab1, awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]));
+    room.handleMessage(tab2, awarenessFrame([{ clientId: 20, clock: 1, state: { user: {} } }]));
 
     // tab2 cannot retire tab1's entry
-    room.handleMessage(
-      tab2,
-      awarenessFrame([{ clientId: 10, clock: 5, state: null }]),
-    );
+    room.handleMessage(tab2, awarenessFrame([{ clientId: 10, clock: 5, state: null }]));
     expect(room.awareness.getStates().has(10)).toBe(true);
 
     room.removeClient(tab1);
@@ -673,9 +608,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
     expect(serialized).not.toContain("stdout");
     expect(serialized).not.toContain("terminalOutput");
     // allowlisted fields only
-    expect(Object.keys(storedState(room, 10)).sort()).toEqual(
-      ["activity", "user"].sort(),
-    );
+    expect(Object.keys(storedState(room, 10)).sort()).toEqual(["activity", "user"].sort());
   });
 
   // --- PRE-FIX PROOF ----------------------------------------------
@@ -698,9 +631,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
 
     awarenessProtocol.applyAwarenessUpdate(serverAwareness, update, "origin");
 
-    const spoofed = serverAwareness
-      .getStates()
-      .get(clientAwareness.clientID) as any;
+    const spoofed = serverAwareness.getStates().get(clientAwareness.clientID) as any;
     expect(spoofed.user).toEqual({ id: 1, name: "victim", role: "owner" });
 
     serverAwareness.destroy();
@@ -831,10 +762,7 @@ describe("M55 — server-authoritative collaboration awareness identity", () => 
       await room.addClient(wsA, { userId: 1, username: "a", role: "editor" });
       await room.addClient(wsB, { userId: 2, username: "b", role: "editor" });
       // B claims clientID 500.
-      room.handleMessage(
-        wsB,
-        awarenessFrame([{ clientId: 500, clock: 1, state: { user: {} } }]),
-      );
+      room.handleMessage(wsB, awarenessFrame([{ clientId: 500, clock: 1, state: { user: {} } }]));
       // A tries to write dirty state onto B's clientID 500.
       room.handleMessage(
         wsA,

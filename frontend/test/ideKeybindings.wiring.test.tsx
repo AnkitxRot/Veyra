@@ -18,7 +18,7 @@ const types = read("../src/types.ts");
  */
 describe("M70 — keybinding wiring", () => {
   it("IDE resolves ONE keymap from the typed preference and feeds the dispatcher", () => {
-    expect(ide).toContain('import {\n  resolveKeymap,');
+    expect(ide).toContain("import {\n  resolveKeymap,");
     expect(ide.match(/resolveKeymap\(/g) ?? []).toHaveLength(1);
     expect(ide).toContain("resolveKeymap(preferences.keymap)");
     // passed as the 3rd arg to the single hook call
@@ -54,9 +54,7 @@ describe("M70 — keybinding wiring", () => {
   });
 
   it("Editor takes the save chord and registers a disposable Monaco action", () => {
-    expect(ide).toContain(
-      'saveChord={resolvedKeymap.byCommand["workbench.action.saveFile"]}',
-    );
+    expect(ide).toContain('saveChord={resolvedKeymap.byCommand["workbench.action.saveFile"]}');
     expect(editor).toContain("chordToMonacoKeybinding");
     expect(editor).not.toMatch(/addCommand\(\s*monaco\.KeyMod\.CtrlCmd \| monaco\.KeyCode\.KeyS/);
     expect(editor).toContain('id: "cloudeee.action.save"');

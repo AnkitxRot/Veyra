@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { api } from "../../api";
 import {
   type User,
@@ -53,11 +47,7 @@ export default function AdminDashboard({
   // M76: the /admin route has no IDE mounted, so it cannot reach the IDE's
   // useNotices owner. It gets its own instance of the same canonical M64
   // system (not a second notification mechanism) for async-failure feedback.
-  const {
-    notices: adminNotices,
-    notify: notifyAdmin,
-    dismiss: dismissAdminNotice,
-  } = useNotices();
+  const { notices: adminNotices, notify: notifyAdmin, dismiss: dismissAdminNotice } = useNotices();
 
   const [activeTab, setActiveTab] = useState<
     | "overview"
@@ -71,9 +61,7 @@ export default function AdminDashboard({
   >("overview");
 
   // Real-time streaming state
-  const [wsStatus, setWsStatus] = useState<
-    "connected" | "reconnecting" | "stale"
-  >("reconnecting");
+  const [wsStatus, setWsStatus] = useState<"connected" | "reconnecting" | "stale">("reconnecting");
   // Not React state: only read by the staleness-check interval below, never
   // rendered directly. Keeping it as a ref (instead of useState) means
   // updating it on every ~1Hz tick does not itself trigger a re-render or
@@ -85,25 +73,17 @@ export default function AdminDashboard({
   const [overview, setOverview] = useState<AdminOverviewData | null>(null);
   const [sandboxes, setSandboxes] = useState<AdminSandboxData[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
-  const [execMetrics, setExecMetrics] = useState<AdminExecutionMetrics | null>(
-    null,
-  );
+  const [execMetrics, setExecMetrics] = useState<AdminExecutionMetrics | null>(null);
   const [users, setUsers] = useState<AdminUserData[]>([]);
   const [projects, setProjects] = useState<AdminProjectData[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditRecord[]>([]);
-  const [backupHealth, setBackupHealth] = useState<AdminBackupHealth | null>(
-    null,
-  );
-  const [backupHealthError, setBackupHealthError] = useState<string | null>(
-    null,
-  );
+  const [backupHealth, setBackupHealth] = useState<AdminBackupHealth | null>(null);
+  const [backupHealthError, setBackupHealthError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // User Management Modals / Drawer states
-  const [inspectingUser, setInspectingUser] = useState<AdminUserDetails | null>(
-    null,
-  );
+  const [inspectingUser, setInspectingUser] = useState<AdminUserDetails | null>(null);
   const [, setInspectLoading] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUserData | null>(null);
   const [editUsername, setEditUsername] = useState("");
@@ -111,8 +91,7 @@ export default function AdminDashboard({
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const [resettingPasswordUser, setResettingPasswordUser] =
-    useState<AdminUserData | null>(null);
+  const [resettingPasswordUser, setResettingPasswordUser] = useState<AdminUserData | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -122,21 +101,14 @@ export default function AdminDashboard({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Sandbox Termination Modal
-  const [terminatingSandbox, setTerminatingSandbox] =
-    useState<AdminSandboxData | null>(null);
+  const [terminatingSandbox, setTerminatingSandbox] = useState<AdminSandboxData | null>(null);
   const [terminateLoading, setTerminateLoading] = useState(false);
 
   // Search, Filter & Sort states for Tenants & Workspaces
-  const [tenantSubTab, setTenantSubTab] = useState<"users" | "projects">(
-    "users",
-  );
+  const [tenantSubTab, setTenantSubTab] = useState<"users" | "projects">("users");
   const [userSearch, setUserSearch] = useState("");
-  const [userRoleFilter, setUserRoleFilter] = useState<
-    "all" | "admin" | "user"
-  >("all");
-  const [userTypeFilter, setUserTypeFilter] = useState<
-    "all" | "standard" | "demo"
-  >("all");
+  const [userRoleFilter, setUserRoleFilter] = useState<"all" | "admin" | "user">("all");
+  const [userTypeFilter, setUserTypeFilter] = useState<"all" | "standard" | "demo">("all");
   const [userSortField, setUserSortField] = useState<
     "id" | "username" | "project_count" | "execution_count" | "created_at"
   >("created_at");
@@ -151,10 +123,8 @@ export default function AdminDashboard({
   const fetchExecutions = useCallback(async () => {
     try {
       let query = "/api/admin/executions?limit=50";
-      if (execStatusFilter)
-        query += `&status=${encodeURIComponent(execStatusFilter)}`;
-      if (execLangFilter)
-        query += `&language=${encodeURIComponent(execLangFilter)}`;
+      if (execStatusFilter) query += `&status=${encodeURIComponent(execStatusFilter)}`;
+      if (execLangFilter) query += `&language=${encodeURIComponent(execLangFilter)}`;
       const res = await api<{
         runs: RunRecord[];
         metrics: AdminExecutionMetrics;
@@ -178,8 +148,7 @@ export default function AdminDashboard({
   const fetchAudit = useCallback(async () => {
     try {
       let query = "/api/admin/audit?limit=50";
-      if (auditEventFilter)
-        query += `&event_type=${encodeURIComponent(auditEventFilter)}`;
+      if (auditEventFilter) query += `&event_type=${encodeURIComponent(auditEventFilter)}`;
       const res = await api<{ logs: AdminAuditRecord[]; total: number }>(query);
       setAuditLogs(res.logs);
     } catch {}
@@ -198,9 +167,7 @@ export default function AdminDashboard({
 
   const fetchBackupHealth = useCallback(async () => {
     try {
-      const res = await api<{ backups: AdminBackupHealth }>(
-        "/api/admin/health",
-      );
+      const res = await api<{ backups: AdminBackupHealth }>("/api/admin/health");
       setBackupHealth(res.backups);
       setBackupHealthError(null);
     } catch (err: any) {
@@ -218,13 +185,7 @@ export default function AdminDashboard({
       fetchBackupHealth(),
     ]);
     setLoading(false);
-  }, [
-    fetchOverviewFallback,
-    fetchExecutions,
-    fetchTenants,
-    fetchAudit,
-    fetchBackupHealth,
-  ]);
+  }, [fetchOverviewFallback, fetchExecutions, fetchTenants, fetchAudit, fetchBackupHealth]);
 
   // 2. Real-Time WebSocket Connection (~1 Hz stream + platform events)
   useEffect(() => {
@@ -384,9 +345,7 @@ export default function AdminDashboard({
         method: "POST",
         body: JSON.stringify({ newPassword }),
       });
-      setActionMessage(
-        `Password reset for ${resettingPasswordUser.username}. Sessions revoked.`,
-      );
+      setActionMessage(`Password reset for ${resettingPasswordUser.username}. Sessions revoked.`);
       setTimeout(() => setActionMessage(null), 4000);
       setResettingPasswordUser(null);
     } catch (err: any) {
@@ -410,9 +369,7 @@ export default function AdminDashboard({
       await api(`/api/admin/users/${deletingUser.id}`, {
         method: "DELETE",
       });
-      setActionMessage(
-        `Deleted user ${deletingUser.username} and all workspaces.`,
-      );
+      setActionMessage(`Deleted user ${deletingUser.username} and all workspaces.`);
       setTimeout(() => setActionMessage(null), 4000);
       if (inspectingUser?.user.id === deletingUser.id) {
         setInspectingUser(null);
@@ -432,12 +389,9 @@ export default function AdminDashboard({
     if (!terminatingSandbox) return;
     setTerminateLoading(true);
     try {
-      await api(
-        `/api/admin/sandboxes/${terminatingSandbox.containerId}/terminate`,
-        {
-          method: "POST",
-        },
-      );
+      await api(`/api/admin/sandboxes/${terminatingSandbox.containerId}/terminate`, {
+        method: "POST",
+      });
       setActionMessage(`Terminated sandbox ${terminatingSandbox.containerId}`);
       setTimeout(() => setActionMessage(null), 3500);
       setTerminatingSandbox(null);
@@ -461,10 +415,7 @@ export default function AdminDashboard({
       .filter((u) => {
         if (userSearch.trim()) {
           const q = userSearch.toLowerCase();
-          if (
-            !u.username.toLowerCase().includes(q) &&
-            !String(u.id).includes(q)
-          ) {
+          if (!u.username.toLowerCase().includes(q) && !String(u.id).includes(q)) {
             return false;
           }
         }
@@ -484,14 +435,7 @@ export default function AdminDashboard({
         if (valA > valB) return userSortAsc ? 1 : -1;
         return 0;
       });
-  }, [
-    users,
-    userSearch,
-    userRoleFilter,
-    userTypeFilter,
-    userSortField,
-    userSortAsc,
-  ]);
+  }, [users, userSearch, userRoleFilter, userTypeFilter, userSortField, userSortAsc]);
 
   const handleUserSort = (field: typeof userSortField) => {
     if (userSortField === field) {
@@ -733,10 +677,7 @@ export default function AdminDashboard({
                   {overview?.counters?.activeSandboxes ?? sandboxes.length}
                 </div>
                 <div className="admin-card-sub">
-                  <span>
-                    Max Pool: {overview?.infrastructure?.maxSandboxes ?? 20}{" "}
-                    containers
-                  </span>
+                  <span>Max Pool: {overview?.infrastructure?.maxSandboxes ?? 20} containers</span>
                 </div>
               </div>
 
@@ -764,17 +705,12 @@ export default function AdminDashboard({
                   <IconServer size={14} color="#cba6f7" />
                 </div>
                 <div className="admin-card-value">
-                  {formatBytes(
-                    overview?.aggregateTelemetry?.memoryUsageBytes ?? 0,
-                  )}
+                  {formatBytes(overview?.aggregateTelemetry?.memoryUsageBytes ?? 0)}
                 </div>
                 <div className="admin-card-sub">
                   <span>
                     Ceiling:{" "}
-                    {formatBytes(
-                      overview?.aggregateTelemetry?.memoryLimitBytes ??
-                        536870912,
-                    )}
+                    {formatBytes(overview?.aggregateTelemetry?.memoryLimitBytes ?? 536870912)}
                   </span>
                 </div>
               </div>
@@ -784,9 +720,7 @@ export default function AdminDashboard({
                   <span>Total Executions</span>
                   <IconCode size={14} color="#f9e2af" />
                 </div>
-                <div className="admin-card-value">
-                  {overview?.counters?.totalExecutions ?? 0}
-                </div>
+                <div className="admin-card-value">{overview?.counters?.totalExecutions ?? 0}</div>
                 <div className="admin-card-sub">
                   <span>All language pipelines</span>
                 </div>
@@ -797,14 +731,9 @@ export default function AdminDashboard({
                   <span>Total Tenants</span>
                   <IconUsers size={14} color="#74c7ec" />
                 </div>
-                <div className="admin-card-value">
-                  {overview?.counters?.totalUsers ?? 0}
-                </div>
+                <div className="admin-card-value">{overview?.counters?.totalUsers ?? 0}</div>
                 <div className="admin-card-sub">
-                  <span>
-                    {overview?.counters?.demoSessions ?? 0} disposable demo
-                    sessions
-                  </span>
+                  <span>{overview?.counters?.demoSessions ?? 0} disposable demo sessions</span>
                 </div>
               </div>
             </div>
@@ -840,41 +769,25 @@ export default function AdminDashboard({
                     fontSize: "13px",
                   }}
                 >
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ color: "var(--fg-muted)" }}>Status:</span>
-                    <span className="glass-badge glass-badge-success">
-                      LIVE / HEALTHY
-                    </span>
+                    <span className="glass-badge glass-badge-success">LIVE / HEALTHY</span>
                   </div>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "var(--fg-muted)" }}>
-                      Process Uptime:
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--fg-muted)" }}>Process Uptime:</span>
                     <span style={{ fontFamily: "var(--font-mono)" }}>
                       {formatUptime(overview?.system?.uptimeSeconds ?? 0)}
                     </span>
                   </div>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "var(--fg-muted)" }}>
-                      Node.js Runtime:
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--fg-muted)" }}>Node.js Runtime:</span>
                     <span style={{ fontFamily: "var(--font-mono)" }}>
-                      {overview?.system?.nodeVersion} (
-                      {overview?.system?.platform} {overview?.system?.arch})
+                      {overview?.system?.nodeVersion} ({overview?.system?.platform}{" "}
+                      {overview?.system?.arch})
                     </span>
                   </div>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "var(--fg-muted)" }}>
-                      Backend Process Memory (RSS):
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--fg-muted)" }}>Backend Process Memory (RSS):</span>
                     <span style={{ fontFamily: "var(--font-mono)" }}>
                       {formatBytes(overview?.system?.memoryRssBytes ?? 0)}
                     </span>
@@ -905,26 +818,16 @@ export default function AdminDashboard({
                     fontSize: "13px",
                   }}
                 >
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "var(--fg-muted)" }}>
-                      Docker Daemon Engine:
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--fg-muted)" }}>Docker Daemon Engine:</span>
                     <span
                       className={`glass-badge ${overview?.infrastructure?.docker ? "glass-badge-success" : "glass-badge-warning"}`}
                     >
-                      {overview?.infrastructure?.docker
-                        ? "AVAILABLE"
-                        : "OFFLINE / NOT RUNNING"}
+                      {overview?.infrastructure?.docker ? "AVAILABLE" : "OFFLINE / NOT RUNNING"}
                     </span>
                   </div>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "var(--fg-muted)" }}>
-                      Runner Base Image:
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--fg-muted)" }}>Runner Base Image:</span>
                     <span
                       className={`glass-badge ${overview?.infrastructure?.runnerImage ? "glass-badge-success" : "glass-badge-warning"}`}
                     >
@@ -933,25 +836,13 @@ export default function AdminDashboard({
                         : "NOT FOUND"}
                     </span>
                   </div>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "var(--fg-muted)" }}>
-                      Database WAL Storage:
-                    </span>
-                    <span className="glass-badge glass-badge-success">
-                      SQLITE WAL ACTIVE
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--fg-muted)" }}>Database WAL Storage:</span>
+                    <span className="glass-badge glass-badge-success">SQLITE WAL ACTIVE</span>
                   </div>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "var(--fg-muted)" }}>
-                      cgroup v2 Quota Ceiling:
-                    </span>
-                    <span style={{ fontFamily: "var(--font-mono)" }}>
-                      512 MB / 1.0 CPU Core
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--fg-muted)" }}>cgroup v2 Quota Ceiling:</span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>512 MB / 1.0 CPU Core</span>
                   </div>
                 </div>
               </div>
@@ -972,9 +863,7 @@ export default function AdminDashboard({
                   <span>Backup & Disaster Recovery Health</span>
                 </h2>
                 {backupHealthError ? (
-                  <div style={{ fontSize: "13px", color: "#f38ba8" }}>
-                    {backupHealthError}
-                  </div>
+                  <div style={{ fontSize: "13px", color: "#f38ba8" }}>{backupHealthError}</div>
                 ) : !backupHealth ? (
                   <div
                     style={{
@@ -1003,9 +892,7 @@ export default function AdminDashboard({
                         justifyContent: "space-between",
                       }}
                     >
-                      <span style={{ color: "var(--fg-muted)" }}>
-                        Database Backups:
-                      </span>
+                      <span style={{ color: "var(--fg-muted)" }}>Database Backups:</span>
                       <span
                         className={`glass-badge ${backupStatusBadgeClass(backupHealth.database.status)}`}
                       >
@@ -1018,9 +905,7 @@ export default function AdminDashboard({
                         justifyContent: "space-between",
                       }}
                     >
-                      <span style={{ color: "var(--fg-muted)" }}>
-                        Latest DB Backup:
-                      </span>
+                      <span style={{ color: "var(--fg-muted)" }}>Latest DB Backup:</span>
                       <span style={{ fontFamily: "var(--font-mono)" }}>
                         {formatAge(backupHealth.database.latestBackupAgeMs)} (
                         {backupHealth.database.backupCount} retained)
@@ -1032,9 +917,7 @@ export default function AdminDashboard({
                         justifyContent: "space-between",
                       }}
                     >
-                      <span style={{ color: "var(--fg-muted)" }}>
-                        Workspace Backup Coverage:
-                      </span>
+                      <span style={{ color: "var(--fg-muted)" }}>Workspace Backup Coverage:</span>
                       <span
                         className={`glass-badge ${backupStatusBadgeClass(backupHealth.workspaces.status)}`}
                       >
@@ -1047,9 +930,7 @@ export default function AdminDashboard({
                         justifyContent: "space-between",
                       }}
                     >
-                      <span style={{ color: "var(--fg-muted)" }}>
-                        Projects Covered:
-                      </span>
+                      <span style={{ color: "var(--fg-muted)" }}>Projects Covered:</span>
                       <span style={{ fontFamily: "var(--font-mono)" }}>
                         {backupHealth.workspaces.coveredProjects} /{" "}
                         {backupHealth.workspaces.totalProjects} (
@@ -1062,13 +943,9 @@ export default function AdminDashboard({
                         justifyContent: "space-between",
                       }}
                     >
-                      <span style={{ color: "var(--fg-muted)" }}>
-                        Oldest Covered Backup:
-                      </span>
+                      <span style={{ color: "var(--fg-muted)" }}>Oldest Covered Backup:</span>
                       <span style={{ fontFamily: "var(--font-mono)" }}>
-                        {formatAge(
-                          backupHealth.workspaces.oldestLatestBackupAgeMs,
-                        )}
+                        {formatAge(backupHealth.workspaces.oldestLatestBackupAgeMs)}
                       </span>
                     </div>
                   </div>
@@ -1098,8 +975,7 @@ export default function AdminDashboard({
                 <span>Active Sandboxes Pool ({sandboxes.length})</span>
               </h2>
               <span style={{ fontSize: "12px", color: "var(--fg-muted)" }}>
-                Live 1Hz telemetry streaming via persistent control-plane
-                WebSocket
+                Live 1Hz telemetry streaming via persistent control-plane WebSocket
               </span>
             </div>
 
@@ -1113,8 +989,8 @@ export default function AdminDashboard({
                     fontSize: "13px",
                   }}
                 >
-                  No active sandboxes currently running. Sandboxes spin up
-                  on-demand when users run code or open a terminal.
+                  No active sandboxes currently running. Sandboxes spin up on-demand when users run
+                  code or open a terminal.
                 </div>
               ) : (
                 <table className="admin-table">
@@ -1152,18 +1028,12 @@ export default function AdminDashboard({
                             {sb.status.toUpperCase()}
                           </span>
                         </td>
-                        <td style={{ fontFamily: "var(--font-mono)" }}>
-                          {sb.cpuPercent}%
-                        </td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{sb.cpuPercent}%</td>
                         <td style={{ fontFamily: "var(--font-mono)" }}>
                           {formatBytes(sb.memoryUsageBytes)}
                         </td>
-                        <td style={{ fontFamily: "var(--font-mono)" }}>
-                          {sb.pids}
-                        </td>
-                        <td style={{ color: "var(--fg-muted)" }}>
-                          {sb.idleSeconds}s
-                        </td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{sb.pids}</td>
+                        <td style={{ color: "var(--fg-muted)" }}>{sb.idleSeconds}s</td>
                         <td>
                           <button
                             className="admin-action-btn danger"
@@ -1192,10 +1062,7 @@ export default function AdminDashboard({
               <div className="admin-cards-grid">
                 <div className="admin-card">
                   <div className="admin-card-header">Success Rate</div>
-                  <div
-                    className="admin-card-value"
-                    style={{ color: "#a6e3a1" }}
-                  >
+                  <div className="admin-card-value" style={{ color: "#a6e3a1" }}>
                     {execMetrics.successRatePercent}%
                   </div>
                   <div className="admin-card-sub">
@@ -1210,10 +1077,7 @@ export default function AdminDashboard({
                   <div
                     className="admin-card-value"
                     style={{
-                      color:
-                        execMetrics.failureCount > 0
-                          ? "#f38ba8"
-                          : "var(--fg-primary)",
+                      color: execMetrics.failureCount > 0 ? "#f38ba8" : "var(--fg-primary)",
                     }}
                   >
                     {execMetrics.failureCount}
@@ -1228,27 +1092,21 @@ export default function AdminDashboard({
                   <div
                     className="admin-card-value"
                     style={{
-                      color:
-                        execMetrics.timeoutCount > 0
-                          ? "#fab387"
-                          : "var(--fg-primary)",
+                      color: execMetrics.timeoutCount > 0 ? "#fab387" : "var(--fg-primary)",
                     }}
                   >
                     {execMetrics.timeoutCount + execMetrics.oomCount}
                   </div>
                   <div className="admin-card-sub">
                     <span>
-                      Timeouts: {execMetrics.timeoutCount} | OOMs:{" "}
-                      {execMetrics.oomCount}
+                      Timeouts: {execMetrics.timeoutCount} | OOMs: {execMetrics.oomCount}
                     </span>
                   </div>
                 </div>
 
                 <div className="admin-card">
                   <div className="admin-card-header">Avg Execution Latency</div>
-                  <div className="admin-card-value">
-                    {execMetrics.avgDurationMs} ms
-                  </div>
+                  <div className="admin-card-value">{execMetrics.avgDurationMs} ms</div>
                   <div className="admin-card-sub">
                     <span>Across all languages</span>
                   </div>
@@ -1371,12 +1229,8 @@ export default function AdminDashboard({
                               {r.status.toUpperCase()}
                             </span>
                           </td>
-                          <td style={{ fontFamily: "var(--font-mono)" }}>
-                            {r.exit_code ?? "-"}
-                          </td>
-                          <td style={{ fontFamily: "var(--font-mono)" }}>
-                            {r.duration_ms}ms
-                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>{r.exit_code ?? "-"}</td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>{r.duration_ms}ms</td>
                           <td
                             style={{
                               fontSize: "11px",
@@ -1406,9 +1260,7 @@ export default function AdminDashboard({
         {activeTab === "tenants" && (
           <div className="admin-table-wrap">
             <div className="admin-table-toolbar">
-              <div
-                style={{ display: "flex", gap: "8px", alignItems: "center" }}
-              >
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                 <button
                   className={`glass-btn ${tenantSubTab === "users" ? "glass-btn-primary" : "glass-btn-ghost"}`}
                   onClick={() => setTenantSubTab("users")}
@@ -1474,62 +1326,24 @@ export default function AdminDashboard({
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th
-                        className="sortable"
-                        onClick={() => handleUserSort("id")}
-                      >
-                        ID{" "}
-                        {userSortField === "id"
-                          ? userSortAsc
-                            ? "▲"
-                            : "▼"
-                          : ""}
+                      <th className="sortable" onClick={() => handleUserSort("id")}>
+                        ID {userSortField === "id" ? (userSortAsc ? "▲" : "▼") : ""}
                       </th>
-                      <th
-                        className="sortable"
-                        onClick={() => handleUserSort("username")}
-                      >
-                        Username{" "}
-                        {userSortField === "username"
-                          ? userSortAsc
-                            ? "▲"
-                            : "▼"
-                          : ""}
+                      <th className="sortable" onClick={() => handleUserSort("username")}>
+                        Username {userSortField === "username" ? (userSortAsc ? "▲" : "▼") : ""}
                       </th>
                       <th>Role</th>
                       <th>Account Type</th>
-                      <th
-                        className="sortable"
-                        onClick={() => handleUserSort("project_count")}
-                      >
+                      <th className="sortable" onClick={() => handleUserSort("project_count")}>
                         Projects{" "}
-                        {userSortField === "project_count"
-                          ? userSortAsc
-                            ? "▲"
-                            : "▼"
-                          : ""}
+                        {userSortField === "project_count" ? (userSortAsc ? "▲" : "▼") : ""}
                       </th>
-                      <th
-                        className="sortable"
-                        onClick={() => handleUserSort("execution_count")}
-                      >
+                      <th className="sortable" onClick={() => handleUserSort("execution_count")}>
                         Executions{" "}
-                        {userSortField === "execution_count"
-                          ? userSortAsc
-                            ? "▲"
-                            : "▼"
-                          : ""}
+                        {userSortField === "execution_count" ? (userSortAsc ? "▲" : "▼") : ""}
                       </th>
-                      <th
-                        className="sortable"
-                        onClick={() => handleUserSort("created_at")}
-                      >
-                        Created{" "}
-                        {userSortField === "created_at"
-                          ? userSortAsc
-                            ? "▲"
-                            : "▼"
-                          : ""}
+                      <th className="sortable" onClick={() => handleUserSort("created_at")}>
+                        Created {userSortField === "created_at" ? (userSortAsc ? "▲" : "▼") : ""}
                       </th>
                       <th>Administrative Actions</th>
                     </tr>
@@ -1583,12 +1397,8 @@ export default function AdminDashboard({
                               </span>
                             )}
                           </td>
-                          <td style={{ fontFamily: "var(--font-mono)" }}>
-                            {u.project_count}
-                          </td>
-                          <td style={{ fontFamily: "var(--font-mono)" }}>
-                            {u.execution_count}
-                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>{u.project_count}</td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>{u.execution_count}</td>
                           <td
                             style={{
                               fontSize: "11px",
@@ -1662,19 +1472,11 @@ export default function AdminDashboard({
                           {p.id.slice(0, 8)}...
                         </td>
                         <td style={{ fontWeight: 600 }}>{p.name}</td>
-                        <td style={{ textTransform: "capitalize" }}>
-                          {p.language}
-                        </td>
+                        <td style={{ textTransform: "capitalize" }}>{p.language}</td>
                         <td>{p.owner_username}</td>
-                        <td style={{ fontFamily: "var(--font-mono)" }}>
-                          {p.snapshot_count}
-                        </td>
-                        <td style={{ fontFamily: "var(--font-mono)" }}>
-                          {p.run_count}
-                        </td>
-                        <td
-                          style={{ fontSize: "11px", color: "var(--fg-muted)" }}
-                        >
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{p.snapshot_count}</td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{p.run_count}</td>
+                        <td style={{ fontSize: "11px", color: "var(--fg-muted)" }}>
                           {new Date(p.updated_at).toLocaleDateString()}{" "}
                           {new Date(p.updated_at).toLocaleTimeString()}
                         </td>
@@ -1704,9 +1506,7 @@ export default function AdminDashboard({
                 }}
               >
                 <IconShield size={16} color="#f38ba8" />
-                <span>
-                  Security & Operations Audit Trail ({auditLogs.length})
-                </span>
+                <span>Security & Operations Audit Trail ({auditLogs.length})</span>
               </h2>
 
               <select
@@ -1719,21 +1519,11 @@ export default function AdminDashboard({
                 <option value="AUTH_LOGIN">AUTH_LOGIN</option>
                 <option value="ADMIN_LOGIN">ADMIN_LOGIN</option>
                 <option value="AUTH_FAILED_LOGIN">AUTH_FAILED_LOGIN</option>
-                <option value="DEMO_SESSION_CREATED">
-                  DEMO_SESSION_CREATED
-                </option>
-                <option value="USER_UPDATED_BY_ADMIN">
-                  USER_UPDATED_BY_ADMIN
-                </option>
-                <option value="USER_PASSWORD_RESET_BY_ADMIN">
-                  USER_PASSWORD_RESET_BY_ADMIN
-                </option>
-                <option value="USER_DELETED_BY_ADMIN">
-                  USER_DELETED_BY_ADMIN
-                </option>
-                <option value="SANDBOX_TERMINATED_BY_ADMIN">
-                  SANDBOX_TERMINATED_BY_ADMIN
-                </option>
+                <option value="DEMO_SESSION_CREATED">DEMO_SESSION_CREATED</option>
+                <option value="USER_UPDATED_BY_ADMIN">USER_UPDATED_BY_ADMIN</option>
+                <option value="USER_PASSWORD_RESET_BY_ADMIN">USER_PASSWORD_RESET_BY_ADMIN</option>
+                <option value="USER_DELETED_BY_ADMIN">USER_DELETED_BY_ADMIN</option>
+                <option value="SANDBOX_TERMINATED_BY_ADMIN">SANDBOX_TERMINATED_BY_ADMIN</option>
                 <option value="PROJECT_CREATED">PROJECT_CREATED</option>
                 <option value="SNAPSHOT_CREATED">SNAPSHOT_CREATED</option>
                 <option value="SNAPSHOT_RESTORED">SNAPSHOT_RESTORED</option>
@@ -1792,14 +1582,10 @@ export default function AdminDashboard({
                           </span>
                         </td>
                         <td style={{ fontWeight: 500 }}>
-                          {log.username ||
-                            (log.user_id
-                              ? `User #${log.user_id}`
-                              : "Anonymous")}
+                          {log.username || (log.user_id ? `User #${log.user_id}` : "Anonymous")}
                         </td>
                         <td>
-                          {log.project_name ||
-                            (log.project_id ? log.project_id.slice(0, 8) : "-")}
+                          {log.project_name || (log.project_id ? log.project_id.slice(0, 8) : "-")}
                         </td>
                         <td
                           style={{
@@ -1850,9 +1636,7 @@ export default function AdminDashboard({
                 paddingBottom: "14px",
               }}
             >
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "12px" }}
-              >
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <div
                   style={{
                     width: "40px",
@@ -1918,10 +1702,7 @@ export default function AdminDashboard({
             </div>
 
             {/* User Quotas & Resource Metrics */}
-            <div
-              className="admin-cards-grid"
-              style={{ gridTemplateColumns: "repeat(4, 1fr)" }}
-            >
+            <div className="admin-cards-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
               <div className="admin-card" style={{ padding: "12px" }}>
                 <div className="admin-card-header" style={{ fontSize: "10px" }}>
                   Projects
@@ -1950,10 +1731,7 @@ export default function AdminDashboard({
                 <div className="admin-card-header" style={{ fontSize: "10px" }}>
                   Active Containers
                 </div>
-                <div
-                  className="admin-card-value"
-                  style={{ fontSize: "20px", color: "#a6e3a1" }}
-                >
+                <div className="admin-card-value" style={{ fontSize: "20px", color: "#a6e3a1" }}>
                   {inspectingUser.counts.activeSandboxesCount}
                 </div>
               </div>
@@ -1984,9 +1762,7 @@ export default function AdminDashboard({
                       {inspectingUser.projects.map((p) => (
                         <tr key={p.id}>
                           <td style={{ fontWeight: 600 }}>{p.name}</td>
-                          <td style={{ textTransform: "capitalize" }}>
-                            {p.language}
-                          </td>
+                          <td style={{ textTransform: "capitalize" }}>{p.language}</td>
                           <td>{new Date(p.created_at).toLocaleDateString()}</td>
                           <td>{new Date(p.updated_at).toLocaleString()}</td>
                         </tr>
@@ -2001,10 +1777,7 @@ export default function AdminDashboard({
             <div className="admin-drawer-section">
               <h4>
                 <IconCode size={14} color="#f9e2af" />
-                <span>
-                  Recent Execution History (
-                  {inspectingUser.recentExecutions.length})
-                </span>
+                <span>Recent Execution History ({inspectingUser.recentExecutions.length})</span>
               </h4>
               {inspectingUser.recentExecutions.length === 0 ? (
                 <span style={{ fontSize: "12px", color: "var(--fg-muted)" }}>
@@ -2034,9 +1807,7 @@ export default function AdminDashboard({
                               {r.status.toUpperCase()}
                             </span>
                           </td>
-                          <td style={{ fontFamily: "var(--font-mono)" }}>
-                            {r.duration_ms}ms
-                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>{r.duration_ms}ms</td>
                           <td style={{ color: "var(--fg-muted)" }}>
                             {new Date(r.created_at).toLocaleTimeString()}
                           </td>
@@ -2053,8 +1824,7 @@ export default function AdminDashboard({
               <h4>
                 <IconShield size={14} color="#f38ba8" />
                 <span>
-                  Audit Journal Entries for User (
-                  {inspectingUser.recentAuditLogs.length})
+                  Audit Journal Entries for User ({inspectingUser.recentAuditLogs.length})
                 </span>
               </h4>
               {inspectingUser.recentAuditLogs.length === 0 ? (
@@ -2079,13 +1849,9 @@ export default function AdminDashboard({
                             {new Date(l.created_at).toLocaleTimeString()}
                           </td>
                           <td>
-                            <span className="glass-badge glass-badge-info">
-                              {l.event_type}
-                            </span>
+                            <span className="glass-badge glass-badge-info">{l.event_type}</span>
                           </td>
-                          <td style={{ fontFamily: "var(--font-mono)" }}>
-                            {l.ip_address || "-"}
-                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)" }}>{l.ip_address || "-"}</td>
                           <td
                             style={{
                               fontFamily: "var(--font-mono)",
@@ -2131,8 +1897,7 @@ export default function AdminDashboard({
                 color: "var(--fg-muted)",
               }}
             >
-              Modify administrative role or identifier for User #
-              {editingUser.id}
+              Modify administrative role or identifier for User #{editingUser.id}
             </p>
 
             {editError && (
@@ -2230,8 +1995,8 @@ export default function AdminDashboard({
                 color: "var(--fg-muted)",
               }}
             >
-              Set a new secure password. All existing login sessions will be
-              immediately invalidated.
+              Set a new secure password. All existing login sessions will be immediately
+              invalidated.
             </p>
 
             {resetError && (
@@ -2274,9 +2039,9 @@ export default function AdminDashboard({
                   color: "#f9e2af",
                 }}
               >
-                ⚠️ <strong>Session Invalidation:</strong> Applying this change
-                will revoke all active browser session tokens for{" "}
-                <strong>{resettingPasswordUser.username}</strong> immediately.
+                ⚠️ <strong>Session Invalidation:</strong> Applying this change will revoke all
+                active browser session tokens for <strong>{resettingPasswordUser.username}</strong>{" "}
+                immediately.
               </div>
 
               <div
@@ -2381,10 +2146,8 @@ export default function AdminDashboard({
               }}
             >
               Are you sure you want to permanently delete user{" "}
-              <strong style={{ color: "#f38ba8" }}>
-                {deletingUser.username}
-              </strong>{" "}
-              (ID #{deletingUser.id})?
+              <strong style={{ color: "#f38ba8" }}>{deletingUser.username}</strong> (ID #
+              {deletingUser.id})?
             </p>
 
             <div
@@ -2399,8 +2162,7 @@ export default function AdminDashboard({
               }}
             >
               <strong>The following data will be permanently purged:</strong>
-              <br />• All {deletingUser.project_count} project workspaces and
-              files on disk
+              <br />• All {deletingUser.project_count} project workspaces and files on disk
               <br />
               • All associated Docker sandboxes stopped & removed
               <br />
@@ -2502,9 +2264,7 @@ export default function AdminDashboard({
               }}
             >
               Are you sure you want to forcibly stop container{" "}
-              <strong
-                style={{ color: "#89b4fa", fontFamily: "var(--font-mono)" }}
-              >
+              <strong style={{ color: "#89b4fa", fontFamily: "var(--font-mono)" }}>
                 {terminatingSandbox.containerId}
               </strong>{" "}
               (Workspace: <strong>{terminatingSandbox.projectName}</strong>)?
@@ -2520,12 +2280,10 @@ export default function AdminDashboard({
                 color: "var(--fg-muted)",
               }}
             >
-              • In-flight terminal or web execution processes will be terminated
-              immediately.
+              • In-flight terminal or web execution processes will be terminated immediately.
               <br />
               • Workspace files on disk remain safe.
-              <br />• Action will be permanently recorded in the immutable audit
-              journal.
+              <br />• Action will be permanently recorded in the immutable audit journal.
             </div>
 
             <div

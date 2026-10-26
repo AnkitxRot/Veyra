@@ -32,10 +32,7 @@ async function networkExists(name: string): Promise<boolean> {
   }
 }
 
-async function waitUntilRunning(
-  name: string,
-  timeoutMs = 15_000,
-): Promise<void> {
+async function waitUntilRunning(name: string, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
@@ -47,8 +44,7 @@ async function waitUntilRunning(
       ]);
       if (stdout.trim() === "true") return;
     } catch {}
-    if (Date.now() > deadline)
-      throw new Error(`container ${name} did not become running`);
+    if (Date.now() > deadline) throw new Error(`container ${name} did not become running`);
     await new Promise((r) => setTimeout(r, 200));
   }
 }
@@ -89,13 +85,12 @@ describe.skipIf(!isDockerRunning())("sandbox lifecycle", () => {
   it("rebuilds port mappings on startup and removes orphaned containers", async () => {
     const cfg = makeTestConfig();
     const db = openDb(":memory:");
-    db.prepare(
-      "INSERT INTO users (id, username, password_hash) VALUES (1, ?, ?)",
-    ).run("owner", "x");
+    db.prepare("INSERT INTO users (id, username, password_hash) VALUES (1, ?, ?)").run(
+      "owner",
+      "x",
+    );
     const projectId = `rec-${randomUUID()}`;
-    db.prepare(
-      "INSERT INTO projects (id, owner_id, name) VALUES (?, 1, ?)",
-    ).run(projectId, "demo");
+    db.prepare("INSERT INTO projects (id, owner_id, name) VALUES (?, 1, ?)").run(projectId, "demo");
     const workspace = makeWorkspace(cfg);
 
     const managerA = new SandboxManager();
@@ -138,9 +133,7 @@ describe.skipIf(!isDockerRunning())("ws auth and execution limits", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -195,22 +188,15 @@ describe.skipIf(!isDockerRunning())("ws auth and execution limits", () => {
   }
 
   it("rejects upgrades that rely on ?token= in the URL", async () => {
-    await expect(
-      connectWs(`/ws/execute?projectId=${projectId}&token=${token}`),
-    ).rejects.toThrow();
+    await expect(connectWs(`/ws/execute?projectId=${projectId}&token=${token}`)).rejects.toThrow();
   });
 
   it("rejects upgrades without any credentials", async () => {
-    await expect(
-      connectWs(`/ws/execute?projectId=${projectId}`),
-    ).rejects.toThrow();
+    await expect(connectWs(`/ws/execute?projectId=${projectId}`)).rejects.toThrow();
   });
 
   it("accepts cookie-authenticated connections", async () => {
-    const ws = await connectWs(
-      `/ws/execute?projectId=${projectId}`,
-      `session_token=${token}`,
-    );
+    const ws = await connectWs(`/ws/execute?projectId=${projectId}`, `session_token=${token}`);
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
   });
@@ -239,10 +225,7 @@ describe.skipIf(!isDockerRunning())("ws auth and execution limits", () => {
     );
 
     const rejection = await new Promise<any>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("no error message received")),
-        10_000,
-      );
+      const timer = setTimeout(() => reject(new Error("no error message received")), 10_000);
       ws2.on("message", (data) => {
         const msg = JSON.parse(data.toString());
         if (msg.type === "error") {

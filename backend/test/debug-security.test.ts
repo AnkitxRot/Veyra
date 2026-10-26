@@ -4,10 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeTestConfig, makeWorkspace } from "./helpers.js";
-import {
-  debugSessions,
-  resetDebugSessionsForTests,
-} from "../src/debug/manager.js";
+import { debugSessions, resetDebugSessionsForTests } from "../src/debug/manager.js";
 import type { DebugClientSocket } from "../src/debug/session.js";
 import type { DebugSpawnRequest } from "../src/debug/process.js";
 import { sandboxDebugArgv, debugHostDockerEnv } from "../src/debug/process.js";
@@ -58,11 +55,13 @@ describe("debug security envelope", () => {
 
   it("docker host env is an allowlist, not process.env", () => {
     const env = debugHostDockerEnv();
-    expect(Object.keys(env).every((k) =>
-      /^(PATH|LANG|SystemRoot|USERPROFILE|HOME|PROGRAMDATA|DOCKER_HOST|DOCKER_TLS_VERIFY|DOCKER_CERT_PATH)$/.test(
-        k,
+    expect(
+      Object.keys(env).every((k) =>
+        /^(PATH|LANG|SystemRoot|USERPROFILE|HOME|PROGRAMDATA|DOCKER_HOST|DOCKER_TLS_VERIFY|DOCKER_CERT_PATH)$/.test(
+          k,
+        ),
       ),
-    )).toBe(true);
+    ).toBe(true);
   });
 
   it("drops evaluate / watch-style client commands", async () => {
@@ -86,9 +85,7 @@ describe("debug security envelope", () => {
       method: "evaluate",
       expression: "1+1",
     });
-    expect(sock.messages.some((m) => m.type === "variables" && m.result)).toBe(
-      false,
-    );
+    expect(sock.messages.some((m) => m.type === "variables" && m.result)).toBe(false);
     expect(
       sock.messages.some((m) => typeof m.result === "string" && m.result.includes("passwd")),
     ).toBe(false);

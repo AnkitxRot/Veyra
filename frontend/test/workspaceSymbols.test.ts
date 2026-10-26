@@ -3,10 +3,7 @@ import { monaco } from "./mocks/monaco";
 
 vi.mock("../src/monacoSetup", () => ({ monaco }));
 
-import {
-  resetLspProvidersForTests,
-  setLspBridge,
-} from "../src/lsp/providers";
+import { resetLspProvidersForTests, setLspBridge } from "../src/lsp/providers";
 import { searchWorkspaceSymbols } from "../src/lsp/workspaceSymbols";
 import type { LspBridge } from "../src/lsp/bridge";
 
@@ -14,10 +11,7 @@ afterEach(() => {
   resetLspProvidersForTests();
 });
 
-function fakeBridge(
-  id: string,
-  request: LspBridge["request"],
-): LspBridge {
+function fakeBridge(id: string, request: LspBridge["request"]): LspBridge {
   return {
     status: { state: "ready", language: id },
     request,

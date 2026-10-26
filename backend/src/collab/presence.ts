@@ -67,12 +67,7 @@ function isControlChar(code: number): boolean {
 }
 
 export function isAwarenessCoord(n: unknown): n is number {
-  return (
-    typeof n === "number" &&
-    Number.isFinite(n) &&
-    n >= 0 &&
-    n <= AWARENESS_MAX_COORD
-  );
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= AWARENESS_MAX_COORD;
 }
 
 /**
@@ -83,9 +78,7 @@ export function isAwarenessCoord(n: unknown): n is number {
  * guard). Returns a string to keep, `null` for an explicit clear, or
  * `undefined` to drop the field.
  */
-export function sanitizeAwarenessFilePath(
-  value: unknown,
-): string | null | undefined {
+export function sanitizeAwarenessFilePath(value: unknown): string | null | undefined {
   if (value === null) return null;
   if (typeof value !== "string") return undefined;
   if (value.length === 0 || value.length > AWARENESS_MAX_PATH_LEN) {
@@ -114,9 +107,7 @@ export function sanitizeIntentText(value: unknown): string {
     out += isControlChar(value.charCodeAt(i)) ? " " : value[i];
   }
   const s = out.replace(/\s+/g, " ").trim();
-  return s.length > AWARENESS_MAX_INTENT_LEN
-    ? s.slice(0, AWARENESS_MAX_INTENT_LEN)
-    : s;
+  return s.length > AWARENESS_MAX_INTENT_LEN ? s.slice(0, AWARENESS_MAX_INTENT_LEN) : s;
 }
 
 /**
@@ -145,10 +136,7 @@ export function buildAuthoritativeAwarenessState(
   // M73: sanitized pronouns ride the same server-authoritative `user` frame
   // as displayName/avatarVersion. Emitted only when set — an unset value adds
   // no key rather than a null, matching how the client treats absence.
-  if (
-    typeof clientState.pronouns === "string" &&
-    clientState.pronouns.length > 0
-  ) {
+  if (typeof clientState.pronouns === "string" && clientState.pronouns.length > 0) {
     user.pronouns = clientState.pronouns;
   }
   const incomingUser = incoming.user;
@@ -160,10 +148,7 @@ export function buildAuthoritativeAwarenessState(
   }
   out.user = user;
 
-  if (
-    typeof incoming.status === "string" &&
-    AWARENESS_STATUS_VALUES.has(incoming.status)
-  ) {
+  if (typeof incoming.status === "string" && AWARENESS_STATUS_VALUES.has(incoming.status)) {
     out.status = incoming.status;
   }
 
@@ -172,18 +157,13 @@ export function buildAuthoritativeAwarenessState(
     activity &&
     typeof activity === "object" &&
     typeof (activity as Record<string, unknown>).type === "string" &&
-    AWARENESS_ACTIVITY_VALUES.has(
-      (activity as Record<string, unknown>).type as string,
-    )
+    AWARENESS_ACTIVITY_VALUES.has((activity as Record<string, unknown>).type as string)
   ) {
     const a = activity as Record<string, unknown>;
     const cleaned: Record<string, unknown> = { type: a.type };
     if (a.detail === null) {
       cleaned.detail = null;
-    } else if (
-      typeof a.detail === "string" &&
-      a.detail.length <= AWARENESS_MAX_DETAIL_LEN
-    ) {
+    } else if (typeof a.detail === "string" && a.detail.length <= AWARENESS_MAX_DETAIL_LEN) {
       cleaned.detail = a.detail;
     }
     if (typeof a.timestamp === "number" && Number.isFinite(a.timestamp)) {
@@ -239,19 +219,12 @@ export function buildAuthoritativeAwarenessState(
   } else if (intent && typeof intent === "object") {
     const rec = intent as Record<string, unknown>;
     const text = sanitizeIntentText(rec.text);
-    if (
-      text.length > 0 &&
-      typeof rec.updatedAt === "number" &&
-      Number.isFinite(rec.updatedAt)
-    ) {
+    if (text.length > 0 && typeof rec.updatedAt === "number" && Number.isFinite(rec.updatedAt)) {
       out.intent = { text, updatedAt: rec.updatedAt };
     }
   }
 
-  if (
-    typeof incoming.lastActive === "number" &&
-    Number.isFinite(incoming.lastActive)
-  ) {
+  if (typeof incoming.lastActive === "number" && Number.isFinite(incoming.lastActive)) {
     out.lastActive = incoming.lastActive;
   }
 

@@ -26,9 +26,11 @@ function seedUsers(): void {
 }
 
 function addProject(id: string, ownerId: number): void {
-  db.prepare(
-    "INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)",
-  ).run(id, ownerId, `proj-${id}`);
+  db.prepare("INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)").run(
+    id,
+    ownerId,
+    `proj-${id}`,
+  );
 }
 
 beforeEach(() => {
@@ -74,9 +76,9 @@ describe("M72 avatar media storage", () => {
     expect(existsSync(firstPath)).toBe(false);
     expect(existsSync(getAvatarFile(db, cfg, 1)!.absPath)).toBe(true);
     // exactly one media row survives
-    const rows = db
-      .prepare("SELECT COUNT(*) AS n FROM profile_media WHERE user_id = 1")
-      .get() as { n: number };
+    const rows = db.prepare("SELECT COUNT(*) AS n FROM profile_media WHERE user_id = 1").get() as {
+      n: number;
+    };
     expect(rows.n).toBe(1);
   });
 
@@ -89,9 +91,9 @@ describe("M72 avatar media storage", () => {
     expect(existsSync(path)).toBe(false);
     expect(getAvatarVersion(db, 1)).toBe(0);
     expect(getProfile(db, 1).avatarVersion).toBe(0);
-    const rows = db
-      .prepare("SELECT COUNT(*) AS n FROM profile_media WHERE user_id = 1")
-      .get() as { n: number };
+    const rows = db.prepare("SELECT COUNT(*) AS n FROM profile_media WHERE user_id = 1").get() as {
+      n: number;
+    };
     expect(rows.n).toBe(0);
   });
 
@@ -113,20 +115,16 @@ describe("M72 avatar media storage", () => {
     const dir = profileMediaUserDir(cfg, 404);
     const leftovers = existsSync(dir) ? readdirSync(dir) : [];
     expect(leftovers).toEqual([]);
-    expect(
-      db
-        .prepare("SELECT COUNT(*) AS n FROM profile_media WHERE user_id = 404")
-        .get(),
-    ).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM profile_media WHERE user_id = 404").get()).toEqual(
+      { n: 0 },
+    );
   });
 
   it("8. a failed replacement leaves the previous avatar and version intact", async () => {
     await storeAvatar(db, cfg, 1, makePng(64, 64));
     const goodPath = getAvatarFile(db, cfg, 1)!.absPath;
     const v1 = getAvatarVersion(db, 1);
-    await expect(
-      storeAvatar(db, cfg, 1, Buffer.from("not an image")),
-    ).rejects.toThrow();
+    await expect(storeAvatar(db, cfg, 1, Buffer.from("not an image"))).rejects.toThrow();
     expect(existsSync(goodPath)).toBe(true);
     expect(getAvatarVersion(db, 1)).toBe(v1);
   });
@@ -184,9 +182,7 @@ describe("M72 avatar access model", () => {
       "INSERT INTO project_collaborators (project_id, user_id, role) VALUES ('p1', 2, 'editor')",
     ).run();
     expect(canViewAvatar(db, 2, 1)).toBe(true);
-    db.prepare(
-      "DELETE FROM project_collaborators WHERE project_id = 'p1' AND user_id = 2",
-    ).run();
+    db.prepare("DELETE FROM project_collaborators WHERE project_id = 'p1' AND user_id = 2").run();
     expect(canViewAvatar(db, 2, 1)).toBe(false);
   });
 });

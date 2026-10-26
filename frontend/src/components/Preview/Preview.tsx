@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../../api';
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "../../api";
 import {
   IconRefresh,
   IconExternalLink,
@@ -7,7 +7,7 @@ import {
   IconTablet,
   IconSmartphone,
   IconClose,
-} from '../common/Icons';
+} from "../common/Icons";
 
 interface PreviewPortsResponse {
   ports: number[];
@@ -17,11 +17,11 @@ interface PreviewPortsResponse {
 const POLL_MS = 4000;
 
 export default function Preview({ project }: any) {
-  const [port, setPort] = useState('3000');
-  const [activeUrl, setActiveUrl] = useState('');
+  const [port, setPort] = useState("3000");
+  const [activeUrl, setActiveUrl] = useState("");
   const [activePort, setActivePort] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [viewport, setViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [viewport, setViewport] = useState<"desktop" | "tablet" | "mobile">("desktop");
 
   // Auto-detection state (server-side probe of ALLOWED_PREVIEW_PORTS only).
   const [detected, setDetected] = useState<number[]>([]);
@@ -48,7 +48,7 @@ export default function Preview({ project }: any) {
   };
 
   const handleStop = () => {
-    setActiveUrl('');
+    setActiveUrl("");
     setActivePort(null);
     activePortRef.current = null;
     missesRef.current = 0;
@@ -60,12 +60,8 @@ export default function Preview({ project }: any) {
     if (!projectId) return;
     setScanning(true);
     try {
-      const res = await api<PreviewPortsResponse>(
-        `/api/projects/${projectId}/preview/ports`,
-      );
-      const ports = Array.isArray(res.ports)
-        ? res.ports.filter((p) => typeof p === 'number')
-        : [];
+      const res = await api<PreviewPortsResponse>(`/api/projects/${projectId}/preview/ports`);
+      const ports = Array.isArray(res.ports) ? res.ports.filter((p) => typeof p === "number") : [];
       setDetected(ports);
       setSandboxUp(!!res.sandbox);
       // Track whether the currently-open preview's port is still answering.
@@ -101,26 +97,26 @@ export default function Preview({ project }: any) {
       // a run just started — a dev server may be about to bind
       runStartedTimer = window.setTimeout(tick, 800);
     };
-    document.addEventListener('run-started', onRunStarted);
+    document.addEventListener("run-started", onRunStarted);
     return () => {
       cancelled = true;
       window.clearInterval(id);
       if (runStartedTimer !== undefined) window.clearTimeout(runStartedTimer);
-      document.removeEventListener('run-started', onRunStarted);
+      document.removeEventListener("run-started", onRunStarted);
     };
   }, [projectId, scan]);
 
-  const quickPorts = ['3000', '8000', '5173', '8080'];
-  const offered =
-    detected.length > 0
-      ? detected.map(String)
-      : quickPorts;
+  const quickPorts = ["3000", "8000", "5173", "8080"];
+  const offered = detected.length > 0 ? detected.map(String) : quickPorts;
 
   return (
-    <div className="panel-content" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      className="panel-content"
+      style={{ height: "100%", display: "flex", flexDirection: "column" }}
+    >
       {/* Browser Chrome Header */}
       <div className="preview-browser-chrome">
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
           <button
             className="glass-btn glass-btn-icon"
             onClick={() => handleLoad(activePort ?? port)}
@@ -144,11 +140,14 @@ export default function Preview({ project }: any) {
 
         {/* Address Bar */}
         <form
-          onSubmit={(e) => { e.preventDefault(); handleLoad(); }}
-          style={{ flex: 1, display: 'flex', gap: '6px' }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleLoad();
+          }}
+          style={{ flex: 1, display: "flex", gap: "6px" }}
         >
           <div className="preview-address-bar">
-            <span style={{ color: 'var(--fg-muted)', userSelect: 'none' }}>proxy://port:</span>
+            <span style={{ color: "var(--fg-muted)", userSelect: "none" }}>proxy://port:</span>
             <input
               type="text"
               value={port}
@@ -156,29 +155,33 @@ export default function Preview({ project }: any) {
               placeholder="3000"
               aria-label="Preview server port"
               style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--accent)',
-                fontFamily: 'inherit',
-                fontSize: 'inherit',
+                background: "transparent",
+                border: "none",
+                color: "var(--accent)",
+                fontFamily: "inherit",
+                fontSize: "inherit",
                 fontWeight: 600,
-                width: '60px',
-                outline: 'none',
+                width: "60px",
+                outline: "none",
               }}
             />
             {activeUrl && (
               <span
                 style={{
-                  color: activePortStale ? '#fab387' : 'var(--fg-subtle)',
-                  marginLeft: 'auto',
-                  fontSize: '10px',
+                  color: activePortStale ? "#fab387" : "var(--fg-subtle)",
+                  marginLeft: "auto",
+                  fontSize: "10px",
                 }}
               >
-                {activePortStale ? 'NOT RESPONDING' : 'LIVE SANDBOX'}
+                {activePortStale ? "NOT RESPONDING" : "LIVE SANDBOX"}
               </span>
             )}
           </div>
-          <button type="submit" className="glass-btn glass-btn-primary" style={{ padding: '4px 10px', fontSize: '11px' }}>
+          <button
+            type="submit"
+            className="glass-btn glass-btn-primary"
+            style={{ padding: "4px 10px", fontSize: "11px" }}
+          >
             Go
           </button>
         </form>
@@ -186,24 +189,24 @@ export default function Preview({ project }: any) {
         {/* Responsive Viewport Controls */}
         <div className="preview-viewport-controls">
           <button
-            className={`glass-btn glass-btn-icon ${viewport === 'desktop' ? 'active' : ''}`}
-            onClick={() => setViewport('desktop')}
+            className={`glass-btn glass-btn-icon ${viewport === "desktop" ? "active" : ""}`}
+            onClick={() => setViewport("desktop")}
             title="Desktop View (100%)"
             aria-label="Desktop View"
           >
             <IconMonitor size={14} />
           </button>
           <button
-            className={`glass-btn glass-btn-icon ${viewport === 'tablet' ? 'active' : ''}`}
-            onClick={() => setViewport('tablet')}
+            className={`glass-btn glass-btn-icon ${viewport === "tablet" ? "active" : ""}`}
+            onClick={() => setViewport("tablet")}
             title="Tablet View (768px)"
             aria-label="Tablet View"
           >
             <IconTablet size={14} />
           </button>
           <button
-            className={`glass-btn glass-btn-icon ${viewport === 'mobile' ? 'active' : ''}`}
-            onClick={() => setViewport('mobile')}
+            className={`glass-btn glass-btn-icon ${viewport === "mobile" ? "active" : ""}`}
+            onClick={() => setViewport("mobile")}
             title="Mobile View (375px)"
             aria-label="Mobile View"
           >
@@ -232,22 +235,22 @@ export default function Preview({ project }: any) {
         <div
           role="status"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '4px 10px',
-            fontSize: '11px',
-            color: 'var(--fg-muted)',
-            borderBottom: '1px solid var(--glass-border-subtle)',
-            flexWrap: 'wrap',
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "4px 10px",
+            fontSize: "11px",
+            color: "var(--fg-muted)",
+            borderBottom: "1px solid var(--glass-border-subtle)",
+            flexWrap: "wrap",
           }}
         >
           <span>Detected:</span>
           {detected.map((p) => (
             <button
               key={p}
-              className={`glass-btn ${activePort === p ? 'active' : ''}`}
-              style={{ fontSize: '10px', padding: '2px 7px' }}
+              className={`glass-btn ${activePort === p ? "active" : ""}`}
+              style={{ fontSize: "10px", padding: "2px 7px" }}
               onClick={() => handleLoad(p)}
               title={`Open the preview server on port ${p}`}
             >
@@ -256,11 +259,11 @@ export default function Preview({ project }: any) {
           ))}
           <button
             className="glass-btn glass-btn-ghost"
-            style={{ fontSize: '10px', padding: '2px 7px', marginLeft: 'auto' }}
+            style={{ fontSize: "10px", padding: "2px 7px", marginLeft: "auto" }}
             onClick={() => void scan()}
             disabled={scanning}
           >
-            {scanning ? 'Scanning…' : 'Rescan'}
+            {scanning ? "Scanning…" : "Rescan"}
           </button>
         </div>
       )}
@@ -270,27 +273,31 @@ export default function Preview({ project }: any) {
         {activeUrl ? (
           <div className={`preview-frame-wrapper ${viewport}`}>
             {isLoading && (
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--surface-recessed)',
-                color: 'var(--fg-primary)',
-                zIndex: 10,
-                backdropFilter: 'blur(4px)',
-                fontSize: 'var(--text-sm)',
-                gap: '8px'
-              }}>
-                <span style={{
-                  width: '16px',
-                  height: '16px',
-                  border: '2px solid var(--border)',
-                  borderTopColor: 'var(--accent)',
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite'
-                }} />
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "var(--surface-recessed)",
+                  color: "var(--fg-primary)",
+                  zIndex: 10,
+                  backdropFilter: "blur(4px)",
+                  fontSize: "var(--text-sm)",
+                  gap: "8px",
+                }}
+              >
+                <span
+                  style={{
+                    width: "16px",
+                    height: "16px",
+                    border: "2px solid var(--border)",
+                    borderTopColor: "var(--accent)",
+                    borderRadius: "50%",
+                    animation: "spin 1s linear infinite",
+                  }}
+                />
                 <span>Loading sandbox web preview...</span>
               </div>
             )}
@@ -298,46 +305,68 @@ export default function Preview({ project }: any) {
               src={activeUrl}
               onLoad={() => setIsLoading(false)}
               sandbox="allow-scripts allow-forms allow-popups allow-modals"
-              style={{ width: '100%', height: '100%', border: 'none' }}
+              style={{ width: "100%", height: "100%", border: "none" }}
               title="Sandbox Web Preview"
             />
           </div>
         ) : (
           <div className="preview-empty-stage">
-            <div className="empty-state-icon" style={{ width: '42px', height: '42px' }}>
+            <div className="empty-state-icon" style={{ width: "42px", height: "42px" }}>
               <IconMonitor size={22} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <h4 style={{ margin: 0, fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--fg-primary)' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <h4
+                style={{
+                  margin: 0,
+                  fontSize: "var(--text-md)",
+                  fontWeight: 600,
+                  color: "var(--fg-primary)",
+                }}
+              >
                 {detected.length === 1
                   ? `Detected server on :${detected[0]}`
                   : detected.length > 1
                     ? `${detected.length} servers detected`
                     : scanned && sandboxUp
-                      ? 'No running preview server detected'
+                      ? "No running preview server detected"
                       : scanned && !sandboxUp
-                        ? 'No sandbox running yet'
-                        : 'No Active Web Preview'}
+                        ? "No sandbox running yet"
+                        : "No Active Web Preview"}
               </h4>
-              <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', maxWidth: '340px' }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "var(--text-xs)",
+                  color: "var(--fg-muted)",
+                  maxWidth: "340px",
+                }}
+              >
                 {detected.length > 0
-                  ? 'Open it below, or enter a different allowed port manually.'
+                  ? "Open it below, or enter a different allowed port manually."
                   : sandboxUp
-                    ? 'Start a web server in the Terminal (e.g. npm run dev, vite, or python3 -m http.server) — it will be detected automatically.'
-                    : 'Run your project (or open a Terminal) to start its sandbox, then start a web server on an allowed port.'}
+                    ? "Start a web server in the Terminal (e.g. npm run dev, vite, or python3 -m http.server) — it will be detected automatically."
+                    : "Run your project (or open a Terminal) to start its sandbox, then start a web server on an allowed port."}
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <div
+              style={{
+                display: "flex",
+                gap: "6px",
+                marginTop: "6px",
+                flexWrap: "wrap",
+                justifyContent: "center",
+              }}
+            >
               {offered.map((p) => (
                 <button
                   key={p}
                   className="glass-btn"
                   style={{
-                    fontSize: '11px',
-                    padding: '3px 8px',
+                    fontSize: "11px",
+                    padding: "3px 8px",
                     ...(detected.includes(Number(p))
-                      ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
+                      ? { borderColor: "var(--accent)", color: "var(--accent)" }
                       : {}),
                   }}
                   onClick={() => handleLoad(p)}
@@ -354,11 +383,11 @@ export default function Preview({ project }: any) {
 
             <button
               className="glass-btn glass-btn-ghost"
-              style={{ fontSize: '11px', padding: '3px 10px', marginTop: '2px' }}
+              style={{ fontSize: "11px", padding: "3px 10px", marginTop: "2px" }}
               onClick={() => void scan()}
               disabled={scanning}
             >
-              {scanning ? 'Scanning…' : 'Rescan'}
+              {scanning ? "Scanning…" : "Rescan"}
             </button>
           </div>
         )}

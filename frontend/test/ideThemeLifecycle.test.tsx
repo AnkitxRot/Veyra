@@ -154,15 +154,9 @@ describe("M69 — theme lifecycle (integration)", () => {
 
   it("a theme change leaves an unrelated preference untouched", () => {
     installMatchMedia(false);
-    const view = render(
-      <ThemedIde preference="dark" layoutHint="keep-me" />,
-    );
-    act(() =>
-      view.rerender(<ThemedIde preference="light" layoutHint="keep-me" />),
-    );
-    expect(
-      view.getByTestId("layout-hint").getAttribute("data-hint"),
-    ).toBe("keep-me");
+    const view = render(<ThemedIde preference="dark" layoutHint="keep-me" />);
+    act(() => view.rerender(<ThemedIde preference="light" layoutHint="keep-me" />));
+    expect(view.getByTestId("layout-hint").getAttribute("data-hint")).toBe("keep-me");
     expect(__getEditorCreateCount()).toBe(1);
   });
 });

@@ -42,13 +42,9 @@ export function formatTimelineEvent(
 export function whileAwayLine(ev: TimelineEvent): string {
   switch (ev.kind) {
     case "edit_burst":
-      return ev.filePath
-        ? `edited ${ev.filePath}`
-        : ev.title;
+      return ev.filePath ? `edited ${ev.filePath}` : ev.title;
     case "callout":
-      return ev.filePath
-        ? `left a callout on ${ev.filePath}`
-        : "left a callout";
+      return ev.filePath ? `left a callout on ${ev.filePath}` : "left a callout";
     case "run":
       return ev.title.replace(/^ran /, "ran ");
     case "commit":
@@ -117,10 +113,7 @@ export function groupWhileAway(events: TimelineEvent[]): Array<{
   lines: string[];
   events: TimelineEvent[];
 }> {
-  const byAuthor = new Map<
-    number,
-    { username: string; events: TimelineEvent[] }
-  >();
+  const byAuthor = new Map<number, { username: string; events: TimelineEvent[] }>();
   for (const e of events) {
     const k = e.actor.userId ?? -1;
     const g = byAuthor.get(k);

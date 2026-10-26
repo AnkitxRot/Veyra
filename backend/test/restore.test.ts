@@ -1,12 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  existsSync,
-  mkdirSync,
-  rmSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-} from "node:fs";
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
@@ -26,9 +19,11 @@ const projectRoot = resolve(__dirname, "../..");
 function seedUser(dbPath: string, username: string) {
   const db = openDb(dbPath);
   try {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run(username, "hash", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      username,
+      "hash",
+      "user",
+    );
   } finally {
     db.close();
   }
@@ -37,9 +32,9 @@ function seedUser(dbPath: string, username: string) {
 function listUsernames(dbPath: string): string[] {
   const db = openDb(dbPath);
   try {
-    const rows = db
-      .prepare("SELECT username FROM users ORDER BY username")
-      .all() as { username: string }[];
+    const rows = db.prepare("SELECT username FROM users ORDER BY username").all() as {
+      username: string;
+    }[];
     return rows.map((r) => r.username);
   } finally {
     db.close();
@@ -83,10 +78,7 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
 
     // Mutate the live DB after the backup was taken.
     seedUser(dbPath, "post_backup_mutation_user");
-    expect(listUsernames(dbPath)).toEqual([
-      "original_user",
-      "post_backup_mutation_user",
-    ]);
+    expect(listUsernames(dbPath)).toEqual(["original_user", "post_backup_mutation_user"]);
 
     const result = restoreDatabaseFromBackup({
       dbPath,
@@ -139,9 +131,9 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
       "..\\..\\secrets.db",
     ];
     for (const filename of malicious) {
-      expect(() =>
-        restoreDatabaseFromBackup({ dbPath, backupDir, filename }),
-      ).toThrow(/Invalid backup filename/);
+      expect(() => restoreDatabaseFromBackup({ dbPath, backupDir, filename })).toThrow(
+        /Invalid backup filename/,
+      );
     }
     // Live DB must be completely unaffected by any of the rejected attempts.
     expect(listUsernames(dbPath)).toEqual(["traversal_user"]);
@@ -167,10 +159,7 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
     // The safety copy must reflect the state immediately BEFORE restore
     // (both users present), not the restored state (only the original).
     const safetyUsernames = listUsernames(result.safetyCopyPath!);
-    expect(safetyUsernames).toEqual([
-      "backup_snapshot_user",
-      "pre_restore_live_user",
-    ]);
+    expect(safetyUsernames).toEqual(["backup_snapshot_user", "pre_restore_live_user"]);
     // Confirms the live DB itself is now the restored (pre-mutation) state.
     expect(listUsernames(dbPath)).toEqual(["backup_snapshot_user"]);
   });
@@ -202,12 +191,8 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
     // The safety copy's own sidecars must be preserved untouched.
     expect(existsSync(result.safetyCopyPath! + "-wal")).toBe(true);
     expect(existsSync(result.safetyCopyPath! + "-shm")).toBe(true);
-    expect(readFileSync(result.safetyCopyPath! + "-wal").toString()).toBe(
-      "fake-wal-content",
-    );
-    expect(readFileSync(result.safetyCopyPath! + "-shm").toString()).toBe(
-      "fake-shm-content",
-    );
+    expect(readFileSync(result.safetyCopyPath! + "-wal").toString()).toBe("fake-wal-content");
+    expect(readFileSync(result.safetyCopyPath! + "-shm").toString()).toBe("fake-shm-content");
   });
 
   it("6. --latest selects the newest backup by the same ordering listBackupFilesSync uses", async () => {
@@ -238,10 +223,7 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
     });
     expect(result.restoredFrom).toBe(newer.filename);
     // The newer backup contains both seeded users at the time it was taken.
-    expect(listUsernames(dbPath)).toEqual([
-      "first_state_user",
-      "second_state_user",
-    ]);
+    expect(listUsernames(dbPath)).toEqual(["first_state_user", "second_state_user"]);
   });
 
   it("7. real cross-process concurrency: a spawned restore and a spawned backup against the same backupDir serialize through the shared lock", async () => {
@@ -254,25 +236,18 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
     const backupScript = join(projectRoot, "scripts/backup-db.js");
 
     const runCli = (scriptPath: string, extraArgs: string[]) =>
-      new Promise<{ code: number | null; stdout: string; stderr: string }>(
-        (resolvePromise) => {
-          const child = spawn(
-            process.execPath,
-            [
-              scriptPath,
-              `--db-path=${dbPath}`,
-              `--backup-dir=${backupDir}`,
-              ...extraArgs,
-            ],
-            { stdio: ["ignore", "pipe", "pipe"] },
-          );
-          let stdout = "";
-          let stderr = "";
-          child.stdout.on("data", (d) => (stdout += d.toString()));
-          child.stderr.on("data", (d) => (stderr += d.toString()));
-          child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
-        },
-      );
+      new Promise<{ code: number | null; stdout: string; stderr: string }>((resolvePromise) => {
+        const child = spawn(
+          process.execPath,
+          [scriptPath, `--db-path=${dbPath}`, `--backup-dir=${backupDir}`, ...extraArgs],
+          { stdio: ["ignore", "pipe", "pipe"] },
+        );
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (d) => (stdout += d.toString()));
+        child.stderr.on("data", (d) => (stderr += d.toString()));
+        child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
+      });
 
     // Two genuinely separate OS processes launched at (as close to) the
     // same time as possible, sharing the same backupDir and lock.
@@ -284,9 +259,7 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
     expect(restoreResult.code).toBe(0);
     expect(backupResult.code).toBe(0);
     expect(restoreResult.stdout).toContain("Database restored and verified");
-    expect(backupResult.stdout).toContain(
-      "Online backup completed and verified",
-    );
+    expect(backupResult.stdout).toContain("Online backup completed and verified");
 
     // Both operations' outputs must be individually valid — no torn/corrupt
     // artifact from the two processes racing the same directory.
@@ -314,9 +287,7 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
 
     // No leaked lock file — a subsequent lock acquisition must succeed
     // immediately rather than time out.
-    expect(() =>
-      withBackupLockSync(backupDir, { maxWaitMs: 1000 }, () => {}),
-    ).not.toThrow();
+    expect(() => withBackupLockSync(backupDir, { maxWaitMs: 1000 }, () => {})).not.toThrow();
 
     // Three distinct safety copies were retained (never auto-deleted).
     const safetyDir = join(tempDir, "restore-safety");
@@ -367,9 +338,7 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
       const restoreErr = err as InstanceType<typeof RestoreVerificationError>;
       expect(restoreErr.safetyCopyPath).toBeTruthy();
       expect(existsSync(restoreErr.safetyCopyPath!)).toBe(true);
-      expect(restoreErr.postRestoreIntegrity).toBe(
-        "simulated post-restore corruption",
-      );
+      expect(restoreErr.postRestoreIntegrity).toBe("simulated post-restore corruption");
     }
   });
 
@@ -435,14 +404,9 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
   });
 
   it("11. restore-db.js imports shared restore logic instead of reimplementing validation/locking/integrity code", () => {
-    const scriptSource = readFileSync(
-      join(projectRoot, "scripts/restore-db.js"),
-      "utf8",
-    );
+    const scriptSource = readFileSync(join(projectRoot, "scripts/restore-db.js"), "utf8");
 
-    expect(scriptSource).toMatch(
-      /from\s+["']\.\.\/backend\/src\/backup\/shared\.js["']/,
-    );
+    expect(scriptSource).toMatch(/from\s+["']\.\.\/backend\/src\/backup\/shared\.js["']/);
     expect(scriptSource).toMatch(/restoreDatabaseFromBackup/);
     expect(scriptSource).toMatch(/withBackupLockSync/);
     // Guard against regressing into a duplicated implementation.
@@ -467,9 +431,7 @@ describe("Milestone 30 — Automated Database Restore & Disaster-Recovery Verifi
       };
       expect(row.c).toBe(1);
       const inserted = reopened
-        .prepare(
-          "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-        )
+        .prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
         .run("post_restore_write_check", "hash", "user");
       expect(Number(inserted.changes)).toBe(1);
     } finally {

@@ -67,11 +67,7 @@ async function timedFetch(
     const res = await fetch(url, { ...init, signal: ctx.signal });
     const text = await res.text();
     const elapsed = performance.now() - start;
-    ctx.metrics.recordRequest(
-      endpointClass,
-      elapsed,
-      classifyStatus(res.status, text),
-    );
+    ctx.metrics.recordRequest(endpointClass, elapsed, classifyStatus(res.status, text));
     let json: any = {};
     try {
       json = JSON.parse(text);
@@ -80,8 +76,7 @@ async function timedFetch(
   } catch (err: any) {
     const elapsed = performance.now() - start;
     if (ctx.signal.aborted) return null;
-    const outcome: Outcome =
-      err?.name === "AbortError" ? "timeout" : "connection_failure";
+    const outcome: Outcome = err?.name === "AbortError" ? "timeout" : "connection_failure";
     ctx.metrics.recordRequest(endpointClass, elapsed, outcome);
     return null;
   }
@@ -92,37 +87,24 @@ async function registerAndLogin(
 ): Promise<{ token: string; username: string } | null> {
   const username = `vu_${ctx.vuIndex}_${randomUUID().slice(0, 8)}`;
   const password = "load-test-password-1234";
-  const reg = await timedFetch(
-    ctx,
-    "auth",
-    `${ctx.baseUrl}/api/auth/register`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    },
-  );
+  const reg = await timedFetch(ctx, "auth", `${ctx.baseUrl}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
   if (!reg || reg.status !== 201) return null;
   return { token: reg.json.token as string, username };
 }
 
-async function createProject(
-  ctx: VirtualUserContext,
-  token: string,
-): Promise<string | null> {
-  const res = await timedFetch(
-    ctx,
-    "project_create",
-    `${ctx.baseUrl}/api/projects`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ name: `loadtest-${randomUUID().slice(0, 8)}` }),
+async function createProject(ctx: VirtualUserContext, token: string): Promise<string | null> {
+  const res = await timedFetch(ctx, "project_create", `${ctx.baseUrl}/api/projects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  );
+    body: JSON.stringify({ name: `loadtest-${randomUUID().slice(0, 8)}` }),
+  });
   return res?.json?.project?.id ?? null;
 }
 
@@ -156,11 +138,7 @@ function jitter(baseMs: number, spreadMs: number): number {
 }
 
 /** Opens a real collab WS connection, authenticated via the session cookie. */
-function connectCollab(
-  wsBase: string,
-  token: string,
-  projectId: string,
-): WebSocket {
+function connectCollab(wsBase: string, token: string, projectId: string): WebSocket {
   return new WebSocket(`${wsBase}/ws/collab?projectId=${projectId}`, {
     headers: { Cookie: `session_token=${token}` },
   });
@@ -175,32 +153,24 @@ async function runIdle(ctx: VirtualUserContext, token: string): Promise<void> {
   }
 }
 
-async function runActiveEditor(
-  ctx: VirtualUserContext,
-  token: string,
-): Promise<void> {
+async function runActiveEditor(ctx: VirtualUserContext, token: string): Promise<void> {
   const projectId = await createProject(ctx, token);
   if (!projectId) return;
   let n = 0;
   while (!ctx.signal.aborted) {
     n++;
     const start = performance.now();
-    await timedFetch(
-      ctx,
-      "file_save",
-      `${ctx.baseUrl}/api/projects/${projectId}/file`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          path: "main.py",
-          content: `print("edit ${n}")\n`,
-        }),
+    await timedFetch(ctx, "file_save", `${ctx.baseUrl}/api/projects/${projectId}/file`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
-    );
+      body: JSON.stringify({
+        path: "main.py",
+        content: `print("edit ${n}")\n`,
+      }),
+    });
     ctx.metrics.saveLatency.record(performance.now() - start);
     await sleep(jitter(2000, 1500), ctx.signal);
   }
@@ -215,10 +185,7 @@ async function runActiveEditor(
  * writes to the SAME project/file instead of its own, to isolate write
  * serialization from cross-project write spread.
  */
-async function runFileSaveHeavy(
-  ctx: VirtualUserContext,
-  token: string,
-): Promise<void> {
+async function runFileSaveHeavy(ctx: VirtualUserContext, token: string): Promise<void> {
   const target = ctx.sharedWriteTarget
     ? ctx.sharedWriteTarget
     : { projectId: await createProject(ctx, token), path: "main.py" };
@@ -254,101 +221,66 @@ async function runFileSaveHeavy(
  * touch) plus real gzip + filesystem work, exercising a distinct write path
  * under the same SQLite connection.
  */
-async function runMetadataWriteHeavy(
-  ctx: VirtualUserContext,
-  token: string,
-): Promise<void> {
+async function runMetadataWriteHeavy(ctx: VirtualUserContext, token: string): Promise<void> {
   const projectId = await createProject(ctx, token);
   if (!projectId) return;
-  await timedFetch(
-    ctx,
-    "file_save",
-    `${ctx.baseUrl}/api/projects/${projectId}/file`,
-    {
+  await timedFetch(ctx, "file_save", `${ctx.baseUrl}/api/projects/${projectId}/file`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ path: "main.py", content: "print('seed')\n" }),
+  });
+  let n = 0;
+  while (!ctx.signal.aborted) {
+    n++;
+    await timedFetch(ctx, "snapshot_create", `${ctx.baseUrl}/api/projects/${projectId}/snapshots`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ path: "main.py", content: "print('seed')\n" }),
-    },
-  );
-  let n = 0;
-  while (!ctx.signal.aborted) {
-    n++;
-    await timedFetch(
-      ctx,
-      "snapshot_create",
-      `${ctx.baseUrl}/api/projects/${projectId}/snapshots`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ name: `snap-${n}` }),
-      },
-    );
+      body: JSON.stringify({ name: `snap-${n}` }),
+    });
     await sleep(jitter(800, 600), ctx.signal);
   }
 }
 
-async function runExecutionHeavy(
-  ctx: VirtualUserContext,
-  token: string,
-): Promise<void> {
+async function runExecutionHeavy(ctx: VirtualUserContext, token: string): Promise<void> {
   const projectId = await createProject(ctx, token);
   if (!projectId) return;
-  await timedFetch(
-    ctx,
-    "file_save",
-    `${ctx.baseUrl}/api/projects/${projectId}/file`,
-    {
+  await timedFetch(ctx, "file_save", `${ctx.baseUrl}/api/projects/${projectId}/file`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ path: "main.py", content: "print('hi')\n" }),
+  });
+  while (!ctx.signal.aborted) {
+    await timedFetch(ctx, "run", `${ctx.baseUrl}/api/projects/${projectId}/run`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ path: "main.py", content: "print('hi')\n" }),
-    },
-  );
-  while (!ctx.signal.aborted) {
-    await timedFetch(
-      ctx,
-      "run",
-      `${ctx.baseUrl}/api/projects/${projectId}/run`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ language: "python" }),
-      },
-    );
+      body: JSON.stringify({ language: "python" }),
+    });
     await sleep(jitter(4000, 2000), ctx.signal);
   }
 }
 
-async function runPreviewHeavy(
-  ctx: VirtualUserContext,
-  token: string,
-): Promise<void> {
+async function runPreviewHeavy(ctx: VirtualUserContext, token: string): Promise<void> {
   const projectId = await createProject(ctx, token);
   if (!projectId) return;
   while (!ctx.signal.aborted) {
-    await timedFetch(
-      ctx,
-      "tree",
-      `${ctx.baseUrl}/api/projects/${projectId}/tree`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    await timedFetch(
-      ctx,
-      "stats",
-      `${ctx.baseUrl}/api/projects/${projectId}/stats`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+    await timedFetch(ctx, "tree", `${ctx.baseUrl}/api/projects/${projectId}/tree`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await timedFetch(ctx, "stats", `${ctx.baseUrl}/api/projects/${projectId}/stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     await sleep(jitter(1500, 1000), ctx.signal);
   }
 }
@@ -394,10 +326,7 @@ export function wireYjsClient(ws: WebSocket, doc: Y.Doc): () => void {
  * (including on `signal`, which lives for the whole run and would
  * otherwise accumulate one stale listener per call).
  */
-export function waitForOpenOrAbort(
-  ws: WebSocket,
-  signal: AbortSignal,
-): Promise<void> {
+export function waitForOpenOrAbort(ws: WebSocket, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     const cleanup = () => {
       ws.removeListener("open", onOpen);
@@ -430,11 +359,7 @@ export function waitForOpenOrAbort(
  * outlive its own virtual user. Safe to call more than once — e.g. once
  * from a `finally` block and again from an outer abort handler.
  */
-export function disposeCollabClient(
-  ws: WebSocket,
-  doc: Y.Doc,
-  unwire: () => void,
-): () => void {
+export function disposeCollabClient(ws: WebSocket, doc: Y.Doc, unwire: () => void): () => void {
   let disposed = false;
   return () => {
     if (disposed) return;
@@ -447,12 +372,7 @@ export function disposeCollabClient(
   };
 }
 
-function sendYjsInsert(
-  ws: WebSocket,
-  doc: Y.Doc,
-  path: string,
-  text: string,
-): void {
+function sendYjsInsert(ws: WebSocket, doc: Y.Doc, path: string, text: string): void {
   const before = Y.encodeStateVector(doc);
   doc.transact(() => {
     doc.getText(path).insert(doc.getText(path).length, text);
@@ -555,9 +475,7 @@ export async function runEditToPeerProbe(
         // up to ~0.5ms of rounding skew — clamp to 0 rather than report a
         // physically-impossible negative latency for near-zero same-process
         // round trips.
-        ctx.metrics.collabEditToPeerLatency.record(
-          Math.max(0, performance.now() - sentAt),
-        );
+        ctx.metrics.collabEditToPeerLatency.record(Math.max(0, performance.now() - sentAt));
       }
     }
   };
@@ -577,12 +495,7 @@ export async function runEditToPeerProbe(
 
   const interval = setInterval(() => {
     if (ctx.signal.aborted || senderWs.readyState !== WebSocket.OPEN) return;
-    sendYjsInsert(
-      senderWs,
-      senderDoc,
-      "probe.txt",
-      `t${Math.round(performance.now())};`,
-    );
+    sendYjsInsert(senderWs, senderDoc, "probe.txt", `t${Math.round(performance.now())};`);
   }, 500);
 
   let disposed = false;
@@ -641,15 +554,13 @@ export async function runVirtualUser(
       return runPreviewHeavy(ctx, token);
     case "collab_pair": {
       const projectId =
-        ctx.sharedProjectIds[
-          ctx.vuIndex % Math.max(1, ctx.sharedProjectIds.length)
-        ] ?? (await createProject(ctx, token));
+        ctx.sharedProjectIds[ctx.vuIndex % Math.max(1, ctx.sharedProjectIds.length)] ??
+        (await createProject(ctx, token));
       if (!projectId) return;
       return runCollabRoom(ctx, token, projectId, 3000);
     }
     case "busy_room": {
-      const projectId =
-        ctx.sharedProjectIds[0] ?? (await createProject(ctx, token));
+      const projectId = ctx.sharedProjectIds[0] ?? (await createProject(ctx, token));
       if (!projectId) return;
       return runCollabRoom(ctx, token, projectId, 1500);
     }
@@ -659,14 +570,12 @@ export async function runVirtualUser(
       return runCollabRoom(ctx, token, projectId, 5000);
     }
     case "rapid_typing": {
-      const projectId =
-        ctx.sharedProjectIds[0] ?? (await createProject(ctx, token));
+      const projectId = ctx.sharedProjectIds[0] ?? (await createProject(ctx, token));
       if (!projectId) return;
       return runCollabRoom(ctx, token, projectId, 200);
     }
     case "reconnecting": {
-      const projectId =
-        ctx.sharedProjectIds[0] ?? (await createProject(ctx, token));
+      const projectId = ctx.sharedProjectIds[0] ?? (await createProject(ctx, token));
       if (!projectId) return;
       return runReconnecting(ctx, token, projectId);
     }

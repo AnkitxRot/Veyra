@@ -8,10 +8,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { makeTestConfig } from "./helpers.js";
 import { openDb } from "../src/db.js";
 import { createProject } from "../src/projects/service.js";
-import {
-  CollaborationRoom,
-  VirtualClock,
-} from "../src/collab/manager.js";
+import { CollaborationRoom, VirtualClock } from "../src/collab/manager.js";
 
 // -- helpers ----------------------------------------------------------
 
@@ -26,20 +23,14 @@ function makeWs() {
 async function setupRoom(onDispose: (projectId: string) => void) {
   const cfg = makeTestConfig();
   const db = openDb(":memory:");
-  db.prepare(
-    "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-  ).run("ida", "h", "user");
+  db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+    "ida",
+    "h",
+    "user",
+  );
   const project = await createProject(cfg, db, 1, { name: "M91Proj" });
   const clock = new VirtualClock();
-  const room = new CollaborationRoom(
-    project.id,
-    cfg,
-    db,
-    onDispose,
-    {},
-    undefined,
-    clock,
-  );
+  const room = new CollaborationRoom(project.id, cfg, db, onDispose, {}, undefined, clock);
   const ws = makeWs();
   return { cfg, db, room, _ws: ws, _project: project, clock };
 }

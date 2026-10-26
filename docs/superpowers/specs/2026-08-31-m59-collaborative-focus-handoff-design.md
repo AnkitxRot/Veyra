@@ -3,16 +3,17 @@
 **Status:** design, approved. Not yet implemented. Not committed.
 **Date:** 2026-08-31
 **Milestone type:** integration. Wires M57 presence + M58 attention + M48 Follow
-+ the canonical navigation primitive into one coherent "shared focus"
-experience. **Frontend-only** — no new transport, no backend change, no new
-store, no persistence, no Yjs/awareness writes.
+
+- the canonical navigation primitive into one coherent "shared focus"
+  experience. **Frontend-only** — no new transport, no backend change, no new
+  store, no persistence, no Yjs/awareness writes.
 
 ---
 
 ## 1. Product intent
 
-M57: *"Rahul is here."* M58: *"Rahul can get my attention around the exact code
-he wants me to see."* M59:
+M57: _"Rahul is here."_ M58: _"Rahul can get my attention around the exact code
+he wants me to see."_ M59:
 
 > "I can step into Rahul's context, work alongside him, switch attention to
 > Priya when necessary, and safely return to where I was — without losing my
@@ -30,17 +31,17 @@ pulled in.
 
 ### 2.1 M48 Follow (`frontend/src/components/IDE/IDE.tsx`, `FollowBanner.tsx`)
 
-| Concern | Location | Behavior |
-|---|---|---|
-| Target | `followedUserId: number \| null` state | one target at a time |
-| Derived | `followedUser = useMemo(() => collaborators.find(c => c.userId === followedUserId) ?? null, …)` | **keyed by `userId`, not `clientId`** — already correct |
-| Track | `useEffect([followedUser, activeFile, openFiles, followedUserId])` | if `followedUser.activeFile !== activeFile`: `handleOpenFile(it)` unless the local active file is dirty → `setFollowPaused(true)`. If same file: `document.dispatchEvent("ide-reveal-location", {file, line, column})` to their cursor. |
-| Clear-on-absent | same effect, `if (!followedUser) { setFollowedUserId(null); … }` | **immediate** — a transient `collaborators` blip drops Follow (M59 fixes this) |
-| Enter | `handleFollowCollaborator(c)` | toggles; opens `c.activeFile` if not dirty |
-| Stop | `handleStopFollowing()` | clears the three follow states |
-| Auto-detach | `handleUserEdit()` (wired to `run`-events and passed to `Editor` as `onUserEdit`) | any local edit clears Follow |
-| Banner | `FollowBanner.tsx` | Esc → `onStopFollowing`; shows followed user + file + line + pause reason + Stop |
-| Jump | `handleJumpToCollaborator(c)` (M58-retrofitted) | `openAndRevealLocation(handleOpenFile, {filePath: c.activeFile, line: c.cursor?.line ?? 1, column: c.cursor?.column ?? 1})` |
+| Concern         | Location                                                                                        | Behavior                                                                                                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Target          | `followedUserId: number \| null` state                                                          | one target at a time                                                                                                                                                                                                                    |
+| Derived         | `followedUser = useMemo(() => collaborators.find(c => c.userId === followedUserId) ?? null, …)` | **keyed by `userId`, not `clientId`** — already correct                                                                                                                                                                                 |
+| Track           | `useEffect([followedUser, activeFile, openFiles, followedUserId])`                              | if `followedUser.activeFile !== activeFile`: `handleOpenFile(it)` unless the local active file is dirty → `setFollowPaused(true)`. If same file: `document.dispatchEvent("ide-reveal-location", {file, line, column})` to their cursor. |
+| Clear-on-absent | same effect, `if (!followedUser) { setFollowedUserId(null); … }`                                | **immediate** — a transient `collaborators` blip drops Follow (M59 fixes this)                                                                                                                                                          |
+| Enter           | `handleFollowCollaborator(c)`                                                                   | toggles; opens `c.activeFile` if not dirty                                                                                                                                                                                              |
+| Stop            | `handleStopFollowing()`                                                                         | clears the three follow states                                                                                                                                                                                                          |
+| Auto-detach     | `handleUserEdit()` (wired to `run`-events and passed to `Editor` as `onUserEdit`)               | any local edit clears Follow                                                                                                                                                                                                            |
+| Banner          | `FollowBanner.tsx`                                                                              | Esc → `onStopFollowing`; shows followed user + file + line + pause reason + Stop                                                                                                                                                        |
+| Jump            | `handleJumpToCollaborator(c)` (M58-retrofitted)                                                 | `openAndRevealLocation(handleOpenFile, {filePath: c.activeFile, line: c.cursor?.line ?? 1, column: c.cursor?.column ?? 1})`                                                                                                             |
 
 Follow does **not** track the followed user's scroll (their awareness carries
 none); it reveals-to-cursor. The M48 STATUS line "tracks … viewport scroll
@@ -54,10 +55,10 @@ locations" is aspirational — the code does not.
 - `AttentionTray` — incoming targeted-request cards `[Go there]` / `[Dismiss]`,
   "✓ Sent" author echo, "+N earlier" collapse, rate-limited banner.
 - `handleAttentionNavigate(evt)` = `openAndRevealLocation(handleOpenFile,
-  {filePath: evt.file, line: evt.range.startLine, column: evt.range.startColumn})`.
+{filePath: evt.file, line: evt.range.startLine, column: evt.range.startColumn})`.
 - **Gap M59 closes:** the incoming **callout bubble** (content widget) and
   **point decoration** in `Editor.tsx` have no click handler — only tray
-  *requests* are actionable. M59 makes them click-to-navigate.
+  _requests_ are actionable. M59 makes them click-to-navigate.
 - Spatial three tiers (`Editor.tsx` `spatialCollaborators`): same-file strip →
   `.spatial-nearby` → `.spatial-overlap` + `[View X]` (→ `onViewCollaborator` →
   `handleJumpToCollaborator`). Unchanged by M59.
@@ -74,7 +75,7 @@ DND. **M59 extends this popover; TeamPanel is untouched.**
 ### 2.4 Navigation & editor lifecycle
 
 - `frontend/src/utils/revealLocation.ts` — `openAndRevealLocation(openFile,
-  target)`: `await openFile(target.filePath)` **then** dispatch
+target)`: `await openFile(target.filePath)` **then** dispatch
   `ide-reveal-location`. The open MUST precede the reveal.
 - `Editor.tsx` `ide-reveal-location` listener (line ~700): `setActiveFile` if
   needed, then a `setTimeout(…, 50)` that `revealPositionInCenter` +
@@ -105,23 +106,23 @@ DND. **M59 extends this popover; TeamPanel is untouched.**
 
 ### 3.1 New files (both pure)
 
-| File | Responsibility |
-|---|---|
-| `frontend/src/collab/focus.ts` | `deriveFocusState(...)`, `buildFocusContext(...)` — pure. Combines a `CollaboratorPresence`, the `AttentionEvent[]` list, and `followedUserId` into a `FocusContext` view object. No store, no side effects. |
+| File                                  | Responsibility                                                                                                                                                                                                                         |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/src/collab/focus.ts`        | `deriveFocusState(...)`, `buildFocusContext(...)` — pure. Combines a `CollaboratorPresence`, the `AttentionEvent[]` list, and `followedUserId` into a `FocusContext` view object. No store, no side effects.                           |
 | `frontend/src/collab/followAnchor.ts` | `FollowAnchor` type; `anchorFileExists(anchor, tree)`; `planAnchorRestore(anchor, openFiles)` → a small descriptor `{ needsOpen: boolean; filePath; viewState; cursor }`. Pure — the actual open/restore is orchestrated in `IDE.tsx`. |
 
 ### 3.2 Modified files
 
-| File | Change |
-|---|---|
-| `frontend/src/components/IDE/IDE.tsx` | `followAnchorRef`; `followAbsenceTimerRef`; capture on Follow-enter (null-guarded); `handleReturnToMyLocation`; grace-window logic replacing the immediate clear; `[Follow]`/`[Go there]` orchestration for attention; `FocusContext` memo; `ide-restore-view-state` dispatch; anchor/timer cleanup in the collab-effect teardown and on `forbidden`. |
-| `frontend/src/components/Editor/Editor.tsx` | `editorViewApiRef` (`{ save(): {activeFile, viewState, cursor} \| null; restore(filePath, viewState): boolean }`), populated on mount / detached on unmount (mirrors `liveApiRef`); an `ide-restore-view-state` listener that restores **only after the target model is the active model** (uses the existing model-management effect completion — a `restorePendingRef` consumed when `activeFile === filePath` and the model is attached); callout-bubble + point-decoration `onclick` → dispatch `ide-attention-activate {id}` (IDE maps id → event → `handleAttentionNavigate`); a small `[Follow]` on the callout bubble → `ide-attention-follow {id}`. |
-| `frontend/src/components/Collab/FollowBanner.tsx` | `hasAnchor: boolean` + `onReturnToLocation: () => void` props; render `[Return to my location]` when `hasAnchor`; show the followed user's `range` when available (from a new `followedRange` prop derived in IDE). Esc still = Stop. |
-| `frontend/src/components/Collab/AttentionTray.tsx` | request card gains `[Follow]` (→ `onFollow(e)`); prop `onFollow: (e: AttentionEvent) => void`. |
-| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | the `selectedCollaborator` popover renders the collaborator's `FocusContext` (file, range, latest callout message, `state` chip) + `[Jump]` + `[Follow]`/`[Unfollow]`; new props `focusContextFor?: (userId) => FocusContext \| null` (or the already-passed `collaborators`+`attention`+`followingUserId` are enough to compute inline via `focus.ts`). Popover otherwise unchanged. |
-| `frontend/src/components/Toolbar/Toolbar.tsx` | thread `attention` (for the popover's focus context) + `onFollowCollaborator` already present. |
-| `frontend/src/styles/collab.css` | `.follow-banner` return button, `.collab-popover` focus-context rows, `.focus-state-*` chips, callout `[Follow]` button. |
-| `frontend/test/mocks/monaco.ts` | add `saveViewState()` / `restoreViewState(vs)` to `FakeEditorInstance` (return/accept an opaque token; record calls for assertions). |
+| File                                                         | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `frontend/src/components/IDE/IDE.tsx`                        | `followAnchorRef`; `followAbsenceTimerRef`; capture on Follow-enter (null-guarded); `handleReturnToMyLocation`; grace-window logic replacing the immediate clear; `[Follow]`/`[Go there]` orchestration for attention; `FocusContext` memo; `ide-restore-view-state` dispatch; anchor/timer cleanup in the collab-effect teardown and on `forbidden`.                                                                                                                                                                                                                                                                                                        |
+| `frontend/src/components/Editor/Editor.tsx`                  | `editorViewApiRef` (`{ save(): {activeFile, viewState, cursor} \| null; restore(filePath, viewState): boolean }`), populated on mount / detached on unmount (mirrors `liveApiRef`); an `ide-restore-view-state` listener that restores **only after the target model is the active model** (uses the existing model-management effect completion — a `restorePendingRef` consumed when `activeFile === filePath` and the model is attached); callout-bubble + point-decoration `onclick` → dispatch `ide-attention-activate {id}` (IDE maps id → event → `handleAttentionNavigate`); a small `[Follow]` on the callout bubble → `ide-attention-follow {id}`. |
+| `frontend/src/components/Collab/FollowBanner.tsx`            | `hasAnchor: boolean` + `onReturnToLocation: () => void` props; render `[Return to my location]` when `hasAnchor`; show the followed user's `range` when available (from a new `followedRange` prop derived in IDE). Esc still = Stop.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `frontend/src/components/Collab/AttentionTray.tsx`           | request card gains `[Follow]` (→ `onFollow(e)`); prop `onFollow: (e: AttentionEvent) => void`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | the `selectedCollaborator` popover renders the collaborator's `FocusContext` (file, range, latest callout message, `state` chip) + `[Jump]` + `[Follow]`/`[Unfollow]`; new props `focusContextFor?: (userId) => FocusContext \| null` (or the already-passed `collaborators`+`attention`+`followingUserId` are enough to compute inline via `focus.ts`). Popover otherwise unchanged.                                                                                                                                                                                                                                                                        |
+| `frontend/src/components/Toolbar/Toolbar.tsx`                | thread `attention` (for the popover's focus context) + `onFollowCollaborator` already present.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `frontend/src/styles/collab.css`                             | `.follow-banner` return button, `.collab-popover` focus-context rows, `.focus-state-*` chips, callout `[Follow]` button.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `frontend/test/mocks/monaco.ts`                              | add `saveViewState()` / `restoreViewState(vs)` to `FakeEditorInstance` (return/accept an opaque token; record calls for assertions).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### 3.3 What M59 does NOT add
 
@@ -140,13 +141,13 @@ type FocusState = "idle" | "viewing" | "focused" | "following";
 
 interface FocusContext {
   user: CollaboratorPresence;
-  file: string | null;               // user.activeFile ?? latest attention.file by this user
-  range: AttentionRange | null;      // latest callout/request range authored by this user (visible to me), else null
-  activity: ActivityType;            // user.activity.type
-  attention: AttentionEvent | null;  // most-recent live point/callout/request from this user (targeted at me OR broadcast)
+  file: string | null; // user.activeFile ?? latest attention.file by this user
+  range: AttentionRange | null; // latest callout/request range authored by this user (visible to me), else null
+  activity: ActivityType; // user.activity.type
+  attention: AttentionEvent | null; // most-recent live point/callout/request from this user (targeted at me OR broadcast)
   state: FocusState;
   isFollowing: boolean;
-  timestamp: number;                 // max(user.lastActive, attention.createdAt ?? 0)
+  timestamp: number; // max(user.lastActive, attention.createdAt ?? 0)
 }
 
 function deriveFocusState(
@@ -157,7 +158,7 @@ function deriveFocusState(
   if (isFollowing) return "following";
   if (attention) return "focused";
   if (
-    (user.status === "online") &&
+    user.status === "online" &&
     (user.activity?.type === "viewing" ||
       user.activity?.type === "editing" ||
       user.activity?.type === "navigating")
@@ -178,8 +179,8 @@ memoization inside — callers wrap in `useMemo`.
 ```ts
 interface FollowAnchor {
   filePath: string;
-  viewState: unknown;              // monaco.editor.ICodeEditorViewState — opaque, NEVER model content
-  cursor: { line: number; column: number } | null;  // fallback if restoreViewState can't be applied
+  viewState: unknown; // monaco.editor.ICodeEditorViewState — opaque, NEVER model content
+  cursor: { line: number; column: number } | null; // fallback if restoreViewState can't be applied
   capturedAt: number;
 }
 ```
@@ -237,15 +238,16 @@ first Stop / Return / lifecycle reset, so the next Follow captures fresh.
 `followAbsenceTimerRef: useRef<number | null>(null)`.
 
 In the follow-tracking effect:
+
 ```ts
 if (!followedUser) {
   if (followedUserId !== null && !followAbsenceTimerRef.current) {
     followAbsenceTimerRef.current = window.setTimeout(() => {
       followAbsenceTimerRef.current = null;
       // still absent?  (re-check via ref of the latest collaborators)
-      if (!collaboratorsRef.current.some(c => c.userId === followedUserIdRef.current)) {
+      if (!collaboratorsRef.current.some((c) => c.userId === followedUserIdRef.current)) {
         setFollowedUserId(null);
-        setFollowLeftNotice({ name: lastFollowedNameRef.current });  // "Rahul left" mini-banner
+        setFollowLeftNotice({ name: lastFollowedNameRef.current }); // "Rahul left" mini-banner
       }
     }, FOLLOW_ABSENCE_GRACE_MS); // 6000
   }
@@ -254,9 +256,10 @@ if (!followedUser) {
 // followedUser present:
 if (followAbsenceTimerRef.current) {
   clearTimeout(followAbsenceTimerRef.current);
-  followAbsenceTimerRef.current = null;   // seamless resume
+  followAbsenceTimerRef.current = null; // seamless resume
 }
 ```
+
 Cleared in: the effect's own cleanup, `handleStopFollowing`,
 `handleReturnToMyLocation`, `handleFollowCollaborator` (when switching), the
 collab-effect teardown, and on `forbidden`. **Keyed by `userId`** — a reconnect
@@ -277,23 +280,26 @@ const handleReturnToMyLocation = useCallback(async () => {
   if (!anchor) return;
 
   // file gone?
-  const exists = fileIndexRef.current?.some(f => f.path === anchor.filePath)
-    ?? openFilesRef.current.some(f => f.path === anchor.filePath);
+  const exists =
+    fileIndexRef.current?.some((f) => f.path === anchor.filePath) ??
+    openFilesRef.current.some((f) => f.path === anchor.filePath);
   if (!exists) {
     // try a lightweight existence check via the tree; else toast + bail
     if (!treeHasPath(treeRef.current, anchor.filePath)) {
       setReplaceReconcileNotice(
         `Your previous file "${anchor.filePath.split("/").pop()}" is no longer available.`,
       );
-      return;   // stay where you are — never open an arbitrary file
+      return; // stay where you are — never open an arbitrary file
     }
   }
 
-  await handleOpenFile(anchor.filePath);   // opens the tab if closed; tab switch never clobbers a dirty buffer
+  await handleOpenFile(anchor.filePath); // opens the tab if closed; tab switch never clobbers a dirty buffer
   // Defer restore until Editor confirms the model for this file is active.
-  document.dispatchEvent(new CustomEvent("ide-restore-view-state", {
-    detail: { filePath: anchor.filePath, viewState: anchor.viewState, cursor: anchor.cursor },
-  }));
+  document.dispatchEvent(
+    new CustomEvent("ide-restore-view-state", {
+      detail: { filePath: anchor.filePath, viewState: anchor.viewState, cursor: anchor.cursor },
+    }),
+  );
 }, [handleOpenFile]);
 ```
 
@@ -309,12 +315,12 @@ const handleReturnToMyLocation = useCallback(async () => {
 
 ## 5. Attention → focus integration (all explicit, never auto-follow)
 
-| Entry point | `[Jump]` / `[Go there]` | `[Follow]` |
-|---|---|---|
-| Collaborator popover | `handleJumpToCollaborator(c)` (open-then-reveal) | `handleFollowCollaborator(c)` — captures anchor if none |
+| Entry point                | `[Jump]` / `[Go there]`                                             | `[Follow]`                                                                                          |
+| -------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Collaborator popover       | `handleJumpToCollaborator(c)` (open-then-reveal)                    | `handleFollowCollaborator(c)` — captures anchor if none                                             |
 | AttentionTray request card | `handleAttentionNavigate(e)` + `handleAttentionDismiss(e.id, true)` | `handleAttentionNavigate(e)` + `handleFollowCollaborator(authorAsCollaborator(e))` + dismiss(acted) |
-| Callout bubble (Editor) | `ide-attention-activate {id}` → IDE `handleAttentionNavigate(byId)` | `ide-attention-follow {id}` → navigate + `handleFollowCollaborator(author)` |
-| Point decoration (Editor) | `ide-attention-activate {id}` → navigate | — (points are 6 s pings, no Follow) |
+| Callout bubble (Editor)    | `ide-attention-activate {id}` → IDE `handleAttentionNavigate(byId)` | `ide-attention-follow {id}` → navigate + `handleFollowCollaborator(author)`                         |
+| Point decoration (Editor)  | `ide-attention-activate {id}` → navigate                            | — (points are 6 s pings, no Follow)                                                                 |
 
 `authorAsCollaborator(e)` resolves `e.author.userId` against the live
 `collaborators` array; if the author is no longer connected, `[Follow]` is a
@@ -324,12 +330,14 @@ range is known).
 **Rule enforcement (multi-collaborator):** every `[Follow X]` and every
 `[Go there]`/`activate` for user X calls a single helper
 `focusOn(userId, { follow: boolean })`:
+
 ```ts
 function focusOn(userId, { follow }) {
   if (followedUserId !== null && followedUserId !== userId) {
     // acting on a DIFFERENT collaborator ends the current follow — anchor PRESERVED
     setFollowedUserId(null);
-    setFollowPaused(false); setFollowPauseReason("");
+    setFollowPaused(false);
+    setFollowPauseReason("");
     clearFollowAbsenceTimer();
   }
   // navigate (done by the caller via openAndRevealLocation)
@@ -340,7 +348,8 @@ function focusOn(userId, { follow }) {
   }
 }
 ```
-A second collaborator's attention merely *arriving* does not call `focusOn` —
+
+A second collaborator's attention merely _arriving_ does not call `focusOn` —
 only a user click does.
 
 ---
@@ -357,6 +366,7 @@ only a user click does.
 ────────────────────────────
 [Jump]   [Follow]                        ← [Unfollow] when isFollowing
 ```
+
 `state` chip colour: `following` = accent, `focused` = warning-subtle,
 `viewing` = muted, `idle` = faint. Popover open/close and outside-click
 unchanged.
@@ -368,6 +378,7 @@ unchanged.
 auth/session.ts · Lines 40–52
 Esc to stop        [Stop following]   [Return to my location]
 ```
+
 - `[Return to my location]` rendered only when `hasAnchor`.
 - Paused state unchanged ("Follow paused — you have unsaved changes").
 - "Rahul left" mini-state (post-grace): `⚠ Rahul left — [Return to your location] [Stay here]`, auto-dismiss ~8 s → Stay (anchor discarded).
@@ -393,29 +404,29 @@ auth/session.ts · L40–52
 
 ## 7. Lifecycle matrix
 
-| Event | Follow | Anchor | Absence timer |
-|---|---|---|---|
-| Enter Follow (first of session) | set | **captured** | — |
-| Switch Follow A→B (explicit) | B | **preserved** | cleared |
-| Target changes file | tracks via `openAndRevealLocation` | unchanged | — |
-| Local file dirty + target navigates | **paused** (not cleared) | unchanged | — |
-| Local edit / manual nav / Esc / Stop | cleared | **discarded** | cleared |
-| Return to my location | cleared | restored then **discarded** | cleared |
-| Target absent (blip) | **kept** | kept | **started (~6 s)** |
-| Same `userId` returns < 6 s | kept (resumes) | kept | **cleared** |
-| Absent > 6 s | cleared + "left" banner | **preserved** (until Stay/timeout) | cleared |
-| Reconnect after grace | **no auto-refollow** | n/a | n/a |
-| Project switch | cleared | discarded | cleared |
-| `forbidden` (4403/4003) | cleared | discarded | cleared |
-| Explicit-disposal reset (1001 while connected) | cleared | discarded | cleared |
-| Component unmount / collab-effect teardown | cleared | discarded | cleared |
-| Attention event expires while following | **unchanged** (Follow tracks presence) | unchanged | — |
+| Event                                          | Follow                                 | Anchor                             | Absence timer      |
+| ---------------------------------------------- | -------------------------------------- | ---------------------------------- | ------------------ |
+| Enter Follow (first of session)                | set                                    | **captured**                       | —                  |
+| Switch Follow A→B (explicit)                   | B                                      | **preserved**                      | cleared            |
+| Target changes file                            | tracks via `openAndRevealLocation`     | unchanged                          | —                  |
+| Local file dirty + target navigates            | **paused** (not cleared)               | unchanged                          | —                  |
+| Local edit / manual nav / Esc / Stop           | cleared                                | **discarded**                      | cleared            |
+| Return to my location                          | cleared                                | restored then **discarded**        | cleared            |
+| Target absent (blip)                           | **kept**                               | kept                               | **started (~6 s)** |
+| Same `userId` returns < 6 s                    | kept (resumes)                         | kept                               | **cleared**        |
+| Absent > 6 s                                   | cleared + "left" banner                | **preserved** (until Stay/timeout) | cleared            |
+| Reconnect after grace                          | **no auto-refollow**                   | n/a                                | n/a                |
+| Project switch                                 | cleared                                | discarded                          | cleared            |
+| `forbidden` (4403/4003)                        | cleared                                | discarded                          | cleared            |
+| Explicit-disposal reset (1001 while connected) | cleared                                | discarded                          | cleared            |
+| Component unmount / collab-effect teardown     | cleared                                | discarded                          | cleared            |
+| Attention event expires while following        | **unchanged** (Follow tracks presence) | unchanged                          | —                  |
 
 ---
 
 ## 8. Security / trust
 
-M59 adds no channel and no new data. It only *reads* `collaborators`
+M59 adds no channel and no new data. It only _reads_ `collaborators`
 (server-authoritative M57 identity, delivered only inside an authorized room),
 `attention` (M58, already server-validated + targeted), and `followedUserId`
 (local). Therefore:
@@ -476,7 +487,8 @@ filter, file/range/timestamp assembly); `followAnchor` helpers
 the model it was applied to; `_setActiveModelPath(p)` test helper.
 Test: save on file A → `setActiveFile(B)` → restore dispatched for A →
 **assert `restoreViewState` is NOT called while B is active** → `setActiveFile(A)`
-+ model attached → assert `restoreViewState` called once with A's token.
+
+- model attached → assert `restoreViewState` called once with A's token.
 
 ### 10.3 IDE-level behavioral (`frontend/test/collab.focus.follow.test.tsx`)
 
@@ -568,17 +580,17 @@ field, no second collaborator store, no DB, no Yjs op.
 
 ## 14. Risks / tradeoffs
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| `restoreViewState` applied to the wrong model | Low | strict active-model path guard in `Editor.restore`; deferred until `activeFile === filePath` + model attached; cursor fallback; dedicated mock test |
-| Grace window lets Follow "resume" onto an impostor | Very low | keyed by `userId`; identity is server-authoritative (M55); a different `userId` never matches |
-| Anchor points at a since-deleted file | Medium | existence check before open; toast + stay; never open an arbitrary file |
-| A→B switch loses the true origin | — (by design) | null-guarded single capture per session; documented; test 20 pins it |
-| Timer leak after unmount | Low | cleared in effect cleanup + every handler + teardown; test 34 asserts no fire after unmount |
-| Popover becomes a mini-TeamPanel | Low (scope) | popover shows one collaborator's `FocusContext` + 2 buttons; TeamPanel untouched; non-goals explicit |
-| Callout/point click conflicts with the `×` / `[Follow]` buttons | Low | buttons `stopPropagation`; bubble click handler ignores events from `button` descendants |
-| Existing `collab.follow.test.tsx` assertion on immediate clear | Certain | one assertion updated to the grace behavior; behavior is strictly more robust; noted |
-| Landing on the mixed M57+M58 staged index | Certain | M59 adds new files + additive props; the M59 diff is separable by filename/prefix; do not revert M57/M58 |
+| Risk                                                            | Likelihood    | Mitigation                                                                                                                                          |
+| --------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `restoreViewState` applied to the wrong model                   | Low           | strict active-model path guard in `Editor.restore`; deferred until `activeFile === filePath` + model attached; cursor fallback; dedicated mock test |
+| Grace window lets Follow "resume" onto an impostor              | Very low      | keyed by `userId`; identity is server-authoritative (M55); a different `userId` never matches                                                       |
+| Anchor points at a since-deleted file                           | Medium        | existence check before open; toast + stay; never open an arbitrary file                                                                             |
+| A→B switch loses the true origin                                | — (by design) | null-guarded single capture per session; documented; test 20 pins it                                                                                |
+| Timer leak after unmount                                        | Low           | cleared in effect cleanup + every handler + teardown; test 34 asserts no fire after unmount                                                         |
+| Popover becomes a mini-TeamPanel                                | Low (scope)   | popover shows one collaborator's `FocusContext` + 2 buttons; TeamPanel untouched; non-goals explicit                                                |
+| Callout/point click conflicts with the `×` / `[Follow]` buttons | Low           | buttons `stopPropagation`; bubble click handler ignores events from `button` descendants                                                            |
+| Existing `collab.follow.test.tsx` assertion on immediate clear  | Certain       | one assertion updated to the grace behavior; behavior is strictly more robust; noted                                                                |
+| Landing on the mixed M57+M58 staged index                       | Certain       | M59 adds new files + additive props; the M59 diff is separable by filename/prefix; do not revert M57/M58                                            |
 
 ---
 

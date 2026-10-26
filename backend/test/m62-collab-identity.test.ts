@@ -66,10 +66,7 @@ const profileEvents = (ws: any): any[] =>
   ws.custom.filter((m: any) => m && m.type === "profile_event");
 
 function storedUser(projectId: string, clientId: number): any {
-  return collaborationManager
-    .getRoom(projectId)!
-    .awareness.getStates()
-    .get(clientId)?.user;
+  return collaborationManager.getRoom(projectId)!.awareness.getStates().get(clientId)?.user;
 }
 
 function seedUser(db: Db, id: number, username: string): void {
@@ -181,10 +178,7 @@ describe("M62-3 — effective display identity through collaboration", () => {
     const spy = vi.spyOn(profileStore, "getDisplayName");
     try {
       for (let clock = 1; clock <= 5; clock++) {
-        r.handleMessage(
-          ws,
-          awarenessFrame([{ clientId: 10, clock, state: { user: {} } }]),
-        );
+        r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock, state: { user: {} } }]));
       }
       expect(spy).not.toHaveBeenCalled();
       expect(storedUser("p1", 10).displayName).toBe("Alice Liddell");
@@ -265,9 +259,7 @@ describe("M62-3 — effective display identity through collaboration", () => {
   it("user in zero rooms -> silent no-op, no throw", async () => {
     room("R1");
     room("R2");
-    expect(() =>
-      collaborationManager.broadcastProfileEventForUser(1),
-    ).not.toThrow();
+    expect(() => collaborationManager.broadcastProfileEventForUser(1)).not.toThrow();
   });
 
   it("an unrelated user's update never reaches peers who merely share a room", async () => {
@@ -371,14 +363,7 @@ describe("M62-3 — effective display identity through collaboration", () => {
 
     // technical identity intact, no dormant profile columns leaked
     expect(Object.keys(byName.carol!).sort()).toEqual(
-      [
-        "avatarVersion",
-        "createdAt",
-        "displayName",
-        "role",
-        "userId",
-        "username",
-      ].sort(),
+      ["avatarVersion", "createdAt", "displayName", "role", "userId", "username"].sort(),
     );
     expect(byName.carol!.avatarVersion).toBe(0);
   });

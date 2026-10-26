@@ -18,15 +18,13 @@ import type { Project } from "../src/types";
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
 }));
 
 import Output from "../src/components/Output/Output";
 import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 /**
  * Mirrors IDE.tsx's M53 shape: the ExecutionSessionProvider wraps everything
@@ -97,9 +95,7 @@ describe("M53 — ide-install reaches the execution session regardless of Output
     const fetchMock = vi.fn(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      React.createElement(MediatorHarness, { project, mountOutput: false }),
-    );
+    render(React.createElement(MediatorHarness, { project, mountOutput: false }));
 
     document.dispatchEvent(new Event("ide-install-confirmed"));
 

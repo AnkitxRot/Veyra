@@ -14,10 +14,7 @@ import {
   DEBUG_MAX_VARIABLES,
 } from "./bounds.js";
 import type { DebugLanguageSpec } from "./languages.js";
-import {
-  fromWorkspaceLocation,
-  toWorkspaceFsPath,
-} from "./paths.js";
+import { fromWorkspaceLocation, toWorkspaceFsPath } from "./paths.js";
 import {
   ADAPTER_REQUESTS,
   CLIENT_COMMANDS,
@@ -33,14 +30,7 @@ import { recordAuditLog, type AuditEventType } from "../audit.js";
 import type { Db } from "../db.js";
 
 export type DebugSessionState =
-  | "idle"
-  | "starting"
-  | "running"
-  | "paused"
-  | "stopping"
-  | "terminated"
-  | "failed"
-  | "unavailable";
+  "idle" | "starting" | "running" | "paused" | "stopping" | "terminated" | "failed" | "unavailable";
 
 export interface DebugClientSocket {
   readyState: number;
@@ -219,11 +209,7 @@ export class DebugSession {
   clearSocket(socket: DebugClientSocket): void {
     if (this.socket !== socket) return;
     this.socket = null;
-    if (
-      this.state === "starting" ||
-      this.state === "running" ||
-      this.state === "paused"
-    ) {
+    if (this.state === "starting" || this.state === "running" || this.state === "paused") {
       this.dispose("disconnected");
     }
   }
@@ -271,11 +257,7 @@ export class DebugSession {
         void this.control("stepOut");
         return;
       case "terminate":
-        if (
-          this.state === "starting" ||
-          this.state === "running" ||
-          this.state === "paused"
-        ) {
+        if (this.state === "starting" || this.state === "running" || this.state === "paused") {
           this.setState("stopping", "stopping");
         }
         this.finishTerminated("terminated");
@@ -300,11 +282,7 @@ export class DebugSession {
     this.killAdapter(reason);
     this.releaseSlot();
     this.setState(
-      reason === "unavailable"
-        ? "unavailable"
-        : reason === "failed"
-          ? "failed"
-          : "terminated",
+      reason === "unavailable" ? "unavailable" : reason === "failed" ? "failed" : "terminated",
       reason,
     );
     try {
@@ -313,22 +291,19 @@ export class DebugSession {
     this.socket = null;
     if (!this._auditTerminalLogged) {
       this._auditTerminalLogged = true;
-      const eventType = reason === "session_timeout"
-        ? "DEBUG_SESSION_TIMEOUT"
-        : reason === "unavailable" || reason === "failed"
-          ? "DEBUG_SESSION_FAILED"
-          : "DEBUG_SESSION_STOPPED";
+      const eventType =
+        reason === "session_timeout"
+          ? "DEBUG_SESSION_TIMEOUT"
+          : reason === "unavailable" || reason === "failed"
+            ? "DEBUG_SESSION_FAILED"
+            : "DEBUG_SESSION_STOPPED";
       this.recordAudit(eventType, reason);
     }
     this.hooks.onDead(this);
   }
 
   private async onLaunch(raw: Record<string, unknown>): Promise<void> {
-    if (
-      this.state === "starting" ||
-      this.state === "running" ||
-      this.state === "paused"
-    ) {
+    if (this.state === "starting" || this.state === "running" || this.state === "paused") {
       this.sendError("debug session already active");
       return;
     }
@@ -564,13 +539,10 @@ export class DebugSession {
    * room's latest edits could not be written, or null when disk is current.
    */
   private async persistLiveEdits(): Promise<string | null> {
-    const { collaborationManager, describeUnpersistedLiveEdits } = await import(
-      "../collab/manager.js"
-    );
+    const { collaborationManager, describeUnpersistedLiveEdits } =
+      await import("../collab/manager.js");
     const r = await collaborationManager.persistLiveEdits(this.projectId);
-    return r.ok
-      ? null
-      : `${describeUnpersistedLiveEdits(r.unpersisted)}; debugger not started.`;
+    return r.ok ? null : `${describeUnpersistedLiveEdits(r.unpersisted)}; debugger not started.`;
   }
 
   private async suspendLanguageServers(): Promise<void> {
@@ -595,11 +567,7 @@ export class DebugSession {
       return;
     }
     this.breakpoints.set(parsed.value.path, parsed.value.lines);
-    if (
-      this.state === "starting" ||
-      this.state === "running" ||
-      this.state === "paused"
-    ) {
+    if (this.state === "starting" || this.state === "running" || this.state === "paused") {
       await this.pushBreakpointsFor(parsed.value.path, parsed.value.lines);
     } else {
       this.sendToSocket({
@@ -619,10 +587,7 @@ export class DebugSession {
     }
   }
 
-  private async pushBreakpointsFor(
-    rel: string,
-    lines: number[],
-  ): Promise<void> {
+  private async pushBreakpointsFor(rel: string, lines: number[]): Promise<void> {
     const fsPath = toWorkspaceFsPath(rel);
     if (!fsPath) return;
     try {
@@ -633,7 +598,7 @@ export class DebugSession {
         sourceModified: false,
       })) as { breakpoints?: { line?: number; verified?: boolean }[] };
       const verified = (result?.breakpoints ?? []).map((bp, i) => ({
-        line: typeof bp.line === "number" ? bp.line : lines[i] ?? 0,
+        line: typeof bp.line === "number" ? bp.line : (lines[i] ?? 0),
         verified: bp.verified === true,
       }));
       this.verified.set(rel, verified);
@@ -753,8 +718,7 @@ export class DebugSession {
       path: mapped,
       line,
       column,
-      presentationHint:
-        typeof o.presentationHint === "string" ? o.presentationHint : undefined,
+      presentationHint: typeof o.presentationHint === "string" ? o.presentationHint : undefined,
     };
   }
 
@@ -798,8 +762,7 @@ export class DebugSession {
           name: clipString(o.name, 128),
           value: clipString(o.value, this.limits.maxVariables > 0 ? 512 : 512),
           type: typeof o.type === "string" ? clipString(o.type, 64) : undefined,
-          variablesReference:
-            typeof o.variablesReference === "number" ? o.variablesReference : 0,
+          variablesReference: typeof o.variablesReference === "number" ? o.variablesReference : 0,
         });
       }
       return out;
@@ -818,10 +781,7 @@ export class DebugSession {
     );
   }
 
-  private async onStopped(
-    body: Record<string, unknown>,
-    generation: number,
-  ): Promise<void> {
+  private async onStopped(body: Record<string, unknown>, generation: number): Promise<void> {
     if (generation !== this.generation || this.isDeadState()) return;
     const serial = ++this.stopSerial;
     this.stopInFlight = true;
@@ -832,12 +792,8 @@ export class DebugSession {
     if (this.drainEntryStop) {
       const peek = await this.fetchStack();
       const userFrame = peek.find((f) => f.path);
-      const bpLines =
-        userFrame?.path != null
-          ? (this.breakpoints.get(userFrame.path) ?? [])
-          : [];
-      const onUserBreakpoint =
-        !!userFrame && bpLines.includes(userFrame.line);
+      const bpLines = userFrame?.path != null ? (this.breakpoints.get(userFrame.path) ?? []) : [];
+      const onUserBreakpoint = !!userFrame && bpLines.includes(userFrame.line);
       if (onUserBreakpoint) {
         this.drainEntryStop = false;
       } else if (!userFrame || reason === "entry") {
@@ -869,21 +825,14 @@ export class DebugSession {
       for (const scope of scopes) {
         if (scope.variablesReference <= 0) continue;
         if (!shouldPrefetchScope(scope.name)) continue;
-        variables[scope.variablesReference] = await this.fetchVariables(
-          scope.variablesReference,
-        );
+        variables[scope.variablesReference] = await this.fetchVariables(scope.variablesReference);
       }
     }
     if (generation !== this.generation || this.stopSerial !== serial || this.isDeadState()) {
       return;
     }
     this.stopInFlight = false;
-    this.setState(
-      "paused",
-      typeof body.description === "string"
-        ? body.description
-        : reason,
-    );
+    this.setState("paused", typeof body.description === "string" ? body.description : reason);
     this.sendToSocket({
       type: "stopped",
       reason,
@@ -923,10 +872,7 @@ export class DebugSession {
       this.pending.delete(reqSeq);
       clearTimeout(pending.timer);
       if (msg.success === false) {
-        const message =
-          typeof msg.message === "string"
-            ? msg.message
-            : `${pending.command} failed`;
+        const message = typeof msg.message === "string" ? msg.message : `${pending.command} failed`;
         pending.reject(new Error(message));
         return;
       }
@@ -938,17 +884,12 @@ export class DebugSession {
     }
   }
 
-  private onAdapterEvent(
-    msg: Record<string, unknown>,
-    generation = this.generation,
-  ): void {
+  private onAdapterEvent(msg: Record<string, unknown>, generation = this.generation): void {
     if (generation !== this.generation) return;
     if (this.isDeadState()) return;
     const event = msg.event;
     const body =
-      msg.body && typeof msg.body === "object"
-        ? (msg.body as Record<string, unknown>)
-        : {};
+      msg.body && typeof msg.body === "object" ? (msg.body as Record<string, unknown>) : {};
     if (event === "initialized") {
       this.initializedEvent = true;
       return;
@@ -979,9 +920,7 @@ export class DebugSession {
 
   private onOutput(body: Record<string, unknown>): void {
     const category =
-      body.category === "stderr" || body.category === "console"
-        ? body.category
-        : "stdout";
+      body.category === "stderr" || body.category === "console" ? body.category : "stdout";
     const text = typeof body.output === "string" ? body.output : "";
     if (!text) return;
     if (this.outputChars >= this.limits.maxOutputChars) return;
@@ -1103,18 +1042,19 @@ export class DebugSession {
   private fail(state: "failed" | "unavailable", message: string): void {
     if (this.disposed) return;
     const extra = this.stderrTail.trim();
-    const full = extra
-      ? `${message}: ${clipString(extra, 400)}`
-      : message;
+    const full = extra ? `${message}: ${clipString(extra, 400)}` : message;
     this.killAdapter(message);
     this.releaseSlot();
     this.setState(state, full);
     const isTimedOut = message.toLowerCase().includes("timed out");
-    const failureType = state === "unavailable"
-      ? (isTimedOut ? "DEBUG_SESSION_TIMEOUT" : "DEBUG_SESSION_FAILED")
-      : isTimedOut
-        ? "DEBUG_SESSION_TIMEOUT"
-        : "DEBUG_SESSION_FAILED";
+    const failureType =
+      state === "unavailable"
+        ? isTimedOut
+          ? "DEBUG_SESSION_TIMEOUT"
+          : "DEBUG_SESSION_FAILED"
+        : isTimedOut
+          ? "DEBUG_SESSION_TIMEOUT"
+          : "DEBUG_SESSION_FAILED";
     this.recordAudit(failureType, full.slice(0, 200));
     this._auditTerminalLogged = true;
   }
@@ -1179,11 +1119,7 @@ export class DebugSession {
     this.clearSessionTimer();
     this.sessionTimer = setTimeout(() => {
       this.sessionTimer = null;
-      if (
-        this.state === "starting" ||
-        this.state === "running" ||
-        this.state === "paused"
-      ) {
+      if (this.state === "starting" || this.state === "running" || this.state === "paused") {
         this.dispose("session_timeout");
       }
     }, this.limits.sessionTimeoutMs);

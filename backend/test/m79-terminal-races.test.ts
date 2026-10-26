@@ -117,10 +117,9 @@ describe("M79 — terminal lifecycle races", () => {
   });
 
   it("a synchronous pty.spawn failure releases the terminal gate slot", async () => {
-    const { handleTerminalConnection, terminalSessions, terminalGate } =
-      await load(() => {
-        throw new Error("AttachConsole failed");
-      });
+    const { handleTerminalConnection, terminalSessions, terminalGate } = await load(() => {
+      throw new Error("AttachConsole failed");
+    });
     const cfg = makeTestConfig({ maxTerminalsPerUser: 1 });
 
     const ws = makeFakeWs();
@@ -129,11 +128,9 @@ describe("M79 — terminal lifecycle races", () => {
     ).resolves.toBeUndefined();
 
     expect(ws.closed).toBe(true);
-    expect(
-      ws.sent.some(
-        (m: any) => m.type === "data" && /failed to start/i.test(m.data),
-      ),
-    ).toBe(true);
+    expect(ws.sent.some((m: any) => m.type === "data" && /failed to start/i.test(m.data))).toBe(
+      true,
+    );
     expect(terminalSessions.has(1, "p", "t1")).toBe(false);
     // The slot must be free again — not permanently consumed by the failure.
     expect(terminalGate.activeCount(1)).toBe(0);

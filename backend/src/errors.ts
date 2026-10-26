@@ -1,4 +1,4 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, Response } from "express";
 
 export class ApiError extends Error {
   status: number;
@@ -13,7 +13,7 @@ export class ApiError extends Error {
   constructor(
     status: number,
     message: string,
-    code = 'request_error',
+    code = "request_error",
     details?: Record<string, unknown>,
   ) {
     super(message);
@@ -23,15 +23,22 @@ export class ApiError extends Error {
   }
 }
 
-export function errorMiddleware(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function errorMiddleware(
+  err: unknown,
+  _req: Request,
+  res: Response,
+  _next: NextFunction,
+): void {
   if (err instanceof ApiError) {
-    res.status(err.status).json({ error: { code: err.code, message: err.message }, ...(err.details ?? {}) });
+    res
+      .status(err.status)
+      .json({ error: { code: err.code, message: err.message }, ...(err.details ?? {}) });
     return;
   }
-  if (err instanceof SyntaxError && 'body' in err) {
-    res.status(400).json({ error: { code: 'invalid_json', message: 'invalid JSON body' } });
+  if (err instanceof SyntaxError && "body" in err) {
+    res.status(400).json({ error: { code: "invalid_json", message: "invalid JSON body" } });
     return;
   }
-  console.error('[error]', err);
-  res.status(500).json({ error: { code: 'internal_error', message: 'internal server error' } });
+  console.error("[error]", err);
+  res.status(500).json({ error: { code: "internal_error", message: "internal server error" } });
 }

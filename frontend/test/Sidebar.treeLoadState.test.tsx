@@ -12,9 +12,7 @@ afterEach(cleanup);
 const user: User = { id: 1, username: "alice" };
 const project: Project = { id: "proj-1", name: "P" };
 
-const tree: TreeNode[] = [
-  { name: "main.py", path: "main.py", type: "file" },
-];
+const tree: TreeNode[] = [{ name: "main.py", path: "main.py", type: "file" }];
 
 function props(over: Record<string, unknown>) {
   return {
@@ -52,10 +50,7 @@ describe("Sidebar file tree — load state", () => {
   it("shows a retryable error state when the tree fails to load", () => {
     const onRetryTree = vi.fn();
     const { getByTestId, getByRole, queryByText } = render(
-      React.createElement(
-        Sidebar,
-        props({ treeStatus: "error", onRetryTree }) as any,
-      ),
+      React.createElement(Sidebar, props({ treeStatus: "error", onRetryTree }) as any),
     );
     expect(getByTestId("file-tree-error")).toBeTruthy();
     expect(queryByText("Workspace is empty")).toBeNull();
@@ -86,10 +81,7 @@ describe("Sidebar file tree — load state", () => {
 
   it("keeps an already-loaded tree visible during a background refresh", () => {
     const { getByText, queryByTestId } = render(
-      React.createElement(
-        Sidebar,
-        props({ tree, treeStatus: "loading" }) as any,
-      ),
+      React.createElement(Sidebar, props({ tree, treeStatus: "loading" }) as any),
     );
     expect(getByText("main.py")).toBeTruthy();
     expect(queryByTestId("file-tree-loading")).toBeNull();

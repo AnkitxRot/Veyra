@@ -34,9 +34,7 @@ function customFrame(obj: unknown): Uint8Array {
   return encoding.toUint8Array(enc);
 }
 function feed(client: CollaborationClient, obj: unknown): void {
-  (
-    client as unknown as { handleMessage: (m: Uint8Array) => void }
-  ).handleMessage(customFrame(obj));
+  (client as unknown as { handleMessage: (m: Uint8Array) => void }).handleMessage(customFrame(obj));
 }
 
 const wellFormed = {
@@ -72,8 +70,7 @@ describe("CollaborationClient — M60 collab_change", () => {
     lastWs = null;
   });
 
-  const mk = () =>
-    new CollaborationClient("p", { id: 1, username: "me" } as never);
+  const mk = () => new CollaborationClient("p", { id: 1, username: "me" } as never);
 
   it("emits collab_change on a well-formed frame; ignores malformed", () => {
     const client = mk();

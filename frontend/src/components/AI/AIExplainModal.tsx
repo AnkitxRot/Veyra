@@ -1,5 +1,5 @@
-import React from 'react';
-import { IconCode, IconActivity } from '../common/Icons';
+import React from "react";
+import { IconCode, IconActivity } from "../common/Icons";
 
 export interface AIExplainModalProps {
   isOpen: boolean;
@@ -20,8 +20,8 @@ export default function AIExplainModal({
   onClose,
   onProposeFix,
   title,
-  providerName = 'Deterministic Rule & Static Analysis Engine',
-  providerType = 'deterministic',
+  providerName = "Deterministic Rule & Static Analysis Engine",
+  providerType = "deterministic",
   rootCause,
   explanation,
   evidence = [],
@@ -34,15 +34,15 @@ export default function AIExplainModal({
     <div
       className="modal-overlay"
       style={{
-        position: 'fixed',
+        position: "fixed",
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(8px)',
+        backgroundColor: "rgba(0, 0, 0, 0.75)",
+        backdropFilter: "blur(8px)",
         zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -54,40 +54,40 @@ export default function AIExplainModal({
       <div
         className="glass-panel"
         style={{
-          width: '90vw',
-          maxWidth: '700px',
-          maxHeight: '80vh',
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: '#11131a',
-          border: '1px solid var(--glass-border, rgba(255, 255, 255, 0.1))',
-          borderRadius: '12px',
-          boxShadow: '0 16px 48px rgba(0, 0, 0, 0.6)',
-          overflow: 'hidden',
+          width: "90vw",
+          maxWidth: "700px",
+          maxHeight: "80vh",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "#11131a",
+          border: "1px solid var(--glass-border, rgba(255, 255, 255, 0.1))",
+          borderRadius: "12px",
+          boxShadow: "0 16px 48px rgba(0, 0, 0, 0.6)",
+          overflow: "hidden",
         }}
       >
         {/* Header */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '14px 20px',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 20px",
+            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+            backgroundColor: "rgba(255, 255, 255, 0.02)",
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div
               style={{
-                width: '26px',
-                height: '26px',
-                borderRadius: '6px',
-                background: 'linear-gradient(135deg, #89b4fa 0%, #a6e3a1 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#11111b',
+                width: "26px",
+                height: "26px",
+                borderRadius: "6px",
+                background: "linear-gradient(135deg, #89b4fa 0%, #a6e3a1 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#11111b",
               }}
             >
               <IconActivity size={14} />
@@ -95,11 +95,11 @@ export default function AIExplainModal({
             <div>
               <h2
                 id="ai-explain-modal-title"
-                style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#cdd6f4' }}
+                style={{ margin: 0, fontSize: "15px", fontWeight: 600, color: "#cdd6f4" }}
               >
                 {title}
               </h2>
-              <div style={{ fontSize: '11px', color: '#6c7086', marginTop: '2px' }}>
+              <div style={{ fontSize: "11px", color: "#6c7086", marginTop: "2px" }}>
                 Provider: <strong>{providerName}</strong> ({providerType})
               </div>
             </div>
@@ -108,7 +108,7 @@ export default function AIExplainModal({
           <button
             onClick={onClose}
             className="glass-btn glass-btn-icon"
-            style={{ width: '28px', height: '28px' }}
+            style={{ width: "28px", height: "28px" }}
             title="Close"
           >
             ✕
@@ -119,48 +119,52 @@ export default function AIExplainModal({
         <div
           style={{
             flex: 1,
-            overflowY: 'auto',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            fontSize: '13px',
-            color: '#cdd6f4',
+            overflowY: "auto",
+            padding: "20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            fontSize: "13px",
+            color: "#cdd6f4",
           }}
         >
           {rootCause && (
             <div
               style={{
-                padding: '12px 14px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(243, 139, 168, 0.08)',
-                border: '1px solid rgba(243, 139, 168, 0.25)',
+                padding: "12px 14px",
+                borderRadius: "8px",
+                backgroundColor: "rgba(243, 139, 168, 0.08)",
+                border: "1px solid rgba(243, 139, 168, 0.25)",
               }}
             >
-              <div style={{ color: '#f38ba8', fontWeight: 700, fontSize: '12px', marginBottom: '4px' }}>
+              <div
+                style={{ color: "#f38ba8", fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}
+              >
                 Root Cause Analysis
               </div>
-              <div style={{ color: '#cdd6f4', lineHeight: 1.4 }}>{rootCause}</div>
+              <div style={{ color: "#cdd6f4", lineHeight: 1.4 }}>{rootCause}</div>
             </div>
           )}
 
           <div>
-            <div style={{ fontWeight: 600, color: '#89b4fa', marginBottom: '6px' }}>
+            <div style={{ fontWeight: 600, color: "#89b4fa", marginBottom: "6px" }}>
               Explanation &amp; Architecture Insights
             </div>
-            <div style={{ lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#a6adc8' }}>
+            <div style={{ lineHeight: 1.5, whiteSpace: "pre-wrap", color: "#a6adc8" }}>
               {explanation}
             </div>
           </div>
 
           {evidence.length > 0 && (
             <div>
-              <div style={{ fontWeight: 600, color: '#fab387', marginBottom: '6px' }}>
+              <div style={{ fontWeight: 600, color: "#fab387", marginBottom: "6px" }}>
                 Observed Evidence &amp; Context
               </div>
-              <ul style={{ margin: 0, paddingLeft: '20px', color: '#a6adc8', fontSize: '12px' }}>
+              <ul style={{ margin: 0, paddingLeft: "20px", color: "#a6adc8", fontSize: "12px" }}>
                 {evidence.map((ev, idx) => (
-                  <li key={idx} style={{ marginBottom: '3px' }}>{ev}</li>
+                  <li key={idx} style={{ marginBottom: "3px" }}>
+                    {ev}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -168,20 +172,20 @@ export default function AIExplainModal({
 
           {suggestedTests && (
             <div>
-              <div style={{ fontWeight: 600, color: '#a6e3a1', marginBottom: '6px' }}>
+              <div style={{ fontWeight: 600, color: "#a6e3a1", marginBottom: "6px" }}>
                 Suggested Test Suite
               </div>
               <pre
                 style={{
                   margin: 0,
-                  padding: '10px',
-                  borderRadius: '6px',
-                  backgroundColor: 'rgba(0, 0, 0, 0.4)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '12px',
-                  overflowX: 'auto',
-                  color: '#94e2d5',
+                  padding: "10px",
+                  borderRadius: "6px",
+                  backgroundColor: "rgba(0, 0, 0, 0.4)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "12px",
+                  overflowX: "auto",
+                  color: "#94e2d5",
                 }}
               >
                 {suggestedTests}
@@ -193,16 +197,21 @@ export default function AIExplainModal({
         {/* Footer */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: '10px',
-            padding: '12px 20px',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "10px",
+            padding: "12px 20px",
+            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+            backgroundColor: "rgba(255, 255, 255, 0.02)",
           }}
         >
-          <button type="button" onClick={onClose} className="glass-btn" style={{ padding: '6px 14px', fontSize: '12px' }}>
+          <button
+            type="button"
+            onClick={onClose}
+            className="glass-btn"
+            style={{ padding: "6px 14px", fontSize: "12px" }}
+          >
             Close
           </button>
 
@@ -215,14 +224,14 @@ export default function AIExplainModal({
               }}
               className="glass-btn glass-btn-primary"
               style={{
-                padding: '6px 16px',
-                fontSize: '12px',
+                padding: "6px 16px",
+                fontSize: "12px",
                 fontWeight: 600,
-                background: 'linear-gradient(135deg, #cba6f7 0%, #89b4fa 100%)',
-                color: '#11111b',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
+                background: "linear-gradient(135deg, #cba6f7 0%, #89b4fa 100%)",
+                color: "#11111b",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
               }}
             >
               <IconCode size={14} />

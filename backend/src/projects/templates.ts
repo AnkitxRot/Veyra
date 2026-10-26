@@ -1,6 +1,6 @@
-import { writeProjectFile } from '../files/service.js';
-import { getLang } from '../execution/languages.js';
-import { resolveMainFile } from '../execution/detect.js';
+import { writeProjectFile } from "../files/service.js";
+import { getLang } from "../execution/languages.js";
+import { resolveMainFile } from "../execution/detect.js";
 
 export interface ProjectTemplate {
   id: string;
@@ -19,14 +19,14 @@ export interface ProjectTemplate {
 
 export const STARTER_TEMPLATES: ProjectTemplate[] = [
   {
-    id: 'python',
-    name: 'Python',
-    description: 'A minimal Python script with a function and deterministic output',
-    language: 'python',
-    entryFile: 'main.py',
+    id: "python",
+    name: "Python",
+    description: "A minimal Python script with a function and deterministic output",
+    language: "python",
+    entryFile: "main.py",
     files: [
       {
-        path: 'main.py',
+        path: "main.py",
         content: `def greet(name: str) -> str:
     return f"Hello, {name}!"
 
@@ -44,14 +44,14 @@ if __name__ == "__main__":
     ],
   },
   {
-    id: 'node',
-    name: 'Node.js',
-    description: 'A minimal Node.js script using only built-in JavaScript',
-    language: 'node',
-    entryFile: 'main.js',
+    id: "node",
+    name: "Node.js",
+    description: "A minimal Node.js script using only built-in JavaScript",
+    language: "node",
+    entryFile: "main.js",
     files: [
       {
-        path: 'main.js',
+        path: "main.js",
         content: `function greet(name) {
   return \`Hello, \${name}!\`;
 }
@@ -65,14 +65,14 @@ console.log(\`Sum of 1..5 = \${total}\`);
     ],
   },
   {
-    id: 'typescript',
-    name: 'TypeScript',
-    description: 'A minimal TypeScript program run directly with tsx — no build step',
-    language: 'typescript',
-    entryFile: 'main.ts',
+    id: "typescript",
+    name: "TypeScript",
+    description: "A minimal TypeScript program run directly with tsx — no build step",
+    language: "typescript",
+    entryFile: "main.ts",
     files: [
       {
-        path: 'main.ts',
+        path: "main.ts",
         content: `function greet(name: string): string {
   return \`Hello, \${name}!\`;
 }
@@ -87,14 +87,14 @@ console.log(\`Sum of \${numbers.join(" + ")} = \${total}\`);
     ],
   },
   {
-    id: 'c',
-    name: 'C',
-    description: 'A minimal C program compiled with gcc (-O2 -Wall -Wextra)',
-    language: 'c',
-    entryFile: 'main.c',
+    id: "c",
+    name: "C",
+    description: "A minimal C program compiled with gcc (-O2 -Wall -Wextra)",
+    language: "c",
+    entryFile: "main.c",
     files: [
       {
-        path: 'main.c',
+        path: "main.c",
         content: `#include <stdio.h>
 
 static int add(int a, int b) {
@@ -111,14 +111,14 @@ int main(void) {
     ],
   },
   {
-    id: 'cpp-systems',
-    name: 'C++ Systems & Algorithms',
-    description: 'High-performance modular C++17 project with GCC compiler',
-    language: 'cpp',
-    entryFile: 'main.cpp',
+    id: "cpp-systems",
+    name: "C++ Systems & Algorithms",
+    description: "High-performance modular C++17 project with GCC compiler",
+    language: "cpp",
+    entryFile: "main.cpp",
     files: [
       {
-        path: 'main.cpp',
+        path: "main.cpp",
         content: `// C++17 High-Performance Modular Computation
 #include <iostream>
 #include <vector>
@@ -148,7 +148,7 @@ int main() {
 `,
       },
       {
-        path: 'README.md',
+        path: "README.md",
         content: `# C++ Systems Starter
 
 Demonstrates compiled C++17 code execution inside the Docker sandbox.
@@ -157,14 +157,14 @@ Demonstrates compiled C++17 code execution inside the Docker sandbox.
     ],
   },
   {
-    id: 'java',
-    name: 'Java',
-    description: 'A minimal Java program — class Main, compiled with javac and run on the JDK',
-    language: 'java',
-    entryFile: 'Main.java',
+    id: "java",
+    name: "Java",
+    description: "A minimal Java program — class Main, compiled with javac and run on the JDK",
+    language: "java",
+    entryFile: "Main.java",
     files: [
       {
-        path: 'Main.java',
+        path: "Main.java",
         content: `public class Main {
     static int square(int n) {
         return n * n;
@@ -180,14 +180,14 @@ Demonstrates compiled C++17 code execution inside the Docker sandbox.
     ],
   },
   {
-    id: 'static-web',
-    name: 'Static Web',
-    description: 'An HTML/CSS page served on the Preview tab by a tiny zero-dependency server',
-    language: 'node',
-    entryFile: 'main.js',
+    id: "static-web",
+    name: "Static Web",
+    description: "An HTML/CSS page served on the Preview tab by a tiny zero-dependency server",
+    language: "node",
+    entryFile: "main.js",
     files: [
       {
-        path: 'index.html',
+        path: "index.html",
         content: `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -213,7 +213,7 @@ Demonstrates compiled C++17 code execution inside the Docker sandbox.
 `,
       },
       {
-        path: 'style.css',
+        path: "style.css",
         content: `:root { color-scheme: light dark; }
 
 body {
@@ -237,7 +237,7 @@ code {
 `,
       },
       {
-        path: 'main.js',
+        path: "main.js",
         content: `// Minimal static file server for the CloudIDE Preview tab.
 // You usually don't need to edit this — press Run, then open the Preview tab.
 // Edit index.html / style.css to change the page.
@@ -284,14 +284,14 @@ http
     ],
   },
   {
-    id: 'python-data',
-    name: 'Python Data Science',
-    description: 'Data analysis and computational routines in pure Python',
-    language: 'python',
-    entryFile: 'main.py',
+    id: "python-data",
+    name: "Python Data Science",
+    description: "Data analysis and computational routines in pure Python",
+    language: "python",
+    entryFile: "main.py",
     files: [
       {
-        path: 'main.py',
+        path: "main.py",
         content: `# Python Data Science & Statistical Analysis Starter
 import csv
 import math
@@ -325,10 +325,10 @@ for k, v in stats.items():
 
 print("=" * 55)
 print("✅ Ready for scientific computation and virtual environments!")
-`
+`,
       },
       {
-        path: 'README.md',
+        path: "README.md",
         content: `# Python Data Science Starter
 
 A pre-configured environment for data analysis in CloudeeeIDE.
@@ -337,19 +337,19 @@ A pre-configured environment for data analysis in CloudeeeIDE.
 1. Select \`main.py\` in the file tree.
 2. Click **Run** or press **Ctrl+Enter**.
 3. Results stream in real time.
-`
-      }
-    ]
+`,
+      },
+    ],
   },
   {
-    id: 'node-web',
-    name: 'Node.js Web Preview',
-    description: 'HTTP server with responsive frontend for live web previewing',
-    language: 'node',
-    entryFile: 'server.js',
+    id: "node-web",
+    name: "Node.js Web Preview",
+    description: "HTTP server with responsive frontend for live web previewing",
+    language: "node",
+    entryFile: "server.js",
     files: [
       {
-        path: 'server.js',
+        path: "server.js",
         content: `// Node.js Web Server for Sandboxed Preview
 const http = require('http');
 const PORT = 3000;
@@ -388,17 +388,17 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(\`[Web Server] Listening on http://0.0.0.0:\${PORT} (Ready for Web Preview!)\`);
 });
-`
+`,
       },
       {
-        path: 'README.md',
+        path: "README.md",
         content: `# Node.js Web Preview Starter
 
 Run \`node server.js\` or start the server and click the **Web Preview** tab to view the live site.
-`
-      }
-    ]
-  }
+`,
+      },
+    ],
+  },
 ];
 
 // --- Deterministic catalog validation -------------------------------------
@@ -419,13 +419,13 @@ const MAX_FILE_BYTES = 64 * 1024;
 const MAX_TEMPLATE_BYTES = 128 * 1024;
 
 function isUnsafePath(p: string): boolean {
-  if (typeof p !== 'string' || p.length === 0) return true;
+  if (typeof p !== "string" || p.length === 0) return true;
   if (p !== p.trim()) return true;
-  if (p.startsWith('/') || p.startsWith('\\')) return true;
-  if (/^[a-zA-Z]:/.test(p) || p.startsWith('\\\\')) return true;
-  const segments = p.replace(/\\/g, '/').split('/');
-  if (segments.some((s) => s === '' || s === '.' || s === '..')) return true;
-  if (segments[0] === '.git') return true;
+  if (p.startsWith("/") || p.startsWith("\\")) return true;
+  if (/^[a-zA-Z]:/.test(p) || p.startsWith("\\\\")) return true;
+  const segments = p.replace(/\\/g, "/").split("/");
+  if (segments.some((s) => s === "" || s === "." || s === "..")) return true;
+  if (segments[0] === ".git") return true;
   return false;
 }
 
@@ -437,27 +437,27 @@ export function validateTemplates(
   const seenNames = new Set<string>();
 
   for (const t of templates) {
-    const id = t.id || '(missing id)';
+    const id = t.id || "(missing id)";
     const fail = (problem: string) => issues.push({ templateId: id, problem });
 
     if (!t.id || !/^[a-z0-9][a-z0-9-]*$/.test(t.id)) {
-      fail('id must be lower-kebab-case');
+      fail("id must be lower-kebab-case");
     }
-    if (seenIds.has(t.id)) fail('duplicate template id');
+    if (seenIds.has(t.id)) fail("duplicate template id");
     seenIds.add(t.id);
 
-    const nameKey = (t.name || '').trim().toLowerCase();
-    if (!nameKey) fail('missing display name');
-    if (seenNames.has(nameKey)) fail('duplicate display name');
+    const nameKey = (t.name || "").trim().toLowerCase();
+    if (!nameKey) fail("missing display name");
+    if (seenNames.has(nameKey)) fail("duplicate display name");
     seenNames.add(nameKey);
 
-    if (!t.description || !t.description.trim()) fail('missing description');
+    if (!t.description || !t.description.trim()) fail("missing description");
 
     const lang = getLang(t.language);
     if (!lang) fail(`unknown language: ${t.language}`);
 
     if (!Array.isArray(t.files) || t.files.length === 0) {
-      fail('template has no files');
+      fail("template has no files");
       continue;
     }
 
@@ -470,11 +470,11 @@ export function validateTemplates(
       }
       if (paths.has(f.path)) fail(`duplicate file path: ${f.path}`);
       paths.add(f.path);
-      if (typeof f.content !== 'string') {
+      if (typeof f.content !== "string") {
         fail(`file content must be a string: ${f.path}`);
         continue;
       }
-      const bytes = Buffer.byteLength(f.content, 'utf8');
+      const bytes = Buffer.byteLength(f.content, "utf8");
       totalBytes += bytes;
       if (bytes > MAX_FILE_BYTES) fail(`file exceeds ${MAX_FILE_BYTES} bytes: ${f.path}`);
     }
@@ -491,7 +491,9 @@ export function validateTemplates(
     if (lang && lang.run) {
       const resolved = resolveMainFile(lang, [...paths], null);
       if (!resolved) {
-        fail(`run pipeline cannot resolve a ${t.language} entry file from ${[...paths].join(', ')}`);
+        fail(
+          `run pipeline cannot resolve a ${t.language} entry file from ${[...paths].join(", ")}`,
+        );
       }
     }
   }
@@ -503,8 +505,8 @@ export function assertTemplatesValid(): void {
   const issues = validateTemplates();
   if (issues.length > 0) {
     throw new Error(
-      'Invalid STARTER_TEMPLATES:\n' +
-        issues.map((i) => `  - [${i.templateId}] ${i.problem}`).join('\n'),
+      "Invalid STARTER_TEMPLATES:\n" +
+        issues.map((i) => `  - [${i.templateId}] ${i.problem}`).join("\n"),
     );
   }
 }

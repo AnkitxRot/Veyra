@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(
-  join(here, "../src/components/IDE/IDE.tsx"),
-  "utf-8",
-);
+const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
 
 /**
  * M79 — IDE.tsx wiring for the project-lifetime terminal session.
@@ -35,12 +32,8 @@ describe("M79 — IDE.tsx terminal host wiring", () => {
     expect(terminalAt).toBeGreaterThan(-1);
     // <Terminal> appears after the close of the collapsed block, or the
     // collapsed block explicitly excludes the terminal tab.
-    const otherPanelsGate = src.match(
-      /!isBottomCollapsed && bottomTab !== "terminal"/,
-    );
-    const terminalAfterBlock =
-      src.indexOf("<Terminal") >
-      src.indexOf("{bottomTab === \"git\" && (");
+    const otherPanelsGate = src.match(/!isBottomCollapsed && bottomTab !== "terminal"/);
+    const terminalAfterBlock = src.indexOf("<Terminal") > src.indexOf('{bottomTab === "git" && (');
     expect(Boolean(otherPanelsGate) || terminalAfterBlock).toBe(true);
   });
 

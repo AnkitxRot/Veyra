@@ -104,13 +104,7 @@ function aadFor(id: SecretIdentity, keyVersion: number): Buffer {
   // or newline (names/scope/env are regex-validated; environment is validated
   // or null), so the concatenation is unambiguous.
   return Buffer.from(
-    [
-      id.scope,
-      id.scopeId,
-      id.environment ?? "",
-      id.name,
-      String(keyVersion),
-    ].join(" "),
+    [id.scope, id.scopeId, id.environment ?? "", id.name, String(keyVersion)].join(" "),
     "utf8",
   );
 }
@@ -140,9 +134,7 @@ export function decryptSecret(
 ): string {
   const key = resolveMasterKey(masterKeyRaw);
   if (record.keyVersion !== CURRENT_KEY_VERSION) {
-    throw new SecretsDecryptError(
-      `unsupported key version ${record.keyVersion}`,
-    );
+    throw new SecretsDecryptError(`unsupported key version ${record.keyVersion}`);
   }
   if (
     !Buffer.isBuffer(record.ciphertext) ||
@@ -153,17 +145,12 @@ export function decryptSecret(
     throw new SecretsDecryptError("malformed secret record");
   }
   const tag = record.ciphertext.subarray(record.ciphertext.length - TAG_BYTES);
-  const body = record.ciphertext.subarray(
-    0,
-    record.ciphertext.length - TAG_BYTES,
-  );
+  const body = record.ciphertext.subarray(0, record.ciphertext.length - TAG_BYTES);
   const decipher = createDecipheriv("aes-256-gcm", key, record.nonce);
   decipher.setAAD(aadFor(id, record.keyVersion));
   decipher.setAuthTag(tag);
   try {
-    return Buffer.concat([decipher.update(body), decipher.final()]).toString(
-      "utf8",
-    );
+    return Buffer.concat([decipher.update(body), decipher.final()]).toString("utf8");
   } catch {
     // Wrong key or tampered ciphertext/AAD. Never surface details.
     throw new SecretsDecryptError("secret could not be decrypted");

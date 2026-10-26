@@ -19,9 +19,7 @@ describe("M61-A comment validation", () => {
 
   it("mentions: dedupe + cap 20; non-ints dropped", () => {
     expect(parseMentionIds([1, 1, 2, "3", 3.5, null])).toEqual([1, 2]);
-    expect(
-      parseMentionIds(Array.from({ length: 50 }, (_, i) => i + 1)).length,
-    ).toBe(20);
+    expect(parseMentionIds(Array.from({ length: 50 }, (_, i) => i + 1)).length).toBe(20);
     expect(parseMentionIds("nope")).toEqual([]);
   });
 

@@ -5,10 +5,7 @@ import { parse } from "node:url";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { requireProjectAccess } from "../projects/service.js";
-import {
-  handleTerminalConnection,
-  parseTerminalResumeFlag,
-} from "./terminal.js";
+import { handleTerminalConnection, parseTerminalResumeFlag } from "./terminal.js";
 import { handleExecutionConnection } from "./execution.js";
 import { handleLspConnection } from "../lsp/ws.js";
 import { handleDebugConnection } from "../debug/ws.js";
@@ -66,17 +63,12 @@ interface SocketMetadata {
   userId?: string;
 }
 
-const heartbeatControllers = new WeakMap<
-  WebSocketServer,
-  HeartbeatController
->();
+const heartbeatControllers = new WeakMap<WebSocketServer, HeartbeatController>();
 const socketMeta = new WeakMap<WebSocket, SocketMetadata>();
 
 function resolveHeartbeatIntervalMs(): number {
   const raw = Number(process.env.WS_HEARTBEAT_INTERVAL_MS);
-  return Number.isFinite(raw) && raw > 0
-    ? raw
-    : DEFAULT_WS_HEARTBEAT_INTERVAL_MS;
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_WS_HEARTBEAT_INTERVAL_MS;
 }
 
 /**
@@ -85,10 +77,7 @@ function resolveHeartbeatIntervalMs(): number {
  * error listener that attributes frame-limit violations (the socket's own
  * route handler remains responsible for teardown/logging semantics).
  */
-function adoptClient(
-  ws: WebSocket,
-  meta: Omit<SocketMetadata, "isAlive">,
-): void {
+function adoptClient(ws: WebSocket, meta: Omit<SocketMetadata, "isAlive">): void {
   socketMeta.set(ws, { isAlive: true, ...meta });
 
   ws.on("pong", () => {
@@ -175,17 +164,11 @@ function createHeartbeatController(wss: WebSocketServer): HeartbeatController {
  * Returns the heartbeat controller bound to this server instance, or
  * undefined when the server was not created through setupWebSocketServer.
  */
-export function getHeartbeatController(
-  wss: WebSocketServer,
-): HeartbeatController | undefined {
+export function getHeartbeatController(wss: WebSocketServer): HeartbeatController | undefined {
   return heartbeatControllers.get(wss);
 }
 
-export function setupWebSocketServer(
-  server: any,
-  db: Db,
-  cfg: AppConfig,
-): WebSocketServer {
+export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSocketServer {
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: DEFAULT_WS_MAX_PAYLOAD,
@@ -197,285 +180,257 @@ export function setupWebSocketServer(
   heartbeatControllers.set(wss, heartbeat);
   heartbeat.start();
 
-  server.on(
-    "upgrade",
-    async (req: IncomingMessage, socket: any, head: Buffer) => {
-      const { pathname, query } = parse(req.url || "", true);
+  server.on("upgrade", async (req: IncomingMessage, socket: any, head: Buffer) => {
+    const { pathname, query } = parse(req.url || "", true);
 
-      // Auth validation — session cookie
-      let token = "";
-      if (req.headers.cookie) {
-        const match = req.headers.cookie.match(
-          /(?:^|;\s*)session_token=([^;]+)/,
-        );
-        if (match) token = match[1]!;
-      }
+    // Auth validation — session cookie
+    let token = "";
+    if (req.headers.cookie) {
+      const match = req.headers.cookie.match(/(?:^|;\s*)session_token=([^;]+)/);
+      if (match) token = match[1]!;
+    }
 
-      if (!token) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+    if (!token) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
 
-      const hashedToken = hashToken(token);
-      const row = db
-        .prepare(
-          `SELECT s.token, s.expires_at, u.id, u.username, u.role
+    const hashedToken = hashToken(token);
+    const row = db
+      .prepare(
+        `SELECT s.token, s.expires_at, u.id, u.username, u.role
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token = ?`,
-        )
-        .get(hashedToken) as
-        | {
-            token: string;
-            expires_at: string;
-            id: number;
-            username: string;
-            role?: string;
-          }
-        | undefined;
-
-      if (!row || new Date(row.expires_at).getTime() < Date.now()) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-
-      // 1. Admin Telemetry & Event Stream Upgrade
-      if (pathname === "/ws/admin" || pathname === "/ws/admin/telemetry") {
-        if (row.role !== "admin") {
-          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-          socket.destroy();
-          return;
+      )
+      .get(hashedToken) as
+      | {
+          token: string;
+          expires_at: string;
+          id: number;
+          username: string;
+          role?: string;
         }
+      | undefined;
 
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          adoptClient(ws, {
-            pathname: pathname ?? undefined,
-            userId: String(row.id),
-          });
-          registerConnection(row.id, ws);
-          ws.on("close", () => unregisterConnection(row.id, ws));
-          // Own the 'error' path here rather than relying on addClient()
-          // happening to attach one: an 'error' event with zero listeners
-          // throws synchronously and takes down the whole process, and the
-          // connection registry must be cleaned up on the error path too.
-          ws.on("error", (err) => {
-            console.error("[ws] admin socket error:", err);
-            unregisterConnection(row.id, ws);
-          });
-          adminStreamManager.addClient(ws);
-        });
-        return;
-      }
+    if (!row || new Date(row.expires_at).getTime() < Date.now()) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
 
-      // 2. Web Preview Proxy Upgrade (project id comes from the URL path,
-      // not ?projectId=, so this must run before the projectId query-param
-      // block below — otherwise every preview upgrade would get a spurious
-      // 400).
-      const proxyMatch = pathname?.match(
-        /^\/api\/projects\/([^/]+)\/proxy\/(\d+)(?:\/.*)?$/,
-      );
-      if (proxyMatch) {
-        const [, proxyProjectId, proxyPortRaw] = proxyMatch;
-        try {
-          const { entry } = await resolveProxyEntry(
-            db,
-            row.id,
-            proxyProjectId!,
-            proxyPortRaw!,
-            cfg,
-          );
-          registerProxySocket(row.id, socket);
-          socket.on("close", () => unregisterProxySocket(row.id, socket));
-          socket.on("error", (err: unknown) => {
-            console.error("[ws] proxy socket error:", err);
-            unregisterProxySocket(row.id, socket);
-          });
-          entry.proxy.upgrade(req, socket, head);
-        } catch (err) {
-          if (err instanceof ApiError) {
-            const reasonPhrase =
-              err.status === 400
-                ? "400 Bad Request"
-                : err.status === 401
-                  ? "401 Unauthorized"
-                  : err.status === 403
-                    ? "403 Forbidden"
-                    : err.status === 404
-                      ? "404 Not Found"
-                      : "500 Internal Server Error";
-            socket.write(`HTTP/1.1 ${reasonPhrase}\r\n\r\n`);
-          } else {
-            console.error("[ws] proxy upgrade error:", err);
-            socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-          }
-          socket.destroy();
-        }
-        return;
-      }
-
-      // 3. Project Workload & Collaboration Upgrades
-      const projectId = query.projectId as string;
-      if (!projectId) {
-        socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-
-      let accessRole: "owner" | "editor" | "viewer";
-      try {
-        const minRole =
-          pathname === "/ws/terminal" ||
-          pathname === "/ws/execute" ||
-          pathname === "/ws/debug"
-            ? "editor"
-            : "viewer";
-        const access = requireProjectAccess(db, row.id, projectId, minRole);
-        accessRole = access.role;
-      } catch {
+    // 1. Admin Telemetry & Event Stream Upgrade
+    if (pathname === "/ws/admin" || pathname === "/ws/admin/telemetry") {
+      if (row.role !== "admin") {
         socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
         socket.destroy();
         return;
       }
 
-      if (pathname === "/ws/collab") {
-        const room = collaborationManager.getOrCreateRoom(projectId);
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          adoptClient(ws, {
-            pathname: pathname ?? undefined,
-            userId: String(row.id),
-          });
-          registerConnection(row.id, ws);
-          room.addClient(ws, {
-            userId: row.id,
-            username: row.username,
-            role: accessRole,
-          });
-          // M60: seed a last-seen boundary on the FIRST ever connect to this
-          // project (no-op afterwards) — a first-time collaborator has no
-          // "while you were away" backlog. The boundary then advances only on
-          // disconnect and on while-away ack.
-          insertLastSeenIfAbsent(db, projectId, row.id);
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        adoptClient(ws, {
+          pathname: pathname ?? undefined,
+          userId: String(row.id),
+        });
+        registerConnection(row.id, ws);
+        ws.on("close", () => unregisterConnection(row.id, ws));
+        // Own the 'error' path here rather than relying on addClient()
+        // happening to attach one: an 'error' event with zero listeners
+        // throws synchronously and takes down the whole process, and the
+        // connection registry must be cleaned up on the error path too.
+        ws.on("error", (err) => {
+          console.error("[ws] admin socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
+        adminStreamManager.addClient(ws);
+      });
+      return;
+    }
 
-          ws.on("message", (data: any) => {
-            const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
-            room.handleMessage(ws, u8);
-          });
-
-          ws.on("close", () => {
-            unregisterConnection(row.id, ws);
-            room.removeClient(ws);
-          });
-
-          ws.on("error", () => {
-            unregisterConnection(row.id, ws);
-            room.removeClient(ws);
-          });
+    // 2. Web Preview Proxy Upgrade (project id comes from the URL path,
+    // not ?projectId=, so this must run before the projectId query-param
+    // block below — otherwise every preview upgrade would get a spurious
+    // 400).
+    const proxyMatch = pathname?.match(/^\/api\/projects\/([^/]+)\/proxy\/(\d+)(?:\/.*)?$/);
+    if (proxyMatch) {
+      const [, proxyProjectId, proxyPortRaw] = proxyMatch;
+      try {
+        const { entry } = await resolveProxyEntry(db, row.id, proxyProjectId!, proxyPortRaw!, cfg);
+        registerProxySocket(row.id, socket);
+        socket.on("close", () => unregisterProxySocket(row.id, socket));
+        socket.on("error", (err: unknown) => {
+          console.error("[ws] proxy socket error:", err);
+          unregisterProxySocket(row.id, socket);
         });
-      } else if (pathname === "/ws/terminal") {
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          adoptClient(ws, {
-            pathname: pathname ?? undefined,
-            userId: String(row.id),
-          });
-          registerConnection(row.id, ws);
-          ws.on("close", () => unregisterConnection(row.id, ws));
-          // ws (the library) throws and crashes the process on an 'error'
-          // event with no listeners — a single client sending a malformed
-          // frame or dropping the TCP connection abnormally would otherwise
-          // take down the whole server for every connected user.
-          ws.on("error", (err) => {
-            console.error("[ws] terminal socket error:", err);
-            unregisterConnection(row.id, ws);
-          });
-          const terminalId =
-            typeof query.terminalId === "string"
-              ? query.terminalId
-              : undefined;
-          const lastSeqRaw = Number(query.lastSeq);
-          const resume = parseTerminalResumeFlag(query.resume);
-          handleTerminalConnection(
-            ws,
-            projectId,
-            cfg,
-            row.id,
-            db,
-            terminalId,
-            Number.isFinite(lastSeqRaw) ? lastSeqRaw : 0,
-            resume,
-          ).catch((err) => {
-            console.error("[ws] terminal connection error:", err);
-            ws.close();
-          });
-        });
-      } else if (pathname === "/ws/execute") {
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          adoptClient(ws, {
-            pathname: pathname ?? undefined,
-            userId: String(row.id),
-          });
-          registerConnection(row.id, ws);
-          ws.on("close", () => unregisterConnection(row.id, ws));
-          ws.on("error", (err) => {
-            console.error("[ws] execution socket error:", err);
-            unregisterConnection(row.id, ws);
-          });
-          handleExecutionConnection(
-            ws,
-            projectId,
-            row.id,
-            row.username,
-            cfg,
-            db,
-          ).catch((err) => {
-            console.error("[ws] execution connection error:", err);
-            ws.close();
-          });
-        });
-      } else if (pathname === "/ws/debug") {
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          adoptClient(ws, {
-            pathname: pathname ?? undefined,
-            userId: String(row.id),
-          });
-          registerConnection(row.id, ws);
-          ws.on("close", () => unregisterConnection(row.id, ws));
-          ws.on("error", (err) => {
-            console.error("[ws] debug socket error:", err);
-            unregisterConnection(row.id, ws);
-          });
-          handleDebugConnection(ws, projectId, row.id, cfg).catch((err) => {
-            console.error("[ws] debug connection error:", err);
-            ws.close();
-          });
-        });
-      } else if (pathname === "/ws/lsp") {
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          adoptClient(ws, {
-            pathname: pathname ?? undefined,
-            userId: String(row.id),
-          });
-          registerConnection(row.id, ws);
-          ws.on("close", () => unregisterConnection(row.id, ws));
-          ws.on("error", (err) => {
-            console.error("[ws] lsp socket error:", err);
-            unregisterConnection(row.id, ws);
-          });
-          const language =
-            typeof query.language === "string" ? query.language : "";
-          handleLspConnection(ws, projectId, language, row.id, cfg).catch(
-            (err) => {
-              console.error("[ws] lsp connection error:", err);
-              ws.close();
-            },
-          );
-        });
-      } else {
-        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+        entry.proxy.upgrade(req, socket, head);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          const reasonPhrase =
+            err.status === 400
+              ? "400 Bad Request"
+              : err.status === 401
+                ? "401 Unauthorized"
+                : err.status === 403
+                  ? "403 Forbidden"
+                  : err.status === 404
+                    ? "404 Not Found"
+                    : "500 Internal Server Error";
+          socket.write(`HTTP/1.1 ${reasonPhrase}\r\n\r\n`);
+        } else {
+          console.error("[ws] proxy upgrade error:", err);
+          socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        }
         socket.destroy();
       }
-    },
-  );
+      return;
+    }
+
+    // 3. Project Workload & Collaboration Upgrades
+    const projectId = query.projectId as string;
+    if (!projectId) {
+      socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    let accessRole: "owner" | "editor" | "viewer";
+    try {
+      const minRole =
+        pathname === "/ws/terminal" || pathname === "/ws/execute" || pathname === "/ws/debug"
+          ? "editor"
+          : "viewer";
+      const access = requireProjectAccess(db, row.id, projectId, minRole);
+      accessRole = access.role;
+    } catch {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    if (pathname === "/ws/collab") {
+      const room = collaborationManager.getOrCreateRoom(projectId);
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        adoptClient(ws, {
+          pathname: pathname ?? undefined,
+          userId: String(row.id),
+        });
+        registerConnection(row.id, ws);
+        room.addClient(ws, {
+          userId: row.id,
+          username: row.username,
+          role: accessRole,
+        });
+        // M60: seed a last-seen boundary on the FIRST ever connect to this
+        // project (no-op afterwards) — a first-time collaborator has no
+        // "while you were away" backlog. The boundary then advances only on
+        // disconnect and on while-away ack.
+        insertLastSeenIfAbsent(db, projectId, row.id);
+
+        ws.on("message", (data: any) => {
+          const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+          room.handleMessage(ws, u8);
+        });
+
+        ws.on("close", () => {
+          unregisterConnection(row.id, ws);
+          room.removeClient(ws);
+        });
+
+        ws.on("error", () => {
+          unregisterConnection(row.id, ws);
+          room.removeClient(ws);
+        });
+      });
+    } else if (pathname === "/ws/terminal") {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        adoptClient(ws, {
+          pathname: pathname ?? undefined,
+          userId: String(row.id),
+        });
+        registerConnection(row.id, ws);
+        ws.on("close", () => unregisterConnection(row.id, ws));
+        // ws (the library) throws and crashes the process on an 'error'
+        // event with no listeners — a single client sending a malformed
+        // frame or dropping the TCP connection abnormally would otherwise
+        // take down the whole server for every connected user.
+        ws.on("error", (err) => {
+          console.error("[ws] terminal socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
+        const terminalId = typeof query.terminalId === "string" ? query.terminalId : undefined;
+        const lastSeqRaw = Number(query.lastSeq);
+        const resume = parseTerminalResumeFlag(query.resume);
+        handleTerminalConnection(
+          ws,
+          projectId,
+          cfg,
+          row.id,
+          db,
+          terminalId,
+          Number.isFinite(lastSeqRaw) ? lastSeqRaw : 0,
+          resume,
+        ).catch((err) => {
+          console.error("[ws] terminal connection error:", err);
+          ws.close();
+        });
+      });
+    } else if (pathname === "/ws/execute") {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        adoptClient(ws, {
+          pathname: pathname ?? undefined,
+          userId: String(row.id),
+        });
+        registerConnection(row.id, ws);
+        ws.on("close", () => unregisterConnection(row.id, ws));
+        ws.on("error", (err) => {
+          console.error("[ws] execution socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
+        handleExecutionConnection(ws, projectId, row.id, row.username, cfg, db).catch((err) => {
+          console.error("[ws] execution connection error:", err);
+          ws.close();
+        });
+      });
+    } else if (pathname === "/ws/debug") {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        adoptClient(ws, {
+          pathname: pathname ?? undefined,
+          userId: String(row.id),
+        });
+        registerConnection(row.id, ws);
+        ws.on("close", () => unregisterConnection(row.id, ws));
+        ws.on("error", (err) => {
+          console.error("[ws] debug socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
+        handleDebugConnection(ws, projectId, row.id, cfg).catch((err) => {
+          console.error("[ws] debug connection error:", err);
+          ws.close();
+        });
+      });
+    } else if (pathname === "/ws/lsp") {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        adoptClient(ws, {
+          pathname: pathname ?? undefined,
+          userId: String(row.id),
+        });
+        registerConnection(row.id, ws);
+        ws.on("close", () => unregisterConnection(row.id, ws));
+        ws.on("error", (err) => {
+          console.error("[ws] lsp socket error:", err);
+          unregisterConnection(row.id, ws);
+        });
+        const language = typeof query.language === "string" ? query.language : "";
+        handleLspConnection(ws, projectId, language, row.id, cfg).catch((err) => {
+          console.error("[ws] lsp connection error:", err);
+          ws.close();
+        });
+      });
+    } else {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+    }
+  });
 
   return wss;
 }

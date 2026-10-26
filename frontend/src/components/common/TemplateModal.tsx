@@ -9,29 +9,13 @@ export const CLONE_HTTPS_ID = "__clone_https__";
 interface TemplateModalProps {
   isOpen: boolean;
   isCreating: boolean;
-  onConfirm: (opts: {
-    templateId: string | null;
-    name: string;
-    entryFile: string | null;
-  }) => void;
-  onClone?: (opts: {
-    name: string;
-    url: string;
-    username: string;
-    token: string;
-  }) => void;
+  onConfirm: (opts: { templateId: string | null; name: string; entryFile: string | null }) => void;
+  onClone?: (opts: { name: string; url: string; username: string; token: string }) => void;
   onCancel: () => void;
 }
 
 // Languages whose starters are directly runnable the moment the project opens.
-const RUN_READY_LANGUAGES = new Set([
-  "python",
-  "node",
-  "typescript",
-  "c",
-  "cpp",
-  "java",
-]);
+const RUN_READY_LANGUAGES = new Set(["python", "node", "typescript", "c", "cpp", "java"]);
 
 // The starter selected by default when the catalog loads — chosen so the
 // user's very first action can be Run.
@@ -47,9 +31,7 @@ export function TemplateModal({
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
-    null,
-  );
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneUser, setCloneUser] = useState("");
@@ -82,9 +64,7 @@ export function TemplateModal({
       .then((res) => {
         if (cancelled) return;
         setTemplates(res.templates);
-        const preferred = res.templates.find(
-          (t) => t.id === DEFAULT_TEMPLATE_ID,
-        );
+        const preferred = res.templates.find((t) => t.id === DEFAULT_TEMPLATE_ID);
         if (preferred && !userPickedRef.current) {
           setSelectedTemplateId(preferred.id);
           setName((cur) => (cur === "" ? preferred.name : cur));
@@ -216,9 +196,8 @@ export function TemplateModal({
               lineHeight: 1.4,
             }}
           >
-            Pick a starter and press Run — every starter works with no setup.
-            Or choose Blank for an empty workspace, or clone an HTTPS Git
-            repository.
+            Pick a starter and press Run — every starter works with no setup. Or choose Blank for an
+            empty workspace, or clone an HTTPS Git repository.
           </p>
         </div>
 
@@ -263,9 +242,7 @@ export function TemplateModal({
               >
                 Clone HTTPS repo
               </span>
-              <span
-                style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}
-              >
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
                 New project from a remote
               </span>
             </button>
@@ -296,9 +273,7 @@ export function TemplateModal({
               >
                 Blank Project
               </span>
-              <span
-                style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}
-              >
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
                 Start with an empty workspace
               </span>
             </button>
@@ -369,9 +344,7 @@ export function TemplateModal({
                         alignSelf: "flex-start",
                       }}
                     >
-                      <span className="glass-badge glass-badge-accent">
-                        {tpl.language}
-                      </span>
+                      <span className="glass-badge glass-badge-accent">{tpl.language}</span>
                       {RUN_READY_LANGUAGES.has(tpl.language) && (
                         <span className="glass-badge">▶ Runs on create</span>
                       )}
@@ -389,8 +362,7 @@ export function TemplateModal({
                 color: "var(--warning)",
               }}
             >
-              Templates unavailable ({catalogError}) — you can still create a
-              blank project.
+              Templates unavailable ({catalogError}) — you can still create a blank project.
             </p>
           )}
 
@@ -404,9 +376,7 @@ export function TemplateModal({
           />
 
           {cloneSelected && (
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               <input
                 className="glass-input"
                 aria-label="HTTPS repository URL"
@@ -439,26 +409,20 @@ export function TemplateModal({
                   color: "var(--fg-muted)",
                 }}
               >
-                HTTPS only. Credentials are stored as encrypted project secrets
-                and never written into the remote URL.
+                HTTPS only. Credentials are stored as encrypted project secrets and never written
+                into the remote URL.
               </p>
             </div>
           )}
 
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}
-          >
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
             <button type="button" className="glass-btn" onClick={onCancel}>
               Cancel
             </button>
             <button
               type="submit"
               className="glass-btn glass-btn-primary"
-              disabled={
-                !name.trim() ||
-                isCreating ||
-                (cloneSelected && !cloneUrl.trim())
-              }
+              disabled={!name.trim() || isCreating || (cloneSelected && !cloneUrl.trim())}
             >
               {isCreating
                 ? cloneSelected

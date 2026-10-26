@@ -3,10 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import { ApiError } from "../errors.js";
 import type { AppConfig } from "../config.js";
 import { workspacePath } from "../projects/service.js";
-import {
-  isDockerRunningAsync,
-  isRunnerImageAvailableAsync,
-} from "../tools.js";
+import { isDockerRunningAsync, isRunnerImageAvailableAsync } from "../tools.js";
 import { sandboxManager } from "../execution/sandbox.js";
 import { lspHostDockerEnv } from "../lsp/process.js";
 
@@ -126,10 +123,7 @@ const ownerResolvers = new WeakMap<AppConfig, OwnerResolver>();
  * project owner (the same "owner" slot `SandboxManager` tracks), and a
  * project that no longer exists never gets a container.
  */
-export function registerGitSandboxOwnerResolver(
-  cfg: AppConfig,
-  resolve: OwnerResolver,
-): void {
+export function registerGitSandboxOwnerResolver(cfg: AppConfig, resolve: OwnerResolver): void {
   ownerResolvers.set(cfg, resolve);
 }
 
@@ -156,10 +150,7 @@ function sandboxUnavailable(detail?: string): ApiError {
  * workspace as its only bind mount, so an exec by this name can only ever
  * reach this project's repository.
  */
-export async function gitSandboxContainer(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<string> {
+export async function gitSandboxContainer(cfg: AppConfig, projectId: string): Promise<string> {
   assertGitProjectId(projectId);
   const workspaceDir = await workspacePath(cfg, projectId);
   const ownerId = ownerResolvers.get(cfg)?.(projectId);
@@ -174,12 +165,7 @@ export async function gitSandboxContainer(
   }
   let containerId: string;
   try {
-    containerId = await sandboxManager.ensureProjectSandbox(
-      projectId,
-      cfg,
-      workspaceDir,
-      ownerId,
-    );
+    containerId = await sandboxManager.ensureProjectSandbox(projectId, cfg, workspaceDir, ownerId);
   } catch (err: any) {
     throw sandboxUnavailable(String(err?.message ?? "start failed").slice(0, 200));
   }
@@ -266,10 +252,7 @@ const DOCKER_FAILURE_RE =
  */
 const staleLocksSince = new Map<string, number>();
 
-async function clearStaleGitLocks(
-  containerId: string,
-  sinceEpochSec: number,
-): Promise<void> {
+async function clearStaleGitLocks(containerId: string, sinceEpochSec: number): Promise<void> {
   await new Promise<void>((resolve) => {
     const child = spawn(
       "docker",
@@ -359,9 +342,7 @@ export async function runSandboxGit(
   }
   const elapsed = Date.now() - started;
   const timedOut =
-    result.hostKilled ||
-    result.code === 124 ||
-    (result.code === 137 && elapsed >= timeoutMs - 250);
+    result.hostKilled || result.code === 124 || (result.code === 137 && elapsed >= timeoutMs - 250);
   if (timedOut) {
     noteKilledOperation(projectId, started);
     if (sandboxManager.hasActiveSandbox(projectId)) {

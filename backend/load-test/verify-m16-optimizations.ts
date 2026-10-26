@@ -45,7 +45,15 @@ async function measureColdConcurrency(concurrency: number): Promise<{
     const t0 = performance.now();
     try {
       await sandboxManager.ensureProjectSandbox(p.id, resolveConfig(), p.dir, 1);
-      await execFileAsync("docker", ["exec", "-i", "-w", "/workspace", `ide-sandbox-${p.id}`, "python3", "main.py"]);
+      await execFileAsync("docker", [
+        "exec",
+        "-i",
+        "-w",
+        "/workspace",
+        `ide-sandbox-${p.id}`,
+        "python3",
+        "main.py",
+      ]);
       const elapsed = performance.now() - t0;
       await sandboxManager.stopProjectSandbox(p.id);
       return elapsed;
@@ -88,7 +96,10 @@ async function run50VUBurstTest(): Promise<{
     const reg = (await fetch(`${server.baseUrl}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: `burst16_u_${i}_${Date.now()}`, password: "load-test-password-1234" }),
+      body: JSON.stringify({
+        username: `burst16_u_${i}_${Date.now()}`,
+        password: "load-test-password-1234",
+      }),
     }).then((r) => r.json())) as any;
 
     const proj = (await fetch(`${server.baseUrl}/api/projects`, {
@@ -155,20 +166,30 @@ async function run() {
   // 1. Concurrency measurements
   console.log("\n--- Concurrency Scale Measurements (1, 5, 10, 20) ---");
   const c1 = await measureColdConcurrency(1);
-  console.log(`[C=1]  p50=${c1.p50.toFixed(1)}ms, p95=${c1.p95.toFixed(1)}ms, wall=${c1.wallMs.toFixed(1)}ms`);
+  console.log(
+    `[C=1]  p50=${c1.p50.toFixed(1)}ms, p95=${c1.p95.toFixed(1)}ms, wall=${c1.wallMs.toFixed(1)}ms`,
+  );
 
   const c5 = await measureColdConcurrency(5);
-  console.log(`[C=5]  p50=${c5.p50.toFixed(1)}ms, p95=${c5.p95.toFixed(1)}ms, wall=${c5.wallMs.toFixed(1)}ms`);
+  console.log(
+    `[C=5]  p50=${c5.p50.toFixed(1)}ms, p95=${c5.p95.toFixed(1)}ms, wall=${c5.wallMs.toFixed(1)}ms`,
+  );
 
   const c10 = await measureColdConcurrency(10);
-  console.log(`[C=10] p50=${c10.p50.toFixed(1)}ms, p95=${c10.p95.toFixed(1)}ms, wall=${c10.wallMs.toFixed(1)}ms`);
+  console.log(
+    `[C=10] p50=${c10.p50.toFixed(1)}ms, p95=${c10.p95.toFixed(1)}ms, wall=${c10.wallMs.toFixed(1)}ms`,
+  );
 
   const c20 = await measureColdConcurrency(20);
-  console.log(`[C=20] p50=${c20.p50.toFixed(1)}ms, p95=${c20.p95.toFixed(1)}ms, wall=${c20.wallMs.toFixed(1)}ms`);
+  console.log(
+    `[C=20] p50=${c20.p50.toFixed(1)}ms, p95=${c20.p95.toFixed(1)}ms, wall=${c20.wallMs.toFixed(1)}ms`,
+  );
 
   // 2. 50-VU Burst Execution
   const burst = await run50VUBurstTest();
-  console.log(`\n[M16 50-VU Burst] p50=${burst.p50.toFixed(1)}ms, p95=${burst.p95.toFixed(1)}ms, p99=${burst.p99.toFixed(1)}ms, Wall=${(burst.wallMs / 1000).toFixed(2)}s`);
+  console.log(
+    `\n[M16 50-VU Burst] p50=${burst.p50.toFixed(1)}ms, p95=${burst.p95.toFixed(1)}ms, p99=${burst.p99.toFixed(1)}ms, Wall=${(burst.wallMs / 1000).toFixed(2)}s`,
+  );
   console.log(`[M16 50-VU Burst] Success: ${burst.successCount}/50, Errors: ${burst.errorCount}`);
 
   const report = {

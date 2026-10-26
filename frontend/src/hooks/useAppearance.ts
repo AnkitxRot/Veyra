@@ -48,26 +48,20 @@ export interface UseAppearance {
 }
 
 export function useAppearance(preference: ThemePreference): UseAppearance {
-  const [systemPrefersLight, setSystemPrefersLight] = useState<boolean>(
-    readSystemPrefersLight,
-  );
+  const [systemPrefersLight, setSystemPrefersLight] = useState<boolean>(readSystemPrefersLight);
 
   // Follow the OS ONLY in system mode. The listener lifetime is bounded by
   // this effect: it is removed when `preference` changes away from "system"
   // and on unmount, so there is never a leaked or duplicate listener.
   useEffect(() => {
     if (preference !== "system") return;
-    if (
-      typeof window === "undefined" ||
-      typeof window.matchMedia !== "function"
-    ) {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
     const mql = window.matchMedia(LIGHT_QUERY);
     // Resync in case the OS flipped between the initial read and this effect.
     setSystemPrefersLight(mql.matches);
-    const onChange = (e: MediaQueryListEvent) =>
-      setSystemPrefersLight(e.matches);
+    const onChange = (e: MediaQueryListEvent) => setSystemPrefersLight(e.matches);
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
   }, [preference]);

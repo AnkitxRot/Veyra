@@ -2,10 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeTestConfig } from "./helpers.js";
-import {
-  languageServers,
-  resetLanguageServersForTests,
-} from "../src/lsp/manager.js";
+import { languageServers, resetLanguageServersForTests } from "../src/lsp/manager.js";
 import type { LspClientSocket } from "../src/lsp/session.js";
 import type { LspSpawnRequest } from "../src/lsp/process.js";
 import {
@@ -79,12 +76,8 @@ describe("lsp security envelope", () => {
       params: { command: "shell", arguments: ["rm", "-rf", "/"] },
     });
     await new Promise((r) => setTimeout(r, 150));
-    expect(sock.messages.some((m) => m.id === 99 && m.result?.executed)).toBe(
-      false,
-    );
-    expect(
-      sock.messages.some((m) => m.result && m.result.command === "shell"),
-    ).toBe(false);
+    expect(sock.messages.some((m) => m.id === 99 && m.result?.executed)).toBe(false);
+    expect(sock.messages.some((m) => m.result && m.result.command === "shell")).toBe(false);
   });
 
   it("ignores client initialize/shutdown and does not let the client pick an executable", async () => {
@@ -182,16 +175,12 @@ describe("lsp security envelope", () => {
     expect(argv).toContain("exec");
     expect(argv).toContain("pylsp");
     expect(argv).toContain("ide-sandbox-abc");
-    expect(argv.join(" ")).not.toMatch(
-      /SECRETS_MASTER_KEY|GIT_HTTPS_TOKEN|ADMIN_PASSWORD/,
-    );
+    expect(argv.join(" ")).not.toMatch(/SECRETS_MASTER_KEY|GIT_HTTPS_TOKEN|ADMIN_PASSWORD/);
     const envFlags: string[] = [];
     for (let i = 0; i < argv.length; i++) {
       if (argv[i] === "-e" && argv[i + 1]) envFlags.push(argv[i + 1]!);
     }
-    expect(
-      envFlags.every((e) => !/SECRET|TOKEN|PASSWORD|DATABASE/i.test(e)),
-    ).toBe(true);
+    expect(envFlags.every((e) => !/SECRET|TOKEN|PASSWORD|DATABASE/i.test(e))).toBe(true);
     expect(envFlags).toContain("HOME=/tmp");
   });
 
@@ -212,9 +201,7 @@ describe("lsp security envelope", () => {
       expect(env.GIT_HTTPS_TOKEN).toBeUndefined();
       expect(env.ADMIN_PASSWORD).toBeUndefined();
       expect(env.DATABASE_PATH).toBeUndefined();
-      expect(Object.keys(env).every((k) => !/SECRET|TOKEN|PASSWORD/i.test(k))).toBe(
-        true,
-      );
+      expect(Object.keys(env).every((k) => !/SECRET|TOKEN|PASSWORD/i.test(k))).toBe(true);
     } finally {
       for (const [k, v] of Object.entries(prev)) {
         if (v === undefined) delete process.env[k];
@@ -229,17 +216,13 @@ describe("lsp security envelope", () => {
     });
     expect(argv).toContain("typescript-language-server");
     expect(argv).toContain("--stdio");
-    expect(argv.join(" ")).not.toMatch(
-      /SECRETS_MASTER_KEY|GIT_HTTPS_TOKEN|ADMIN_PASSWORD/,
-    );
+    expect(argv.join(" ")).not.toMatch(/SECRETS_MASTER_KEY|GIT_HTTPS_TOKEN|ADMIN_PASSWORD/);
     const envFlags: string[] = [];
     for (let i = 0; i < argv.length; i++) {
       if (argv[i] === "-e" && argv[i + 1]) envFlags.push(argv[i + 1]!);
     }
     expect(envFlags.some((e) => e.startsWith("PYTHON"))).toBe(false);
-    expect(
-      envFlags.every((e) => !/SECRET|TOKEN|PASSWORD|DATABASE/i.test(e)),
-    ).toBe(true);
+    expect(envFlags.every((e) => !/SECRET|TOKEN|PASSWORD|DATABASE/i.test(e))).toBe(true);
   });
 
   it("rejects a malformed container id before spawn", () => {
@@ -249,8 +232,8 @@ describe("lsp security envelope", () => {
         containerId: "ide-sandbox-abc; rm -rf /",
       }),
     ).toThrow(/invalid_container_id/);
-    expect(() =>
-      killTypeScriptLanguageServersInContainer("ide-sandbox-abc; rm -rf /"),
-    ).toThrow(/invalid_container_id/);
+    expect(() => killTypeScriptLanguageServersInContainer("ide-sandbox-abc; rm -rf /")).toThrow(
+      /invalid_container_id/,
+    );
   });
 });

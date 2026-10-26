@@ -32,9 +32,7 @@ describe("preview proxy WebSocket upgrade", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -135,9 +133,7 @@ describe("preview proxy WebSocket upgrade", () => {
   }
 
   it("rejects an unauthenticated upgrade (no session cookie) with 401, before any sandbox/target resolution is attempted — no Docker required", async () => {
-    const result = await attemptUpgrade(
-      `/api/projects/${projectId}/proxy/3000/`,
-    );
+    const result = await attemptUpgrade(`/api/projects/${projectId}/proxy/3000/`);
     expect(result.open).toBe(false);
     if (result.status !== undefined) {
       expect(result.status).toBe(401);
@@ -150,10 +146,7 @@ describe("preview proxy WebSocket upgrade", () => {
   });
 
   it("rejects a non-owner (IDOR guard) upgrade attempt with 404 — no Docker required", async () => {
-    const result = await attemptUpgrade(
-      `/api/projects/${projectId}/proxy/3000/`,
-      user2Token,
-    );
+    const result = await attemptUpgrade(`/api/projects/${projectId}/proxy/3000/`, user2Token);
     expect(result.open).toBe(false);
     if (result.status !== undefined) {
       expect(result.status).toBe(404);
@@ -161,10 +154,7 @@ describe("preview proxy WebSocket upgrade", () => {
   });
 
   it("rejects an invalid (non-allowlisted) port with 400 — no Docker required", async () => {
-    const result = await attemptUpgrade(
-      `/api/projects/${projectId}/proxy/80/`,
-      token,
-    );
+    const result = await attemptUpgrade(`/api/projects/${projectId}/proxy/80/`, token);
     expect(result.open).toBe(false);
     if (result.status !== undefined) {
       expect(result.status).toBe(400);
@@ -172,10 +162,7 @@ describe("preview proxy WebSocket upgrade", () => {
   });
 
   it("rejects a valid but unpublished port with 404 (no sandbox running for this project) — no Docker required", async () => {
-    const result = await attemptUpgrade(
-      `/api/projects/${projectId}/proxy/5173/`,
-      token,
-    );
+    const result = await attemptUpgrade(`/api/projects/${projectId}/proxy/5173/`, token);
     expect(result.open).toBe(false);
     if (result.status !== undefined) {
       expect(result.status).toBe(404);
@@ -199,10 +186,7 @@ describe("preview proxy WebSocket upgrade", () => {
     // check), while the non-owner is rejected on port 3000 (a otherwise
     // syntactically valid, allowlisted port) with 404 before any port- or
     // target-specific check could apply.
-    const ownerInvalidPort = await attemptUpgrade(
-      `/api/projects/${projectId}/proxy/9999/`,
-      token,
-    );
+    const ownerInvalidPort = await attemptUpgrade(`/api/projects/${projectId}/proxy/9999/`, token);
     expect(ownerInvalidPort.open).toBe(false);
     if (ownerInvalidPort.status !== undefined) {
       expect(ownerInvalidPort.status).toBe(400);
@@ -238,12 +222,7 @@ describe("preview proxy WebSocket upgrade", () => {
         const { sandboxManager } = await import("../src/execution/sandbox.js");
         const { makeWorkspace } = await import("./helpers.js");
         const workspaceDir = makeWorkspace(cfg);
-        await sandboxManager.ensureProjectSandbox(
-          projectId,
-          cfg,
-          workspaceDir,
-          1,
-        );
+        await sandboxManager.ensureProjectSandbox(projectId, cfg, workspaceDir, 1);
         sandboxStarted = true;
 
         // Start a trivial TCP/HTTP-upgrade-capable listener *inside* the
@@ -289,10 +268,7 @@ describe("preview proxy WebSocket upgrade", () => {
         // bind the port before the sandbox reports it as published.
         await new Promise((r) => setTimeout(r, 1000));
 
-        const result = await attemptUpgrade(
-          `/api/projects/${projectId}/proxy/5173/`,
-          token,
-        );
+        const result = await attemptUpgrade(`/api/projects/${projectId}/proxy/5173/`, token);
         expect(result.open).toBe(true);
       });
     },

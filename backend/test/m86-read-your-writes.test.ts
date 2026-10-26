@@ -15,15 +15,7 @@
  *  3. Docker: a real test task and a real run see edits that exist only in
  *     the live room.
  */
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, promises as fsp } from "node:fs";
@@ -44,15 +36,10 @@ import { collaborationManager } from "../src/collab/manager.js";
 import { createProject } from "../src/projects/service.js";
 import { runGate } from "../src/execution/runGate.js";
 import { sandboxManager } from "../src/execution/sandbox.js";
-import {
-  debugSessions,
-  resetDebugSessionsForTests,
-} from "../src/debug/manager.js";
+import { debugSessions, resetDebugSessionsForTests } from "../src/debug/manager.js";
 import type { DebugSpawnRequest } from "../src/debug/process.js";
 import { isDockerRunning, isRunnerImageAvailable } from "../src/tools.js";
-import {
-  setConfinedWriteForTests,
-} from "../src/files/confined.js";
+import { setConfinedWriteForTests } from "../src/files/confined.js";
 
 const MESSAGE_SYNC = 0;
 const _realWriteFile = fsp.writeFile.bind(fsp);
@@ -100,9 +87,7 @@ function resetWriteControl() {
  * function that resets the hook. Use `resetWriteControl()` in afterEach
  * instead of `vi.restoreAllMocks()` for confined-write test cleanup.
  */
-function controlWriteFile(
-  handler: (abs: string, data: string) => Promise<void>,
-): () => void {
+function controlWriteFile(handler: (abs: string, data: string) => Promise<void>): () => void {
   setConfinedWriteForTests(handler);
   return () => {
     setConfinedWriteForTests(null);
@@ -139,9 +124,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     db = openDb(":memory:");
     collaborationManager.init(cfg, db);
     const info = db
-      .prepare(
-        "INSERT INTO users (username, password_hash) VALUES ('m86unit', 'x')",
-      )
+      .prepare("INSERT INTO users (username, password_hash) VALUES ('m86unit', 'x')")
       .run();
     ownerId = Number(info.lastInsertRowid);
   });
@@ -339,12 +322,10 @@ describe("M86 room barrier (persistLiveEdits)", () => {
     await enteredP;
     replaceText(room.doc, "serial.txt", "new");
     let barrierSettled = false;
-    const barrier = collaborationManager
-      .persistLiveEdits(projectId)
-      .then((r) => {
-        barrierSettled = true;
-        return r;
-      });
+    const barrier = collaborationManager.persistLiveEdits(projectId).then((r) => {
+      barrierSettled = true;
+      return r;
+    });
     await sleep(50);
     expect(barrierSettled).toBe(false);
 
@@ -419,9 +400,7 @@ describe("M86 room barrier (persistLiveEdits)", () => {
   it("is bounded by its timeout when the disk hangs", async () => {
     const { projectId, room } = await newRoom();
     replaceText(room.doc, "hang.txt", "never");
-    const cleanupHang = controlWriteFile(
-      (() => new Promise(() => {})) as any,
-    );
+    const cleanupHang = controlWriteFile((() => new Promise(() => {})) as any);
 
     const started = Date.now();
     const r = await collaborationManager.persistLiveEdits(projectId, {
@@ -467,13 +446,7 @@ async function bootServer(overrides: Parameters<typeof makeTestConfig>[0] = {}):
   return { cfg, db, server, base: `http://127.0.0.1:${address.port}` };
 }
 
-async function api(
-  base: string,
-  method: string,
-  path: string,
-  token?: string,
-  body?: unknown,
-) {
+async function api(base: string, method: string, path: string, token?: string, body?: unknown) {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -509,13 +482,10 @@ function wsBase(base: string) {
 }
 
 async function connectCollab(base: string, projectId: string, token: string) {
-  const ws = new WebSocket(
-    `${wsBase(base)}/ws/collab?projectId=${encodeURIComponent(projectId)}`,
-    { headers: { Cookie: `session_token=${token}` } },
-  );
-  const step1 = new Promise<void>((resolve) =>
-    ws.once("message", () => resolve()),
-  );
+  const ws = new WebSocket(`${wsBase(base)}/ws/collab?projectId=${encodeURIComponent(projectId)}`, {
+    headers: { Cookie: `session_token=${token}` },
+  });
+  const step1 = new Promise<void>((resolve) => ws.once("message", () => resolve()));
   await new Promise<void>((resolve, reject) => {
     ws.once("open", () => resolve());
     ws.once("error", reject);
@@ -549,9 +519,7 @@ function freezeDebounce(projectId: string) {
 
 async function roomHas(projectId: string, path: string, text: string) {
   await waitFor(
-    () =>
-      collaborationManager.getRoom(projectId)?.doc.getText(path).toString() ===
-      text,
+    () => collaborationManager.getRoom(projectId)?.doc.getText(path).toString() === text,
   );
 }
 
@@ -622,12 +590,7 @@ describe("M86 consumers call the barrier after authorization", () => {
   });
 
   it("Git stage stages the live room content, not the stale disk copy", async () => {
-    const init = await api(
-      booted.base,
-      "POST",
-      `/api/projects/${projectId}/git/init`,
-      owner.token,
-    );
+    const init = await api(booted.base, "POST", `/api/projects/${projectId}/git/init`, owner.token);
     expect(init.status).toBe(200);
 
     const collab = await connectCollab(booted.base, projectId, owner.token);
@@ -670,11 +633,9 @@ describe("M86 consumers call the barrier after authorization", () => {
     expect(stage.data.error.code).toBe("live_edits_not_persisted");
     expect(stage.data.error.message).toContain("blocked.txt");
     expect(stage.data.unpersisted).toEqual(["blocked.txt"]);
-    const cached = execFileSync(
-      "git",
-      ["-C", dir, "diff", "--cached", "--name-only"],
-      { encoding: "utf8" },
-    );
+    const cached = execFileSync("git", ["-C", dir, "diff", "--cached", "--name-only"], {
+      encoding: "utf8",
+    });
     expect(cached).not.toContain("blocked.txt");
 
     vi.restoreAllMocks();
@@ -682,9 +643,7 @@ describe("M86 consumers call the barrier after authorization", () => {
     // The room stays authoritative: the next barrier lands the content.
     const r = await collaborationManager.persistLiveEdits(projectId);
     expect(r.ok).toBe(true);
-    expect(readFileSync(join(dir, "blocked.txt"), "utf8")).toBe(
-      "cannot be persisted\n",
-    );
+    expect(readFileSync(join(dir, "blocked.txt"), "utf8")).toBe("cannot be persisted\n");
   });
 
   it("a viewer or outsider cannot trigger a flush through Git stage", async () => {
@@ -721,9 +680,7 @@ describe("M86 consumers call the barrier after authorization", () => {
       owner.token,
     );
     sockets.push(ws);
-    ws.send(
-      JSON.stringify({ type: "start", language: "python", activeFile: "run_me.py" }),
-    );
+    ws.send(JSON.stringify({ type: "start", language: "python", activeFile: "run_me.py" }));
     await waitFor(() => messages.some((m) => m.type === "error"));
 
     const err = messages.find((m) => m.type === "error");
@@ -807,12 +764,8 @@ describe("M86 consumers call the barrier after authorization", () => {
     ws.send(JSON.stringify({ type: "start", workflow: { taskId: "npm:test" } }));
     await waitFor(() => messages.some((m) => m.type === "error"));
 
-    expect(messages.find((m) => m.type === "error").data).toContain(
-      "task_input.js",
-    );
-    expect(messages.some((m) => m.type === "workflow" || m.type === "exit")).toBe(
-      false,
-    );
+    expect(messages.find((m) => m.type === "error").data).toContain("task_input.js");
+    expect(messages.some((m) => m.type === "workflow" || m.type === "exit")).toBe(false);
     await waitFor(() => runGate.activeCount(owner.id) === 0);
   });
 
@@ -823,12 +776,7 @@ describe("M86 consumers call the barrier after authorization", () => {
     await roomHas(projectId, "requirements.txt", "requests==2.32.3\n");
     failWritesTo("requirements.txt");
 
-    const r = await api(
-      booted.base,
-      "POST",
-      `/api/projects/${projectId}/install`,
-      owner.token,
-    );
+    const r = await api(booted.base, "POST", `/api/projects/${projectId}/install`, owner.token);
 
     expect(r.status).toBe(409);
     expect(r.data.error.code).toBe("live_edits_not_persisted");
@@ -843,9 +791,7 @@ describe("M86 consumers call the barrier after authorization", () => {
     await roomHas(projectId, "debug_me.py", "a = 1\n");
     failWritesTo("debug_me.py");
 
-    const fakeDap = fileURLToPath(
-      new URL("./fixtures/fake-dap.mjs", import.meta.url),
-    );
+    const fakeDap = fileURLToPath(new URL("./fixtures/fake-dap.mjs", import.meta.url));
     let spawned = 0;
     debugSessions.setSpawnForTests((_req: DebugSpawnRequest) => {
       spawned += 1;
@@ -873,9 +819,7 @@ describe("M86 consumers call the barrier after authorization", () => {
     );
     await waitFor(() => messages.some((m) => m.type === "error"));
 
-    expect(messages.find((m) => m.type === "error").message).toContain(
-      "debug_me.py",
-    );
+    expect(messages.find((m) => m.type === "error").message).toContain("debug_me.py");
     await sleep(100);
     expect(spawned).toBe(0);
   });
@@ -934,10 +878,7 @@ describe.skipIf(!dockerOk)("M86 execution reads live edits (Docker)", () => {
     );
     sockets.push(ws);
     ws.send(JSON.stringify(start));
-    await waitFor(
-      () => messages.some((m) => m.type === "exit" || m.type === "error"),
-      90_000,
-    );
+    await waitFor(() => messages.some((m) => m.type === "exit" || m.type === "error"), 90_000);
     return messages;
   }
 

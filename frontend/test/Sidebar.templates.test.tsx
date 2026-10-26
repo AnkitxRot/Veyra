@@ -41,9 +41,7 @@ const TEMPLATES: ProjectTemplate[] = [
   },
 ];
 
-function baseProps(
-  overrides: Partial<React.ComponentProps<typeof Sidebar>> = {},
-) {
+function baseProps(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
   const user: User = { id: 1, username: "alice" };
   const project: Project = { id: "proj-1", name: "My Project" };
   return {
@@ -72,8 +70,7 @@ function mockCatalogResolves() {
 
 describe("Sidebar — runnable-by-default starter templates", () => {
   let noticeEvents: any[] = [];
-  const captureNotice = (e: Event) =>
-    noticeEvents.push((e as CustomEvent).detail);
+  const captureNotice = (e: Event) => noticeEvents.push((e as CustomEvent).detail);
 
   beforeEach(() => {
     apiMock.mockReset();
@@ -89,9 +86,7 @@ describe("Sidebar — runnable-by-default starter templates", () => {
 
   it("opens the modal and fetches the template catalog", async () => {
     mockCatalogResolves();
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, baseProps() as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, baseProps() as any));
     fireEvent.click(getByTitle("Create New Project"));
 
     expect(apiMock).toHaveBeenCalledWith("/api/projects/templates/catalog");
@@ -100,19 +95,15 @@ describe("Sidebar — runnable-by-default starter templates", () => {
 
   it("preselects the Python starter once the catalog loads; Blank is not selected", async () => {
     mockCatalogResolves();
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, baseProps() as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, baseProps() as any));
     fireEvent.click(getByTitle("Create New Project"));
 
     await waitFor(() =>
-      expect(
-        getByText("Python").closest("button")!.getAttribute("aria-pressed"),
-      ).toBe("true"),
+      expect(getByText("Python").closest("button")!.getAttribute("aria-pressed")).toBe("true"),
     );
-    expect(
-      getByText("Blank Project").closest("button")!.getAttribute("aria-pressed"),
-    ).toBe("false");
+    expect(getByText("Blank Project").closest("button")!.getAttribute("aria-pressed")).toBe(
+      "false",
+    );
   });
 
   it("Blank Project remains selectable and clears the preselected name", async () => {
@@ -122,21 +113,13 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     );
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() =>
-      expect(
-        getByText("Python").closest("button")!.getAttribute("aria-pressed"),
-      ).toBe("true"),
+      expect(getByText("Python").closest("button")!.getAttribute("aria-pressed")).toBe("true"),
     );
 
     fireEvent.click(getByText("Blank Project"));
-    expect(
-      getByText("Blank Project").closest("button")!.getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(
-      getByText("Python").closest("button")!.getAttribute("aria-pressed"),
-    ).toBe("false");
-    expect(
-      (getByPlaceholderText("Project Name") as HTMLInputElement).value,
-    ).toBe("");
+    expect(getByText("Blank Project").closest("button")!.getAttribute("aria-pressed")).toBe("true");
+    expect(getByText("Python").closest("button")!.getAttribute("aria-pressed")).toBe("false");
+    expect((getByPlaceholderText("Project Name") as HTMLInputElement).value).toBe("");
   });
 
   it("changing selection between starters works and pre-fills the name", async () => {
@@ -148,12 +131,8 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     await waitFor(() => expect(getByText("TypeScript")).toBeTruthy());
 
     fireEvent.click(getByText("TypeScript"));
-    expect(
-      getByText("TypeScript").closest("button")!.getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(
-      (getByPlaceholderText("Project Name") as HTMLInputElement).value,
-    ).toBe("TypeScript");
+    expect(getByText("TypeScript").closest("button")!.getAttribute("aria-pressed")).toBe("true");
+    expect((getByPlaceholderText("Project Name") as HTMLInputElement).value).toBe("TypeScript");
   });
 
   it("creating the default Python starter POSTs from-template and hands the IDE its entry file", async () => {
@@ -163,14 +142,10 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     });
 
     const props = baseProps();
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, props as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, props as any));
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() =>
-      expect(
-        getByText("Python").closest("button")!.getAttribute("aria-pressed"),
-      ).toBe("true"),
+      expect(getByText("Python").closest("button")!.getAttribute("aria-pressed")).toBe("true"),
     );
 
     fireEvent.click(getByText("Create"));
@@ -230,9 +205,7 @@ describe("Sidebar — runnable-by-default starter templates", () => {
       project: { id: "proj-3", name: "Python Data Science" },
     });
 
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, baseProps() as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, baseProps() as any));
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() => expect(getByText("Python Data Science")).toBeTruthy());
 
@@ -260,14 +233,10 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     );
 
     const props = baseProps();
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, props as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, props as any));
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() =>
-      expect(
-        getByText("Python").closest("button")!.getAttribute("aria-pressed"),
-      ).toBe("true"),
+      expect(getByText("Python").closest("button")!.getAttribute("aria-pressed")).toBe("true"),
     );
 
     const createButton = getByText("Create");
@@ -280,9 +249,7 @@ describe("Sidebar — runnable-by-default starter templates", () => {
   });
 
   it("template catalog failure falls back to a usable Blank Project", async () => {
-    apiMock.mockImplementationOnce(() =>
-      Promise.reject(new Error("catalog unavailable")),
-    );
+    apiMock.mockImplementationOnce(() => Promise.reject(new Error("catalog unavailable")));
     apiMock.mockResolvedValueOnce({
       project: { id: "proj-5", name: "Still Works" },
     });
@@ -293,12 +260,8 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     );
     fireEvent.click(getByTitle("Create New Project"));
 
-    await waitFor(() =>
-      expect(getByText(/Templates unavailable/)).toBeTruthy(),
-    );
-    expect(
-      getByText("Blank Project").closest("button")!.getAttribute("aria-pressed"),
-    ).toBe("true");
+    await waitFor(() => expect(getByText(/Templates unavailable/)).toBeTruthy());
+    expect(getByText("Blank Project").closest("button")!.getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.change(getByPlaceholderText("Project Name"), {
       target: { value: "Still Works" },
@@ -317,14 +280,10 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     apiMock.mockRejectedValueOnce(new Error("name already taken"));
 
     const props = baseProps();
-    const { getByTitle, getByText } = render(
-      React.createElement(Sidebar, props as any),
-    );
+    const { getByTitle, getByText } = render(React.createElement(Sidebar, props as any));
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() =>
-      expect(
-        getByText("Python").closest("button")!.getAttribute("aria-pressed"),
-      ).toBe("true"),
+      expect(getByText("Python").closest("button")!.getAttribute("aria-pressed")).toBe("true"),
     );
 
     fireEvent.click(getByText("Create"));
@@ -332,10 +291,7 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(
-        noticeEvents.some(
-          (n) =>
-            n.kind === "error" && /name already taken/.test(n.text ?? ""),
-        ),
+        noticeEvents.some((n) => n.kind === "error" && /name already taken/.test(n.text ?? "")),
       ).toBe(true),
     );
     expect(props.onCreateProject).not.toHaveBeenCalled();
@@ -347,8 +303,9 @@ describe("Sidebar — runnable-by-default starter templates", () => {
       project: { id: "proj-clone", name: "cloned-repo" },
     });
     const props = baseProps();
-    const { getByTitle, getByText, getByLabelText, getByPlaceholderText } =
-      render(React.createElement(Sidebar, props as any));
+    const { getByTitle, getByText, getByLabelText, getByPlaceholderText } = render(
+      React.createElement(Sidebar, props as any),
+    );
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() => expect(getByText("Clone HTTPS repo")).toBeTruthy());
     fireEvent.click(getByText("Clone HTTPS repo"));
@@ -368,9 +325,7 @@ describe("Sidebar — runnable-by-default starter templates", () => {
         }),
       }),
     );
-    expect(apiMock.mock.calls.some((c) => String(c[0]).includes("from-template"))).toBe(
-      false,
-    );
+    expect(apiMock.mock.calls.some((c) => String(c[0]).includes("from-template"))).toBe(false);
     await waitFor(() =>
       expect(props.onSelectProject).toHaveBeenCalledWith({
         id: "proj-clone",
@@ -387,9 +342,7 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() => expect(getByText("TypeScript")).toBeTruthy());
     fireEvent.click(getByText("TypeScript"));
-    expect(
-      getByText("TypeScript").closest("button")!.getAttribute("aria-pressed"),
-    ).toBe("true");
+    expect(getByText("TypeScript").closest("button")!.getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(getByText("Cancel"));
     expect(queryByText("TypeScript")).toBeNull();
@@ -397,12 +350,8 @@ describe("Sidebar — runnable-by-default starter templates", () => {
     mockCatalogResolves();
     fireEvent.click(getByTitle("Create New Project"));
     await waitFor(() =>
-      expect(
-        getByText("Python").closest("button")!.getAttribute("aria-pressed"),
-      ).toBe("true"),
+      expect(getByText("Python").closest("button")!.getAttribute("aria-pressed")).toBe("true"),
     );
-    expect(
-      getByText("TypeScript").closest("button")!.getAttribute("aria-pressed"),
-    ).toBe("false");
+    expect(getByText("TypeScript").closest("button")!.getAttribute("aria-pressed")).toBe("false");
   });
 });

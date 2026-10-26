@@ -36,26 +36,21 @@ describe("M60 schema + config", () => {
         name: string;
       }[]
     ).map((r) => r.name);
-    expect(ls).toEqual(
-      expect.arrayContaining(["project_id", "user_id", "last_seen_at"]),
-    );
+    expect(ls).toEqual(expect.arrayContaining(["project_id", "user_id", "last_seen_at"]));
 
-    const fks = db
-      .prepare("PRAGMA foreign_key_list(collaboration_changes)")
-      .all() as { from: string; on_delete: string }[];
+    const fks = db.prepare("PRAGMA foreign_key_list(collaboration_changes)").all() as {
+      from: string;
+      on_delete: string;
+    }[];
     expect(fks.find((f) => f.from === "project_id")?.on_delete).toBe("CASCADE");
-    expect(fks.find((f) => f.from === "author_user_id")?.on_delete).toBe(
-      "CASCADE",
-    );
+    expect(fks.find((f) => f.from === "author_user_id")?.on_delete).toBe("CASCADE");
 
     const idx = (
       db.prepare("PRAGMA index_list(collaboration_changes)").all() as {
         name: string;
       }[]
     ).map((r) => r.name);
-    expect(idx).toEqual(
-      expect.arrayContaining(["idx_collab_changes_project_ended"]),
-    );
+    expect(idx).toEqual(expect.arrayContaining(["idx_collab_changes_project_ended"]));
   });
 
   it("exposes M60 config knobs with defaults", () => {
@@ -91,8 +86,6 @@ describe("M60 schema + config", () => {
   });
 
   it("honours a valid override", () => {
-    expect(resolveConfig({ collabBurstIdleMs: 9000 }).collabBurstIdleMs).toBe(
-      9000,
-    );
+    expect(resolveConfig({ collabBurstIdleMs: 9000 }).collabBurstIdleMs).toBe(9000);
   });
 });

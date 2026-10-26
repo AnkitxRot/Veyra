@@ -9,10 +9,7 @@ import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
-import {
-  collaborationManager,
-  CollaborationRoom,
-} from "../src/collab/manager.js";
+import { collaborationManager, CollaborationRoom } from "../src/collab/manager.js";
 import {
   normalizeRange,
   rangesOverlap,
@@ -110,9 +107,7 @@ describe("M58 — rangesOverlap", () => {
 
 describe("M58 — sanitizeAttentionMessage", () => {
   it("trims, collapses whitespace, strips control chars", () => {
-    expect(sanitizeAttentionMessage("  the\n\trace is here  ")).toBe(
-      "the race is here",
-    );
+    expect(sanitizeAttentionMessage("  the\n\trace is here  ")).toBe("the race is here");
   });
   it("caps at 280 chars", () => {
     expect(sanitizeAttentionMessage("x".repeat(500))).toHaveLength(280);
@@ -138,9 +133,11 @@ describe("M58 — newAttentionId", () => {
 describe("M58 — parseAttentionInput", () => {
   const range = { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 };
   it("parses a valid point", () => {
-    expect(
-      parseAttentionInput({ type: "attention_point", file: "a/b.ts", range }),
-    ).toEqual({ kind: "point", file: "a/b.ts", range });
+    expect(parseAttentionInput({ type: "attention_point", file: "a/b.ts", range })).toEqual({
+      kind: "point",
+      file: "a/b.ts",
+      range,
+    });
   });
   it("parses a valid callout and cleans the message", () => {
     expect(
@@ -170,14 +167,10 @@ describe("M58 — parseAttentionInput", () => {
     });
   });
   it("rejects an unknown type", () => {
-    expect(
-      parseAttentionInput({ type: "attention_zzz", file: "a", range }),
-    ).toBeNull();
+    expect(parseAttentionInput({ type: "attention_zzz", file: "a", range })).toBeNull();
   });
   it("rejects a traversal / absolute file path", () => {
-    expect(
-      parseAttentionInput({ type: "attention_point", file: "../etc", range }),
-    ).toBeNull();
+    expect(parseAttentionInput({ type: "attention_point", file: "../etc", range })).toBeNull();
     expect(
       parseAttentionInput({
         type: "attention_point",
@@ -232,11 +225,7 @@ describe("M58 — buildAttentionEvent", () => {
   const rng = { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 };
 
   it("builds a point event with the point TTL and no message/target", () => {
-    const e = buildAttentionEvent(
-      { kind: "point", file: "a.ts", range: rng },
-      author,
-      1000,
-    );
+    const e = buildAttentionEvent({ kind: "point", file: "a.ts", range: rng }, author, 1000);
     expect(e).toMatchObject({
       type: "attention_event",
       kind: "point",
@@ -287,12 +276,7 @@ describe("M58 — buildAttentionEvent", () => {
     expect(e.id).not.toBe("deadbeef");
   });
   it("two events built from the same input have different ids", () => {
-    const mk = () =>
-      buildAttentionEvent(
-        { kind: "point", file: "a.ts", range: rng },
-        author,
-        1000,
-      );
+    const mk = () => buildAttentionEvent({ kind: "point", file: "a.ts", range: rng }, author, 1000);
     expect(mk().id).not.toBe(mk().id);
   });
 });
@@ -574,10 +558,7 @@ describe("M58 — attention through the real room pipeline", () => {
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
     const before = room.doc.share.size;
     expect(() => {
-      room.handleMessage(
-        wsA,
-        customFrame({ type: "attention_point", file: "../etc", range: {} }),
-      );
+      room.handleMessage(wsA, customFrame({ type: "attention_point", file: "../etc", range: {} }));
       room.handleMessage(
         wsA,
         customFrame({
@@ -600,10 +581,7 @@ describe("M58 — attention through the real room pipeline", () => {
     await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
     for (let i = 0; i < 50; i++) {
-      room.handleMessage(
-        wsA,
-        customFrame({ type: "attention_point", file: "a.ts", range: CUR }),
-      );
+      room.handleMessage(wsA, customFrame({ type: "attention_point", file: "a.ts", range: CUR }));
     }
     expect(attnEvents(wsB)).toHaveLength(10);
   });
@@ -702,9 +680,7 @@ describe("M58 — attention through the real room pipeline", () => {
     send();
     send();
     expect(attnEvents(wsB)).toHaveLength(3);
-    const limited = customMessages(wsA).filter(
-      (m) => m.type === "attention_rate_limited",
-    );
+    const limited = customMessages(wsA).filter((m) => m.type === "attention_rate_limited");
     expect(limited).toHaveLength(1);
     expect(limited[0]!.scope).toBe("outstanding_requests");
   });
@@ -751,10 +727,7 @@ describe("M58 — attention through the real room pipeline", () => {
       }),
     );
     const id = attnEvents!(wsB)[0]!.id as string;
-    room.handleMessage(
-      wsB,
-      customFrame({ type: "attention_dismiss", id, acted: true }),
-    );
+    room.handleMessage(wsB, customFrame({ type: "attention_dismiss", id, acted: true }));
     expect(attnCleared(wsB).at(-1)!.reason).toBe("acted");
   });
 
@@ -779,10 +752,7 @@ describe("M58 — attention through the real room pipeline", () => {
     const id = attnEvents!(wsB)[0]!.id as string;
     room.handleMessage(wsC, customFrame({ type: "attention_dismiss", id }));
     room.handleMessage(wsA, customFrame({ type: "attention_dismiss", id }));
-    room.handleMessage(
-      wsB,
-      customFrame({ type: "attention_dismiss", id: "0000000000000000" }),
-    );
+    room.handleMessage(wsB, customFrame({ type: "attention_dismiss", id: "0000000000000000" }));
     expect(room.hasAttentionRequest(id)).toBe(true);
   });
 
@@ -930,10 +900,7 @@ describe("M58 — attention through the real room pipeline", () => {
     await roomA.addClient(a1, { userId: 1, username: "alice", role: "editor" });
     await roomA.addClient(a2, { userId: 2, username: "bob", role: "editor" });
     await roomB.addClient(b1, { userId: 3, username: "cara", role: "editor" });
-    roomA.handleMessage(
-      a1,
-      customFrame({ type: "attention_point", file: "a.ts", range: CUR }),
-    );
+    roomA.handleMessage(a1, customFrame({ type: "attention_point", file: "a.ts", range: CUR }));
     roomA.handleMessage(
       a1,
       customFrame({
@@ -944,9 +911,9 @@ describe("M58 — attention through the real room pipeline", () => {
         message: "x",
       }),
     );
-    expect(
-      customMessages(b1).filter((m) => String(m.type).startsWith("attention_")),
-    ).toHaveLength(0);
+    expect(customMessages(b1).filter((m) => String(m.type).startsWith("attention_"))).toHaveLength(
+      0,
+    );
   });
 
   it("dispose clears all attention expiry timers and the registry", async () => {
@@ -977,10 +944,7 @@ describe("M58 — attention through the real room pipeline", () => {
     await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
     const before = room.doc.share.size;
-    room.handleMessage(
-      wsA,
-      customFrame({ type: "attention_point", file: "a.ts", range: CUR }),
-    );
+    room.handleMessage(wsA, customFrame({ type: "attention_point", file: "a.ts", range: CUR }));
     room.handleMessage(
       wsA,
       customFrame({
@@ -1020,21 +984,14 @@ describe("M58 — attention through the real room pipeline", () => {
     };
     docA.getText("f.ts").insert(0, "AAAA");
     applyToRoom(Y.encodeStateAsUpdate(docA), wsA);
-    room.handleMessage(
-      wsA,
-      customFrame({ type: "attention_point", file: "f.ts", range: CUR }),
-    );
+    room.handleMessage(wsA, customFrame({ type: "attention_point", file: "f.ts", range: CUR }));
     docB.getText("f.ts").insert(0, "BB");
     applyToRoom(Y.encodeStateAsUpdate(docB), wsB);
 
     Y.applyUpdate(docA, Y.encodeStateAsUpdate(room.doc));
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(room.doc));
-    expect(docA.getText("f.ts").toString()).toBe(
-      room.doc.getText("f.ts").toString(),
-    );
-    expect(docB.getText("f.ts").toString()).toBe(
-      room.doc.getText("f.ts").toString(),
-    );
+    expect(docA.getText("f.ts").toString()).toBe(room.doc.getText("f.ts").toString());
+    expect(docB.getText("f.ts").toString()).toBe(room.doc.getText("f.ts").toString());
     expect(room.doc.getText("f.ts").toString()).toContain("AAAA");
     expect(room.doc.getText("f.ts").toString()).toContain("BB");
   });
@@ -1106,10 +1063,7 @@ describe("M58 — attention through the real room pipeline", () => {
     await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
     for (const file of ["/etc/passwd", "..\\..\\x", "C:\\x", "a\u0000b"]) {
-      room.handleMessage(
-        wsA,
-        customFrame({ type: "attention_point", file, range: CUR }),
-      );
+      room.handleMessage(wsA, customFrame({ type: "attention_point", file, range: CUR }));
     }
     expect(attnEvents(wsB)).toHaveLength(0);
   });
@@ -1138,9 +1092,7 @@ describe("M58 — attention through the real room pipeline", () => {
     req(wsA1);
     req(wsA2); // 4th from the same user, different socket
     expect(attnEvents(wsB)).toHaveLength(3);
-    expect(
-      customMessages(wsA2).filter((m) => m.type === "attention_rate_limited"),
-    ).toHaveLength(1);
+    expect(customMessages(wsA2).filter((m) => m.type === "attention_rate_limited")).toHaveLength(1);
   });
 
   it("no DB rows are created by any attention path", async () => {
@@ -1150,21 +1102,12 @@ describe("M58 — attention through the real room pipeline", () => {
     await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
     const tableNames = (
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all() as { name: string }[]
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
     ).map((r) => r.name);
     const countAll = () =>
-      tableNames.map(
-        (t) =>
-          (db.prepare(`SELECT COUNT(*) c FROM "${t}"`).get() as { c: number })
-            .c,
-      );
+      tableNames.map((t) => (db.prepare(`SELECT COUNT(*) c FROM "${t}"`).get() as { c: number }).c);
     const before = countAll();
-    room.handleMessage(
-      wsA,
-      customFrame({ type: "attention_point", file: "a.ts", range: CUR }),
-    );
+    room.handleMessage(wsA, customFrame({ type: "attention_point", file: "a.ts", range: CUR }));
     room.handleMessage(
       wsA,
       customFrame({

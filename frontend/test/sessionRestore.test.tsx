@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  screen,
-  cleanup,
-  waitFor,
-  fireEvent,
-} from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import * as React from "react";
 
 // Behavioural coverage for the IDE session-restore wiring. The pure
@@ -144,9 +138,7 @@ function SessionIDE({
     if (wanted.length === 0) return;
     setOpenTabs(wanted);
     setActive(
-      sess.active && wanted.includes(sess.active)
-        ? sess.active
-        : wanted[wanted.length - 1]!,
+      sess.active && wanted.includes(sess.active) ? sess.active : wanted[wanted.length - 1]!,
     );
   }, [project?.id, fileTreePaths, openTabs, treeTick]);
 
@@ -177,9 +169,7 @@ function SessionIDE({
   const closeTab = (path: string) => {
     setOpenTabs((prev) => {
       const next = prev.filter((p) => p !== path);
-      setActive((a) =>
-        a === path ? (next.length ? next[next.length - 1]! : null) : a,
-      );
+      setActive((a) => (a === path ? (next.length ? next[next.length - 1]! : null) : a));
       return next;
     });
   };
@@ -236,9 +226,7 @@ describe("session restore — routing", () => {
   it("1. /p/<validId> opens exactly that project (not projects[0])", async () => {
     goto("/p/proj-B");
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Beta"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Beta"));
     expect(screen.getByTestId("url").textContent).toBe("/p/proj-B");
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -247,9 +235,7 @@ describe("session restore — routing", () => {
     setLastProjectId("proj-A"); // a perfectly good fallback exists
     goto("/p/not-mine");
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     expect(screen.getByTestId("project").textContent).toBe("(none)");
     // URL is reset so a reload doesn't loop on the bad link
     expect(screen.getByTestId("url").textContent).toBe("/");
@@ -257,9 +243,7 @@ describe("session restore — routing", () => {
 
   it("2b. navigating to a foreign /p/:id while already in a project keeps the current project + warns", async () => {
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     // simulate the user pasting a stale/shared link
     window.history.pushState({}, "", "/p/not-a-real-project");
     window.dispatchEvent(new PopStateEvent("popstate"));
@@ -271,85 +255,56 @@ describe("session restore — routing", () => {
   it("3. no route falls back to the persisted last project", async () => {
     setLastProjectId("proj-B");
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Beta"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Beta"));
   });
 
   it("4. no route + no last project falls back to the first project", async () => {
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
   });
 
   it("10. selecting a project updates the URL to /p/<id>", async () => {
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     fireEvent.click(screen.getByText("open:Beta"));
-    await waitFor(() =>
-      expect(screen.getByTestId("url").textContent).toBe("/p/proj-B"),
-    );
+    await waitFor(() => expect(screen.getByTestId("url").textContent).toBe("/p/proj-B"));
   });
 
   it("11. browser Back/Forward switches projects", async () => {
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     fireEvent.click(screen.getByText("open:Beta"));
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Beta"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Beta"));
     // Back -> Alpha
     window.history.back();
     window.dispatchEvent(new PopStateEvent("popstate"));
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     // Forward -> Beta
     window.history.forward();
     window.dispatchEvent(new PopStateEvent("popstate"));
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Beta"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Beta"));
   });
 
   it("13. normal project switching still works and isolates tab state", async () => {
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     fireEvent.click(screen.getByText("tab:a"));
     fireEvent.click(screen.getByText("tab:b"));
-    await waitFor(() =>
-      expect(screen.getByTestId("tabs").textContent).toBe("src/a.ts,src/b.ts"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tabs").textContent).toBe("src/a.ts,src/b.ts"));
     fireEvent.click(screen.getByText("open:Beta"));
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Beta"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Beta"));
     // Beta starts clean; Alpha's tabs did not leak
     expect(screen.getByTestId("tabs").textContent).toBe("");
     // ...and Alpha's session on disk still has exactly its own tabs
-    expect(readProjectSession("proj-A")?.openTabs).toEqual([
-      "src/a.ts",
-      "src/b.ts",
-    ]);
+    expect(readProjectSession("proj-A")?.openTabs).toEqual(["src/a.ts", "src/b.ts"]);
     expect(readProjectSession("proj-B")?.openTabs ?? []).toEqual([]);
   });
 
   it("12. malformed localStorage never crashes initialization", async () => {
     localStorage.setItem("cloudeee_session_proj-A", "{{{corrupt");
     localStorage.setItem("cloudeee_last_project", "proj-A");
-    expect(() =>
-      render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />),
-    ).not.toThrow();
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    expect(() => render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />)).not.toThrow();
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     expect(screen.getByTestId("tabs").textContent).toBe("");
   });
 });
@@ -364,9 +319,7 @@ describe("session restore — tabs & panel", () => {
     goto("/p/proj-A");
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
     await waitFor(() =>
-      expect(screen.getByTestId("tabs").textContent).toBe(
-        "src/c.ts,src/a.ts,src/b.ts",
-      ),
+      expect(screen.getByTestId("tabs").textContent).toBe("src/c.ts,src/a.ts,src/b.ts"),
     );
     expect(screen.getByTestId("active").textContent).toBe("src/a.ts");
   });
@@ -378,15 +331,8 @@ describe("session restore — tabs & panel", () => {
       bottomTab: null,
     });
     goto("/p/proj-A");
-    render(
-      <SessionIDE
-        projects={[A, B]}
-        fileTreePaths={{ "proj-A": ["src/a.ts", "src/c.ts"] }}
-      />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId("tabs").textContent).toBe("src/a.ts,src/c.ts"),
-    );
+    render(<SessionIDE projects={[A, B]} fileTreePaths={{ "proj-A": ["src/a.ts", "src/c.ts"] }} />);
+    await waitFor(() => expect(screen.getByTestId("tabs").textContent).toBe("src/a.ts,src/c.ts"));
     // active pointed at a now-missing file -> falls back to a real remaining tab
     expect(screen.getByTestId("active").textContent).toBe("src/c.ts");
   });
@@ -404,15 +350,11 @@ describe("session restore — tabs & panel", () => {
     });
     goto("/p/proj-A");
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("tabs").textContent).toBe("src/a.ts"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tabs").textContent).toBe("src/a.ts"));
     expect(screen.getByTestId("bottom").textContent).toBe("git");
 
     fireEvent.click(screen.getByText("open:Beta"));
-    await waitFor(() =>
-      expect(screen.getByTestId("tabs").textContent).toBe("src/b.ts,src/c.ts"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tabs").textContent).toBe("src/b.ts,src/c.ts"));
     expect(screen.getByTestId("active").textContent).toBe("src/c.ts");
     expect(screen.getByTestId("bottom").textContent).toBe("terminal");
 
@@ -432,17 +374,13 @@ describe("session restore — tabs & panel", () => {
     });
     goto("/p/proj-A");
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("bottom").textContent).toBe("terminal"),
-    );
+    await waitFor(() => expect(screen.getByTestId("bottom").textContent).toBe("terminal"));
   });
 
   it("persists tab open / close / active / panel transitions", async () => {
     goto("/p/proj-A");
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     fireEvent.click(screen.getByText("tab:a"));
     fireEvent.click(screen.getByText("tab:b"));
     fireEvent.click(screen.getByText("tab:c"));
@@ -467,9 +405,7 @@ describe("session restore — tabs & panel", () => {
     // Delay the "tree" so the user can act first: render then immediately open c
     render(<SessionIDE projects={[A, B]} fileTreePaths={treeAll} />);
     fireEvent.click(screen.getByText("tab:c"));
-    await waitFor(() =>
-      expect(screen.getByTestId("project").textContent).toBe("Alpha"),
-    );
+    await waitFor(() => expect(screen.getByTestId("project").textContent).toBe("Alpha"));
     // restore must not clobber the user's manual tab
     expect(screen.getByTestId("tabs").textContent).toContain("src/c.ts");
     expect(screen.getByTestId("active").textContent).toBe("src/c.ts");

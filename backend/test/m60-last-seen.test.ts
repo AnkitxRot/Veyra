@@ -1,18 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { openDb, type Db } from "../src/db.js";
-import {
-  touchLastSeen,
-  getLastSeen,
-  insertLastSeenIfAbsent,
-} from "../src/collab/lastSeen.js";
+import { touchLastSeen, getLastSeen, insertLastSeenIfAbsent } from "../src/collab/lastSeen.js";
 
 function seed(db: Db) {
-  db.prepare(
-    "INSERT INTO users (id, username, password_hash) VALUES (1,'u','h')",
-  ).run();
-  db.prepare(
-    "INSERT INTO projects (id, owner_id, name) VALUES ('p',1,'P')",
-  ).run();
+  db.prepare("INSERT INTO users (id, username, password_hash) VALUES (1,'u','h')").run();
+  db.prepare("INSERT INTO projects (id, owner_id, name) VALUES ('p',1,'P')").run();
 }
 
 describe("collab_last_seen helpers", () => {

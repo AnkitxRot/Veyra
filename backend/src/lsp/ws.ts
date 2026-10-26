@@ -50,12 +50,7 @@ export async function handleLspConnection(
   });
 
   if (!session) {
-    sendStatus(
-      ws,
-      "busy",
-      spec.id,
-      "language server capacity reached; editor remains usable",
-    );
+    sendStatus(ws, "busy", spec.id, "language server capacity reached; editor remains usable");
     // Keep the socket open so the client can show degraded state without
     // treating a close as "retry forever".
     ws.on("message", () => {});
@@ -92,12 +87,7 @@ export async function handleLspConnection(
   });
 }
 
-function sendStatus(
-  ws: WebSocket,
-  state: string,
-  language: string,
-  message?: string,
-): void {
+function sendStatus(ws: WebSocket, state: string, language: string, message?: string): void {
   if (ws.readyState !== WS_OPEN) return;
   try {
     ws.send(JSON.stringify({ type: "status", state, language, message }));

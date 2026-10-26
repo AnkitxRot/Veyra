@@ -66,8 +66,7 @@ const CONFIGURABLE_ID_SET = new Set<string>(CONFIGURABLE_COMMAND_IDS);
  * `ctrl`/`meta`, and non-canonical modifier order are all rejected — one
  * shortcut has exactly one representation.
  */
-const CHORD_RE =
-  /^mod\+(alt\+)?(shift\+)?([a-z0-9]|f[1-9]|f1[0-2]|[[\]\\;',./`=-])$/;
+const CHORD_RE = /^mod\+(alt\+)?(shift\+)?([a-z0-9]|f[1-9]|f1[0-2]|[[\]\\;',./`=-])$/;
 
 /**
  * Combinations the browser / OS will not reliably yield to `preventDefault`
@@ -92,11 +91,7 @@ const BROWSER_RESERVED = new Set<string>([
 ]);
 
 export function isValidChord(chord: unknown): chord is string {
-  return (
-    typeof chord === "string" &&
-    CHORD_RE.test(chord) &&
-    !BROWSER_RESERVED.has(chord)
-  );
+  return typeof chord === "string" && CHORD_RE.test(chord) && !BROWSER_RESERVED.has(chord);
 }
 
 /**
@@ -148,20 +143,8 @@ const VALID_TAB_SIZES = [2, 4, 8];
 const VALID_THEMES = ["system", "dark", "light"] as const;
 const VALID_WORD_WRAPS = ["off", "on", "wordWrapColumn", "bounded"] as const;
 const VALID_LINE_NUMBERS = ["on", "off", "relative", "interval"] as const;
-const VALID_CURSOR_BLINKING = [
-  "blink",
-  "smooth",
-  "phase",
-  "expand",
-  "solid",
-] as const;
-const VALID_RENDER_WHITESPACE = [
-  "none",
-  "boundary",
-  "selection",
-  "trailing",
-  "all",
-] as const;
+const VALID_CURSOR_BLINKING = ["blink", "smooth", "phase", "expand", "solid"] as const;
+const VALID_RENDER_WHITESPACE = ["none", "boundary", "selection", "trailing", "all"] as const;
 
 /**
  * Retrieves the preferences for a given user.
@@ -228,11 +211,7 @@ export function updateUserPreferences(
   // Reject unknown keys
   for (const key of Object.keys(updates)) {
     if (!ALLOWED_KEYS.has(key)) {
-      throw new ApiError(
-        400,
-        `Unknown preference key: "${key}"`,
-        "invalid_preference_key",
-      );
+      throw new ApiError(400, `Unknown preference key: "${key}"`, "invalid_preference_key");
     }
   }
 
@@ -254,15 +233,8 @@ export function updateUserPreferences(
   }
 
   if (updates.tabSize !== undefined) {
-    if (
-      typeof updates.tabSize !== "number" ||
-      !VALID_TAB_SIZES.includes(updates.tabSize)
-    ) {
-      throw new ApiError(
-        400,
-        "tabSize must be 2, 4, or 8",
-        "invalid_tab_size",
-      );
+    if (typeof updates.tabSize !== "number" || !VALID_TAB_SIZES.includes(updates.tabSize)) {
+      throw new ApiError(400, "tabSize must be 2, 4, or 8", "invalid_tab_size");
     }
   }
 
@@ -281,11 +253,7 @@ export function updateUserPreferences(
 
   if (updates.minimap !== undefined) {
     if (typeof updates.minimap !== "boolean") {
-      throw new ApiError(
-        400,
-        "minimap must be a boolean",
-        "invalid_minimap",
-      );
+      throw new ApiError(400, "minimap must be a boolean", "invalid_minimap");
     }
   }
 
@@ -330,11 +298,7 @@ export function updateUserPreferences(
 
   if (updates.formatOnSave !== undefined) {
     if (typeof updates.formatOnSave !== "boolean") {
-      throw new ApiError(
-        400,
-        "formatOnSave must be a boolean",
-        "invalid_format_on_save",
-      );
+      throw new ApiError(400, "formatOnSave must be a boolean", "invalid_format_on_save");
     }
   }
 
@@ -370,60 +334,33 @@ export function updateUserPreferences(
 
   if (updates.sidebarHidden !== undefined) {
     if (typeof updates.sidebarHidden !== "boolean") {
-      throw new ApiError(
-        400,
-        "sidebarHidden must be a boolean",
-        "invalid_sidebar_hidden",
-      );
+      throw new ApiError(400, "sidebarHidden must be a boolean", "invalid_sidebar_hidden");
     }
   }
 
   if (updates.bottomCollapsed !== undefined) {
     if (typeof updates.bottomCollapsed !== "boolean") {
-      throw new ApiError(
-        400,
-        "bottomCollapsed must be a boolean",
-        "invalid_bottom_collapsed",
-      );
+      throw new ApiError(400, "bottomCollapsed must be a boolean", "invalid_bottom_collapsed");
     }
   }
 
   if (updates.theme !== undefined) {
-    if (
-      typeof updates.theme !== "string" ||
-      !VALID_THEMES.includes(updates.theme as any)
-    ) {
-      throw new ApiError(
-        400,
-        `theme must be one of: ${VALID_THEMES.join(", ")}`,
-        "invalid_theme",
-      );
+    if (typeof updates.theme !== "string" || !VALID_THEMES.includes(updates.theme as any)) {
+      throw new ApiError(400, `theme must be one of: ${VALID_THEMES.join(", ")}`, "invalid_theme");
     }
   }
 
   if (updates.keymap !== undefined) {
     const km = updates.keymap;
     if (typeof km !== "object" || km === null || Array.isArray(km)) {
-      throw new ApiError(
-        400,
-        "keymap must be an object of commandId -> chord",
-        "invalid_keymap",
-      );
+      throw new ApiError(400, "keymap must be an object of commandId -> chord", "invalid_keymap");
     }
     for (const [id, chord] of Object.entries(km as Record<string, unknown>)) {
       if (!CONFIGURABLE_ID_SET.has(id)) {
-        throw new ApiError(
-          400,
-          `"${id}" is not a configurable command`,
-          "invalid_command_id",
-        );
+        throw new ApiError(400, `"${id}" is not a configurable command`, "invalid_command_id");
       }
       if (!isValidChord(chord)) {
-        throw new ApiError(
-          400,
-          `"${String(chord)}" is not a usable shortcut`,
-          "invalid_shortcut",
-        );
+        throw new ApiError(400, `"${String(chord)}" is not a usable shortcut`, "invalid_shortcut");
       }
     }
     // Conflict across the RESOLVED keymap (overrides layered on defaults):
@@ -436,11 +373,7 @@ export function updateUserPreferences(
     for (const [id, chord] of Object.entries(resolved)) {
       const owner = seen.get(chord);
       if (owner && owner !== id) {
-        throw new ApiError(
-          400,
-          `${chord} is already bound to "${owner}"`,
-          "duplicate_shortcut",
-        );
+        throw new ApiError(400, `${chord} is already bound to "${owner}"`, "duplicate_shortcut");
       }
       seen.set(chord, id);
     }
@@ -453,41 +386,21 @@ export function updateUserPreferences(
     tabSize: updates.tabSize !== undefined ? updates.tabSize : current.tabSize,
     wordWrap: updates.wordWrap !== undefined ? updates.wordWrap : current.wordWrap,
     minimap: updates.minimap !== undefined ? updates.minimap : current.minimap,
-    lineNumbers:
-      updates.lineNumbers !== undefined ? updates.lineNumbers : current.lineNumbers,
+    lineNumbers: updates.lineNumbers !== undefined ? updates.lineNumbers : current.lineNumbers,
     cursorBlinking:
-      updates.cursorBlinking !== undefined
-        ? updates.cursorBlinking
-        : current.cursorBlinking,
+      updates.cursorBlinking !== undefined ? updates.cursorBlinking : current.cursorBlinking,
     renderWhitespace:
-      updates.renderWhitespace !== undefined
-        ? updates.renderWhitespace
-        : current.renderWhitespace,
-    formatOnSave:
-      updates.formatOnSave !== undefined
-        ? updates.formatOnSave
-        : current.formatOnSave,
-    sidebarWidth:
-      updates.sidebarWidth !== undefined
-        ? updates.sidebarWidth
-        : current.sidebarWidth,
-    bottomHeight:
-      updates.bottomHeight !== undefined
-        ? updates.bottomHeight
-        : current.bottomHeight,
+      updates.renderWhitespace !== undefined ? updates.renderWhitespace : current.renderWhitespace,
+    formatOnSave: updates.formatOnSave !== undefined ? updates.formatOnSave : current.formatOnSave,
+    sidebarWidth: updates.sidebarWidth !== undefined ? updates.sidebarWidth : current.sidebarWidth,
+    bottomHeight: updates.bottomHeight !== undefined ? updates.bottomHeight : current.bottomHeight,
     sidebarHidden:
-      updates.sidebarHidden !== undefined
-        ? updates.sidebarHidden
-        : current.sidebarHidden,
+      updates.sidebarHidden !== undefined ? updates.sidebarHidden : current.sidebarHidden,
     bottomCollapsed:
-      updates.bottomCollapsed !== undefined
-        ? updates.bottomCollapsed
-        : current.bottomCollapsed,
+      updates.bottomCollapsed !== undefined ? updates.bottomCollapsed : current.bottomCollapsed,
     theme: updates.theme !== undefined ? updates.theme : current.theme,
     keymap:
-      updates.keymap !== undefined
-        ? (updates.keymap as Record<string, string>)
-        : current.keymap,
+      updates.keymap !== undefined ? (updates.keymap as Record<string, string>) : current.keymap,
   };
 
   db.prepare(

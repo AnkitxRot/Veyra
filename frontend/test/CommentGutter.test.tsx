@@ -84,8 +84,7 @@ describe("M61-A CommentGutter", () => {
     });
     await flush();
 
-    const coll = (editor as unknown as { decorationCollections: any[] })
-      .decorationCollections[0];
+    const coll = (editor as unknown as { decorationCollections: any[] }).decorationCollections[0];
     const glyphs = coll.decorations.filter(
       (d: any) => d.options.glyphMarginClassName === "comment-glyph",
     );
@@ -201,11 +200,7 @@ describe("M61-A CommentGutter", () => {
     const doc = new Y.Doc();
     doc.getText("a.ts").insert(0, "one\ntwo\n");
     const t = await makeThread(doc, "a.ts", 0, 3);
-    const model = monaco.editor.createModel(
-      "one\ntwo\n",
-      "typescript",
-      monaco.Uri.file("a.ts"),
-    );
+    const model = monaco.editor.createModel("one\ntwo\n", "typescript", monaco.Uri.file("a.ts"));
     const spy = vi.spyOn(model, "pushEditOperations");
     const editor = monaco.editor.create(document.createElement("div"), {});
     editor.setModel(model);

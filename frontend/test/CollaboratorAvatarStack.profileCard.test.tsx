@@ -26,9 +26,7 @@ function openPopover(target: CollaboratorPresence) {
       onFollowCollaborator={vi.fn()}
     />,
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: new RegExp(`Collaborator `) }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`Collaborator `) }));
   return screen.getByRole("dialog");
 }
 

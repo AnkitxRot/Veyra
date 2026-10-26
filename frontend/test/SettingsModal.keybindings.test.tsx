@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  render,
-  cleanup,
-  fireEvent,
-  screen,
-  within,
-} from "@testing-library/react";
+import { render, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import * as React from "react";
 
 vi.mock("../src/api", () => ({
@@ -13,9 +7,7 @@ vi.mock("../src/api", () => ({
   updateProfile: () => Promise.resolve({}),
 }));
 
-import SettingsModal, {
-  DEFAULT_PREFERENCES,
-} from "../src/components/Settings/SettingsModal";
+import SettingsModal, { DEFAULT_PREFERENCES } from "../src/components/Settings/SettingsModal";
 
 afterEach(cleanup);
 
@@ -25,9 +17,7 @@ function open(keymap: Record<string, string> = {}) {
     <SettingsModal
       isOpen
       preferences={{ ...DEFAULT_PREFERENCES, keymap }}
-      onSave={
-        onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]
-      }
+      onSave={onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]}
       onClose={vi.fn()}
       username="ada99"
     />,
@@ -38,15 +28,10 @@ function open(keymap: Record<string, string> = {}) {
 
 /** the row (listitem) whose text contains `title` */
 function row(title: string) {
-  return screen
-    .getAllByRole("listitem")
-    .find((li) => li.textContent?.includes(title))!;
+  return screen.getAllByRole("listitem").find((li) => li.textContent?.includes(title))!;
 }
 
-function captureChord(
-  el: HTMLElement,
-  init: KeyboardEventInit & { code?: string },
-) {
+function captureChord(el: HTMLElement, init: KeyboardEventInit & { code?: string }) {
   fireEvent.keyDown(el, { bubbles: true, ...init });
 }
 
@@ -97,7 +82,9 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
 
     captureChord(field, { code: "KeyW", ctrlKey: true }); // browser-reserved
     expect(r.textContent).toMatch(/reserved|not usable|invalid/i);
-    expect((within(r).getByRole("button", { name: /apply/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(r).getByRole("button", { name: /apply/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   it("exposes a conflict before saving and blocks Apply", () => {
@@ -108,7 +95,9 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
 
     captureChord(field, { code: "KeyS", ctrlKey: true }); // == save's default
     expect(r.textContent).toMatch(/already|conflict|Save Active File/i);
-    expect((within(r).getByRole("button", { name: /apply/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(r).getByRole("button", { name: /apply/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     fireEvent.click(within(r).getByRole("button", { name: /apply/i }));
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -127,9 +116,7 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
 
   it("reset-all clears every override", () => {
     const { onSave } = open({ "workbench.action.saveFile": "mod+alt+s" });
-    fireEvent.click(
-      screen.getByRole("button", { name: /reset all (keybindings|shortcuts)/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /reset all (keybindings|shortcuts)/i }));
     expect(onSave).toHaveBeenCalledWith({ keymap: {} });
   });
 
@@ -156,7 +143,9 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
       />,
     );
     fireEvent.click(screen.getByRole("tab", { name: /keybindings/i }));
-    expect(screen.getByRole("tab", { name: /keybindings/i }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /keybindings/i }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
 
     rerender(
       <SettingsModal
@@ -167,7 +156,9 @@ describe("SettingsModal — Keybindings tab (M70)", () => {
         username="ada99"
       />,
     );
-    expect(screen.getByRole("tab", { name: /keybindings/i }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /keybindings/i }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
     // and the draft adopted the new server value
     expect(row("Save Active File").textContent).toMatch(/Alt\+S|⌥⌘S/i);
   });

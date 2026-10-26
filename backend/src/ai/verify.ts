@@ -96,8 +96,7 @@ export async function runAIVerification(
     // Degrade gracefully like `missing_toolchain`: the patch simply goes
     // unverified and is journalled as such, rather than failing the request.
     status = "UNVERIFIED";
-    skipReason =
-      "Verification skipped: too many concurrent executions for this user";
+    skipReason = "Verification skipped: too many concurrent executions for this user";
   } else {
     try {
       const cwd = await workspacePath(cfg, req.projectId);
@@ -134,12 +133,8 @@ export async function runAIVerification(
   }
 
   const durationMs = Math.round(performance.now() - t0);
-  const stdoutSummary = runResult?.stdout
-    ? runResult.stdout.slice(0, 1000)
-    : "";
-  const stderrSummary = runResult?.stderr
-    ? runResult.stderr.slice(0, 1500)
-    : skipReason || "";
+  const stdoutSummary = runResult?.stdout ? runResult.stdout.slice(0, 1000) : "";
+  const stderrSummary = runResult?.stderr ? runResult.stderr.slice(0, 1500) : skipReason || "";
   const exitCode = runResult?.exitCode ?? null;
 
   // 3. Record in ai_verifications Journal Table

@@ -35,17 +35,9 @@ export async function resolveProxyEntry(
     throw new ApiError(400, "Invalid port", "invalid_port");
   }
 
-  const target = await sandboxManager.getProxyTarget(
-    project.id,
-    port,
-    cfg.containerized,
-  );
+  const target = await sandboxManager.getProxyTarget(project.id, port, cfg.containerized);
   if (!target) {
-    throw new ApiError(
-      404,
-      `Port ${port} is not published by the sandbox`,
-      "not_found",
-    );
+    throw new ApiError(404, `Port ${port} is not published by the sandbox`, "not_found");
   }
 
   const prefix = `/api/projects/${projectId}/proxy/${port}`;

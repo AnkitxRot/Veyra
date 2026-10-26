@@ -452,9 +452,7 @@ const MIGRATIONS: Migration[] = [
     description: "Add role column to users table",
     up: (db: Db) => {
       try {
-        db.exec(
-          "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
-        );
+        db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
       } catch (err: any) {
         if (!err.message?.includes("duplicate column name")) {
           throw err;
@@ -509,8 +507,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 6,
-    description:
-      "Create project_collaborators table for M4 real-time multiplayer sharing",
+    description: "Create project_collaborators table for M4 real-time multiplayer sharing",
     up(db: Db) {
       db.exec(`
         CREATE TABLE IF NOT EXISTS project_collaborators (
@@ -528,8 +525,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 7,
-    description:
-      "Create ai_verifications journal table for M5 verification-aware AI assistant",
+    description: "Create ai_verifications journal table for M5 verification-aware AI assistant",
     up(db: Db) {
       db.exec(`
         CREATE TABLE IF NOT EXISTS ai_verifications (
@@ -590,16 +586,12 @@ const MIGRATIONS: Migration[] = [
       // skipped rather than blindly re-run on every fresh database, unlike
       // most other migrations in this file which tolerate that via
       // `CREATE TABLE IF NOT EXISTS` no-ops.
-      const fkRows = db
-        .prepare("PRAGMA foreign_key_list(audit_logs)")
-        .all() as Array<{
+      const fkRows = db.prepare("PRAGMA foreign_key_list(audit_logs)").all() as Array<{
         table: string;
         from: string;
         on_delete: string;
       }>;
-      const projectFk = fkRows.find(
-        (r) => r.from === "project_id" && r.table === "projects",
-      );
+      const projectFk = fkRows.find((r) => r.from === "project_id" && r.table === "projects");
       if (projectFk && projectFk.on_delete === "SET NULL") {
         return;
       }
@@ -663,8 +655,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 11,
-    description:
-      "M60: collaboration_changes + collab_last_seen for change attribution & history",
+    description: "M60: collaboration_changes + collab_last_seen for change attribution & history",
     up(db: Db) {
       // Mirrors the inline schema in openDb(); `IF NOT EXISTS` makes this a
       // no-op on a fresh database and the real create on an upgraded one.
@@ -758,9 +749,7 @@ const MIGRATIONS: Migration[] = [
         }>
       ).map((c) => c.name);
       if (!cols.includes("theme")) {
-        db.exec(
-          "ALTER TABLE user_preferences ADD COLUMN theme TEXT NOT NULL DEFAULT 'system'",
-        );
+        db.exec("ALTER TABLE user_preferences ADD COLUMN theme TEXT NOT NULL DEFAULT 'system'");
       }
     },
   },
@@ -775,9 +764,7 @@ const MIGRATIONS: Migration[] = [
         }>
       ).map((c) => c.name);
       if (!cols.includes("keymap")) {
-        db.exec(
-          "ALTER TABLE user_preferences ADD COLUMN keymap TEXT NOT NULL DEFAULT '{}'",
-        );
+        db.exec("ALTER TABLE user_preferences ADD COLUMN keymap TEXT NOT NULL DEFAULT '{}'");
       }
     },
   },
@@ -795,9 +782,7 @@ const MIGRATIONS: Migration[] = [
 ];
 
 export function getSchemaVersion(db: Db): number {
-  const row = db
-    .prepare("SELECT MAX(version) AS v FROM schema_migrations")
-    .get() as {
+  const row = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as {
     v: number | null;
   };
   return row?.v ?? 0;
@@ -813,9 +798,7 @@ function runMigrations(db: Db): void {
 
   let current = getSchemaVersion(db);
   if (current === 0) {
-    db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(
-      BASELINE_SCHEMA_VERSION,
-    );
+    db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(BASELINE_SCHEMA_VERSION);
     current = BASELINE_SCHEMA_VERSION;
   }
 
@@ -824,9 +807,7 @@ function runMigrations(db: Db): void {
     db.exec("BEGIN");
     try {
       migration.up(db);
-      db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(
-        migration.version,
-      );
+      db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
       db.exec("COMMIT");
       current = migration.version;
     } catch (err) {
@@ -840,22 +821,16 @@ function runMigrations(db: Db): void {
   }
 }
 
-export function ensureAdminUser(
-  db: Db,
-  username: string,
-  passwordHash: string,
-): void {
-  const existing = db
-    .prepare("SELECT id, role FROM users WHERE username = ?")
-    .get(username) as { id: number; role: string } | undefined;
+export function ensureAdminUser(db: Db, username: string, passwordHash: string): void {
+  const existing = db.prepare("SELECT id, role FROM users WHERE username = ?").get(username) as
+    { id: number; role: string } | undefined;
   if (!existing) {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run(username, passwordHash, "admin");
-  } else if (existing.role !== "admin") {
-    db.prepare("UPDATE users SET role = ? WHERE id = ?").run(
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      username,
+      passwordHash,
       "admin",
-      existing.id,
     );
+  } else if (existing.role !== "admin") {
+    db.prepare("UPDATE users SET role = ? WHERE id = ?").run("admin", existing.id);
   }
 }

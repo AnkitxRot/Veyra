@@ -4,10 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeTestConfig, makeWorkspace, startTestApi } from "./helpers.js";
-import {
-  languageServers,
-  resetLanguageServersForTests,
-} from "../src/lsp/manager.js";
+import { languageServers, resetLanguageServersForTests } from "../src/lsp/manager.js";
 import type { LspClientSocket } from "../src/lsp/session.js";
 import type { LspSpawnRequest } from "../src/lsp/process.js";
 import type { Db } from "../src/db.js";
@@ -38,11 +35,7 @@ class FakeSock implements LspClientSocket {
   }
 }
 
-async function waitFor(
-  pred: () => boolean,
-  ms = 5000,
-  label = "condition",
-): Promise<void> {
+async function waitFor(pred: () => boolean, ms = 5000, label = "condition"): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
     if (pred()) return;
@@ -89,9 +82,7 @@ function getAuditRows(db: Db, eventType: string, projectId?: string): any[] {
     );
     return stmt.all(eventType, projectId) as any[];
   }
-  stmt = db.prepare(
-    "SELECT * FROM audit_logs WHERE event_type = ? ORDER BY id ASC",
-  );
+  stmt = db.prepare("SELECT * FROM audit_logs WHERE event_type = ? ORDER BY id ASC");
   return stmt.all(eventType) as any[];
 }
 
@@ -260,11 +251,7 @@ describe("M94 — LSP Audit Trail Coverage", () => {
       processId: process.pid,
       rootUri: "file:///",
     });
-    await waitFor(
-      () => sock.lastStatus()?.state === "ready",
-      5000,
-      "ready",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "ready", 5000, "ready");
     // If we got here without throwing, the lifecycle completed despite no audit db.
   });
 

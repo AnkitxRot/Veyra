@@ -4,11 +4,7 @@
 // from becoming a memory-pressure source during a long run).
 
 export type Outcome =
-  | "success"
-  | "clean_quota_rejection"
-  | "timeout"
-  | "connection_failure"
-  | "crash";
+  "success" | "clean_quota_rejection" | "timeout" | "connection_failure" | "crash";
 
 const MAX_SAMPLES_PER_CLASS = 20_000;
 
@@ -43,8 +39,7 @@ export class LatencyRecorder {
       };
     }
     const sorted = [...this.samplesMs].sort((a, b) => a - b);
-    const pct = (p: number) =>
-      sorted[Math.min(n - 1, Math.floor((p / 100) * n))];
+    const pct = (p: number) => sorted[Math.min(n - 1, Math.floor((p / 100) * n))];
     const sum = sorted.reduce((a, b) => a + b, 0);
     return {
       count: n,

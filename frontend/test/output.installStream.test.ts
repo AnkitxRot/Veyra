@@ -9,8 +9,7 @@ import type { Project } from "../src/types";
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
 }));
 
 import Output from "../src/components/Output/Output";
@@ -26,8 +25,7 @@ import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 // This is a test-environment gap, not a component bug — a real browser has
 // this method — so it's polyfilled here rather than touched in production
 // code.
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 // A controllable fake ReadableStreamDefaultReader: read() resolves in the
 // order push()/close() are called, or immediately if a value was already
@@ -126,9 +124,7 @@ describe("Output — Milestone 43 dependency-install stream", () => {
     const encoder = new TextEncoder();
     push(encoder.encode("Collecting requests...\n"));
 
-    await waitFor(() =>
-      expect(container.textContent).toContain("Collecting requests..."),
-    );
+    await waitFor(() => expect(container.textContent).toContain("Collecting requests..."));
     // Second chunk must NOT already be present — proves the first chunk was
     // rendered as its own incremental update, not buffered alongside later
     // output until the stream finished.
@@ -136,15 +132,11 @@ describe("Output — Milestone 43 dependency-install stream", () => {
 
     push(encoder.encode("Successfully installed requests-2.31.0\n"));
     await waitFor(() =>
-      expect(container.textContent).toContain(
-        "Successfully installed requests-2.31.0",
-      ),
+      expect(container.textContent).toContain("Successfully installed requests-2.31.0"),
     );
 
     close();
-    await waitFor(() =>
-      expect(container.textContent).toContain("Install Complete"),
-    );
+    await waitFor(() => expect(container.textContent).toContain("Install Complete"));
   });
 
   it("3. finalizes a multibyte UTF-8 sequence split across chunk boundaries", async () => {
@@ -163,9 +155,7 @@ describe("Output — Milestone 43 dependency-install stream", () => {
     push(full.slice(splitAt));
     close();
 
-    await waitFor(() =>
-      expect(container.textContent).toContain("café installed"),
-    );
+    await waitFor(() => expect(container.textContent).toContain("café installed"));
   });
 
   it("4. on success, flushes pending output and returns install state to idle", async () => {
@@ -201,9 +191,7 @@ describe("Output — Milestone 43 dependency-install stream", () => {
 
     document.dispatchEvent(new Event("ide-install-confirmed"));
 
-    await waitFor(() =>
-      expect(container.textContent).toContain("pip: command not found"),
-    );
+    await waitFor(() => expect(container.textContent).toContain("pip: command not found"));
     expect(stopSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Install Failed");
 
@@ -219,9 +207,7 @@ describe("Output — Milestone 43 dependency-install stream", () => {
 
     document.dispatchEvent(new Event("ide-install-confirmed"));
 
-    await waitFor(() =>
-      expect(container.textContent).toContain("Failed to fetch"),
-    );
+    await waitFor(() => expect(container.textContent).toContain("Failed to fetch"));
     expect(stopSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Install Failed");
 

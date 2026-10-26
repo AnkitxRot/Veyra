@@ -466,13 +466,7 @@ describe("AdminObservabilityPanel (Milestone 49)", () => {
   });
 
   it("19. existing AdminDashboard tabs remain functional with Observability tab switchable", async () => {
-    render(
-      <AdminDashboard
-        user={mockAdminUser}
-        onLogout={() => {}}
-        onSwitchToIde={() => {}}
-      />,
-    );
+    render(<AdminDashboard user={mockAdminUser} onLogout={() => {}} onSwitchToIde={() => {}} />);
 
     await waitFor(() => {
       expect(screen.getByText("System Overview")).toBeDefined();
@@ -490,13 +484,7 @@ describe("AdminObservabilityPanel (Milestone 49)", () => {
   });
 
   it("20. M34 backup-health and other dashboard panels remain unaffected", async () => {
-    render(
-      <AdminDashboard
-        user={mockAdminUser}
-        onLogout={() => {}}
-        onSwitchToIde={() => {}}
-      />,
-    );
+    render(<AdminDashboard user={mockAdminUser} onLogout={() => {}} onSwitchToIde={() => {}} />);
 
     // Switch to backups tab
     const backupsTab = screen.getByRole("tab", { name: /Database & Workspace Backups/i });

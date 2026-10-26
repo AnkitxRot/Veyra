@@ -70,10 +70,7 @@ class FakeWebSocket {
 
 // The exact SyncStep1 -> SyncStep2 exchange backend/src/collab/manager.ts
 // performs, reused unmocked.
-function serverReplyToSyncStep1(
-  serverDoc: Y.Doc,
-  syncStep1Message: Uint8Array,
-): Uint8Array {
+function serverReplyToSyncStep1(serverDoc: Y.Doc, syncStep1Message: Uint8Array): Uint8Array {
   const decoder = decoding.createDecoder(syncStep1Message);
   decoding.readVarUint(decoder); // consume MESSAGE_SYNC envelope tag
   const encoder = encoding.createEncoder();
@@ -153,9 +150,7 @@ describe("CollaborationClient — M63 resynchronizing state", () => {
     const ws2 = reconnectLatest();
     ws2.simulateMessage(serverReplyToSyncStep1(new Y.Doc(), ws2.sent[0]!));
     expect(seen).toContain("resynchronizing");
-    expect(seen.indexOf("resynchronizing")).toBeLessThan(
-      seen.lastIndexOf("connected"),
-    );
+    expect(seen.indexOf("resynchronizing")).toBeLessThan(seen.lastIndexOf("connected"));
     client.dispose();
   });
 

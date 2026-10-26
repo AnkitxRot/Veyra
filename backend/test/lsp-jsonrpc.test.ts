@@ -27,9 +27,9 @@ describe("lsp jsonrpc framing", () => {
 
   it("rejects an oversized content-length", () => {
     const parser = new LspFrameParser(64);
-    expect(() =>
-      parser.push(Buffer.from("Content-Length: 99999\r\n\r\n", "ascii")),
-    ).toThrow(/lsp_message_too_large/);
+    expect(() => parser.push(Buffer.from("Content-Length: 99999\r\n\r\n", "ascii"))).toThrow(
+      /lsp_message_too_large/,
+    );
   });
 
   it("rejects a buffer that grows past maxBytes", () => {
@@ -39,15 +39,13 @@ describe("lsp jsonrpc framing", () => {
 
   it("rejects malformed json bodies", () => {
     const parser = new LspFrameParser();
-    expect(() =>
-      parser.push(Buffer.from("Content-Length: 3\r\n\r\n{x}", "ascii")),
-    ).toThrow(/lsp_malformed_json/);
+    expect(() => parser.push(Buffer.from("Content-Length: 3\r\n\r\n{x}", "ascii"))).toThrow(
+      /lsp_malformed_json/,
+    );
   });
 
   it("identifies responses", () => {
-    expect(isJsonRpcResponse({ jsonrpc: "2.0", id: 1, result: null })).toBe(
-      true,
-    );
+    expect(isJsonRpcResponse({ jsonrpc: "2.0", id: 1, result: null })).toBe(true);
     expect(isJsonRpcResponse({ jsonrpc: "2.0", method: "x" })).toBe(false);
   });
 

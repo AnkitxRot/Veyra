@@ -1,20 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import {
-  createProject,
-  projectDir,
-  deleteProject,
-} from "../src/projects/service.js";
+import { createProject, projectDir, deleteProject } from "../src/projects/service.js";
 import { writeProjectFile, readProjectFile } from "../src/files/service.js";
 import { createSnapshot, snapshotDir } from "../src/projects/snapshots.js";
 import { createZipArchive, extractZipArchive } from "../src/projects/zip.js";
@@ -123,62 +113,41 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
     await writeProjectFile(cwd, "new_file.py", "# should be removed\n");
     await createSnapshot(cfg, db, ownerId, projectId, "Post-backup snapshot");
 
-    const result = await restoreWorkspaceBackup(
-      cfg,
-      db,
-      projectId,
-      backup.filename,
-      { actorUserId: ownerId },
-    );
+    const result = await restoreWorkspaceBackup(cfg, db, projectId, backup.filename, {
+      actorUserId: ownerId,
+    });
 
     expect(result.manifestVersion).toBe(2);
     expect(result.workspaceFileCount).toBe(4);
     expect(result.snapshotRestored.attempted).toBe(true);
     expect(result.snapshotRestored.restoredCount).toBe(1);
 
-    expect((await readProjectFile(cwd, "main.py")).content).toBe(
-      "print('hello')\n",
-    );
-    expect((await readProjectFile(cwd, "src/nested/deep.py")).content).toBe(
-      "def f(): pass\n",
-    );
+    expect((await readProjectFile(cwd, "main.py")).content).toBe("print('hello')\n");
+    expect((await readProjectFile(cwd, "src/nested/deep.py")).content).toBe("def f(): pass\n");
     expect(existsSync(join(cwd, "empty.txt"))).toBe(true);
     expect(readFileSync(join(cwd, "empty.txt")).length).toBe(0);
     const restoredBinary = readFileSync(join(cwd, "asset.bin"));
-    expect(
-      Buffer.compare(
-        restoredBinary,
-        Buffer.from([0, 1, 2, 255, 254, 253, 0, 10, 13]),
-      ),
-    ).toBe(0);
+    expect(Buffer.compare(restoredBinary, Buffer.from([0, 1, 2, 255, 254, 253, 0, 10, 13]))).toBe(
+      0,
+    );
     // Files created after the backup must be gone (full replace).
     expect(existsSync(join(cwd, "new_file.py"))).toBe(false);
 
     // Snapshot: exactly the one from the backup survives, with matching
     // DB row metadata.
-    const rows = db
-      .prepare("SELECT * FROM snapshots WHERE project_id = ?")
-      .all(projectId) as any[];
+    const rows = db.prepare("SELECT * FROM snapshots WHERE project_id = ?").all(projectId) as any[];
     expect(rows.length).toBe(1);
     expect(rows[0].id).toBe(snapshot.id);
     expect(rows[0].name).toBe("Base");
     expect(rows[0].user_id).toBe(ownerId);
-    expect(
-      existsSync(join(snapshotDir(cfg, projectId), `${snapshot.id}.gz`)),
-    ).toBe(true);
+    expect(existsSync(join(snapshotDir(cfg, projectId), `${snapshot.id}.gz`))).toBe(true);
   });
 
   it("2. & 16. v1-shaped backup: workspace restores, snapshot-body restoration is skipped cleanly with an explicit reason, no orphan snapshot files, existing snapshots untouched", async () => {
     const { id: projectId, cwd } = await makeProjectWithContent();
     // A real, current snapshot exists BEFORE the v1 restore -- v1 restore
     // must leave it completely alone (not delete it, not touch its body).
-    const preExisting = await createSnapshot(
-      cfg,
-      db,
-      ownerId,
-      projectId,
-      "Untouched",
-    );
+    const preExisting = await createSnapshot(cfg, db, ownerId, projectId, "Untouched");
 
     const filename = await writeSyntheticBackup(
       projectId,
@@ -210,14 +179,10 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
     expect(existsSync(join(cwd, "main.py"))).toBe(false);
 
     // The pre-existing snapshot (unrelated to this v1 backup) is untouched.
-    const rows = db
-      .prepare("SELECT * FROM snapshots WHERE project_id = ?")
-      .all(projectId) as any[];
+    const rows = db.prepare("SELECT * FROM snapshots WHERE project_id = ?").all(projectId) as any[];
     expect(rows.length).toBe(1);
     expect(rows[0].id).toBe(preExisting.id);
-    expect(
-      existsSync(join(snapshotDir(cfg, projectId), `${preExisting.id}.gz`)),
-    ).toBe(true);
+    expect(existsSync(join(snapshotDir(cfg, projectId), `${preExisting.id}.gz`))).toBe(true);
   });
 
   it("3. a corrupted archive is rejected before any live state is touched", async () => {
@@ -332,36 +297,23 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
     // — to simulate "this snapshot was attributed to a user who has since
     // been deleted" the fixture reassigns the row's user_id directly after
     // creation, which is the state deletion of that account would produce.
-    const snapshot = await createSnapshot(
-      cfg,
-      db,
-      ownerId,
-      projectId,
-      "By other user",
-    );
-    db.prepare("UPDATE snapshots SET user_id = ? WHERE id = ?").run(
-      otherUserId,
-      snapshot.id,
-    );
+    const snapshot = await createSnapshot(cfg, db, ownerId, projectId, "By other user");
+    db.prepare("UPDATE snapshots SET user_id = ? WHERE id = ?").run(otherUserId, snapshot.id);
     const backup = await createWorkspaceBackup(cfg, db, projectId);
 
     // The creator's account is deleted after the backup was taken.
     db.prepare("DELETE FROM users WHERE id = ?").run(otherUserId);
 
-    const result = await restoreWorkspaceBackup(
-      cfg,
-      db,
-      projectId,
-      backup.filename,
-      { actorUserId: ownerId },
-    );
+    const result = await restoreWorkspaceBackup(cfg, db, projectId, backup.filename, {
+      actorUserId: ownerId,
+    });
 
     expect(result.deletedUserFallback.count).toBe(1);
     expect(result.deletedUserFallback.snapshotIds).toContain(snapshot.id);
 
-    const row = db
-      .prepare("SELECT user_id FROM snapshots WHERE id = ?")
-      .get(snapshot.id) as { user_id: number };
+    const row = db.prepare("SELECT user_id FROM snapshots WHERE id = ?").get(snapshot.id) as {
+      user_id: number;
+    };
     expect(row.user_id).toBe(ownerId); // fell back to the restoring admin
   });
 
@@ -369,9 +321,7 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
     const { id: projectId } = await makeProjectWithContent();
     const backup = await createWorkspaceBackup(cfg, db, projectId);
 
-    const stopSpy = vi
-      .spyOn(sandboxManager, "stopProjectSandbox")
-      .mockResolvedValue(undefined);
+    const stopSpy = vi.spyOn(sandboxManager, "stopProjectSandbox").mockResolvedValue(undefined);
 
     await restoreWorkspaceBackup(cfg, db, projectId, backup.filename, {
       actorUserId: ownerId,
@@ -454,20 +404,10 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
 
   it("13. rollback after a SWAP-phase failure: original workspace, snapshots, and DB rows are all restored; failed content is quarantined", async () => {
     const { id: projectId, cwd } = await makeProjectWithContent();
-    const snapshot = await createSnapshot(
-      cfg,
-      db,
-      ownerId,
-      projectId,
-      "Pre-restore",
-    );
+    const snapshot = await createSnapshot(cfg, db, ownerId, projectId, "Pre-restore");
     const backup = await createWorkspaceBackup(cfg, db, projectId);
 
-    await writeProjectFile(
-      cwd,
-      "main.py",
-      "print('should survive rollback')\n",
-    );
+    await writeProjectFile(cwd, "main.py", "print('should survive rollback')\n");
 
     await expect(
       restoreWorkspaceBackup(cfg, db, projectId, backup.filename, {
@@ -482,14 +422,10 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
     expect((await readProjectFile(cwd, "main.py")).content).toBe(
       "print('should survive rollback')\n",
     );
-    const rows = db
-      .prepare("SELECT * FROM snapshots WHERE project_id = ?")
-      .all(projectId) as any[];
+    const rows = db.prepare("SELECT * FROM snapshots WHERE project_id = ?").all(projectId) as any[];
     expect(rows.length).toBe(1);
     expect(rows[0].id).toBe(snapshot.id);
-    expect(
-      existsSync(join(snapshotDir(cfg, projectId), `${snapshot.id}.gz`)),
-    ).toBe(true);
+    expect(existsSync(join(snapshotDir(cfg, projectId), `${snapshot.id}.gz`))).toBe(true);
 
     // A quarantine directory with the failed attempt's content exists
     // somewhere under dataDir, not silently discarded.
@@ -519,17 +455,10 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
       maxArchiveUncompressedBytes: Number.MAX_SAFE_INTEGER,
       maxArchiveSingleFileBytes: Number.MAX_SAFE_INTEGER,
     });
-    const manifest = JSON.parse(
-      readFileSync(join(scratch, "manifest.json"), "utf8"),
-    );
+    const manifest = JSON.parse(readFileSync(join(scratch, "manifest.json"), "utf8"));
     manifest.workspaceFileCount = 999; // lie
     const entries: { path: string; content: Buffer }[] = [];
-    for (const fp of [
-      "main.py",
-      "src/nested/deep.py",
-      "empty.txt",
-      "asset.bin",
-    ]) {
+    for (const fp of ["main.py", "src/nested/deep.py", "empty.txt", "asset.bin"]) {
       entries.push({
         path: `workspace/${fp}`,
         content: readFileSync(join(scratch, "workspace", fp)),
@@ -542,11 +471,7 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
     const tamperedZip = createZipArchive(entries);
     writeFileSync(backup.filePath, tamperedZip);
 
-    await writeProjectFile(
-      cwd,
-      "main.py",
-      "print('should survive rollback')\n",
-    );
+    await writeProjectFile(cwd, "main.py", "print('should survive rollback')\n");
 
     await expect(
       restoreWorkspaceBackup(cfg, db, projectId, backup.filename, {
@@ -565,17 +490,11 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
 
     for (let i = 0; i < 2; i++) {
       await writeProjectFile(cwd, "main.py", `print('mutation ${i}')\n`);
-      const result = await restoreWorkspaceBackup(
-        cfg,
-        db,
-        projectId,
-        backup.filename,
-        { actorUserId: ownerId },
-      );
+      const result = await restoreWorkspaceBackup(cfg, db, projectId, backup.filename, {
+        actorUserId: ownerId,
+      });
       expect(result.workspaceFileCount).toBe(4);
-      expect((await readProjectFile(cwd, "main.py")).content).toBe(
-        "print('hello')\n",
-      );
+      expect((await readProjectFile(cwd, "main.py")).content).toBe("print('hello')\n");
     }
   });
 
@@ -594,11 +513,9 @@ describe("Milestone 32 — Per-Project Workspace & Snapshot Restore", () => {
 
   it("18. admin auth: anonymous rejected, non-admin rejected, admin succeeds", async () => {
     const { id: projectId } = await makeProjectWithContent();
-    const createRes = await api.request(
-      "POST",
-      `/api/admin/workspace-backups/${projectId}`,
-      { token: adminToken },
-    );
+    const createRes = await api.request("POST", `/api/admin/workspace-backups/${projectId}`, {
+      token: adminToken,
+    });
     const filename = createRes.data.backup.filename;
     const restorePath = `/api/admin/workspace-backups/${projectId}/${filename}/restore`;
 

@@ -128,11 +128,7 @@ describe("M61 — comment/profile invalidation transport", () => {
       customFrame({ type: "profile_event", userId: 999 }),
     );
     await tick();
-    expect(
-      customFrames(b).some(
-        (f) => f.threadId === "forged" || f.userId === 999,
-      ),
-    ).toBe(false);
+    expect(customFrames(b).some((f) => f.threadId === "forged" || f.userId === 999)).toBe(false);
   });
 
   it("manager delegates route to the project's room", async () => {

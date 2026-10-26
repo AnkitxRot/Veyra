@@ -29,12 +29,7 @@ export interface AttentionRange {
   endColumn: number;
 }
 
-function beforeOrEqual(
-  aL: number,
-  aC: number,
-  bL: number,
-  bC: number,
-): boolean {
+function beforeOrEqual(aL: number, aC: number, bL: number, bC: number): boolean {
   return aL < bL || (aL === bL && aC <= bC);
 }
 
@@ -94,9 +89,7 @@ export function sanitizeAttentionMessage(v: unknown): string {
     out += isControlChar(v.charCodeAt(i)) ? " " : v[i];
   }
   const s = out.replace(/\s+/g, " ").trim();
-  return s.length > ATTENTION_MAX_MESSAGE_LEN
-    ? s.slice(0, ATTENTION_MAX_MESSAGE_LEN)
-    : s;
+  return s.length > ATTENTION_MAX_MESSAGE_LEN ? s.slice(0, ATTENTION_MAX_MESSAGE_LEN) : s;
 }
 
 export function newAttentionId(): string {
@@ -168,11 +161,7 @@ export interface AttentionEvent {
   expiresAt: number;
 }
 
-export type AttentionClearedReason =
-  | "dismissed"
-  | "expired"
-  | "acted"
-  | "author_gone";
+export type AttentionClearedReason = "dismissed" | "expired" | "acted" | "author_gone";
 
 export interface AttentionClearedMsg {
   type: "attention_cleared";

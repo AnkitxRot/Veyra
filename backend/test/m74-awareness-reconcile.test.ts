@@ -83,12 +83,16 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
    * `{ user }` entry survives as an orphan.
    */
   it("drops a dead connection's awareness entry when another client leaves", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
 
     const project = await createProject(cfg, db, 1, { name: "ChurnRoom" });
     const onDispose = vi.fn();
@@ -141,15 +145,21 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
    * one genuinely-live peer (B).
    */
   it("excludes a dead connection's awareness entry from a late joiner's snapshot", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("carol", "h", "user"); // id 3
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "carol",
+      "h",
+      "user",
+    ); // id 3
 
     const project = await createProject(cfg, db, 1, { name: "JoinSnapshotRoom" });
     const onDispose = vi.fn();
@@ -226,12 +236,16 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
    * after two intervals the table is back to the server's own baseline.
    */
   it("periodic guard reconciles dead sockets even when removeClient never runs", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
 
     const project = await createProject(cfg, db, 1, { name: "PeriodicGuardRoom" });
     const onDispose = vi.fn();
@@ -281,12 +295,16 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
    * cycles.
    */
   it("repeated join/silent-death/leave cycles never accumulate orphan entries", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
 
     const project = await createProject(cfg, db, 1, { name: "CycleRoom" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
@@ -329,9 +347,11 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
    * the new one — never a duplicate and never a lingering stale entry.
    */
   it("a reconnect (new clientID, old socket dead) leaves exactly one entry for the user", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "ReconnectRoom" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn());
@@ -361,9 +381,7 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
     expect(states.size).toBe(2);
     // server forces authoritative identity — user.name is the immutable
     // username, and there is exactly one entry for the user (no duplicate).
-    const users = [...states.values()]
-      .map((s: any) => s.user?.name)
-      .filter(Boolean);
+    const users = [...states.values()].map((s: any) => s.user?.name).filter(Boolean);
     expect(users).toEqual(["alice"]);
 
     room.dispose();

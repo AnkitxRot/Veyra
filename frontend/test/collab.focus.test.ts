@@ -47,20 +47,14 @@ describe("M59 — constants", () => {
 
 describe("M59 — deriveFocusState", () => {
   it("following wins over everything", () => {
-    expect(deriveFocusState(user({ status: "away" }), evt({}), true)).toBe(
-      "following",
-    );
+    expect(deriveFocusState(user({ status: "away" }), evt({}), true)).toBe("following");
   });
   it("focused when there is a live attention event", () => {
     expect(deriveFocusState(user(), evt({}), false)).toBe("focused");
   });
   it("viewing when online + active and no attention", () => {
     expect(
-      deriveFocusState(
-        user({ activity: { type: "editing", timestamp: 0 } }),
-        null,
-        false,
-      ),
+      deriveFocusState(user({ activity: { type: "editing", timestamp: 0 } }), null, false),
     ).toBe("viewing");
   });
   it("idle when away/idle or no signal", () => {
@@ -121,12 +115,8 @@ describe("M59 — buildFocusContext", () => {
     expect(fc.attention).toBeNull();
   });
   it("state is following when followedUserId matches", () => {
-    expect(buildFocusContext(user({ userId: 2 }), [], 9, 2).state).toBe(
-      "following",
-    );
-    expect(buildFocusContext(user({ userId: 2 }), [], 9, 2).isFollowing).toBe(
-      true,
-    );
+    expect(buildFocusContext(user({ userId: 2 }), [], 9, 2).state).toBe("following");
+    expect(buildFocusContext(user({ userId: 2 }), [], 9, 2).isFollowing).toBe(true);
   });
 });
 
@@ -139,9 +129,7 @@ const anchor = (p: string): FollowAnchor => ({
 
 describe("M59 — followAnchor", () => {
   it("anchorFilePresent checks membership", () => {
-    expect(anchorFilePresent(anchor("src/a.ts"), ["src/a.ts", "src/b.ts"])).toBe(
-      true,
-    );
+    expect(anchorFilePresent(anchor("src/a.ts"), ["src/a.ts", "src/b.ts"])).toBe(true);
     expect(anchorFilePresent(anchor("src/gone.ts"), ["src/a.ts"])).toBe(false);
   });
   it("anchorFileBasename returns the last path segment", () => {

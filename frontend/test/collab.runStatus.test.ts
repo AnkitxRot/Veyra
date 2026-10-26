@@ -69,8 +69,7 @@ describe("CollaborationClient — M54 run-status (receive-only)", () => {
     vi.unstubAllGlobals();
   });
 
-  const feed = (obj: Record<string, unknown>) =>
-    ws.onmessage?.({ data: runStatusFrame(obj) });
+  const feed = (obj: Record<string, unknown>) => ws.onmessage?.({ data: runStatusFrame(obj) });
 
   it("stores an incoming running status and emits run_status_change", () => {
     const changes: any[] = [];

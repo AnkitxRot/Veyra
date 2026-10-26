@@ -1,13 +1,5 @@
 import { promises as fs, constants } from "node:fs";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  posix,
-  relative,
-  resolve,
-} from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { ApiError } from "../errors.js";
 import { readConfinedFile, writeConfinedFile } from "./confined.js";
 
@@ -28,12 +20,8 @@ export const DEFAULT_TREE_LIMITS = { maxEntries: 8000, maxDepth: 24 };
 let treeLimits = { ...DEFAULT_TREE_LIMITS };
 
 /** Test-only: bound the tree walk so truncation is deterministic. */
-export function setTreeLimitsForTests(
-  limits?: Partial<typeof DEFAULT_TREE_LIMITS> | null,
-): void {
-  treeLimits = limits
-    ? { ...DEFAULT_TREE_LIMITS, ...limits }
-    : { ...DEFAULT_TREE_LIMITS };
+export function setTreeLimitsForTests(limits?: Partial<typeof DEFAULT_TREE_LIMITS> | null): void {
+  treeLimits = limits ? { ...DEFAULT_TREE_LIMITS, ...limits } : { ...DEFAULT_TREE_LIMITS };
 }
 
 export function isSkippedTreeName(name: string): boolean {
@@ -59,12 +47,10 @@ export function safeResolve(root: string, relPath: string): string {
   if (relPath.includes("\0")) throw escapeError();
   if (relPath.startsWith("/")) throw escapeError();
   // Reject Windows-style absolute paths (C:\, \\server\share, etc.)
-  if (/^[a-zA-Z]:/.test(relPath) || relPath.startsWith("\\\\"))
-    throw escapeError();
+  if (/^[a-zA-Z]:/.test(relPath) || relPath.startsWith("\\\\")) throw escapeError();
   const resolved = resolve(root, relPath);
   const rel = relative(root, resolved);
-  if (rel.startsWith("..") || rel === ".." || isAbsolute(rel))
-    throw escapeError();
+  if (rel.startsWith("..") || rel === ".." || isAbsolute(rel)) throw escapeError();
   return resolved;
 }
 
@@ -77,9 +63,7 @@ export function safeResolve(root: string, relPath: string): string {
 export function assertNotGitInternal(relPath: string): void {
   // M86: normalize first — `./.git/config`, `a/../.git/config`, `.GIT/config`
   // and `.git./config` all resolve into the repository directory.
-  const normalized = posix.normalize(
-    relPath.replace(/\\/g, "/").replace(/^\/+/, ""),
-  );
+  const normalized = posix.normalize(relPath.replace(/\\/g, "/").replace(/^\/+/, ""));
   if (isGitInternalRel(normalized)) throw gitInternalError();
 }
 
@@ -98,17 +82,10 @@ function isGitInternalRel(rel: string): boolean {
 }
 
 function gitInternalError(): ApiError {
-  return new ApiError(
-    400,
-    "cannot access .git repository internals",
-    "invalid_path",
-  );
+  return new ApiError(400, "cannot access .git repository internals", "invalid_path");
 }
 
-export async function assertInsideWorkspace(
-  root: string,
-  abs: string,
-): Promise<void> {
+export async function assertInsideWorkspace(root: string, abs: string): Promise<void> {
   const realRoot = await fs.realpath(root);
   let cur = abs;
   const tail: string[] = [];
@@ -144,26 +121,20 @@ export async function assertInsideWorkspace(
   let realAbs = await fs.realpath(cur);
   for (const part of tail) realAbs = join(realAbs, part);
   const rel = relative(realRoot, realAbs);
-  if (rel.startsWith("..") || rel === ".." || isAbsolute(rel))
-    throw escapeError();
+  if (rel.startsWith("..") || rel === ".." || isAbsolute(rel)) throw escapeError();
   // M86: `.git` holds configuration host-side Git honors (filter drivers run
   // commands). Checked on the real path so a symlink/junction such as
   // `link -> .git` cannot reach it either. No caller needs `.git` access.
   if (isGitInternalRel(rel)) throw gitInternalError();
 }
 
-export async function listFiles(
-  root: string,
-  rel = "",
-  out: string[] = [],
-): Promise<string[]> {
+export async function listFiles(root: string, rel = "", out: string[] = []): Promise<string[]> {
   try {
     const entries = await fs.readdir(join(root, rel), { withFileTypes: true });
     for (const entry of entries) {
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(BUILD_PREFIX))
-          continue;
+        if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(BUILD_PREFIX)) continue;
         await listFiles(root, relPath, out);
       } else if (entry.isFile()) {
         if (entry.name.startsWith(BUILD_PREFIX)) continue;
@@ -270,44 +241,36 @@ async function doTree(
   }
 
   entries.sort((a, b) =>
-    a.isDirectory() === b.isDirectory()
-      ? a.name.localeCompare(b.name)
-      : a.isDirectory()
-        ? -1
-        : 1,
+    a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1,
   );
 
   const filtered = entries.filter((e) => !e.name.startsWith(BUILD_PREFIX));
 
-  const mapped = await mapConcurrent(
-    filtered,
-    8,
-    async (e): Promise<TreeNode | null> => {
-      if (e.isDirectory() && SKIP_DIRS.has(e.name)) return null;
-      // Reserve the slot before any await so concurrent workers cannot all
-      // pass the cap check, then each increment past maxEntries.
-      if (state.truncated || state.scanned >= treeLimits.maxEntries) {
-        state.truncated = true;
+  const mapped = await mapConcurrent(filtered, 8, async (e): Promise<TreeNode | null> => {
+    if (e.isDirectory() && SKIP_DIRS.has(e.name)) return null;
+    // Reserve the slot before any await so concurrent workers cannot all
+    // pass the cap check, then each increment past maxEntries.
+    if (state.truncated || state.scanned >= treeLimits.maxEntries) {
+      state.truncated = true;
+      return null;
+    }
+    state.scanned += 1;
+    const relPath = prefix ? `${prefix}/${e.name}` : e.name;
+    const abs = join(absRoot, e.name);
+    if (e.isDirectory()) {
+      const children = await doTree(abs, relPath, depth + 1, state);
+      return { name: e.name, path: relPath, type: "dir", children };
+    } else if (e.isFile()) {
+      try {
+        const st = await fs.stat(abs);
+        return { name: e.name, path: relPath, type: "file", size: st.size };
+      } catch {
+        // file might have disappeared
         return null;
       }
-      state.scanned += 1;
-      const relPath = prefix ? `${prefix}/${e.name}` : e.name;
-      const abs = join(absRoot, e.name);
-      if (e.isDirectory()) {
-        const children = await doTree(abs, relPath, depth + 1, state);
-        return { name: e.name, path: relPath, type: "dir", children };
-      } else if (e.isFile()) {
-        try {
-          const st = await fs.stat(abs);
-          return { name: e.name, path: relPath, type: "file", size: st.size };
-        } catch {
-          // file might have disappeared
-          return null;
-        }
-      }
-      return null;
-    },
-  );
+    }
+    return null;
+  });
 
   return mapped.filter((n): n is TreeNode => n !== null);
 }
@@ -433,10 +396,7 @@ export async function moveProjectPath(
   return { path: to };
 }
 
-export async function deleteProjectPath(
-  root: string,
-  relPath: string,
-): Promise<void> {
+export async function deleteProjectPath(root: string, relPath: string): Promise<void> {
   if (relPath === "" || relPath === ".")
     throw new ApiError(400, "cannot delete the workspace root", "invalid_path");
   assertNotGitInternal(relPath);

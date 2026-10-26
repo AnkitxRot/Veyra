@@ -11,9 +11,7 @@ function seed(db: Db) {
   db.prepare(
     "INSERT INTO users (id,username,password_hash) VALUES (7,'rahul','h'),(8,'ankit','h')",
   ).run();
-  db.prepare(
-    "INSERT INTO projects (id,owner_id,name) VALUES ('p',7,'P'),('q',8,'Q')",
-  ).run();
+  db.prepare("INSERT INTO projects (id,owner_id,name) VALUES ('p',7,'P'),('q',8,'Q')").run();
 
   const cc = (
     id: string,
@@ -79,13 +77,7 @@ describe("timeline union", () => {
     const { events } = queryTimeline(db, "p", { limit: 50 });
     const kinds = events.map((e) => e.kind);
     expect(kinds).toEqual(
-      expect.arrayContaining([
-        "edit_burst",
-        "callout",
-        "run",
-        "commit",
-        "snapshot",
-      ]),
+      expect.arrayContaining(["edit_burst", "callout", "run", "commit", "snapshot"]),
     );
     const ats = events.map((e) => e.at);
     expect([...ats].sort().reverse()).toEqual(ats);
@@ -105,9 +97,7 @@ describe("timeline union", () => {
     const ids = new Set(page1.events.map((e) => e.id));
     expect(page2.events.every((e) => !ids.has(e.id))).toBe(true);
     const all = queryTimeline(db, "p", { limit: 50 }).events.map((e) => e.id);
-    expect([...page1.events, ...page2.events].map((e) => e.id)).toEqual(
-      all.slice(0, 4),
-    );
+    expect([...page1.events, ...page2.events].map((e) => e.id)).toEqual(all.slice(0, 4));
   });
 
   it("stable pagination when one source dominates the newest rows", () => {
@@ -148,33 +138,25 @@ describe("timeline union", () => {
   });
 
   it("run events carry only safe fields", () => {
-    const run = queryTimeline(db, "p", { limit: 50 }).events.find(
-      (e) => e.kind === "run",
-    )!;
+    const run = queryTimeline(db, "p", { limit: 50 }).events.find((e) => e.kind === "run")!;
     expect(run.title).toMatch(/main\.py/);
     expect(JSON.stringify(run)).not.toMatch(/stdout|stderr|signal|peak_memory/);
   });
 
   it("commit title uses subjectPreview and is not navigable", () => {
-    const c = queryTimeline(db, "p", { limit: 50 }).events.find(
-      (e) => e.kind === "commit",
-    )!;
+    const c = queryTimeline(db, "p", { limit: 50 }).events.find((e) => e.kind === "commit")!;
     expect(c.title).toContain("Fix login UI");
     expect(c.navigable).toBe(false);
   });
 
   it("snapshot title reflects the action", () => {
-    const s = queryTimeline(db, "p", { limit: 50 }).events.find(
-      (e) => e.kind === "snapshot",
-    )!;
+    const s = queryTimeline(db, "p", { limit: 50 }).events.find((e) => e.kind === "snapshot")!;
     expect(s.title).toContain("restored snapshot");
     expect(s.title).toContain("pre-refactor");
   });
 
   it("limit is clamped to [1,100]", () => {
-    expect(
-      queryTimeline(db, "p", { limit: 9999 }).events.length,
-    ).toBeLessThanOrEqual(100);
+    expect(queryTimeline(db, "p", { limit: 9999 }).events.length).toBeLessThanOrEqual(100);
     expect(() => queryTimeline(db, "p", { limit: 0 })).not.toThrow();
   });
 
@@ -194,9 +176,7 @@ describe("timeline union", () => {
   });
 
   it("edit_burst with a range is 'changed lines A–B' and navigable", () => {
-    const e = queryTimeline(db, "p", { limit: 50 }).events.find(
-      (x) => x.id === "collab:c1",
-    )!;
+    const e = queryTimeline(db, "p", { limit: 50 }).events.find((x) => x.id === "collab:c1")!;
     expect(e.title).toBe("changed lines 40–48");
     expect(e.lineRange).toEqual({ startLine: 40, endLine: 48 });
     expect(e.navigable).toBe(true);

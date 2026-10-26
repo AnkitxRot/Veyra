@@ -109,11 +109,7 @@ export function normalizeEnvironment(env: unknown): string | null {
 
 function validateValue(value: unknown): string {
   if (typeof value !== "string") {
-    throw new ApiError(
-      400,
-      "secret value must be a string",
-      "invalid_secret_value",
-    );
+    throw new ApiError(400, "secret value must be a string", "invalid_secret_value");
   }
   if (Buffer.byteLength(value, "utf8") > MAX_VALUE_BYTES) {
     throw new ApiError(
@@ -123,20 +119,12 @@ function validateValue(value: unknown): string {
     );
   }
   if (value.includes("\0")) {
-    throw new ApiError(
-      400,
-      "secret value must not contain NUL bytes",
-      "invalid_secret_value",
-    );
+    throw new ApiError(400, "secret value must not contain NUL bytes", "invalid_secret_value");
   }
   return value;
 }
 
-function identityOf(
-  projectId: string,
-  name: string,
-  environment: string | null,
-): SecretIdentity {
+function identityOf(projectId: string, name: string, environment: string | null): SecretIdentity {
   return {
     scope: SECRET_SCOPE_PROJECT,
     scopeId: projectId,
@@ -171,17 +159,13 @@ function selectRow(
          AND COALESCE(environment, '') = COALESCE(?, '')
          AND name = ?`,
     )
-    .get(SECRET_SCOPE_PROJECT, projectId, environment, name) as
-    SecretRow | undefined;
+    .get(SECRET_SCOPE_PROJECT, projectId, environment, name) as SecretRow | undefined;
   return row ?? null;
 }
 
 /** Metadata for every secret on a project. Never decrypts, never returns a
  *  value — always safe to call regardless of master-key state. */
-export function getProjectSecretMetadata(
-  db: Db,
-  projectId: string,
-): SecretMetadata[] {
+export function getProjectSecretMetadata(db: Db, projectId: string): SecretMetadata[] {
   const rows = db
     .prepare(
       `SELECT * FROM secrets
@@ -227,9 +211,7 @@ export function decryptProjectSecret(
 
 export function countProjectSecrets(db: Db, projectId: string): number {
   const row = db
-    .prepare(
-      "SELECT COUNT(*) AS c FROM secrets WHERE scope = ? AND scope_id = ?",
-    )
+    .prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope = ? AND scope_id = ?")
     .get(SECRET_SCOPE_PROJECT, projectId) as { c: number };
   return row?.c ?? 0;
 }
@@ -237,15 +219,11 @@ export function countProjectSecrets(db: Db, projectId: string): number {
 /** Any encrypted secret anywhere — used to decide whether a missing master
  *  key is a hard fault or merely "nothing to decrypt yet". */
 export function anyEncryptedSecretsExist(db: Db): boolean {
-  const row = db.prepare("SELECT 1 FROM secrets LIMIT 1").get() as
-    { 1: number } | undefined;
+  const row = db.prepare("SELECT 1 FROM secrets LIMIT 1").get() as { 1: number } | undefined;
   return row !== undefined;
 }
 
-function assertReservedGitSecretWriteOnly(
-  name: string,
-  isSecret: boolean,
-): void {
+function assertReservedGitSecretWriteOnly(name: string, isSecret: boolean): void {
   if (NON_INJECTABLE_SECRET_NAMES.has(name) && !isSecret) {
     throw new ApiError(
       400,
@@ -296,19 +274,11 @@ export interface UpsertInput {
   createdBy: number | null;
 }
 
-export function createProjectSecret(
-  db: Db,
-  cfg: AppConfig,
-  input: UpsertInput,
-): SecretMetadata {
+export function createProjectSecret(db: Db, cfg: AppConfig, input: UpsertInput): SecretMetadata {
   assertReservedGitSecretWriteOnly(input.name, input.isSecret);
   const value = validateValue(input.value);
   if (selectRow(db, input.projectId, input.name, input.environment)) {
-    throw new ApiError(
-      409,
-      "a secret with this name already exists",
-      "secret_exists",
-    );
+    throw new ApiError(409, "a secret with this name already exists", "secret_exists");
   }
   const enc = encryptSecret(
     value,
@@ -333,23 +303,12 @@ export function createProjectSecret(
     fingerprint,
     input.createdBy,
   );
-  return toMetadata(
-    selectRow(db, input.projectId, input.name, input.environment)!,
-  );
+  return toMetadata(selectRow(db, input.projectId, input.name, input.environment)!);
 }
 
-export function updateProjectSecret(
-  db: Db,
-  cfg: AppConfig,
-  input: UpsertInput,
-): SecretMetadata {
+export function updateProjectSecret(db: Db, cfg: AppConfig, input: UpsertInput): SecretMetadata {
   assertReservedGitSecretWriteOnly(input.name, input.isSecret);
-  const existing = selectRow(
-    db,
-    input.projectId,
-    input.name,
-    input.environment,
-  );
+  const existing = selectRow(db, input.projectId, input.name, input.environment);
   if (!existing) {
     throw new ApiError(404, "secret not found", "not_found");
   }
@@ -373,9 +332,7 @@ export function updateProjectSecret(
     fingerprint,
     existing.id,
   );
-  return toMetadata(
-    selectRow(db, input.projectId, input.name, input.environment)!,
-  );
+  return toMetadata(selectRow(db, input.projectId, input.name, input.environment)!);
 }
 
 export function deleteProjectSecret(
@@ -514,11 +471,7 @@ export function toGenericSecretError(err: unknown): ApiError {
     );
   }
   if (err instanceof SecretsDecryptError) {
-    return new ApiError(
-      500,
-      "a stored secret could not be decrypted",
-      "secrets_decrypt_failed",
-    );
+    return new ApiError(500, "a stored secret could not be decrypted", "secrets_decrypt_failed");
   }
   if (err instanceof ApiError) {
     return err;

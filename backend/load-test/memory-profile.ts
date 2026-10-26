@@ -56,9 +56,7 @@ const NON_COLLAB_WEIGHTS: [BehaviorName, number][] = [
   ["preview_heavy", 8],
 ];
 
-function buildWeightedPattern(
-  weights: [BehaviorName, number][],
-): BehaviorName[] {
+function buildWeightedPattern(weights: [BehaviorName, number][]): BehaviorName[] {
   const total = weights.reduce((s, [, w]) => s + w, 0);
   const pattern: BehaviorName[] = [];
   const assigned = weights.map(() => 0);
@@ -173,11 +171,7 @@ async function main(): Promise<void> {
       }),
     }).then((r) => r.json())) as { token: string };
     seedToken = reg.token;
-    for (
-      let i = 0;
-      i < Math.min(3, Math.max(1, Math.ceil(args.users / 20)));
-      i++
-    ) {
+    for (let i = 0; i < Math.min(3, Math.max(1, Math.ceil(args.users / 20))); i++) {
       const proj = (await fetch(`${server.baseUrl}/api/projects`, {
         method: "POST",
         headers: {
@@ -277,12 +271,7 @@ async function main(): Promise<void> {
       atSec: Math.round((Date.now() - startedAt) / 1000),
       snapshot: s,
     });
-    console.log(
-      memLine(
-        `+${Math.round((Date.now() - observeStart) / 1000)}s post-rampdown`,
-        s,
-      ),
-    );
+    console.log(memLine(`+${Math.round((Date.now() - observeStart) / 1000)}s post-rampdown`, s));
   }
   clearInterval(snapshotTimer);
 
@@ -337,9 +326,7 @@ export function renderMarkdown(report: any): string {
     }
   }
   lines.push("");
-  lines.push(
-    "## Observability over time (sampled every 5s; ws/rooms/sandboxes/memory/cpu/gc)",
-  );
+  lines.push("## Observability over time (sampled every 5s; ws/rooms/sandboxes/memory/cpu/gc)");
   lines.push("");
   lines.push(
     "| t(s) | rss MB | heapUsed MB | heapTotal MB | external MB | arrayBuffers MB | ws | rooms | sandboxes | evloop p99ms | gc major | gc minor |",

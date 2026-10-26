@@ -115,10 +115,7 @@ export default function CollabConnectionBanner({
       }}
     >
       {lines.map((l) => (
-        <div
-          key={l.key}
-          style={{ display: "flex", alignItems: "center", gap: "8px" }}
-        >
+        <div key={l.key} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span
             aria-hidden="true"
             style={{

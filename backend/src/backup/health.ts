@@ -1,9 +1,6 @@
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import {
-  listDatabaseBackups,
-  verifyDatabaseBackupIntegrity,
-} from "./service.js";
+import { listDatabaseBackups, verifyDatabaseBackupIntegrity } from "./service.js";
 import { listWorkspaceBackups } from "./workspaceBackup.js";
 
 /**
@@ -109,9 +106,7 @@ export async function getDatabaseBackupHealth(
   }
 
   const latestBackupAgeMs =
-    latestValidCreatedAt === null
-      ? null
-      : now - new Date(latestValidCreatedAt).getTime();
+    latestValidCreatedAt === null ? null : now - new Date(latestValidCreatedAt).getTime();
 
   return {
     status: classifyAge(latestBackupAgeMs, warningAgeMs, criticalAgeMs),
@@ -173,9 +168,7 @@ export async function getWorkspaceBackupHealth(
 
   const uncoveredProjects = totalProjects - coveredProjects;
   const coveragePercent =
-    totalProjects === 0
-      ? 100
-      : Math.round((coveredProjects / totalProjects) * 100);
+    totalProjects === 0 ? 100 : Math.round((coveredProjects / totalProjects) * 100);
 
   let status: BackupHealthStatus;
   if (totalProjects === 0) {
@@ -184,14 +177,10 @@ export async function getWorkspaceBackupHealth(
     status = "never";
   } else if (
     uncoveredProjects > 0 ||
-    (oldestLatestBackupAgeMs !== null &&
-      oldestLatestBackupAgeMs > criticalAgeMs)
+    (oldestLatestBackupAgeMs !== null && oldestLatestBackupAgeMs > criticalAgeMs)
   ) {
     status = "critical";
-  } else if (
-    oldestLatestBackupAgeMs !== null &&
-    oldestLatestBackupAgeMs > warningAgeMs
-  ) {
+  } else if (oldestLatestBackupAgeMs !== null && oldestLatestBackupAgeMs > warningAgeMs) {
     status = "stale";
   } else {
     status = "ok";

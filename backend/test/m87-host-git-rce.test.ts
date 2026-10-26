@@ -40,8 +40,7 @@ describe.skipIf(!SANDBOX_GIT)(
 
     const post = (p: string, body: unknown = {}) =>
       f.api.request("POST", f.g(p), { token: f.editorToken, body });
-    const get = (p: string) =>
-      f.api.request("GET", f.g(p), { token: f.editorToken });
+    const get = (p: string) => f.api.request("GET", f.g(p), { token: f.editorToken });
     /** Commit from the attacker's terminal, then forget what ran there. */
     const terminalCommit = (msg: string) =>
       f.sh(
@@ -70,9 +69,7 @@ describe.skipIf(!SANDBOX_GIT)(
 
         const st = await get("/status");
         expect(st.status).toBe(200);
-        expect(st.data.staged.map((e: { path: string }) => e.path)).toContain(
-          "a.txt",
-        );
+        expect(st.data.staged.map((e: { path: string }) => e.path)).toContain("a.txt");
       } finally {
         delete process.env.M87_BACKEND_ONLY_SECRET;
       }
@@ -146,8 +143,7 @@ describe.skipIf(!SANDBOX_GIT)(
         "mkdir -p .git/hooks .m87/hooks && " +
           hooks
             .map(
-              (h) =>
-                `printf '${script}' > .git/hooks/${h} && printf '${script}' > .m87/hooks/${h}`,
+              (h) => `printf '${script}' > .git/hooks/${h} && printf '${script}' > .m87/hooks/${h}`,
             )
             .join(" && ") +
           " && chmod 755 .git/hooks/* .m87/hooks/* && echo x > a.txt",
@@ -155,16 +151,12 @@ describe.skipIf(!SANDBOX_GIT)(
       expect((await post("/stage", { all: true })).status).toBe(200);
       expect((await post("/commit", { message: "c1" })).status).toBe(200);
       expect((await post("/branches", { name: "side" })).status).toBe(200);
-      expect(
-        (await post("/checkout", { name: "side", dirtyOpenPaths: [] })).status,
-      ).toBe(200);
+      expect((await post("/checkout", { name: "side", dirtyOpenPaths: [] })).status).toBe(200);
 
       await f.sh("git config core.hooksPath .m87/hooks && echo y > b.txt");
       expect((await post("/stage", { all: true })).status).toBe(200);
       expect((await post("/commit", { message: "c2" })).status).toBe(200);
-      expect(
-        (await post("/checkout", { name: "main", dirtyOpenPaths: [] })).status,
-      ).toBe(200);
+      expect((await post("/checkout", { name: "main", dirtyOpenPaths: [] })).status).toBe(200);
 
       expect(f.hostRan()).toBe(false);
       expect(await f.sandboxRan()).toBe("");
@@ -229,9 +221,7 @@ describe.skipIf(!SANDBOX_GIT)(
       const st = await get("/status");
       expect(st.status).toBe(200);
       // The nested repository is one gitlink entry, never walked as files.
-      const all = [...st.data.staged, ...st.data.unstaged].map(
-        (e: { path: string }) => e.path,
-      );
+      const all = [...st.data.staged, ...st.data.unstaged].map((e: { path: string }) => e.path);
       expect(all.some((p: string) => p.startsWith("sub/"))).toBe(false);
       expect((await get("/diff")).status).toBe(200);
 
@@ -241,9 +231,7 @@ describe.skipIf(!SANDBOX_GIT)(
         `printf '[submodule "sub"]\\n\\tpath = sub\\n\\turl = ./sub\\n\\tupdate = !${P}\\n' > .gitmodules`,
       );
       expect([200, 422]).toContain((await get("/status")).status);
-      expect([200, 422]).toContain(
-        (await post("/stage", { all: true })).status,
-      );
+      expect([200, 422]).toContain((await post("/stage", { all: true })).status);
       expect(f.hostRan()).toBe(false);
     });
 
@@ -256,7 +244,9 @@ describe.skipIf(!SANDBOX_GIT)(
       expect(stage.status).toBe(409);
       expect(stage.data.error.code).toBe("not_a_repo");
 
-      await f.sh("rm -f .git && mkdir -p /tmp/realrepo && git init -q /tmp/realrepo && ln -s /tmp/realrepo/.git .git");
+      await f.sh(
+        "rm -f .git && mkdir -p /tmp/realrepo && git init -q /tmp/realrepo && ln -s /tmp/realrepo/.git .git",
+      );
       const st2 = await get("/status");
       expect(st2.status).toBe(200);
       expect(st2.data.initialized).toBe(false);
@@ -264,7 +254,9 @@ describe.skipIf(!SANDBOX_GIT)(
     });
 
     it("only editors can make Veyra run Git writes; outsiders learn nothing", async () => {
-      await f.sh(`git config filter.m87.clean "${P}" && printf '* filter=m87\\n' > .gitattributes && echo z > z.txt`);
+      await f.sh(
+        `git config filter.m87.clean "${P}" && printf '* filter=m87\\n' > .gitattributes && echo z > z.txt`,
+      );
       const viewer = await f.api.request("POST", f.g("/stage"), {
         token: f.viewerToken,
         body: { all: true },

@@ -83,12 +83,7 @@ export class LspFrameParser {
 
 function indexOfHeaderEnd(buf: Buffer): number {
   for (let i = 0; i + 3 < buf.length; i++) {
-    if (
-      buf[i] === 13 &&
-      buf[i + 1] === 10 &&
-      buf[i + 2] === 13 &&
-      buf[i + 3] === 10
-    ) {
+    if (buf[i] === 13 && buf[i + 1] === 10 && buf[i + 2] === 13 && buf[i + 3] === 10) {
       return i;
     }
   }
@@ -99,8 +94,7 @@ export function isJsonRpcRequest(
   msg: JsonRpcMessage,
 ): msg is JsonRpcMessage & { method: string; id: string | number } {
   return (
-    typeof msg.method === "string" &&
-    (typeof msg.id === "string" || typeof msg.id === "number")
+    typeof msg.method === "string" && (typeof msg.id === "string" || typeof msg.id === "number")
   );
 }
 
@@ -110,9 +104,7 @@ export function isJsonRpcNotification(
   return typeof msg.method === "string" && msg.id === undefined;
 }
 
-export function isJsonRpcResponse(
-  msg: JsonRpcMessage,
-): boolean {
+export function isJsonRpcResponse(msg: JsonRpcMessage): boolean {
   return (
     (typeof msg.id === "string" || typeof msg.id === "number") &&
     msg.method === undefined &&

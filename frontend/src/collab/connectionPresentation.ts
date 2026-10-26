@@ -19,9 +19,7 @@ export function collaborationIsLive(status: CollabConnectionStatus): boolean {
  * A short note explaining why the collaborator list on a roster surface may
  * not be current, or `null` in the steady state. Presentation only.
  */
-export function rosterStalenessNote(
-  status: CollabConnectionStatus,
-): string | null {
+export function rosterStalenessNote(status: CollabConnectionStatus): string | null {
   switch (status) {
     case "connected":
       return null;

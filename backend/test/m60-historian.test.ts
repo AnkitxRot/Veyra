@@ -22,10 +22,7 @@ const edit = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function fresh(
-  db: Db,
-  cfg: Parameters<CollaborationHistorian["init"]>[1],
-): CollaborationHistorian {
+function fresh(db: Db, cfg: Parameters<CollaborationHistorian["init"]>[1]): CollaborationHistorian {
   const Ctor = CollaborationHistorian as unknown as { new (): CollaborationHistorian };
   const h = new Ctor();
   h.init(db, cfg);
@@ -63,9 +60,7 @@ describe("CollaborationHistorian", () => {
     h.closeProjectBursts("p", "flush");
     h.flushQueue();
     const rahul = db
-      .prepare(
-        "SELECT * FROM collaboration_changes WHERE author_user_id=7 AND file_path='a.ts'",
-      )
+      .prepare("SELECT * FROM collaboration_changes WHERE author_user_id=7 AND file_path='a.ts'")
       .get() as { start_line: number | null };
     expect(rahul.start_line).toBeNull();
   });
@@ -77,9 +72,7 @@ describe("CollaborationHistorian", () => {
     }
     h.closeProjectBursts("p", "flush");
     h.flushQueue();
-    const begins = execSpy.mock.calls.filter((c) =>
-      String(c[0]).includes("BEGIN"),
-    );
+    const begins = execSpy.mock.calls.filter((c) => String(c[0]).includes("BEGIN"));
     expect(begins.length).toBe(1);
   });
 
@@ -87,9 +80,7 @@ describe("CollaborationHistorian", () => {
     h.recordEdit(edit({ at: 4_000_000 }));
     expect(h._openBurstCount()).toBe(1);
     h.stop();
-    const row = db
-      .prepare("SELECT COUNT(*) c FROM collaboration_changes")
-      .get() as { c: number };
+    const row = db.prepare("SELECT COUNT(*) c FROM collaboration_changes").get() as { c: number };
     expect(row.c).toBe(1);
     expect(h._openBurstCount()).toBe(0);
   });
@@ -120,9 +111,11 @@ describe("CollaborationHistorian", () => {
       at: 6_000_000,
     });
     h.flushQueue();
-    const row = db
-      .prepare("SELECT * FROM collaboration_changes WHERE kind='callout'")
-      .get() as { file_path: string; start_line: number; detail: string };
+    const row = db.prepare("SELECT * FROM collaboration_changes WHERE kind='callout'").get() as {
+      file_path: string;
+      start_line: number;
+      detail: string;
+    };
     expect(row.file_path).toBe("a.ts");
     expect(row.start_line).toBe(40);
     const detail = JSON.parse(row.detail);
@@ -150,9 +143,7 @@ describe("CollaborationHistorian", () => {
     h.closeProjectBursts("p", "flush");
     h.flushQueue();
     h.purgeExpired();
-    const rows = db
-      .prepare("SELECT id FROM collaboration_changes")
-      .all() as Array<{ id: string }>;
+    const rows = db.prepare("SELECT id FROM collaboration_changes").all() as Array<{ id: string }>;
     expect(rows.every((r) => !r.id.startsWith("old"))).toBe(true);
     expect(rows.length).toBeLessThanOrEqual(3);
   });
@@ -175,11 +166,9 @@ describe("CollaborationHistorian", () => {
     h.flushQueue();
     expect(
       (
-        db
-          .prepare(
-            "SELECT COUNT(*) c FROM collaboration_changes WHERE file_path='a.ts'",
-          )
-          .get() as { c: number }
+        db.prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE file_path='a.ts'").get() as {
+          c: number;
+        }
       ).c,
     ).toBe(2);
   });
@@ -191,9 +180,7 @@ describe("CollaborationHistorian", () => {
     h.closeProjectBursts("p", "flush");
     expect(bc).toHaveBeenCalledTimes(1);
     expect(bc!.mock.calls[0]![0]).toBe("p");
-    expect(
-      (bc!.mock.calls[0]![1] as { actor: { userId: number } }).actor.userId,
-    ).toBe(7);
+    expect((bc!.mock.calls[0]![1] as { actor: { userId: number } }).actor.userId).toBe(7);
   });
 
   it("contaminateFile forces null range on the matching open burst", () => {
@@ -215,9 +202,9 @@ describe("CollaborationHistorian", () => {
     );
     h.closeProjectBursts("p", "flush");
     h.flushQueue();
-    const row = db
-      .prepare("SELECT * FROM collaboration_changes WHERE file_path='x.ts'")
-      .get() as { start_line: number | null };
+    const row = db.prepare("SELECT * FROM collaboration_changes WHERE file_path='x.ts'").get() as {
+      start_line: number | null;
+    };
     expect(row.start_line).toBeNull();
   });
 

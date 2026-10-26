@@ -1,18 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   type UserPreferences,
   type UserProfile,
   type ProfileDraft,
   EDITOR_PREFERENCE_KEYS,
-} from '../../types';
-import {
-  getProfile,
-  updateProfile,
-  uploadAvatar,
-  removeAvatar,
-} from '../../api';
-import { IconClose, IconSettings, IconRefresh } from '../common/Icons';
-import UserAvatar from '../common/UserAvatar';
+} from "../../types";
+import { getProfile, updateProfile, uploadAvatar, removeAvatar } from "../../api";
+import { IconClose, IconSettings, IconRefresh } from "../common/Icons";
+import UserAvatar from "../common/UserAvatar";
 import {
   CONFIGURABLE_COMMANDS,
   DEFAULT_KEYMAP,
@@ -24,19 +19,19 @@ import {
   IS_MAC,
   type CommandId,
   type Keymap,
-} from '../../keymap/keymap';
+} from "../../keymap/keymap";
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   fontSize: 13.5,
   tabSize: 4,
-  wordWrap: 'off',
+  wordWrap: "off",
   minimap: false,
-  lineNumbers: 'on',
-  cursorBlinking: 'smooth',
-  renderWhitespace: 'selection',
+  lineNumbers: "on",
+  cursorBlinking: "smooth",
+  renderWhitespace: "selection",
   formatOnSave: false,
   // M69: appearance preference — the modal renders + submits this one.
-  theme: 'system',
+  theme: "system",
   // M70: keybinding overrides — the Keybindings tab owns this; carried here
   // for type completeness. `pickEditorPrefs` never includes it.
   keymap: {},
@@ -63,14 +58,14 @@ const DISPLAY_NAME_MAX = 48;
 const PRONOUNS_MAX = 24;
 const BIO_MAX = 280;
 
-const EMPTY_DRAFT: ProfileDraft = { displayName: '', pronouns: '', bio: '' };
+const EMPTY_DRAFT: ProfileDraft = { displayName: "", pronouns: "", bio: "" };
 
 /** `UserProfile` (nullable) → `ProfileDraft` (always strings). */
 function profileToDraft(p: UserProfile): ProfileDraft {
   return {
-    displayName: p.displayName ?? '',
-    pronouns: p.pronouns ?? '',
-    bio: p.bio ?? '',
+    displayName: p.displayName ?? "",
+    pronouns: p.pronouns ?? "",
+    bio: p.bio ?? "",
   };
 }
 
@@ -107,7 +102,7 @@ interface SettingsModalProps {
   isDemo?: boolean;
 }
 
-type SettingsTab = 'editor' | 'profile' | 'keybindings';
+type SettingsTab = "editor" | "profile" | "keybindings";
 
 /** Human label for a chord in the current platform's convention. */
 function label(chord: string): string {
@@ -123,7 +118,7 @@ export default function SettingsModal({
   userId = 0,
   isDemo = false,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('editor');
+  const [activeTab, setActiveTab] = useState<SettingsTab>("editor");
 
   // --- Editor preferences (unchanged behavior) --------------------------
   const [formData, setFormData] = useState<UserPreferences>(preferences);
@@ -167,7 +162,7 @@ export default function SettingsModal({
     setCapturedChord(null);
     setCaptureError(null);
     setError(null);
-    setActiveTab('editor');
+    setActiveTab("editor");
     setProfileLoaded(false);
     setProfileError(null);
     setProfileSaved(false);
@@ -182,7 +177,7 @@ export default function SettingsModal({
   // when `isOpen` / `activeTab` / `profileLoaded` actually change, never on an
   // unrelated re-render — so an in-flight load is not aborted mid-flight.
   useEffect(() => {
-    if (!isOpen || activeTab !== 'profile' || profileLoaded) return;
+    if (!isOpen || activeTab !== "profile" || profileLoaded) return;
     let cancelled = false;
     setProfileLoading(true);
     setProfileError(null);
@@ -195,9 +190,7 @@ export default function SettingsModal({
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setProfileError(
-          err instanceof Error ? err.message : 'Failed to load profile',
-        );
+        setProfileError(err instanceof Error ? err.message : "Failed to load profile");
       })
       .finally(() => {
         if (!cancelled) setProfileLoading(false);
@@ -217,7 +210,7 @@ export default function SettingsModal({
       await onSave(pickEditorPrefs(formData));
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to save preferences');
+      setError(err.message || "Failed to save preferences");
     } finally {
       setSaving(false);
     }
@@ -241,7 +234,7 @@ export default function SettingsModal({
     } catch (err: any) {
       // Surface the server's own message (e.g. "displayName must be at most
       // 48 characters") — never a generic replacement.
-      setProfileError(err?.message || 'Failed to save profile');
+      setProfileError(err?.message || "Failed to save profile");
     } finally {
       setProfileSaving(false);
     }
@@ -254,22 +247,20 @@ export default function SettingsModal({
 
   // M72 — avatar. The server is authoritative for the real bytes check;
   // these client-side guards only spare an obviously-doomed round trip.
-  const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp';
+  const AVATAR_ACCEPT = "image/png,image/jpeg,image/webp";
   const AVATAR_MAX_BYTES = 512 * 1024;
 
-  const handleAvatarPick = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleAvatarPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-picking the same file after an error
+    e.target.value = ""; // allow re-picking the same file after an error
     if (!file || isDemo || avatarBusy) return;
     setAvatarError(null);
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
-      setAvatarError('Choose a PNG, JPEG or WebP image.');
+      setAvatarError("Choose a PNG, JPEG or WebP image.");
       return;
     }
     if (file.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Image must be 512 KB or smaller.');
+      setAvatarError("Image must be 512 KB or smaller.");
       return;
     }
     setAvatarBusy(true);
@@ -277,7 +268,7 @@ export default function SettingsModal({
       const res = await uploadAvatar(file);
       setAvatarVersion(res.avatarVersion);
     } catch (err: any) {
-      setAvatarError(err?.message || 'Avatar upload failed.');
+      setAvatarError(err?.message || "Avatar upload failed.");
     } finally {
       setAvatarBusy(false);
     }
@@ -291,15 +282,14 @@ export default function SettingsModal({
       await removeAvatar();
       setAvatarVersion(0);
     } catch (err: any) {
-      setAvatarError(err?.message || 'Could not remove the avatar.');
+      setAvatarError(err?.message || "Could not remove the avatar.");
     } finally {
       setAvatarBusy(false);
     }
   };
 
   // --- Keybindings handlers (M70) -------------------------------------
-  const resolvedChord = (id: CommandId): string =>
-    keymapDraft[id] ?? DEFAULT_KEYMAP[id];
+  const resolvedChord = (id: CommandId): string => keymapDraft[id] ?? DEFAULT_KEYMAP[id];
 
   const startCapture = (id: CommandId) => {
     setCapturingId(id);
@@ -316,7 +306,7 @@ export default function SettingsModal({
     e.preventDefault();
     e.stopPropagation();
     if (!capturingId) return;
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       cancelCapture();
       return;
     }
@@ -325,7 +315,7 @@ export default function SettingsModal({
     if (!isValidChord(chord)) {
       setCapturedChord(chord);
       setCaptureError(
-        'That combination is not usable — it needs Ctrl/⌘ and is not a browser-reserved shortcut.',
+        "That combination is not usable — it needs Ctrl/⌘ and is not a browser-reserved shortcut.",
       );
       return;
     }
@@ -367,88 +357,82 @@ export default function SettingsModal({
   };
 
   const counterStyle: React.CSSProperties = {
-    fontSize: '11px',
-    color: 'var(--text-muted)',
-    alignSelf: 'flex-end',
+    fontSize: "11px",
+    color: "var(--text-muted)",
+    alignSelf: "flex-end",
   };
   const labelStyle: React.CSSProperties = {
-    fontSize: '12px',
+    fontSize: "12px",
     fontWeight: 500,
-    color: 'var(--text-muted)',
+    color: "var(--text-muted)",
   };
   const helperStyle: React.CSSProperties = {
-    fontSize: '11px',
-    color: 'var(--text-muted)',
+    fontSize: "11px",
+    color: "var(--text-muted)",
   };
 
   return (
     <div
       className="modal-backdrop"
       style={{
-        position: 'fixed',
+        position: "fixed",
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.65)',
-        backdropFilter: 'blur(6px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        backgroundColor: "rgba(0, 0, 0, 0.65)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         zIndex: 9999,
-        padding: '20px',
+        padding: "20px",
       }}
       onClick={onClose}
     >
       <div
         className="modal-content glass-panel"
         style={{
-          width: '100%',
-          maxWidth: '520px',
-          backgroundColor: 'var(--surface-0)',
-          borderRadius: '12px',
-          border: '1px solid var(--border)',
-          boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          maxHeight: '90vh',
+          width: "100%",
+          maxWidth: "520px",
+          backgroundColor: "var(--surface-0)",
+          borderRadius: "12px",
+          border: "1px solid var(--border)",
+          boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          maxHeight: "90vh",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '16px 20px',
-            borderBottom: '1px solid var(--border)',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 20px",
+            borderBottom: "1px solid var(--border)",
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <IconSettings size={18} color="var(--accent)" />
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
-              Settings
-            </h3>
+            <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 600 }}>Settings</h3>
           </div>
-          <button
-            className="glass-btn glass-btn-icon"
-            onClick={onClose}
-            aria-label="Close"
-          >
+          <button className="glass-btn glass-btn-icon" onClick={onClose} aria-label="Close">
             <IconClose size={14} />
           </button>
         </div>
 
         {/* Tab bar */}
-        <div style={{ padding: '12px 20px 0' }}>
+        <div style={{ padding: "12px 20px 0" }}>
           <div className="glass-tabs-container" role="tablist" aria-label="Settings sections">
             <button
               type="button"
               role="tab"
               id="settings-tab-editor"
-              aria-selected={activeTab === 'editor'}
+              aria-selected={activeTab === "editor"}
               aria-controls="settings-panel-editor"
-              className={`glass-tab ${activeTab === 'editor' ? 'active' : ''}`}
-              onClick={() => setActiveTab('editor')}
+              className={`glass-tab ${activeTab === "editor" ? "active" : ""}`}
+              onClick={() => setActiveTab("editor")}
             >
               Editor
             </button>
@@ -456,10 +440,10 @@ export default function SettingsModal({
               type="button"
               role="tab"
               id="settings-tab-profile"
-              aria-selected={activeTab === 'profile'}
+              aria-selected={activeTab === "profile"}
               aria-controls="settings-panel-profile"
-              className={`glass-tab ${activeTab === 'profile' ? 'active' : ''}`}
-              onClick={() => setActiveTab('profile')}
+              className={`glass-tab ${activeTab === "profile" ? "active" : ""}`}
+              onClick={() => setActiveTab("profile")}
             >
               Profile
             </button>
@@ -467,10 +451,10 @@ export default function SettingsModal({
               type="button"
               role="tab"
               id="settings-tab-keybindings"
-              aria-selected={activeTab === 'keybindings'}
+              aria-selected={activeTab === "keybindings"}
               aria-controls="settings-panel-keybindings"
-              className={`glass-tab ${activeTab === 'keybindings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('keybindings')}
+              className={`glass-tab ${activeTab === "keybindings" ? "active" : ""}`}
+              onClick={() => setActiveTab("keybindings")}
             >
               Keybindings
             </button>
@@ -478,29 +462,29 @@ export default function SettingsModal({
         </div>
 
         {/* Editor tab — behavior unchanged from M22 */}
-        {activeTab === 'editor' && (
+        {activeTab === "editor" && (
           <form
             id="settings-panel-editor"
             role="tabpanel"
             aria-labelledby="settings-tab-editor"
             onSubmit={handleSubmit}
             style={{
-              padding: '20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-              overflowY: 'auto',
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+              overflowY: "auto",
             }}
           >
             {error && (
               <div
                 style={{
-                  padding: '10px 14px',
-                  borderRadius: '6px',
-                  backgroundColor: 'rgba(243, 139, 168, 0.15)',
-                  border: '1px solid rgba(243, 139, 168, 0.3)',
-                  color: '#f38ba8',
-                  fontSize: '13px',
+                  padding: "10px 14px",
+                  borderRadius: "6px",
+                  backgroundColor: "rgba(243, 139, 168, 0.15)",
+                  border: "1px solid rgba(243, 139, 168, 0.3)",
+                  color: "#f38ba8",
+                  fontSize: "13px",
                 }}
               >
                 {error}
@@ -508,19 +492,19 @@ export default function SettingsModal({
             )}
 
             {/* Theme / Appearance (M69) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label htmlFor="settings-theme" style={labelStyle}>
                 Theme
               </label>
               <select
                 id="settings-theme"
                 className="glass-input"
-                style={{ padding: '6px 10px', fontSize: '13px' }}
+                style={{ padding: "6px 10px", fontSize: "13px" }}
                 value={formData.theme}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
-                    theme: e.target.value as UserPreferences['theme'],
+                    theme: e.target.value as UserPreferences["theme"],
                   })
                 }
               >
@@ -531,16 +515,11 @@ export default function SettingsModal({
             </div>
 
             {/* Font Size */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={labelStyle}>
-                Font Size:{' '}
-                <strong style={{ color: 'var(--text)' }}>
-                  {formData.fontSize}px
-                </strong>
+                Font Size: <strong style={{ color: "var(--text)" }}>{formData.fontSize}px</strong>
               </label>
-              <div
-                style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
-              >
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <input
                   type="range"
                   min="8"
@@ -561,7 +540,7 @@ export default function SettingsModal({
                   max="32"
                   step="0.5"
                   className="glass-input"
-                  style={{ width: '70px', padding: '4px 8px', fontSize: '12px' }}
+                  style={{ width: "70px", padding: "4px 8px", fontSize: "12px" }}
                   value={formData.fontSize}
                   onChange={(e) => {
                     const val = parseFloat(e.target.value);
@@ -572,11 +551,11 @@ export default function SettingsModal({
             </div>
 
             {/* Tab Size */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={labelStyle}>Tab Size (Spaces)</label>
               <select
                 className="glass-input"
-                style={{ padding: '6px 10px', fontSize: '13px' }}
+                style={{ padding: "6px 10px", fontSize: "13px" }}
                 value={formData.tabSize}
                 onChange={(e) =>
                   setFormData({
@@ -592,11 +571,11 @@ export default function SettingsModal({
             </div>
 
             {/* Word Wrap */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={labelStyle}>Word Wrap</label>
               <select
                 className="glass-input"
-                style={{ padding: '6px 10px', fontSize: '13px' }}
+                style={{ padding: "6px 10px", fontSize: "13px" }}
                 value={formData.wordWrap}
                 onChange={(e) =>
                   setFormData({
@@ -613,11 +592,11 @@ export default function SettingsModal({
             </div>
 
             {/* Line Numbers */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={labelStyle}>Line Numbers</label>
               <select
                 className="glass-input"
-                style={{ padding: '6px 10px', fontSize: '13px' }}
+                style={{ padding: "6px 10px", fontSize: "13px" }}
                 value={formData.lineNumbers}
                 onChange={(e) =>
                   setFormData({
@@ -634,11 +613,11 @@ export default function SettingsModal({
             </div>
 
             {/* Cursor Blinking */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={labelStyle}>Cursor Animation Style</label>
               <select
                 className="glass-input"
-                style={{ padding: '6px 10px', fontSize: '13px' }}
+                style={{ padding: "6px 10px", fontSize: "13px" }}
                 value={formData.cursorBlinking}
                 onChange={(e) =>
                   setFormData({
@@ -656,11 +635,11 @@ export default function SettingsModal({
             </div>
 
             {/* Render Whitespace */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={labelStyle}>Whitespace Visibility</label>
               <select
                 className="glass-input"
-                style={{ padding: '6px 10px', fontSize: '13px' }}
+                style={{ padding: "6px 10px", fontSize: "13px" }}
                 value={formData.renderWhitespace}
                 onChange={(e) =>
                   setFormData({
@@ -669,9 +648,7 @@ export default function SettingsModal({
                   })
                 }
               >
-                <option value="selection">
-                  Selection (Only on selected text)
-                </option>
+                <option value="selection">Selection (Only on selected text)</option>
                 <option value="boundary">Boundary (Leading & Trailing)</option>
                 <option value="trailing">Trailing Only</option>
                 <option value="all">All Whitespace</option>
@@ -682,85 +659,77 @@ export default function SettingsModal({
             {/* Minimap Toggle */}
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 12px',
-                backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 12px",
+                backgroundColor: "rgba(255, 255, 255, 0.03)",
+                borderRadius: "8px",
+                border: "1px solid var(--border)",
               }}
             >
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 500 }}>
-                  Code Minimap
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: "13px", fontWeight: 500 }}>Code Minimap</div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                   Render zoomed-out overview sidebar on the right
                 </div>
               </div>
               <input
                 type="checkbox"
                 checked={formData.minimap}
-                onChange={(e) =>
-                  setFormData({ ...formData, minimap: e.target.checked })
-                }
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                onChange={(e) => setFormData({ ...formData, minimap: e.target.checked })}
+                style={{ width: "18px", height: "18px", cursor: "pointer" }}
               />
             </div>
 
             {/* Format on Save Toggle (M66) */}
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 12px',
-                backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 12px",
+                backgroundColor: "rgba(255, 255, 255, 0.03)",
+                borderRadius: "8px",
+                border: "1px solid var(--border)",
               }}
             >
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 500 }}>
-                  Format on Save
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: "13px", fontWeight: 500 }}>Format on Save</div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                   Run the editor formatter every time a file is saved
                 </div>
               </div>
               <input
                 type="checkbox"
                 checked={formData.formatOnSave}
-                onChange={(e) =>
-                  setFormData({ ...formData, formatOnSave: e.target.checked })
-                }
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                onChange={(e) => setFormData({ ...formData, formatOnSave: e.target.checked })}
+                style={{ width: "18px", height: "18px", cursor: "pointer" }}
               />
             </div>
 
             {/* Footer Actions */}
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginTop: '10px',
-                paddingTop: '16px',
-                borderTop: '1px solid var(--border)',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginTop: "10px",
+                paddingTop: "16px",
+                borderTop: "1px solid var(--border)",
               }}
             >
               <button
                 type="button"
                 className="glass-btn glass-btn-ghost"
                 onClick={handleResetDefaults}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ display: "flex", alignItems: "center", gap: "6px" }}
               >
                 <IconRefresh size={12} />
                 Reset Defaults
               </button>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: "flex", gap: "8px" }}>
                 <button
                   type="button"
                   className="glass-btn glass-btn-ghost"
@@ -769,12 +738,8 @@ export default function SettingsModal({
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="glass-btn glass-btn-primary"
-                  disabled={saving}
-                >
-                  {saving ? 'Saving...' : 'Save Preferences'}
+                <button type="submit" className="glass-btn glass-btn-primary" disabled={saving}>
+                  {saving ? "Saving..." : "Save Preferences"}
                 </button>
               </div>
             </div>
@@ -782,36 +747,34 @@ export default function SettingsModal({
         )}
 
         {/* Profile tab — self-contained profile identity editor (M62-4) */}
-        {activeTab === 'profile' && (
+        {activeTab === "profile" && (
           <form
             id="settings-panel-profile"
             role="tabpanel"
             aria-labelledby="settings-tab-profile"
             onSubmit={handleProfileSave}
             style={{
-              padding: '20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-              overflowY: 'auto',
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+              overflowY: "auto",
             }}
           >
             {profileLoading && !profileLoaded ? (
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                Loading…
-              </div>
+              <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>Loading…</div>
             ) : (
               <>
                 {isDemo && (
                   <div
                     role="note"
                     style={{
-                      padding: '10px 14px',
-                      borderRadius: '6px',
-                      backgroundColor: 'rgba(137, 180, 250, 0.12)',
-                      border: '1px solid rgba(137, 180, 250, 0.25)',
-                      color: 'var(--text-muted)',
-                      fontSize: '12px',
+                      padding: "10px 14px",
+                      borderRadius: "6px",
+                      backgroundColor: "rgba(137, 180, 250, 0.12)",
+                      border: "1px solid rgba(137, 180, 250, 0.25)",
+                      color: "var(--text-muted)",
+                      fontSize: "12px",
                     }}
                   >
                     Profile editing is disabled for demo sessions
@@ -821,12 +784,12 @@ export default function SettingsModal({
                   <div
                     role="alert"
                     style={{
-                      padding: '10px 14px',
-                      borderRadius: '6px',
-                      backgroundColor: 'rgba(243, 139, 168, 0.15)',
-                      border: '1px solid rgba(243, 139, 168, 0.3)',
-                      color: '#f38ba8',
-                      fontSize: '13px',
+                      padding: "10px 14px",
+                      borderRadius: "6px",
+                      backgroundColor: "rgba(243, 139, 168, 0.15)",
+                      border: "1px solid rgba(243, 139, 168, 0.3)",
+                      color: "#f38ba8",
+                      fontSize: "13px",
                     }}
                   >
                     {profileError}
@@ -836,12 +799,12 @@ export default function SettingsModal({
                   <div
                     role="status"
                     style={{
-                      padding: '10px 14px',
-                      borderRadius: '6px',
-                      backgroundColor: 'rgba(166, 227, 161, 0.15)',
-                      border: '1px solid rgba(166, 227, 161, 0.3)',
-                      color: '#a6e3a1',
-                      fontSize: '13px',
+                      padding: "10px 14px",
+                      borderRadius: "6px",
+                      backgroundColor: "rgba(166, 227, 161, 0.15)",
+                      border: "1px solid rgba(166, 227, 161, 0.3)",
+                      color: "#a6e3a1",
+                      fontSize: "13px",
                     }}
                   >
                     Profile saved
@@ -862,13 +825,12 @@ export default function SettingsModal({
                       <label
                         className="glass-btn"
                         style={{
-                          fontSize: '12px',
-                          cursor:
-                            isDemo || avatarBusy ? 'not-allowed' : 'pointer',
+                          fontSize: "12px",
+                          cursor: isDemo || avatarBusy ? "not-allowed" : "pointer",
                           opacity: isDemo || avatarBusy ? 0.5 : 1,
                         }}
                       >
-                        {avatarVersion > 0 ? 'Replace' : 'Upload'}
+                        {avatarVersion > 0 ? "Replace" : "Upload"}
                         <input
                           type="file"
                           accept={AVATAR_ACCEPT}
@@ -881,7 +843,7 @@ export default function SettingsModal({
                         <button
                           type="button"
                           className="glass-btn"
-                          style={{ fontSize: '12px' }}
+                          style={{ fontSize: "12px" }}
                           disabled={isDemo || avatarBusy}
                           onClick={handleAvatarRemove}
                         >
@@ -890,17 +852,12 @@ export default function SettingsModal({
                       )}
                     </div>
                     {avatarError ? (
-                      <span
-                        className="profile-avatar-error"
-                        role="alert"
-                      >
+                      <span className="profile-avatar-error" role="alert">
                         {avatarError}
                       </span>
                     ) : (
                       <span className="profile-avatar-hint">
-                        {avatarBusy
-                          ? 'Working…'
-                          : 'PNG, JPEG or WebP, up to 512 KB.'}
+                        {avatarBusy ? "Working…" : "PNG, JPEG or WebP, up to 512 KB."}
                       </span>
                     )}
                   </div>
@@ -909,9 +866,9 @@ export default function SettingsModal({
                 {/* Display name */}
                 <div
                   style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
                   }}
                 >
                   <label htmlFor="profile-display-name" style={labelStyle}>
@@ -921,20 +878,14 @@ export default function SettingsModal({
                     id="profile-display-name"
                     type="text"
                     className="glass-input"
-                    style={{ padding: '6px 10px', fontSize: '13px' }}
+                    style={{ padding: "6px 10px", fontSize: "13px" }}
                     maxLength={DISPLAY_NAME_MAX}
                     value={profileDraft.displayName}
                     disabled={isDemo || profileSaving}
                     aria-describedby="profile-display-name-help profile-display-name-count"
-                    onChange={(e) =>
-                      setDraftField('displayName', e.target.value)
-                    }
+                    onChange={(e) => setDraftField("displayName", e.target.value)}
                   />
-                  <span
-                    id="profile-display-name-count"
-                    style={counterStyle}
-                    aria-live="polite"
-                  >
+                  <span id="profile-display-name-count" style={counterStyle} aria-live="polite">
                     {profileDraft.displayName.length}/{DISPLAY_NAME_MAX}
                   </span>
                   <span id="profile-display-name-help" style={helperStyle}>
@@ -945,9 +896,9 @@ export default function SettingsModal({
                 {/* Pronouns */}
                 <div
                   style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
                   }}
                 >
                   <label htmlFor="profile-pronouns" style={labelStyle}>
@@ -957,18 +908,14 @@ export default function SettingsModal({
                     id="profile-pronouns"
                     type="text"
                     className="glass-input"
-                    style={{ padding: '6px 10px', fontSize: '13px' }}
+                    style={{ padding: "6px 10px", fontSize: "13px" }}
                     maxLength={PRONOUNS_MAX}
                     value={profileDraft.pronouns}
                     disabled={isDemo || profileSaving}
                     aria-describedby="profile-pronouns-count"
-                    onChange={(e) => setDraftField('pronouns', e.target.value)}
+                    onChange={(e) => setDraftField("pronouns", e.target.value)}
                   />
-                  <span
-                    id="profile-pronouns-count"
-                    style={counterStyle}
-                    aria-live="polite"
-                  >
+                  <span id="profile-pronouns-count" style={counterStyle} aria-live="polite">
                     {profileDraft.pronouns.length}/{PRONOUNS_MAX}
                   </span>
                 </div>
@@ -976,9 +923,9 @@ export default function SettingsModal({
                 {/* Bio */}
                 <div
                   style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
                   }}
                 >
                   <label htmlFor="profile-bio" style={labelStyle}>
@@ -988,23 +935,19 @@ export default function SettingsModal({
                     id="profile-bio"
                     className="glass-input"
                     style={{
-                      padding: '8px 10px',
-                      fontSize: '13px',
-                      minHeight: '80px',
-                      resize: 'vertical',
+                      padding: "8px 10px",
+                      fontSize: "13px",
+                      minHeight: "80px",
+                      resize: "vertical",
                     }}
                     rows={4}
                     maxLength={BIO_MAX}
                     value={profileDraft.bio}
                     disabled={isDemo || profileSaving}
                     aria-describedby="profile-bio-count"
-                    onChange={(e) => setDraftField('bio', e.target.value)}
+                    onChange={(e) => setDraftField("bio", e.target.value)}
                   />
-                  <span
-                    id="profile-bio-count"
-                    style={counterStyle}
-                    aria-live="polite"
-                  >
+                  <span id="profile-bio-count" style={counterStyle} aria-live="polite">
                     {profileDraft.bio.length}/{BIO_MAX}
                   </span>
                 </div>
@@ -1012,13 +955,13 @@ export default function SettingsModal({
                 {/* Footer */}
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    gap: '8px',
-                    marginTop: '10px',
-                    paddingTop: '16px',
-                    borderTop: '1px solid var(--border)',
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    gap: "8px",
+                    marginTop: "10px",
+                    paddingTop: "16px",
+                    borderTop: "1px solid var(--border)",
                   }}
                 >
                   <button
@@ -1034,7 +977,7 @@ export default function SettingsModal({
                     className="glass-btn glass-btn-primary"
                     disabled={isDemo || profileSaving || !profileLoaded}
                   >
-                    {profileSaving ? 'Saving…' : 'Save Profile'}
+                    {profileSaving ? "Saving…" : "Save Profile"}
                   </button>
                 </div>
               </>
@@ -1043,38 +986,37 @@ export default function SettingsModal({
         )}
 
         {/* Keybindings tab (M70) */}
-        {activeTab === 'keybindings' && (
+        {activeTab === "keybindings" && (
           <div
             id="settings-panel-keybindings"
             role="tabpanel"
             aria-labelledby="settings-tab-keybindings"
             style={{
-              padding: '20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-              overflowY: 'auto',
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              overflowY: "auto",
             }}
           >
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
               }}
             >
               <span style={helperStyle}>
-                Shortcuts for IDE commands. {IS_MAC ? '⌘' : 'Ctrl'} is required;
-                editor text-entry, copy/paste/undo and browser shortcuts are
-                left alone.
+                Shortcuts for IDE commands. {IS_MAC ? "⌘" : "Ctrl"} is required; editor text-entry,
+                copy/paste/undo and browser shortcuts are left alone.
               </span>
               <button
                 type="button"
                 className="glass-btn glass-btn-ghost"
                 onClick={resetAll}
                 disabled={Object.keys(keymapDraft).length === 0}
-                style={{ flexShrink: 0, fontSize: '11px', padding: '4px 10px' }}
+                style={{ flexShrink: 0, fontSize: "11px", padding: "4px 10px" }}
               >
                 Reset all keybindings
               </button>
@@ -1082,7 +1024,14 @@ export default function SettingsModal({
 
             <ul
               role="list"
-              style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}
+              style={{
+                listStyle: "none",
+                margin: 0,
+                padding: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: "6px",
+              }}
             >
               {CONFIGURABLE_COMMANDS.map((cmd) => {
                 const id = cmd.id;
@@ -1094,42 +1043,40 @@ export default function SettingsModal({
                   <li
                     key={id}
                     style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px',
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid var(--border)',
-                      background: 'rgba(255, 255, 255, 0.03)',
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border)",
+                      background: "rgba(255, 255, 255, 0.03)",
                     }}
                   >
                     <div
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '10px',
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "10px",
                       }}
                     >
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 500 }}>
-                          {cmd.title}
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: "13px", fontWeight: 500 }}>{cmd.title}</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                           {cmd.description}
                         </div>
                       </div>
                       <div
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}
+                        style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}
                       >
                         <kbd
                           style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: '12px',
-                            padding: '3px 8px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border)',
-                            background: 'var(--input-bg)',
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "12px",
+                            padding: "3px 8px",
+                            borderRadius: "4px",
+                            border: "1px solid var(--border)",
+                            background: "var(--input-bg)",
                           }}
                         >
                           {label(shown)}
@@ -1138,7 +1085,7 @@ export default function SettingsModal({
                           <button
                             type="button"
                             className="glass-btn glass-btn-ghost"
-                            style={{ fontSize: '11px', padding: '4px 10px' }}
+                            style={{ fontSize: "11px", padding: "4px 10px" }}
                             onClick={() => startCapture(id)}
                           >
                             Edit
@@ -1147,7 +1094,7 @@ export default function SettingsModal({
                         <button
                           type="button"
                           className="glass-btn glass-btn-ghost"
-                          style={{ fontSize: '11px', padding: '4px 10px' }}
+                          style={{ fontSize: "11px", padding: "4px 10px" }}
                           onClick={() => resetOne(id)}
                           disabled={!isOverridden}
                         >
@@ -1157,39 +1104,32 @@ export default function SettingsModal({
                     </div>
 
                     {capturing && (
-                      <div
-                        style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}
-                      >
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                         <input
                           data-keybinding-capture=""
                           type="text"
                           readOnly
                           autoFocus
                           aria-label={`Press the new shortcut for ${cmd.title}`}
-                          value={
-                            capturedChord ? label(capturedChord) : 'Press keys…'
-                          }
+                          value={capturedChord ? label(capturedChord) : "Press keys…"}
                           onKeyDown={onCaptureKeyDown}
                           className="glass-input"
                           style={{
-                            padding: '6px 10px',
-                            fontSize: '13px',
-                            fontFamily: 'var(--font-mono)',
+                            padding: "6px 10px",
+                            fontSize: "13px",
+                            fontFamily: "var(--font-mono)",
                           }}
                         />
                         {captureError && (
-                          <span
-                            role="alert"
-                            style={{ fontSize: '11px', color: 'var(--error)' }}
-                          >
+                          <span role="alert" style={{ fontSize: "11px", color: "var(--error)" }}>
                             {captureError}
                           </span>
                         )}
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: "flex", gap: "6px" }}>
                           <button
                             type="button"
                             className="glass-btn glass-btn-primary"
-                            style={{ fontSize: '11px', padding: '4px 12px' }}
+                            style={{ fontSize: "11px", padding: "4px 12px" }}
                             onClick={applyCapture}
                             disabled={!capturedChord || !!captureError}
                           >
@@ -1198,7 +1138,7 @@ export default function SettingsModal({
                           <button
                             type="button"
                             className="glass-btn glass-btn-ghost"
-                            style={{ fontSize: '11px', padding: '4px 12px' }}
+                            style={{ fontSize: "11px", padding: "4px 12px" }}
                             onClick={cancelCapture}
                           >
                             Cancel

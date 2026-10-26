@@ -44,9 +44,7 @@ describe("CollabConnectionBanner — M63 editor-region connection visibility", (
   it("shows an access-ended message when forbidden and offers no retry", () => {
     renderBanner({ status: "forbidden" });
     expect(screen.getByText(/access/i)).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: /retry|reconnect/i }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /retry|reconnect/i })).toBeNull();
   });
 
   it("offers a Retry button only when automatic reconnects are exhausted, and calls onRetry", () => {

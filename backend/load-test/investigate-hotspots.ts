@@ -35,7 +35,10 @@ interface PhaseTimings {
   totalMs: number;
 }
 
-async function measureDirectDockerPhases(projectId: string, workspaceDir: string): Promise<PhaseTimings> {
+async function measureDirectDockerPhases(
+  projectId: string,
+  workspaceDir: string,
+): Promise<PhaseTimings> {
   const containerId = `test-investigate-${projectId}`;
   const netName = `test-net-${projectId}`;
 
@@ -65,27 +68,42 @@ async function measureDirectDockerPhases(projectId: string, workspaceDir: string
   // 5. Docker run
   const hardeningArgs = [
     "--read-only",
-    "--tmpfs", "/tmp:rw,size=64m,mode=1777",
-    "--tmpfs", "/run:rw,size=16m,mode=1777",
-    "--tmpfs", "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
+    "--tmpfs",
+    "/tmp:rw,size=64m,mode=1777",
+    "--tmpfs",
+    "/run:rw,size=16m,mode=1777",
+    "--tmpfs",
+    "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
   ];
   const portArgs = [3000, 4173, 5173, 8000, 8080].flatMap((p) => ["-p", `127.0.0.1::${p}`]);
   const dockerArgs = [
-    "run", "-d",
-    "--name", containerId,
-    "--network", netName,
-    "--security-opt", "no-new-privileges",
-    "--cap-drop", "ALL",
-    "--memory", "536870912b",
-    "--cpus", "1.0",
-    "--pids-limit", "100",
+    "run",
+    "-d",
+    "--name",
+    containerId,
+    "--network",
+    netName,
+    "--security-opt",
+    "no-new-privileges",
+    "--cap-drop",
+    "ALL",
+    "--memory",
+    "536870912b",
+    "--cpus",
+    "1.0",
+    "--pids-limit",
+    "100",
     ...hardeningArgs,
     ...portArgs,
-    "-v", `${workspaceDir}:/workspace`,
-    "-w", "/workspace",
-    "--user", "ide",
+    "-v",
+    `${workspaceDir}:/workspace`,
+    "-w",
+    "/workspace",
+    "--user",
+    "ide",
     "cloudeeeide-runner:latest",
-    "sleep", "infinity",
+    "sleep",
+    "infinity",
   ];
   await execFileAsync("docker", dockerArgs);
   const t5 = performance.now();
@@ -96,7 +114,16 @@ async function measureDirectDockerPhases(projectId: string, workspaceDir: string
 
   // 7 & 8. Exec startup and program execution
   let firstByteTime = 0;
-  const child = spawn("docker", ["exec", "-i", "-w", "/workspace", containerId, "python3", "-c", "import sys; sys.stdout.write('START\\n'); sys.stdout.flush(); import time; time.sleep(0.05); print('DONE')"]);
+  const child = spawn("docker", [
+    "exec",
+    "-i",
+    "-w",
+    "/workspace",
+    containerId,
+    "python3",
+    "-c",
+    "import sys; sys.stdout.write('START\\n'); sys.stdout.flush(); import time; time.sleep(0.05); print('DONE')",
+  ]);
   const execStart = performance.now();
 
   await new Promise<void>((resolve) => {
@@ -139,7 +166,10 @@ async function runExecutionDecomposition() {
 
   // Concurrency benchmarks (1, 5, 20 concurrent creations)
   const concurrencyLevels = [1, 5, 20];
-  const concurrencyResults: Record<number, { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }> = {};
+  const concurrencyResults: Record<
+    number,
+    { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }
+  > = {};
 
   for (const c of concurrencyLevels) {
     const wallStart = performance.now();
@@ -151,7 +181,7 @@ async function runExecutionDecomposition() {
     });
     const results = await Promise.all(tasks);
     const wallEnd = performance.now();
-    const latencies = results.map(r => r.elapsed).sort((a, b) => a - b);
+    const latencies = results.map((r) => r.elapsed).sort((a, b) => a - b);
     concurrencyResults[c] = {
       p50Ms: percentile(latencies, 0.5),
       p95Ms: percentile(latencies, 0.95),
@@ -165,12 +195,35 @@ async function runExecutionDecomposition() {
   const warmNet = `test-warm-net-${Date.now()}`;
   try {
     await execFileAsync("docker", ["network", "create", warmNet]);
-    await execFileAsync("docker", ["run", "-d", "--name", warmContainer, "--network", warmNet, "-v", `${tempDir}:/workspace`, "-w", "/workspace", "cloudeeeide-runner:latest", "sleep", "infinity"]);
+    await execFileAsync("docker", [
+      "run",
+      "-d",
+      "--name",
+      warmContainer,
+      "--network",
+      warmNet,
+      "-v",
+      `${tempDir}:/workspace`,
+      "-w",
+      "/workspace",
+      "cloudeeeide-runner:latest",
+      "sleep",
+      "infinity",
+    ]);
 
     const warmLatencies: number[] = [];
     for (let i = 0; i < 10; i++) {
       const t0 = performance.now();
-      await execFileAsync("docker", ["exec", "-i", "-w", "/workspace", warmContainer, "python3", "-c", "print('hello')"]);
+      await execFileAsync("docker", [
+        "exec",
+        "-i",
+        "-w",
+        "/workspace",
+        warmContainer,
+        "python3",
+        "-c",
+        "print('hello')",
+      ]);
       warmLatencies.push(performance.now() - t0);
     }
     warmLatencies.sort((a, b) => a - b);
@@ -202,13 +255,13 @@ async function runExecutionDecomposition() {
 
 | Phase | Duration (ms) | % of Creation |
 |---|---|---|
-| 1. Docker daemon check (\`docker info\`) | ${singlePhases.dockerCheckMs.toFixed(1)} | ${(singlePhases.dockerCheckMs / (singlePhases.totalMs - singlePhases.teardownMs) * 100).toFixed(1)}% |
-| 2. Image inspect (\`docker image inspect\`) | ${singlePhases.imageInspectMs.toFixed(1)} | ${(singlePhases.imageInspectMs / (singlePhases.totalMs - singlePhases.teardownMs) * 100).toFixed(1)}% |
-| 3. Pre-cleanup (\`docker rm -f\`) | ${singlePhases.preRmMs.toFixed(1)} | ${(singlePhases.preRmMs / (singlePhases.totalMs - singlePhases.teardownMs) * 100).toFixed(1)}% |
-| 4. Network setup (\`docker network create\`) | ${singlePhases.netSetupMs.toFixed(1)} | ${(singlePhases.netSetupMs / (singlePhases.totalMs - singlePhases.teardownMs) * 100).toFixed(1)}% |
-| 5. Container creation (\`docker run -d\`) | ${singlePhases.dockerRunMs.toFixed(1)} | ${(singlePhases.dockerRunMs / (singlePhases.totalMs - singlePhases.teardownMs) * 100).toFixed(1)}% |
-| 6. Port inspection (\`docker port\`) | ${singlePhases.portReadMs.toFixed(1)} | ${(singlePhases.portReadMs / (singlePhases.totalMs - singlePhases.teardownMs) * 100).toFixed(1)}% |
-| 7. Exec startup (\`docker exec\` spawn to stdout) | ${singlePhases.execStartupMs.toFixed(1)} | ${(singlePhases.execStartupMs / (singlePhases.totalMs - singlePhases.teardownMs) * 100).toFixed(1)}% |
+| 1. Docker daemon check (\`docker info\`) | ${singlePhases.dockerCheckMs.toFixed(1)} | ${((singlePhases.dockerCheckMs / (singlePhases.totalMs - singlePhases.teardownMs)) * 100).toFixed(1)}% |
+| 2. Image inspect (\`docker image inspect\`) | ${singlePhases.imageInspectMs.toFixed(1)} | ${((singlePhases.imageInspectMs / (singlePhases.totalMs - singlePhases.teardownMs)) * 100).toFixed(1)}% |
+| 3. Pre-cleanup (\`docker rm -f\`) | ${singlePhases.preRmMs.toFixed(1)} | ${((singlePhases.preRmMs / (singlePhases.totalMs - singlePhases.teardownMs)) * 100).toFixed(1)}% |
+| 4. Network setup (\`docker network create\`) | ${singlePhases.netSetupMs.toFixed(1)} | ${((singlePhases.netSetupMs / (singlePhases.totalMs - singlePhases.teardownMs)) * 100).toFixed(1)}% |
+| 5. Container creation (\`docker run -d\`) | ${singlePhases.dockerRunMs.toFixed(1)} | ${((singlePhases.dockerRunMs / (singlePhases.totalMs - singlePhases.teardownMs)) * 100).toFixed(1)}% |
+| 6. Port inspection (\`docker port\`) | ${singlePhases.portReadMs.toFixed(1)} | ${((singlePhases.portReadMs / (singlePhases.totalMs - singlePhases.teardownMs)) * 100).toFixed(1)}% |
+| 7. Exec startup (\`docker exec\` spawn to stdout) | ${singlePhases.execStartupMs.toFixed(1)} | ${((singlePhases.execStartupMs / (singlePhases.totalMs - singlePhases.teardownMs)) * 100).toFixed(1)}% |
 | 8. Program execution (\`python3\` runtime) | ${singlePhases.programExecMs.toFixed(1)} | - |
 | 9. Teardown (\`docker rm\` + \`network rm\`) | ${singlePhases.teardownMs.toFixed(1)} | - |
 | **Total Cold Creation + Execution** | **${(singlePhases.totalMs - singlePhases.teardownMs).toFixed(1)} ms** | 100.0% |
@@ -253,7 +306,10 @@ async function runExecutionBurstCrossCheck() {
       const reg = (await fetch(`${server.baseUrl}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: `burst_u_${i}_${Date.now()}`, password: "load-test-password-1234" }),
+        body: JSON.stringify({
+          username: `burst_u_${i}_${Date.now()}`,
+          password: "load-test-password-1234",
+        }),
       }).then((r) => r.json())) as any;
 
       const proj = (await fetch(`${server.baseUrl}/api/projects`, {
@@ -268,7 +324,7 @@ async function runExecutionBurstCrossCheck() {
         body: JSON.stringify({ path: "main.py", content: "print('burst-test')\n" }),
       });
 
-      users.push({ token: reg.token, projectId: proj.project.id, userId: reg.user?.id || (i + 1) });
+      users.push({ token: reg.token, projectId: proj.project.id, userId: reg.user?.id || i + 1 });
     }
 
     // Trigger simultaneous 50 execution requests
@@ -311,13 +367,15 @@ async function runExecutionBurstCrossCheck() {
         minMs: latencies[0] || 0,
         maxMs: latencies[latencies.length - 1] || 0,
       },
-      successLatencies: successLatencies.length ? {
-        p50Ms: percentile(successLatencies, 0.5),
-        p95Ms: percentile(successLatencies, 0.95),
-        p99Ms: percentile(successLatencies, 0.99),
-        minMs: successLatencies[0],
-        maxMs: successLatencies[successLatencies.length - 1],
-      } : null,
+      successLatencies: successLatencies.length
+        ? {
+            p50Ms: percentile(successLatencies, 0.5),
+            p95Ms: percentile(successLatencies, 0.95),
+            p99Ms: percentile(successLatencies, 0.99),
+            minMs: successLatencies[0],
+            maxMs: successLatencies[successLatencies.length - 1],
+          }
+        : null,
       maxSandboxesEnforced: server.snapshot().activeSandboxes,
     };
 
@@ -388,7 +446,10 @@ async function runFilesystemDecomposition() {
     { name: "large", files: 300, depth: 5 },
   ];
 
-  const results: Record<string, { files: number; depth: number; treeMs: number; listFilesMs: number; statCount: number }> = {};
+  const results: Record<
+    string,
+    { files: number; depth: number; treeMs: number; listFilesMs: number; statCount: number }
+  > = {};
 
   try {
     for (const p of projectConfigs) {
@@ -449,7 +510,10 @@ async function runFilesystemDecomposition() {
     console.log("[M10] Running Phase 4: Concurrent Filesystem Requests (10, 50, 100)...");
     const mediumDir = join(baseTemp, "medium");
     const concurrencyLevels = [10, 50, 100];
-    const concurrencyFsResults: Record<number, { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }> = {};
+    const concurrencyFsResults: Record<
+      number,
+      { p50Ms: number; p95Ms: number; maxMs: number; totalWallMs: number }
+    > = {};
 
     for (const c of concurrencyLevels) {
       const wallStart = performance.now();

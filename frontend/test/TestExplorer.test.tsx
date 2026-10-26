@@ -58,9 +58,7 @@ describe("TestExplorer", () => {
   });
 
   it("lists discovered tasks and results", () => {
-    const { getByTestId, getAllByTestId } = render(
-      <TestExplorer projectRole="owner" />,
-    );
+    const { getByTestId, getAllByTestId } = render(<TestExplorer projectRole="owner" />);
     expect(getByTestId("workflow-task-npm:test")).toBeTruthy();
     expect(getByTestId("workflow-task-npm:build")).toBeTruthy();
     expect(getAllByTestId("workflow-result")).toHaveLength(2);
@@ -78,17 +76,13 @@ describe("TestExplorer", () => {
     document.addEventListener("ide-open-and-reveal", onReveal);
     const { getAllByTestId } = render(<TestExplorer projectRole="owner" />);
     fireEvent.click(getAllByTestId("workflow-result-loc")[1]!);
-    expect(opened).toEqual([
-      { filePath: "tests/add.test.js", line: 8, column: 1 },
-    ]);
+    expect(opened).toEqual([{ filePath: "tests/add.test.js", line: 8, column: 1 }]);
     document.removeEventListener("ide-open-and-reveal", onReveal);
   });
 
   it("viewers cannot run tasks", () => {
     const { getByTestId } = render(<TestExplorer projectRole="viewer" />);
-    expect((getByTestId("workflow-run-all") as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect((getByTestId("workflow-run-all") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("refresh rediscovers tasks", () => {

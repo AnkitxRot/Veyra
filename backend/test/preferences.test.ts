@@ -249,18 +249,14 @@ describe("Milestone 22 — User Preferences & Editor Settings Persistence", () =
     });
 
     // Confirm row exists in DB
-    const before = db
-      .prepare("SELECT * FROM user_preferences WHERE user_id = ?")
-      .get(userId1);
+    const before = db.prepare("SELECT * FROM user_preferences WHERE user_id = ?").get(userId1);
     expect(before).toBeDefined();
 
     // Delete user 1
     db.prepare("DELETE FROM users WHERE id = ?").run(userId1);
 
     // Row should be deleted via ON DELETE CASCADE
-    const after = db
-      .prepare("SELECT * FROM user_preferences WHERE user_id = ?")
-      .get(userId1);
+    const after = db.prepare("SELECT * FROM user_preferences WHERE user_id = ?").get(userId1);
     expect(after).toBeUndefined();
   });
 

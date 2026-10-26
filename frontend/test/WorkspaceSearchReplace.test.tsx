@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  cleanup,
-  fireEvent,
-  waitFor,
-  screen,
-} from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor, screen } from "@testing-library/react";
 import * as React from "react";
 import type { Project } from "../src/types";
 
@@ -25,8 +19,7 @@ import type { Project } from "../src/types";
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
 }));
 
 import { api } from "../src/api";
@@ -147,9 +140,7 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     await openReplacePreview();
 
     expect(screen.getByLabelText("Include app.py in Replace All")).toBeTruthy();
-    expect(
-      screen.getByLabelText("Include util.py in Replace All"),
-    ).toBeTruthy();
+    expect(screen.getByLabelText("Include util.py in Replace All")).toBeTruthy();
 
     const diffs = screen.getAllByTestId("replace-diff");
     expect(diffs.length).toBe(3);
@@ -164,13 +155,9 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
 
     // toggle app.py collapsed
     fireEvent.click(screen.getByText("app.py"));
-    await waitFor(() =>
-      expect(screen.getAllByTestId("replace-diff").length).toBe(1),
-    );
+    await waitFor(() => expect(screen.getAllByTestId("replace-diff").length).toBe(1));
     fireEvent.click(screen.getByText("app.py"));
-    await waitFor(() =>
-      expect(screen.getAllByTestId("replace-diff").length).toBe(3),
-    );
+    await waitFor(() => expect(screen.getAllByTestId("replace-diff").length).toBe(3));
   });
 
   it("defaults the safety-snapshot toggle ON for an owner", async () => {
@@ -216,9 +203,7 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     await screen.findByText(/2 of 3 matches selected/i);
 
     fireEvent.click(screen.getByRole("button", { name: /Replace Selected/i }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Replace files" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Replace files" }));
 
     await waitFor(() => {
       const apply = calls.find((c) => c.body.dryRun === false);
@@ -233,9 +218,7 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     await openReplacePreview();
 
     fireEvent.click(screen.getByRole("button", { name: /Replace All/i }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Replace files" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Replace files" }));
 
     await waitFor(() => {
       const apply = calls.find((c) => c.body.dryRun === false);
@@ -250,9 +233,7 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /safety snapshot/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /Replace All/i }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Replace files" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Replace files" }));
 
     await waitFor(() => {
       const apply = calls.find((c) => c.body.dryRun === false);
@@ -264,13 +245,9 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     installApi();
     await openReplacePreview();
     fireEvent.click(screen.getByRole("button", { name: /Replace All/i }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Replace files" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Replace files" }));
 
-    expect(
-      await screen.findByText(/A safety snapshot was created/i),
-    ).toBeTruthy();
+    expect(await screen.findByText(/A safety snapshot was created/i)).toBeTruthy();
   });
 
   it("shows a distinct collaborator-conflict summary (not the 'too large / truncated' skipped copy) when a file was held at a collaborator's version", async () => {
@@ -293,18 +270,14 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     }));
     await openReplacePreview();
     fireEvent.click(screen.getByRole("button", { name: /Replace All/i }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Replace files" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Replace files" }));
 
     const summary = await screen.findByText(
       /a collaborator has unsaved changes in the live session and their version was kept/i,
     );
     expect(summary).toBeTruthy();
     // Must NOT mislabel a conflict as the size/truncation skip reason.
-    expect(
-      screen.queryByText(/too large or results were truncated/i),
-    ).toBeNull();
+    expect(screen.queryByText(/too large or results were truncated/i)).toBeNull();
     // The replaced file is still reported as replaced.
     expect(screen.getByText(/Replaced 1 match across 1 file/i)).toBeTruthy();
   });
@@ -337,13 +310,9 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     fireEvent.click(screen.getByTitle("Toggle Replace"));
     await screen.findByText(/of 3 matches selected/i);
     fireEvent.click(screen.getByRole("button", { name: /Replace All/i }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Replace files" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Replace files" }));
 
-    await waitFor(() =>
-      expect(onReplaceApplied).toHaveBeenCalledWith(["app.py"]),
-    );
+    await waitFor(() => expect(onReplaceApplied).toHaveBeenCalledWith(["app.py"]));
   });
 
   it("does not call onReplaceApplied when nothing was replaced", async () => {
@@ -371,9 +340,7 @@ describe("WorkspaceSearchModal — M50 selection, snapshot & diff", () => {
     fireEvent.click(screen.getByTitle("Toggle Replace"));
     await screen.findByText(/of 3 matches selected/i);
     fireEvent.click(screen.getByRole("button", { name: /Replace All/i }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Replace files" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Replace files" }));
 
     await screen.findByText(/Replaced 0 matches/i);
     expect(onReplaceApplied).not.toHaveBeenCalled();
@@ -422,9 +389,7 @@ function Harness({ initial }: { initial: Buf[] }) {
     if (fetched.size > 0) {
       setOpenFiles((prev) =>
         prev.map((f) =>
-          fetched.has(f.path) && !f.dirty
-            ? { ...f, content: fetched.get(f.path)! }
-            : f,
+          fetched.has(f.path) && !f.dirty ? { ...f, content: fetched.get(f.path)! } : f,
         ),
       );
     }
@@ -484,9 +449,7 @@ describe("M50 — open editor buffer reconciliation (silent-revert fix)", () => 
     await driveReplace();
 
     await waitFor(() => {
-      const li = screen
-        .getByTestId("buffers")
-        .querySelector('[data-path="app.py"]')!;
+      const li = screen.getByTestId("buffers").querySelector('[data-path="app.py"]')!;
       expect(li.textContent).toBe("app.py=REPLACED-ON-DISK");
     });
   });
@@ -504,9 +467,7 @@ describe("M50 — open editor buffer reconciliation (silent-revert fix)", () => 
     await driveReplace();
 
     await waitFor(() => {
-      const li = screen
-        .getByTestId("buffers")
-        .querySelector('[data-path="util.py"]')!;
+      const li = screen.getByTestId("buffers").querySelector('[data-path="util.py"]')!;
       expect(li.textContent).toBe("util.py=REPLACED-ON-DISK");
     });
   });
@@ -525,9 +486,7 @@ describe("M50 — open editor buffer reconciliation (silent-revert fix)", () => 
         "unsaved changes left untouched: app.py",
       ),
     );
-    const li = screen
-      .getByTestId("buffers")
-      .querySelector('[data-path="app.py"]')!;
+    const li = screen.getByTestId("buffers").querySelector('[data-path="app.py"]')!;
     expect(li.textContent).toBe("app.py=my unsaved edits (dirty)");
   });
 
@@ -541,9 +500,7 @@ describe("M50 — open editor buffer reconciliation (silent-revert fix)", () => 
     await driveReplace();
     // allow any async work to settle
     await new Promise((r) => setTimeout(r, 20));
-    const li = screen
-      .getByTestId("buffers")
-      .querySelector('[data-path="elsewhere.py"]')!;
+    const li = screen.getByTestId("buffers").querySelector('[data-path="elsewhere.py"]')!;
     expect(li.textContent).toBe("elsewhere.py=keep me");
     expect(screen.queryByRole("status")).toBeNull();
   });

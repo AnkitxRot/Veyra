@@ -41,7 +41,12 @@ function renderEditor(collaborators: CollaboratorPresence[], activeFile = "src/a
 describe("Editor — M57 same-file collaborator strip", () => {
   it("lists a collaborator whose active file matches, with their activity", () => {
     renderEditor([
-      c({ userId: 2, name: "Rahul", activeFile: "src/a.ts", activity: { type: "editing", timestamp: 0 } }),
+      c({
+        userId: 2,
+        name: "Rahul",
+        activeFile: "src/a.ts",
+        activity: { type: "editing", timestamp: 0 },
+      }),
       c({ userId: 3, name: "Priya", activeFile: "src/b.ts" }),
     ]);
     expect(screen.getByText(/Rahul ·/)).toBeTruthy();
@@ -57,9 +62,7 @@ describe("Editor — M57 same-file collaborator strip", () => {
   });
 
   it("excludes the current user", () => {
-    const { container } = renderEditor([
-      c({ userId: 1, name: "Me", activeFile: "src/a.ts" }),
-    ]);
+    const { container } = renderEditor([c({ userId: 1, name: "Me", activeFile: "src/a.ts" })]);
     expect(container.querySelector(".editor-samefile-strip")).toBeNull();
   });
 

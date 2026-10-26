@@ -7,11 +7,7 @@ import { join } from "node:path";
 import { isDockerRunning } from "../src/tools.js";
 import { makeTestConfig, makeWorkspace } from "./helpers.js";
 import { openDb } from "../src/db.js";
-import {
-  SandboxManager,
-  sandboxManager,
-  sandboxRun,
-} from "../src/execution/sandbox.js";
+import { SandboxManager, sandboxManager, sandboxRun } from "../src/execution/sandbox.js";
 import { collaborationManager } from "../src/collab/manager.js";
 
 const execFileAsync = promisify(execFile);
@@ -44,9 +40,7 @@ describe.skipIf(!isDockerRunning())("M74 — collaboration-aware sandbox lifecyc
     const cfg = makeTestConfig();
     const mgr = new SandboxManager();
     if (occ) {
-      mgr.setRoomOccupancyProvider(
-        (pid) => occ.get(pid) ?? { liveClients: 0, distinctUsers: 0 },
-      );
+      mgr.setRoomOccupancyProvider((pid) => occ.get(pid) ?? { liveClients: 0, distinctUsers: 0 });
     }
     const projectId = `m74occ-${randomUUID()}`;
     const workspace = makeWorkspace(cfg);
@@ -94,11 +88,7 @@ describe.skipIf(!isDockerRunning())("M74 — collaboration-aware sandbox lifecyc
 
     // T0 + 5s + 120s + 1s: 121s empty (> grace), 126s since lastUsed (> grace),
     // still far under the 30min idle timeout.
-    const reaped = await mgr.reapIdleSandboxes(
-      IDLE,
-      GRACE,
-      T0 + 5_000 + GRACE + 1_000,
-    );
+    const reaped = await mgr.reapIdleSandboxes(IDLE, GRACE, T0 + 5_000 + GRACE + 1_000);
     expect(reaped).toContain(projectId);
     expect(await containerExists(name)).toBe(false);
   });
@@ -150,9 +140,7 @@ describe.skipIf(!isDockerRunning())("M74 — collaboration-aware sandbox lifecyc
 
     // never observed occupied -> roomEverOccupied stays false -> no grace path
     expect(await mgr.reapIdleSandboxes(IDLE, GRACE, T0 + 5_000)).toEqual([]);
-    expect(await mgr.reapIdleSandboxes(IDLE, GRACE, T0 + GRACE + 5_000)).toEqual(
-      [],
-    );
+    expect(await mgr.reapIdleSandboxes(IDLE, GRACE, T0 + GRACE + 5_000)).toEqual([]);
     const reaped = await mgr.reapIdleSandboxes(IDLE, GRACE, T0 + IDLE + 1_000);
     expect(reaped).toContain(projectId);
   });
@@ -160,15 +148,15 @@ describe.skipIf(!isDockerRunning())("M74 — collaboration-aware sandbox lifecyc
   it("a dead socket (readyState !== 1) does not keep the sandbox warm", async () => {
     const cfg = makeTestConfig();
     const db = openDb(":memory:");
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("occ_owner", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "occ_owner",
+      "h",
+      "user",
+    );
     collaborationManager.init(cfg, db);
 
     const mgr = new SandboxManager();
-    mgr.setRoomOccupancyProvider((pid) =>
-      collaborationManager.roomOccupancy(pid),
-    );
+    mgr.setRoomOccupancyProvider((pid) => collaborationManager.roomOccupancy(pid));
     const projectId = `m74occ-dead-${randomUUID()}`;
     const workspace = makeWorkspace(cfg);
     await mgr.ensureProjectSandbox(projectId, cfg, workspace, 1);
@@ -180,19 +168,13 @@ describe.skipIf(!isDockerRunning())("M74 — collaboration-aware sandbox lifecyc
     await room.addClient(sock, { userId: 1, username: "u", role: "editor" });
 
     // While the socket is live the container is kept warm past a 1s idle rule.
-    expect(await mgr.reapIdleSandboxes(1_000, Infinity, T0 + 3_600_000)).toEqual(
-      [],
-    );
+    expect(await mgr.reapIdleSandboxes(1_000, Infinity, T0 + 3_600_000)).toEqual([]);
 
     // Socket dies without a close event: roomOccupancy now reports 0 live
     // clients, so the container is no longer "warm" and the base idle rule
     // reaps it.
     sock.readyState = 3;
-    const reaped = await mgr.reapIdleSandboxes(
-      1_000,
-      Infinity,
-      T0 + 3_600_000,
-    );
+    const reaped = await mgr.reapIdleSandboxes(1_000, Infinity, T0 + 3_600_000);
     expect(reaped).toContain(projectId);
     room.dispose();
   });
@@ -201,10 +183,7 @@ describe.skipIf(!isDockerRunning())("M74 — collaboration-aware sandbox lifecyc
     const cfg = makeTestConfig();
     const projectId = `m74occ-touch-${randomUUID()}`;
     const workspace = makeWorkspace(cfg);
-    await fs.writeFile(
-      join(workspace, "main.py"),
-      "import time\ntime.sleep(2)\nprint('done')\n",
-    );
+    await fs.writeFile(join(workspace, "main.py"), "import time\ntime.sleep(2)\nprint('done')\n");
     // sandboxRun operates on the singleton sandboxManager.
     await sandboxManager.ensureProjectSandbox(projectId, cfg, workspace, 1);
 

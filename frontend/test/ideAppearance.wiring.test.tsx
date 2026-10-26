@@ -22,9 +22,7 @@ const settingsModal = read("../src/components/Settings/SettingsModal.tsx");
  */
 describe("M69 — appearance controller wiring", () => {
   it("drives a single useAppearance from the typed theme preference", () => {
-    expect(ide).toContain(
-      'import { useAppearance } from "../../hooks/useAppearance"',
-    );
+    expect(ide).toContain('import { useAppearance } from "../../hooks/useAppearance"');
     expect(ide.match(/useAppearance\(/g) ?? []).toHaveLength(1);
     expect(ide).toContain("useAppearance(preferences.theme)");
   });
@@ -36,12 +34,8 @@ describe("M69 — appearance controller wiring", () => {
   it("the terminal session themes xterm from the prop and updates it in place (M69, M79-relocated)", () => {
     // The xterm is created with the palette for the current resolved theme…
     expect(terminalSession).not.toMatch(/theme:\s*\{\s*\n\s*background:/);
-    expect(terminalSession).toContain(
-      'from "../components/Terminal/terminalThemes"',
-    );
-    expect(terminalSession).toContain(
-      "theme: TERMINAL_THEMES[themeRef.current]",
-    );
+    expect(terminalSession).toContain('from "../components/Terminal/terminalThemes"');
+    expect(terminalSession).toContain("theme: TERMINAL_THEMES[themeRef.current]");
     // …and a theme change updates the live instance in place, keyed on the
     // prop — never a reconnect or a new XTerm.
     expect(terminalSession).toMatch(
@@ -54,15 +48,13 @@ describe("M69 — appearance controller wiring", () => {
     );
     // The view no longer owns any theme or socket logic — it delegates to
     // useTerminalSession with projectId, resolvedTheme, and userId (M88).
-    expect(terminal).toContain(
-      "useTerminalSession(projectId, resolvedTheme, userId)",
-    );
+    expect(terminal).toContain("useTerminalSession(projectId, resolvedTheme, userId)");
   });
 
   it("theme is a typed preference and part of the editable modal keys", () => {
     expect(types).toContain('theme: "system" | "dark" | "light";');
     expect(types).toMatch(/EDITOR_PREFERENCE_KEYS = \[[\s\S]*"theme",[\s\S]*\]/);
-    expect(settingsModal).toContain("theme: 'system'");
+    expect(settingsModal).toContain('theme: "system"');
   });
 
   it("leaves the M67 layout-preference wiring untouched", () => {

@@ -41,9 +41,7 @@ describe("M62-3 sanitizeStoredDisplayName", () => {
   });
 
   it("sanitizes a loose stored value", () => {
-    expect(sanitizeStoredDisplayName(`  Ada${c(0)} Lovelace  `)).toBe(
-      "Ada Lovelace",
-    );
+    expect(sanitizeStoredDisplayName(`  Ada${c(0)} Lovelace  `)).toBe("Ada Lovelace");
   });
 
   it("hard-caps length at 48", () => {
@@ -86,9 +84,7 @@ describe("M62-3 effectiveDisplayName resolver matrix", () => {
     expect(effectiveDisplayName("    ", "rahul")).toBe("rahul");
   });
   it("all-control displayName -> username", () => {
-    expect(effectiveDisplayName(`${c(0)}${c(7)}${c(127)}`, "rahul")).toBe(
-      "rahul",
-    );
+    expect(effectiveDisplayName(`${c(0)}${c(7)}${c(127)}`, "rahul")).toBe("rahul");
   });
   it("valid displayName -> that displayName", () => {
     expect(effectiveDisplayName("Ada Lovelace", "rahul")).toBe("Ada Lovelace");

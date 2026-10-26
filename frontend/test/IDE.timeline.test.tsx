@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(
-  join(here, "../src/components/IDE/IDE.tsx"),
-  "utf-8",
-);
+const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
 
 /**
  * M60 — IDE wiring. The strongest low-cost guards for a 2500-line component:

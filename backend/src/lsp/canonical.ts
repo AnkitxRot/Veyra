@@ -44,19 +44,14 @@ function roomFor(projectId: string): { doc: YDocLike } | undefined {
  * room or share entry appears after subscribe(), a bounded poll attaches
  * the observer then — collab often connects a moment after `/ws/lsp`.
  */
-export function yjsDocumentSource(
-  getDoc: () => YDocLike | undefined,
-): LspDocumentSource {
+export function yjsDocumentSource(getDoc: () => YDocLike | undefined): LspDocumentSource {
   return {
     read(relPath: string): string | null {
       const doc = getDoc();
       if (!doc || !doc.share.has(relPath)) return null;
       return doc.getText(relPath).toString();
     },
-    subscribe(
-      relPath: string,
-      onChange: (text: string) => void,
-    ): () => void {
+    subscribe(relPath: string, onChange: (text: string) => void): () => void {
       let stopped = false;
       let unobserve: (() => void) | null = null;
       let timer: ReturnType<typeof setInterval> | null = null;
@@ -116,7 +111,5 @@ export function resolveCanonicalText(
   clientText: string,
 ): string {
   const fromSource = source?.read(relPath);
-  return fromSource !== null && fromSource !== undefined
-    ? fromSource
-    : clientText;
+  return fromSource !== null && fromSource !== undefined ? fromSource : clientText;
 }

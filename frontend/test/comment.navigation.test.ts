@@ -1,8 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { countsByFile, navigableThreads, nextInFile, previousInFile, nextUnresolved } from "../src/comments/navigation";
+import {
+  countsByFile,
+  navigableThreads,
+  nextInFile,
+  previousInFile,
+  nextUnresolved,
+} from "../src/comments/navigation";
 import type { CommentThreadDTO } from "../src/types";
 
-function t(over: Partial<CommentThreadDTO> & { id: string; filePath: string; startLine: number; resolvedAt?: string | null; anchorStatus?: string; deletedAt?: string | null }): CommentThreadDTO {
+function t(
+  over: Partial<CommentThreadDTO> & {
+    id: string;
+    filePath: string;
+    startLine: number;
+    resolvedAt?: string | null;
+    anchorStatus?: string;
+    deletedAt?: string | null;
+  },
+): CommentThreadDTO {
   return {
     id: over.id,
     projectId: "p",
@@ -54,7 +69,11 @@ describe("M61-A comment navigation helpers", () => {
   });
 
   it("nextInFile cycles and previousInFile wraps", () => {
-    const threads = [t({ id: "1", filePath: "a.ts", startLine: 1 }), t({ id: "2", filePath: "a.ts", startLine: 5 }), t({ id: "3", filePath: "a.ts", startLine: 10 })];
+    const threads = [
+      t({ id: "1", filePath: "a.ts", startLine: 1 }),
+      t({ id: "2", filePath: "a.ts", startLine: 5 }),
+      t({ id: "3", filePath: "a.ts", startLine: 10 }),
+    ];
     expect(nextInFile(threads, null)!.id).toBe("1");
     expect(nextInFile(threads, "1")!.id).toBe("2");
     expect(nextInFile(threads, "3")!.id).toBe("1"); // wrap
@@ -64,11 +83,16 @@ describe("M61-A comment navigation helpers", () => {
   });
 
   it("nextInFile returns null when no navigable threads", () => {
-    expect(nextInFile([t({ id: "x", filePath: "a.ts", startLine: 1, anchorStatus: "stale" })], null)).toBeNull();
+    expect(
+      nextInFile([t({ id: "x", filePath: "a.ts", startLine: 1, anchorStatus: "stale" })], null),
+    ).toBeNull();
   });
 
   it("nextUnresolved cycles through unresolved list", () => {
-    const unresolved = [t({ id: "u1", filePath: "a.ts", startLine: 1 }), t({ id: "u2", filePath: "b.ts", startLine: 2 })];
+    const unresolved = [
+      t({ id: "u1", filePath: "a.ts", startLine: 1 }),
+      t({ id: "u2", filePath: "b.ts", startLine: 2 }),
+    ];
     expect(nextUnresolved(unresolved, null)!.id).toBe("u1");
     expect(nextUnresolved(unresolved, "u1")!.id).toBe("u2");
     expect(nextUnresolved(unresolved, "u2")!.id).toBe("u1");

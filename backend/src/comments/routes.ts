@@ -16,11 +16,7 @@ import {
   sanitizeCommentBody,
 } from "./validate.js";
 import * as store from "./store.js";
-import type {
-  CommentRow,
-  ReactionRow,
-  ThreadWithComments,
-} from "./store.js";
+import type { CommentRow, ReactionRow, ThreadWithComments } from "./store.js";
 
 /**
  * M61-A comment REST. Every handler opens with `requireProjectAccess`. Actor
@@ -149,20 +145,16 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
 
   function findThread(projectId: string, threadId: string) {
     const row = db
-      .prepare(
-        "SELECT * FROM comment_threads WHERE id = ? AND project_id = ?",
-      )
+      .prepare("SELECT * FROM comment_threads WHERE id = ? AND project_id = ?")
       .get(threadId, projectId) as
-      | { id: string; file_path: string; anchor_start_line: number }
-      | undefined;
+      { id: string; file_path: string; anchor_start_line: number } | undefined;
     if (!row) throw new ApiError(404, "thread not found", "not_found");
     return row;
   }
 
   function threadResponse(projectId: string, threadId: string) {
-    const row = db
-      .prepare("SELECT file_path FROM comment_threads WHERE id = ?")
-      .get(threadId) as { file_path: string } | undefined;
+    const row = db.prepare("SELECT file_path FROM comment_threads WHERE id = ?").get(threadId) as
+      { file_path: string } | undefined;
     if (!row) throw new ApiError(404, "thread not found", "not_found");
     const one = store
       .listThreadsForFile(db, projectId, row.file_path, "all")
@@ -213,25 +205,16 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       requireProjectAccess(db, userOf(req).id, req.params.id, "viewer");
       const projectId = req.params.id;
       const fileParam = req.query.file;
-      const statusParam =
-        typeof req.query.status === "string" ? req.query.status : "active";
+      const statusParam = typeof req.query.status === "string" ? req.query.status : "active";
       const status: store.ThreadStatusFilter =
-        statusParam === "resolved" || statusParam === "all"
-          ? statusParam
-          : "active";
-      const limit = Math.max(
-        1,
-        Math.min(100, Number(req.query.limit) || 50),
-      );
-      const before =
-        typeof req.query.before === "string" ? req.query.before : null;
+        statusParam === "resolved" || statusParam === "all" ? statusParam : "active";
+      const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 50));
+      const before = typeof req.query.before === "string" ? req.query.before : null;
 
       if (typeof fileParam === "string" && fileParam.length > 0) {
         const file = sanitizeAwarenessFilePath(fileParam);
         if (!file) throw new ApiError(400, "invalid file path", "invalid_path");
-        const threads = store
-          .listThreadsForFile(db, projectId, file, status)
-          .map(threadDTO);
+        const threads = store.listThreadsForFile(db, projectId, file, status).map(threadDTO);
         return res.json({ threads, nextBefore: null });
       }
       const page = store.listUnresolved(db, projectId, limit, before);
@@ -260,11 +243,7 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       }
       const body = sanitizeCommentBody(b.body);
       if (body == null) {
-        throw new ApiError(
-          400,
-          `comment body must be 1-${COMMENT_MAX_LEN} chars`,
-          "invalid_body",
-        );
+        throw new ApiError(400, `comment body must be 1-${COMMENT_MAX_LEN} chars`, "invalid_body");
       }
       const mentions = validMentions(projectId, b.mentions);
       rateLimit(actor.id, projectId);
@@ -351,12 +330,8 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       const projectId = req.params.id;
       const actor = userOf(req);
       const row = db
-        .prepare(
-          "SELECT thread_id, project_id FROM comments WHERE id = ?",
-        )
-        .get(req.params.commentId) as
-        | { thread_id: string; project_id: string }
-        | undefined;
+        .prepare("SELECT thread_id, project_id FROM comments WHERE id = ?")
+        .get(req.params.commentId) as { thread_id: string; project_id: string } | undefined;
       if (!row || row.project_id !== projectId) {
         throw new ApiError(404, "comment not found", "not_found");
       }
@@ -395,19 +370,12 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
   // -------------------------------------------------------------------------
   router.delete("/:id/comments/:commentId", (req, res, next) => {
     try {
-      const access = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id,
-        "editor",
-      );
+      const access = requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
       const projectId = req.params.id;
       const actor = userOf(req);
       const row = db
         .prepare("SELECT thread_id, project_id FROM comments WHERE id = ?")
-        .get(req.params.commentId) as
-        | { thread_id: string; project_id: string }
-        | undefined;
+        .get(req.params.commentId) as { thread_id: string; project_id: string } | undefined;
       if (!row || row.project_id !== projectId) {
         throw new ApiError(404, "comment not found", "not_found");
       }
@@ -417,11 +385,7 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
         projectOwnerId: access.project.owner_id,
       });
       if (!ok) {
-        throw new ApiError(
-          403,
-          "only the author or project owner can delete",
-          "forbidden",
-        );
+        throw new ApiError(403, "only the author or project owner can delete", "forbidden");
       }
       const thread = db
         .prepare("SELECT file_path FROM comment_threads WHERE id = ?")
@@ -483,9 +447,7 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       }
       const row = db
         .prepare("SELECT thread_id, project_id FROM comments WHERE id = ?")
-        .get(req.params.commentId) as
-        | { thread_id: string; project_id: string }
-        | undefined;
+        .get(req.params.commentId) as { thread_id: string; project_id: string } | undefined;
       if (!row || row.project_id !== projectId) {
         throw new ApiError(404, "comment not found", "not_found");
       }
@@ -500,36 +462,31 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
     }
   });
 
-  router.delete(
-    "/:id/comments/:commentId/reactions/:emoji",
-    (req, res, next) => {
-      try {
-        requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
-        const projectId = req.params.id;
-        const actor = userOf(req);
-        const emoji = decodeURIComponent(req.params.emoji);
-        if (!isEmoji(emoji)) {
-          throw new ApiError(400, "unsupported reaction", "invalid_emoji");
-        }
-        const row = db
-          .prepare("SELECT thread_id, project_id FROM comments WHERE id = ?")
-          .get(req.params.commentId) as
-          | { thread_id: string; project_id: string }
-          | undefined;
-        if (!row || row.project_id !== projectId) {
-          throw new ApiError(404, "comment not found", "not_found");
-        }
-        store.removeReaction(db, req.params.commentId, actor.id, emoji);
-        const thread = db
-          .prepare("SELECT file_path FROM comment_threads WHERE id = ?")
-          .get(row.thread_id) as { file_path: string };
-        emit(projectId, row.thread_id, thread.file_path, "reacted");
-        res.json({ thread: threadResponse(projectId, row.thread_id) });
-      } catch (err) {
-        next(err);
+  router.delete("/:id/comments/:commentId/reactions/:emoji", (req, res, next) => {
+    try {
+      requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
+      const projectId = req.params.id;
+      const actor = userOf(req);
+      const emoji = decodeURIComponent(req.params.emoji);
+      if (!isEmoji(emoji)) {
+        throw new ApiError(400, "unsupported reaction", "invalid_emoji");
       }
-    },
-  );
+      const row = db
+        .prepare("SELECT thread_id, project_id FROM comments WHERE id = ?")
+        .get(req.params.commentId) as { thread_id: string; project_id: string } | undefined;
+      if (!row || row.project_id !== projectId) {
+        throw new ApiError(404, "comment not found", "not_found");
+      }
+      store.removeReaction(db, req.params.commentId, actor.id, emoji);
+      const thread = db
+        .prepare("SELECT file_path FROM comment_threads WHERE id = ?")
+        .get(row.thread_id) as { file_path: string };
+      emit(projectId, row.thread_id, thread.file_path, "reacted");
+      res.json({ thread: threadResponse(projectId, row.thread_id) });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // -------------------------------------------------------------------------
   // Anchor status (editor; advisory)

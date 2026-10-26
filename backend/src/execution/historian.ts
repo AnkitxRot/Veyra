@@ -135,10 +135,7 @@ export class TelemetryHistorian {
   private sampleTimer: NodeJS.Timeout | null = null;
 
   // Active Executions Map (projectId -> executionId)
-  private activeExecutions = new Map<
-    string,
-    { executionId: string; startTime: number }
-  >();
+  private activeExecutions = new Map<string, { executionId: string; startTime: number }>();
 
   // State tracking for Anomaly Engine
   private highCpuStreaks = new Map<string, number>(); // projectId -> consecutive seconds over threshold
@@ -274,10 +271,7 @@ export class TelemetryHistorian {
       try {
         this.db.exec("ROLLBACK;");
       } catch {}
-      console.error(
-        "[TelemetryHistorian] Error flushing batched telemetry:",
-        err.message,
-      );
+      console.error("[TelemetryHistorian] Error flushing batched telemetry:", err.message);
     }
   }
 
@@ -306,8 +300,7 @@ export class TelemetryHistorian {
           severity: "warning",
           title: "High CPU Utilization Detected",
           reason: `Sandbox sustained ${sample.cpuPercent.toFixed(1)}% CPU utilization across multiple sampling intervals.`,
-          details:
-            "Possible causes: sustained compute loop or intense compilation workload.",
+          details: "Possible causes: sustained compute loop or intense compilation workload.",
         });
       }
     } else {
@@ -315,8 +308,7 @@ export class TelemetryHistorian {
     }
 
     // Rule 2: Memory Pressure (>85% of limit)
-    const memPercent =
-      (sample.memoryUsageBytes / sample.memoryLimitBytes) * 100;
+    const memPercent = (sample.memoryUsageBytes / sample.memoryLimitBytes) * 100;
     if (memPercent >= 85) {
       this.createOrUpdateAnomaly({
         projectId,
@@ -602,8 +594,7 @@ export class TelemetryHistorian {
            FROM runs
            WHERE project_id = ? AND created_at >= datetime('now', '-24 hours')`,
         )
-        .get(projectId) as
-        { total: number; total_duration: number; failed: number } | undefined;
+        .get(projectId) as { total: number; total_duration: number; failed: number } | undefined;
 
       executionsToday = statsRow?.total || 0;
       totalDurationMsToday = statsRow?.total_duration || 0;
@@ -613,15 +604,12 @@ export class TelemetryHistorian {
     const snapshotCount = this.db
       ? (
           this.db
-            .prepare(
-              "SELECT COUNT(*) as count FROM snapshots WHERE project_id = ?",
-            )
+            .prepare("SELECT COUNT(*) as count FROM snapshots WHERE project_id = ?")
             .get(projectId) as { count: number }
         )?.count || 0
       : 0;
 
-    const failureRate =
-      executionsToday > 0 ? (failedExecutionsToday / executionsToday) * 100 : 0;
+    const failureRate = executionsToday > 0 ? (failedExecutionsToday / executionsToday) * 100 : 0;
 
     // Get live runtime stats
     const hotSamples = this.hotBuffers.get(projectId)?.getAll() || [];
@@ -629,19 +617,16 @@ export class TelemetryHistorian {
 
     let status: "healthy" | "warning" | "critical" = "healthy";
     let score = 100;
-    let summaryText =
-      "All systems healthy. Resource utilization within normal baseline.";
+    let summaryText = "All systems healthy. Resource utilization within normal baseline.";
 
     if (anomalies.some((a) => a.severity === "critical") || failureRate >= 50) {
       status = "critical";
       score = Math.max(20, 60 - anomalies.length * 15);
-      summaryText =
-        "Critical resource conditions or elevated execution failure rate detected.";
+      summaryText = "Critical resource conditions or elevated execution failure rate detected.";
     } else if (anomalies.length > 0 || failureRate >= 20) {
       status = "warning";
       score = Math.max(50, 85 - anomalies.length * 10);
-      summaryText =
-        "Resource warnings active. Check memory/CPU margins or execution logs.";
+      summaryText = "Resource warnings active. Check memory/CPU margins or execution logs.";
     }
 
     return {
@@ -667,9 +652,7 @@ export class TelemetryHistorian {
   /**
    * Queries platform-wide aggregate historical telemetry for Admin Control Plane.
    */
-  public queryAdminHistoricalTelemetry(
-    range: "5m" | "15m" | "1h" | "24h" = "15m",
-  ): {
+  public queryAdminHistoricalTelemetry(range: "5m" | "15m" | "1h" | "24h" = "15m"): {
     timeline: {
       timestamp: string;
       avgCpuPercent: number;
@@ -753,12 +736,9 @@ export class TelemetryHistorian {
     // Periodic sandbox sampler
     this.sampleTimer = setInterval(async () => {
       try {
-        const activeSandboxes =
-          await this.sandboxManager.getAllActiveSandboxes();
+        const activeSandboxes = await this.sandboxManager.getAllActiveSandboxes();
         for (const sb of activeSandboxes) {
-          const stats = await this.sandboxManager.getContainerStats(
-            sb.projectId,
-          );
+          const stats = await this.sandboxManager.getContainerStats(sb.projectId);
           if (stats.running) {
             this.recordSample(sb.projectId, sb.containerId, stats);
           }
@@ -874,10 +854,7 @@ function calculateSummary(records: TelemetryRecord[]): TelemetrySummary {
 /**
  * Downsamples dense record arrays into maxPoints evenly distributed buckets.
  */
-function downsampleRecords(
-  records: TelemetryRecord[],
-  maxPoints: number,
-): TelemetryRecord[] {
+function downsampleRecords(records: TelemetryRecord[], maxPoints: number): TelemetryRecord[] {
   if (records.length <= maxPoints) return records;
 
   const result: TelemetryRecord[] = [];
@@ -909,8 +886,7 @@ function parseBlockIO(blockIOStr = ""): {
   readBytes: number;
   writeBytes: number;
 } {
-  if (!blockIOStr || !blockIOStr.includes("/"))
-    return { readBytes: 0, writeBytes: 0 };
+  if (!blockIOStr || !blockIOStr.includes("/")) return { readBytes: 0, writeBytes: 0 };
   const [read, write] = blockIOStr.split("/").map((s) => s.trim());
   return {
     readBytes: parseByteUnits(read),

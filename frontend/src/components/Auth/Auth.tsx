@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { api } from '../../api';
-import { type User } from '../../types';
-import { IconLayers, IconSparkles } from '../common/Icons';
+import React, { useState } from "react";
+import { api } from "../../api";
+import { type User } from "../../types";
+import { IconLayers, IconSparkles } from "../common/Icons";
 
 export default function Auth({
   onAuthed,
@@ -10,31 +10,31 @@ export default function Auth({
   onAuthed: (u: User) => void;
   onSwitchToAdminLogin?: () => void;
 }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [demoBusy, setDemoBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password) return;
-    if (mode === 'register' && password.length < 8) {
-      setError('Password must be at least 8 characters long');
+    if (mode === "register" && password.length < 8) {
+      setError("Password must be at least 8 characters long");
       return;
     }
 
     setBusy(true);
-    setError('');
+    setError("");
     try {
-      const res = await api<{ token?: string; user: User }>('/api/auth/' + mode, {
-        method: 'POST',
+      const res = await api<{ token?: string; user: User }>("/api/auth/" + mode, {
+        method: "POST",
         body: JSON.stringify({ username: username.trim(), password }),
       });
       onAuthed(res.user);
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      setError(err.message || "Authentication failed");
     } finally {
       setBusy(false);
     }
@@ -42,14 +42,14 @@ export default function Auth({
 
   const handleDemoLogin = async () => {
     setDemoBusy(true);
-    setError('');
+    setError("");
     try {
-      const res = await api<{ token?: string; user: User }>('/api/auth/demo', {
-        method: 'POST',
+      const res = await api<{ token?: string; user: User }>("/api/auth/demo", {
+        method: "POST",
       });
       onAuthed(res.user);
     } catch (err: any) {
-      setError(err.message || 'Could not initialize demo sandbox');
+      setError(err.message || "Could not initialize demo sandbox");
     } finally {
       setDemoBusy(false);
     }
@@ -71,13 +71,13 @@ export default function Auth({
           type="button"
           className="glass-btn glass-btn-primary"
           style={{
-            height: '42px',
-            fontSize: 'var(--text-sm)',
+            height: "42px",
+            fontSize: "var(--text-sm)",
             fontWeight: 700,
-            background: 'linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)',
-            color: '#090b10',
-            boxShadow: '0 4px 20px rgba(166, 227, 161, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.3)',
+            background: "linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)",
+            color: "#090b10",
+            boxShadow: "0 4px 20px rgba(166, 227, 161, 0.3)",
+            border: "1px solid rgba(255, 255, 255, 0.3)",
           }}
           onClick={handleDemoLogin}
           disabled={demoBusy || busy}
@@ -85,33 +85,41 @@ export default function Auth({
           {demoBusy ? (
             <span>Provisioning Cloud Sandbox...</span>
           ) : (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <IconSparkles size={16} />
               <span>⚡ Try Instant Demo (Zero Setup)</span>
             </span>
           )}
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '2px 0' }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
-          <span style={{ fontSize: '11px', color: 'var(--fg-muted)', textTransform: 'uppercase' }}>or sign in</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", margin: "2px 0" }}>
+          <div style={{ flex: 1, height: "1px", background: "var(--glass-border)" }} />
+          <span style={{ fontSize: "11px", color: "var(--fg-muted)", textTransform: "uppercase" }}>
+            or sign in
+          </span>
+          <div style={{ flex: 1, height: "1px", background: "var(--glass-border)" }} />
         </div>
 
-        <div className="glass-tabs-container" style={{ width: '100%' }}>
+        <div className="glass-tabs-container" style={{ width: "100%" }}>
           <button
             type="button"
-            className={`glass-tab ${mode === 'login' ? 'active' : ''}`}
-            style={{ flex: 1, justifyContent: 'center' }}
-            onClick={() => { setMode('login'); setError(''); }}
+            className={`glass-tab ${mode === "login" ? "active" : ""}`}
+            style={{ flex: 1, justifyContent: "center" }}
+            onClick={() => {
+              setMode("login");
+              setError("");
+            }}
           >
             Log In
           </button>
           <button
             type="button"
-            className={`glass-tab ${mode === 'register' ? 'active' : ''}`}
-            style={{ flex: 1, justifyContent: 'center' }}
-            onClick={() => { setMode('register'); setError(''); }}
+            className={`glass-tab ${mode === "register" ? "active" : ""}`}
+            style={{ flex: 1, justifyContent: "center" }}
+            onClick={() => {
+              setMode("register");
+              setError("");
+            }}
           >
             Create Account
           </button>
@@ -119,7 +127,9 @@ export default function Auth({
 
         <form className="auth-form" onSubmit={submit}>
           <div className="auth-field">
-            <label className="auth-label" htmlFor="auth-username">Username</label>
+            <label className="auth-label" htmlFor="auth-username">
+              Username
+            </label>
             <input
               id="auth-username"
               className="glass-input"
@@ -131,14 +141,16 @@ export default function Auth({
           </div>
 
           <div className="auth-field">
-            <label className="auth-label" htmlFor="auth-password">Password</label>
+            <label className="auth-label" htmlFor="auth-password">
+              Password
+            </label>
             <input
               id="auth-password"
               className="glass-input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'register' ? 'Min 8 characters' : 'Enter password'}
+              placeholder={mode === "register" ? "Min 8 characters" : "Enter password"}
               required
             />
           </div>
@@ -158,7 +170,7 @@ export default function Auth({
             {busy ? (
               <span>Authenticating...</span>
             ) : (
-              <span>{mode === 'login' ? 'Sign In to Workspace' : 'Get Started'}</span>
+              <span>{mode === "login" ? "Sign In to Workspace" : "Get Started"}</span>
             )}
           </button>
 
@@ -167,19 +179,19 @@ export default function Auth({
               type="button"
               className="link"
               onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login');
-                setError('');
+                setMode(mode === "login" ? "register" : "login");
+                setError("");
               }}
             >
-              {mode === 'login' ? "Don't have an account? Sign up" : 'Already registered? Log in'}
+              {mode === "login" ? "Don't have an account? Sign up" : "Already registered? Log in"}
             </button>
             {onSwitchToAdminLogin && (
-              <div style={{ marginTop: '8px' }}>
+              <div style={{ marginTop: "8px" }}>
                 <button
                   type="button"
                   className="link"
                   onClick={onSwitchToAdminLogin}
-                  style={{ fontSize: '11px', color: 'var(--fg-muted)' }}
+                  style={{ fontSize: "11px", color: "var(--fg-muted)" }}
                 >
                   🛡️ Admin Control Plane
                 </button>

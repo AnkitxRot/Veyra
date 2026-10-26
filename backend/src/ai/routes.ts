@@ -50,12 +50,7 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
   // 1. Execute AI Contextual Action
   router.post("/:id/ai/action", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id,
-        "editor",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
       const {
         action,
         activeFilePath,
@@ -74,36 +69,23 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
       }
 
       // Assemble bounded context
-      const context = await buildAIContext(
-        cfg,
-        db,
-        project.id,
-        userOf(req).id,
-        {
-          activeFilePath,
-          selectedCode,
-          selectionRange,
-          diagnostics,
-          searchQuery,
-        },
-      );
+      const context = await buildAIContext(cfg, db, project.id, userOf(req).id, {
+        activeFilePath,
+        selectedCode,
+        selectionRange,
+        diagnostics,
+        searchQuery,
+      });
 
       const provider = aiProviderRegistry.getProvider(providerId);
-      const response = await provider.executeAction(
-        action as AIAction,
-        context,
-      );
+      const response = await provider.executeAction(action as AIAction, context);
 
-      const baseRevision = response.patch
-        ? computeRevision(context.fileContent)
-        : undefined;
+      const baseRevision = response.patch ? computeRevision(context.fileContent) : undefined;
 
       res.json({
         response: {
           ...response,
-          patch: response.patch
-            ? { ...response.patch, baseRevision }
-            : response.patch,
+          patch: response.patch ? { ...response.patch, baseRevision } : response.patch,
         },
       });
     } catch (err) {
@@ -114,19 +96,8 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
   // 2. Apply Reviewed Patch with Snapshot Safety & Multiplayer Sync
   router.post("/:id/ai/apply-patch", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id,
-        "editor",
-      );
-      const {
-        filePath,
-        content,
-        createSafetySnapshot,
-        explanation,
-        baseRevision,
-      } = req.body ?? {};
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
+      const { filePath, content, createSafetySnapshot, explanation, baseRevision } = req.body ?? {};
 
       if (typeof filePath !== "string" || !filePath.trim()) {
         throw new ApiError(400, "filePath is required", "invalid_path");
@@ -135,24 +106,12 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
         throw new ApiError(400, "content is required", "invalid_content");
       }
       if (typeof baseRevision !== "string" || !baseRevision) {
-        throw new ApiError(
-          400,
-          "baseRevision is required",
-          "invalid_base_revision",
-        );
+        throw new ApiError(400, "baseRevision is required", "invalid_base_revision");
       }
 
       // Security: Path containment validation
-      if (
-        filePath.includes("..") ||
-        filePath.startsWith("/") ||
-        filePath.startsWith("\\")
-      ) {
-        throw new ApiError(
-          400,
-          "Invalid file path traversal attempt",
-          "invalid_path",
-        );
+      if (filePath.includes("..") || filePath.startsWith("/") || filePath.startsWith("\\")) {
+        throw new ApiError(400, "Invalid file path traversal attempt", "invalid_path");
       }
 
       // Stale-patch conflict detection: the file's authoritative content
@@ -160,11 +119,7 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
       // content) must still match what the AI patch was computed against.
       // This must run before any mutation (snapshot, write, or collab
       // notify) so a stale patch can never clobber intervening changes.
-      const currentContent = await getAuthoritativeFileContent(
-        cfg,
-        project.id,
-        filePath,
-      );
+      const currentContent = await getAuthoritativeFileContent(cfg, project.id, filePath);
       const currentRevision = computeRevision(currentContent);
       if (currentRevision !== baseRevision) {
         throw new ApiError(
@@ -234,12 +189,7 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
   // 3. Sandbox Verification Pipeline
   router.post("/:id/ai/verify", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id,
-        "editor",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id, "editor");
       const {
         action,
         providerType,
@@ -295,12 +245,7 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
   // 4. Project AI Verification History Journal
   router.get("/:id/ai/verifications", (req, res, next) => {
     try {
-      const { project, role } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id,
-        "viewer",
-      );
+      const { project, role } = requireProjectAccess(db, userOf(req).id, req.params.id, "viewer");
       const rows = db
         .prepare(
           `SELECT * FROM ai_verifications

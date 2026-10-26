@@ -20,11 +20,16 @@
     "deploy:up": "bash scripts/prod-up.sh",
     "deploy:smoke": "node scripts/smoke-test.js",
     "db:backup": "node scripts/backup-db.js",
-    "db:restore": "node scripts/restore-db.js"
+    "db:restore": "node scripts/restore-db.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
     "esbuild@0.21.5": true,
     "node-pty@1.1.0": true
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10"
   }
 }

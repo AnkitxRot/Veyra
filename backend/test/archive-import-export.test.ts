@@ -2,20 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
-import {
-  createZipArchive,
-  extractZipArchive,
-  type ZipFileEntry,
-} from "../src/projects/zip.js";
+import { createZipArchive, extractZipArchive, type ZipFileEntry } from "../src/projects/zip.js";
 import {
   exportProjectZip,
   importProjectZip,
   importNewProjectZip,
 } from "../src/projects/archive.js";
-import {
-  createProject,
-  projectDir,
-} from "../src/projects/service.js";
+import { createProject, projectDir } from "../src/projects/service.js";
 import { writeProjectFile, readProjectFile, listFiles } from "../src/files/service.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
@@ -193,9 +186,9 @@ describe("Milestone 21 — Project Workspace Export & Import", () => {
         { path: "shadow", rawPath: "/etc/shadow", content: Buffer.from("root:xxx") },
       ]);
 
-      await expect(
-        extractZipArchive(absZip, join(cfg.dataDir, "abs_dest"), cfg),
-      ).rejects.toThrow(/absolute path/i);
+      await expect(extractZipArchive(absZip, join(cfg.dataDir, "abs_dest"), cfg)).rejects.toThrow(
+        /absolute path/i,
+      );
     });
 
     it("9. rejects symlink entries in archive", async () => {
@@ -275,9 +268,7 @@ describe("Milestone 21 — Project Workspace Export & Import", () => {
         name: "User1Project",
       });
 
-      const zip = createZipArchive([
-        { path: "hacked.txt", content: Buffer.from("hacked") },
-      ]);
+      const zip = createZipArchive([{ path: "hacked.txt", content: Buffer.from("hacked") }]);
 
       // Other user tries to import into User 1's project
       await expect(
@@ -337,9 +328,7 @@ describe("Milestone 21 — Project Workspace Export & Import", () => {
       const ws = projectDir(cfg, project.id);
       await writeProjectFile(ws, "existing.txt", "keep me\n");
 
-      const zip = createZipArchive([
-        { path: "new.txt", content: Buffer.from("new\n") },
-      ]);
+      const zip = createZipArchive([{ path: "new.txt", content: Buffer.from("new\n") }]);
 
       // Should fail without replace=true
       await expect(

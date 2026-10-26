@@ -6,16 +6,14 @@ import type { Project } from "../src/types";
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
 }));
 
 import Output from "../src/components/Output/Output";
 import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 
 // jsdom does not implement Element.scrollIntoView.
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 // M45 (relocated by M53): the run WebSocket + its cleanup now live in the
 // ExecutionSessionProvider, not <Output>. The M45 invariant is unchanged —
@@ -90,9 +88,7 @@ describe("ExecutionSession — Milestone 45 run-stopped teardown guard (relocate
   function Harness({ showOutput = true }: { showOutput?: boolean }) {
     return (
       <ExecutionSessionProvider projectId={project.id}>
-        {showOutput ? (
-          <Output project={project} onRefreshTree={() => {}} />
-        ) : null}
+        {showOutput ? <Output project={project} onRefreshTree={() => {}} /> : null}
       </ExecutionSessionProvider>
     );
   }
@@ -111,9 +107,7 @@ describe("ExecutionSession — Milestone 45 run-stopped teardown guard (relocate
         },
       }),
     );
-    await waitFor(() =>
-      expect(FakeWebSocket.instances.length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
     const ws = FakeWebSocket.latest();
     ws.simulateOpen();
     return ws;

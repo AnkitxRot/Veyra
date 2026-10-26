@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { monaco } from '../../monacoSetup';
-import { IconCheck, IconCode } from '../common/Icons';
+import React, { useEffect, useRef, useState } from "react";
+import { monaco } from "../../monacoSetup";
+import { IconCheck, IconCode } from "../common/Icons";
 
 export interface AIPatchModalProps {
   isOpen: boolean;
@@ -24,8 +24,8 @@ export default function AIPatchModal({
   originalContent,
   modifiedContent,
   explanation,
-  providerName = 'Deterministic Rule & Static Analysis Engine',
-  providerType: _providerType = 'deterministic',
+  providerName = "Deterministic Rule & Static Analysis Engine",
+  providerType: _providerType = "deterministic",
   linesAdded = 0,
   linesRemoved = 0,
 }: AIPatchModalProps) {
@@ -37,20 +37,20 @@ export default function AIPatchModal({
     if (!isOpen || !diffContainerRef.current) return;
 
     // Detect language from file extension
-    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const ext = filePath.split(".").pop()?.toLowerCase() || "";
     const langMap: Record<string, string> = {
-      py: 'python',
-      c: 'c',
-      cpp: 'cpp',
-      ts: 'typescript',
-      tsx: 'typescript',
-      js: 'javascript',
-      jsx: 'javascript',
-      java: 'java',
-      json: 'json',
-      md: 'markdown',
+      py: "python",
+      c: "c",
+      cpp: "cpp",
+      ts: "typescript",
+      tsx: "typescript",
+      js: "javascript",
+      jsx: "javascript",
+      java: "java",
+      json: "json",
+      md: "markdown",
     };
-    const language = langMap[ext] || 'plaintext';
+    const language = langMap[ext] || "plaintext";
 
     // Create Monaco models with distinct, explicit URIs
     const timestamp = Date.now();
@@ -64,10 +64,10 @@ export default function AIPatchModal({
     const diffEditor = monaco.editor.createDiffEditor(diffContainerRef.current, {
       originalEditable: false,
       readOnly: true,
-      theme: 'vs-dark',
+      theme: "vs-dark",
       renderSideBySide: true,
       automaticLayout: true,
-      diffAlgorithm: 'legacy',
+      diffAlgorithm: "legacy",
       fontFamily: 'var(--font-mono, "JetBrains Mono", Consolas, monospace)',
       fontSize: 13,
       minimap: { enabled: false },
@@ -94,15 +94,15 @@ export default function AIPatchModal({
     <div
       className="modal-overlay"
       style={{
-        position: 'fixed',
+        position: "fixed",
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(8px)',
+        backgroundColor: "rgba(0, 0, 0, 0.75)",
+        backdropFilter: "blur(8px)",
         zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -114,40 +114,40 @@ export default function AIPatchModal({
       <div
         className="glass-panel"
         style={{
-          width: '92vw',
-          maxWidth: '1200px',
-          height: '85vh',
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: '#11131a',
-          border: '1px solid var(--glass-border, rgba(255, 255, 255, 0.1))',
-          borderRadius: '12px',
-          boxShadow: '0 16px 48px rgba(0, 0, 0, 0.6)',
-          overflow: 'hidden',
+          width: "92vw",
+          maxWidth: "1200px",
+          height: "85vh",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "#11131a",
+          border: "1px solid var(--glass-border, rgba(255, 255, 255, 0.1))",
+          borderRadius: "12px",
+          boxShadow: "0 16px 48px rgba(0, 0, 0, 0.6)",
+          overflow: "hidden",
         }}
       >
         {/* Header Bar */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 20px',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 20px",
+            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+            backgroundColor: "rgba(255, 255, 255, 0.02)",
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div
               style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                background: 'linear-gradient(135deg, #cba6f7 0%, #89b4fa 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#11111b',
+                width: "28px",
+                height: "28px",
+                borderRadius: "6px",
+                background: "linear-gradient(135deg, #cba6f7 0%, #89b4fa 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#11111b",
                 fontWeight: 700,
               }}
             >
@@ -157,15 +157,31 @@ export default function AIPatchModal({
             <div>
               <h2
                 id="ai-patch-modal-title"
-                style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--fg-primary, #cdd6f4)' }}
+                style={{
+                  margin: 0,
+                  fontSize: "15px",
+                  fontWeight: 600,
+                  color: "var(--fg-primary, #cdd6f4)",
+                }}
               >
-                Review AI Proposed Patch: <span style={{ color: '#89b4fa' }}>{filePath}</span>
+                Review AI Proposed Patch: <span style={{ color: "#89b4fa" }}>{filePath}</span>
               </h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#6c7086', marginTop: '2px' }}>
-                <span>Provider: <strong>{providerName}</strong></span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontSize: "11px",
+                  color: "#6c7086",
+                  marginTop: "2px",
+                }}
+              >
+                <span>
+                  Provider: <strong>{providerName}</strong>
+                </span>
                 <span>•</span>
-                <span style={{ color: '#a6e3a1' }}>+{linesAdded} lines</span>
-                <span style={{ color: '#f38ba8' }}>-{linesRemoved} lines</span>
+                <span style={{ color: "#a6e3a1" }}>+{linesAdded} lines</span>
+                <span style={{ color: "#f38ba8" }}>-{linesRemoved} lines</span>
               </div>
             </div>
           </div>
@@ -173,7 +189,7 @@ export default function AIPatchModal({
           <button
             onClick={onClose}
             className="glass-btn glass-btn-icon"
-            style={{ width: '28px', height: '28px' }}
+            style={{ width: "28px", height: "28px" }}
             title="Reject and close"
           >
             ✕
@@ -183,17 +199,17 @@ export default function AIPatchModal({
         {/* Explanation Banner */}
         <div
           style={{
-            padding: '10px 20px',
-            backgroundColor: 'rgba(137, 180, 250, 0.05)',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-            fontSize: '12px',
-            color: '#cdd6f4',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
+            padding: "10px 20px",
+            backgroundColor: "rgba(137, 180, 250, 0.05)",
+            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+            fontSize: "12px",
+            color: "#cdd6f4",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
           }}
         >
-          <span style={{ color: '#89b4fa', fontWeight: 600 }}>Rationale:</span>
+          <span style={{ color: "#89b4fa", fontWeight: 600 }}>Rationale:</span>
           <span>{explanation}</span>
         </div>
 
@@ -202,54 +218,54 @@ export default function AIPatchModal({
           ref={diffContainerRef}
           style={{
             flex: 1,
-            width: '100%',
-            minHeight: '200px',
-            backgroundColor: '#11131a',
+            width: "100%",
+            minHeight: "200px",
+            backgroundColor: "#11131a",
           }}
         />
 
         {/* Action Controls & Footer */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 20px',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 20px",
+            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+            backgroundColor: "rgba(255, 255, 255, 0.02)",
           }}
         >
           {/* Safety Options */}
           <label
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              color: '#a6adc8',
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              cursor: "pointer",
+              fontSize: "12px",
+              color: "#a6adc8",
             }}
           >
             <input
               type="checkbox"
               checked={createSnapshot}
               onChange={(e) => setCreateSnapshot(e.target.checked)}
-              style={{ cursor: 'pointer', accentColor: '#89b4fa' }}
+              style={{ cursor: "pointer", accentColor: "#89b4fa" }}
             />
             <span>Create Safety Snapshot before applying patch</span>
           </label>
 
           {/* Action Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <button
               type="button"
               onClick={onClose}
               className="glass-btn"
               style={{
-                padding: '6px 14px',
-                fontSize: '12px',
-                color: '#f38ba8',
-                borderColor: 'rgba(243, 139, 168, 0.3)',
+                padding: "6px 14px",
+                fontSize: "12px",
+                color: "#f38ba8",
+                borderColor: "rgba(243, 139, 168, 0.3)",
               }}
             >
               Reject Patch
@@ -260,10 +276,10 @@ export default function AIPatchModal({
               onClick={() => onAccept({ runVerification: false, createSnapshot })}
               className="glass-btn"
               style={{
-                padding: '6px 14px',
-                fontSize: '12px',
-                color: '#fab387',
-                borderColor: 'rgba(250, 179, 135, 0.3)',
+                padding: "6px 14px",
+                fontSize: "12px",
+                color: "#fab387",
+                borderColor: "rgba(250, 179, 135, 0.3)",
               }}
               title="Apply patch directly without running sandbox verification (marked as UNVERIFIED)"
             >
@@ -275,14 +291,14 @@ export default function AIPatchModal({
               onClick={() => onAccept({ runVerification: true, createSnapshot })}
               className="glass-btn glass-btn-primary"
               style={{
-                padding: '6px 16px',
-                fontSize: '12px',
+                padding: "6px 16px",
+                fontSize: "12px",
                 fontWeight: 600,
-                background: 'linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)',
-                color: '#11111b',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
+                background: "linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)",
+                color: "#11111b",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
               }}
               title="Apply patch and execute authoritative sandbox verification"
             >

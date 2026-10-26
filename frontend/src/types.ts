@@ -437,12 +437,7 @@ export interface AdminObservabilityData {
 // ---------------------------------------------------------------------------
 
 export type TimelineEventKind =
-  | "edit_burst"
-  | "callout"
-  | "run"
-  | "commit"
-  | "snapshot"
-  | "comment";
+  "edit_burst" | "callout" | "run" | "commit" | "snapshot" | "comment";
 
 export interface TimelineEvent {
   /** "<source>:<sourceId>" — globally unique; the pagination tie-break key. */

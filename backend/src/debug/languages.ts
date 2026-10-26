@@ -67,10 +67,7 @@ export function supportedDebugLanguageIds(): DebugLanguageId[] {
   return [...BY_ID.keys()] as DebugLanguageId[];
 }
 
-export function languageMatchesEntry(
-  spec: DebugLanguageSpec,
-  entryFile: string,
-): boolean {
+export function languageMatchesEntry(spec: DebugLanguageSpec, entryFile: string): boolean {
   const expected = debugLanguageForPath(entryFile);
   return expected?.id === spec.id;
 }

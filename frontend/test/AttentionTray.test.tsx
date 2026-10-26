@@ -5,10 +5,7 @@ import type { AttentionEvent } from "../src/collab/attention";
 
 afterEach(cleanup);
 
-const reqTo = (
-  uid: number,
-  over: Partial<AttentionEvent> = {},
-): AttentionEvent => ({
+const reqTo = (uid: number, over: Partial<AttentionEvent> = {}): AttentionEvent => ({
   id: over.id ?? Math.random().toString(16).slice(2),
   kind: "request",
   targetUserId: uid,
@@ -30,12 +27,7 @@ const handlers = { onNavigate: vi.fn(), onDismiss: vi.fn() };
 describe("M58 — AttentionTray", () => {
   it("renders a card for a request targeted at me", () => {
     render(
-      <AttentionTray
-        events={[reqTo(1)]}
-        currentUserId={1}
-        rateLimited={false}
-        {...handlers}
-      />,
+      <AttentionTray events={[reqTo(1)]} currentUserId={1} rateLimited={false} {...handlers} />,
     );
     expect(screen.getByText(/Rahul wants your attention/i)).toBeTruthy();
     expect(screen.getByText(/session\.ts · L40/i)).toBeTruthy();
@@ -44,12 +36,7 @@ describe("M58 — AttentionTray", () => {
 
   it("does not render requests targeted at someone else", () => {
     render(
-      <AttentionTray
-        events={[reqTo(99)]}
-        currentUserId={1}
-        rateLimited={false}
-        {...handlers}
-      />,
+      <AttentionTray events={[reqTo(99)]} currentUserId={1} rateLimited={false} {...handlers} />,
     );
     expect(screen.queryByText(/wants your attention/i)).toBeNull();
   });
@@ -91,63 +78,32 @@ describe("M58 — AttentionTray", () => {
     const mine = reqTo(2, {
       author: { userId: 1, username: "Me", color: "#111" },
     });
-    render(
-      <AttentionTray
-        events={[mine]}
-        currentUserId={1}
-        rateLimited={false}
-        {...handlers}
-      />,
-    );
+    render(<AttentionTray events={[mine]} currentUserId={1} rateLimited={false} {...handlers} />);
     expect(screen.getByText(/sent/i)).toBeTruthy();
   });
 
   it("renders the message as text (no HTML injection)", () => {
     render(
       <AttentionTray
-        events={[
-          reqTo(1, { message: `<img src=x onerror="window.__x=1">` }),
-        ]}
+        events={[reqTo(1, { message: `<img src=x onerror="window.__x=1">` })]}
         currentUserId={1}
         rateLimited={false}
         {...handlers}
       />,
     );
     expect(document.querySelector(".attention-tray img")).toBeNull();
-    expect(
-      (window as unknown as { __x?: number }).__x,
-    ).toBeUndefined();
+    expect((window as unknown as { __x?: number }).__x).toBeUndefined();
   });
 
   it("collapses beyond 3 cards", () => {
-    const many = [
-      reqTo(1),
-      reqTo(1),
-      reqTo(1),
-      reqTo(1),
-      reqTo(1),
-    ];
-    render(
-      <AttentionTray
-        events={many}
-        currentUserId={1}
-        rateLimited={false}
-        {...handlers}
-      />,
-    );
+    const many = [reqTo(1), reqTo(1), reqTo(1), reqTo(1), reqTo(1)];
+    render(<AttentionTray events={many} currentUserId={1} rateLimited={false} {...handlers} />);
     expect(screen.getAllByRole("button", { name: /go there/i })).toHaveLength(3);
     expect(screen.getByText(/\+2 earlier/i)).toBeTruthy();
   });
 
   it("shows the rate-limited banner when rateLimited", () => {
-    render(
-      <AttentionTray
-        events={[]}
-        currentUserId={1}
-        rateLimited={true}
-        {...handlers}
-      />,
-    );
+    render(<AttentionTray events={[]} currentUserId={1} rateLimited={true} {...handlers} />);
     expect(screen.getByText(/too many pending/i)).toBeTruthy();
   });
 
@@ -170,24 +126,14 @@ describe("M58 — AttentionTray", () => {
 
   it("M59 — no Follow button when onFollow is not supplied", () => {
     render(
-      <AttentionTray
-        events={[reqTo(1)]}
-        currentUserId={1}
-        rateLimited={false}
-        {...handlers}
-      />,
+      <AttentionTray events={[reqTo(1)]} currentUserId={1} rateLimited={false} {...handlers} />,
     );
     expect(screen.queryByRole("button", { name: /^follow$/i })).toBeNull();
   });
 
   it("renders nothing when there is nothing to show", () => {
     const { container } = render(
-      <AttentionTray
-        events={[]}
-        currentUserId={1}
-        rateLimited={false}
-        {...handlers}
-      />,
+      <AttentionTray events={[]} currentUserId={1} rateLimited={false} {...handlers} />,
     );
     expect(container.firstChild).toBeNull();
   });

@@ -21,9 +21,7 @@ describe("CollaboratorImpactNotice — M56", () => {
   });
 
   it("shows 'viewing' for a collaborator who is neither editing nor dirty", () => {
-    const { getByText, queryByText } = render(
-      <CollaboratorImpactNotice impacts={[base]} />,
-    );
+    const { getByText, queryByText } = render(<CollaboratorImpactNotice impacts={[base]} />);
     expect(getByText("Rahul")).toBeTruthy();
     expect(getByText("viewing")).toBeTruthy();
     expect(queryByText(/unsaved/i)).toBeNull();
@@ -31,9 +29,7 @@ describe("CollaboratorImpactNotice — M56", () => {
 
   it("shows 'editing' — NOT 'unsaved' — when editing but dirty is unknown", () => {
     const { getByText, queryByText } = render(
-      <CollaboratorImpactNotice
-        impacts={[{ ...base, editing: true, dirty: "unknown" }]}
-      />,
+      <CollaboratorImpactNotice impacts={[{ ...base, editing: true, dirty: "unknown" }]} />,
     );
     expect(getByText("editing")).toBeTruthy();
     expect(queryByText(/unsaved changes/i)).toBeNull();
@@ -41,17 +37,13 @@ describe("CollaboratorImpactNotice — M56", () => {
 
   it("shows 'unsaved changes' only when dirty is explicitly true", () => {
     const { getByText } = render(
-      <CollaboratorImpactNotice
-        impacts={[{ ...base, editing: true, dirty: true }]}
-      />,
+      <CollaboratorImpactNotice impacts={[{ ...base, editing: true, dirty: true }]} />,
     );
     expect(getByText("unsaved changes")).toBeTruthy();
   });
 
   it("renders only identity + path + state — no content-ish leakage", () => {
-    const { container } = render(
-      <CollaboratorImpactNotice impacts={[{ ...base, dirty: true }]} />,
-    );
+    const { container } = render(<CollaboratorImpactNotice impacts={[{ ...base, dirty: true }]} />);
     const text = container.textContent || "";
     expect(text).toContain("Rahul");
     expect(text).toContain("routes.ts");

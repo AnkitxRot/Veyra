@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  fromWorkspaceUri,
-  toWorkspaceUri,
-  normalizeRelPath,
-  rewriteUris,
-} from "../src/lsp/uri.js";
+import { fromWorkspaceUri, toWorkspaceUri, normalizeRelPath, rewriteUris } from "../src/lsp/uri.js";
 import { getLspLanguage, lspLanguageForPath } from "../src/lsp/languages.js";
 
 describe("lsp uri mapping", () => {
@@ -29,14 +24,12 @@ describe("lsp uri mapping", () => {
   });
 
   it("rewriteUris drops payloads that contain an illegal uri", () => {
-    const bad = rewriteUris(
-      { textDocument: { uri: "file:///etc/passwd" } },
-      (u) => fromWorkspaceUri(u),
+    const bad = rewriteUris({ textDocument: { uri: "file:///etc/passwd" } }, (u) =>
+      fromWorkspaceUri(u),
     );
     expect(bad.ok).toBe(false);
-    const good = rewriteUris(
-      { textDocument: { uri: "file:///workspace/main.py" } },
-      (u) => fromWorkspaceUri(u),
+    const good = rewriteUris({ textDocument: { uri: "file:///workspace/main.py" } }, (u) =>
+      fromWorkspaceUri(u),
     );
     expect(good.ok).toBe(true);
     if (good.ok) {
@@ -48,9 +41,7 @@ describe("lsp uri mapping", () => {
 describe("lsp language allowlist", () => {
   it("accepts python and typescript and rejects executable-like ids", () => {
     expect(getLspLanguage("python")?.command).toBe("pylsp");
-    expect(getLspLanguage("typescript")?.command).toBe(
-      "typescript-language-server",
-    );
+    expect(getLspLanguage("typescript")?.command).toBe("typescript-language-server");
     expect(getLspLanguage("python; rm -rf /")).toBeNull();
     expect(getLspLanguage("../../bin/sh")).toBeNull();
     expect(getLspLanguage("PYTHON")).toBeNull();

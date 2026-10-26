@@ -202,9 +202,7 @@ describe("Admin API Endpoints & Control Plane Capabilities", () => {
       { token: adminToken },
     );
     expect(res.status).toBe(400);
-    expect(res.data.error.message).toMatch(
-      /must be a managed sandbox identifier/i,
-    );
+    expect(res.data.error.message).toMatch(/must be a managed sandbox identifier/i);
   });
 
   it("POST /api/admin/sandboxes/:containerId/terminate successfully terminates managed sandbox & audits action", async () => {
@@ -258,11 +256,9 @@ describe("Admin User Management (Inspect, Edit, Password Reset, Delete)", () => 
   });
 
   it("GET /api/admin/users/:id returns user details and associated resources", async () => {
-    const res = await api.request(
-      "GET",
-      `/api/admin/users/${disposableUserId}`,
-      { token: adminToken },
-    );
+    const res = await api.request("GET", `/api/admin/users/${disposableUserId}`, {
+      token: adminToken,
+    });
     expect(res.status).toBe(200);
     expect(res.data.user.username).toBe("testsubject");
     expect(res.data.user.password_hash).toBeUndefined();
@@ -271,27 +267,19 @@ describe("Admin User Management (Inspect, Edit, Password Reset, Delete)", () => 
   });
 
   it("PATCH /api/admin/users/:id edits username and role", async () => {
-    const res = await api.request(
-      "PATCH",
-      `/api/admin/users/${disposableUserId}`,
-      {
-        token: adminToken,
-        body: { username: "renamedsubject", role: "admin" },
-      },
-    );
+    const res = await api.request("PATCH", `/api/admin/users/${disposableUserId}`, {
+      token: adminToken,
+      body: { username: "renamedsubject", role: "admin" },
+    });
     expect(res.status).toBe(200);
     expect(res.data.user.username).toBe("renamedsubject");
     expect(res.data.user.role).toBe("admin");
 
     // Demote back to user
-    const demoteRes = await api.request(
-      "PATCH",
-      `/api/admin/users/${disposableUserId}`,
-      {
-        token: adminToken,
-        body: { role: "user" },
-      },
-    );
+    const demoteRes = await api.request("PATCH", `/api/admin/users/${disposableUserId}`, {
+      token: adminToken,
+      body: { role: "user" },
+    });
     expect(demoteRes.status).toBe(200);
     expect(demoteRes.data.user.role).toBe("user");
   });
@@ -347,20 +335,16 @@ describe("Admin User Management (Inspect, Edit, Password Reset, Delete)", () => 
   });
 
   it("DELETE /api/admin/users/:id performs cascade cleanup and audits deletion", async () => {
-    const res = await api.request(
-      "DELETE",
-      `/api/admin/users/${disposableUserId}`,
-      { token: adminToken },
-    );
+    const res = await api.request("DELETE", `/api/admin/users/${disposableUserId}`, {
+      token: adminToken,
+    });
     expect(res.status).toBe(200);
     expect(res.data.ok).toBe(true);
 
     // Verify user no longer exists
-    const checkUser = await api.request(
-      "GET",
-      `/api/admin/users/${disposableUserId}`,
-      { token: adminToken },
-    );
+    const checkUser = await api.request("GET", `/api/admin/users/${disposableUserId}`, {
+      token: adminToken,
+    });
     expect(checkUser.status).toBe(404);
 
     // Verify old session token is completely gone
@@ -370,11 +354,9 @@ describe("Admin User Management (Inspect, Edit, Password Reset, Delete)", () => 
     expect(checkSession.status).toBe(401);
 
     // Verify audit log has recorded USER_DELETED_BY_ADMIN
-    const auditRes = await api.request(
-      "GET",
-      "/api/admin/audit?event_type=USER_DELETED_BY_ADMIN",
-      { token: adminToken },
-    );
+    const auditRes = await api.request("GET", "/api/admin/audit?event_type=USER_DELETED_BY_ADMIN", {
+      token: adminToken,
+    });
     expect(auditRes.status).toBe(200);
     expect(auditRes.data.logs.length).toBeGreaterThanOrEqual(1);
   });
@@ -400,9 +382,7 @@ describe("Admin-triggered session revocation closes live WebSocket connections",
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -429,9 +409,7 @@ describe("Admin-triggered session revocation closes live WebSocket connections",
         username: "revoke-target",
         password: "TargetAdmin@123",
       }),
-    }).then(
-      (r) => r.json() as Promise<{ token: string; user: { id: number } }>,
-    );
+    }).then((r) => r.json() as Promise<{ token: string; user: { id: number } }>);
     targetAdminToken = targetLogin.token;
     targetAdminUserId = targetLogin.user.id;
   }, 30_000);
@@ -455,22 +433,17 @@ describe("Admin-triggered session revocation closes live WebSocket connections",
     const ws = await connectAdminWs(targetAdminToken);
 
     const closed = new Promise<{ code: number; reason: string }>((resolve) => {
-      ws.on("close", (code, reasonBuf) =>
-        resolve({ code, reason: reasonBuf.toString() }),
-      );
+      ws.on("close", (code, reasonBuf) => resolve({ code, reason: reasonBuf.toString() }));
     });
 
-    const res = await fetch(
-      `${base}/api/admin/users/${targetAdminUserId}/reset-password`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${actingAdminToken}`,
-        },
-        body: JSON.stringify({ newPassword: "BrandNewPass@123" }),
+    const res = await fetch(`${base}/api/admin/users/${targetAdminUserId}/reset-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${actingAdminToken}`,
       },
-    );
+      body: JSON.stringify({ newPassword: "BrandNewPass@123" }),
+    });
     expect(res.status).toBe(200);
 
     const { code, reason } = await closed;

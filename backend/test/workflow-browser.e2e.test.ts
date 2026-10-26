@@ -31,9 +31,7 @@ if (process.env.CI === "true" && dockerOk && !hasFrontend) {
   );
 }
 if (process.env.CI === "true" && dockerOk && !chromiumPath) {
-  throw new Error(
-    "M84 CI browser E2E requires Playwright Chromium",
-  );
+  throw new Error("M84 CI browser E2E requires Playwright Chromium");
 }
 
 const enabled = dockerOk && hasFrontend && !!chromiumPath;
@@ -43,7 +41,7 @@ const PKG = JSON.stringify({
   scripts: {
     test: "node --test --test-reporter=tap tests/add.test.js",
     build: "node -e \"require('fs').writeFileSync('out.txt','ok')\"",
-    "test:hang": "node -e \"setInterval(()=>{},1000)\"",
+    "test:hang": 'node -e "setInterval(()=>{},1000)"',
   },
 });
 const TEST_JS = [
@@ -74,9 +72,7 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -161,10 +157,7 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
     await page.goto(`${base}/p/${projectId}`, { waitUntil: "load" });
     const login = page.locator("#auth-username");
     const tree = page.locator(".file-tree-container ul.file-tree").first();
-    await Promise.race([
-      tree.waitFor({ timeout: 60_000 }),
-      login.waitFor({ timeout: 60_000 }),
-    ]);
+    await Promise.race([tree.waitFor({ timeout: 60_000 }), login.waitFor({ timeout: 60_000 })]);
     if (await login.isVisible().catch(() => false)) {
       await login.fill(username);
       await page.locator("#auth-password").fill(password);
@@ -184,9 +177,7 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
       await page.waitForFunction(
         () =>
           Boolean(
-            (globalThis as any).document.querySelector(
-              '[data-testid="workflow-task-npm:test"]',
-            ),
+            (globalThis as any).document.querySelector('[data-testid="workflow-task-npm:test"]'),
           ),
         null,
         { timeout: 15_000 },
@@ -214,9 +205,11 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
           () => {
             const monaco = (globalThis as any).monaco;
             if (!monaco) return false;
-            return monaco.editor.getModels().some((m: { uri: { path: string } }) =>
-              String(m.uri.path ?? "").includes("add.test.js"),
-            );
+            return monaco.editor
+              .getModels()
+              .some((m: { uri: { path: string } }) =>
+                String(m.uri.path ?? "").includes("add.test.js"),
+              );
           },
           null,
           { timeout: 30_000 },
@@ -240,8 +233,12 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
           const d = (globalThis as any).document;
           return {
             status: d.querySelector('[data-testid="workflow-status"]')?.textContent,
-            buildDisabled: (d.querySelector('[data-testid="workflow-task-npm:build"]') as any)?.disabled,
-            panel: String(d.querySelector('[data-testid="test-explorer"]')?.innerText ?? "").slice(0, 300),
+            buildDisabled: (d.querySelector('[data-testid="workflow-task-npm:build"]') as any)
+              ?.disabled,
+            panel: String(d.querySelector('[data-testid="test-explorer"]')?.innerText ?? "").slice(
+              0,
+              300,
+            ),
           };
         });
         throw new Error(
@@ -268,9 +265,8 @@ describe.skipIf(!enabled)("workflow browser e2e (Test Explorer)", () => {
       await page.click('[data-testid="workflow-task-npm:test:hang"]');
       await page.waitForFunction(
         () =>
-          (globalThis as any).document.querySelector(
-            '[data-testid="workflow-status"]',
-          )?.textContent === "Running",
+          (globalThis as any).document.querySelector('[data-testid="workflow-status"]')
+            ?.textContent === "Running",
         null,
         { timeout: 30_000 },
       );

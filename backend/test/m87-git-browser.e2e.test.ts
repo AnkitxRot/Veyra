@@ -108,9 +108,9 @@ describe.skipIf(!enabled)("M87 Source Control journey (browser)", () => {
 
   /** The collaborator's terminal. */
   async function sandboxSh(script: string, input = ""): Promise<string> {
-    const owner = db
-      .prepare("SELECT owner_id FROM projects WHERE id = ?")
-      .get(projectId) as { owner_id: number };
+    const owner = db.prepare("SELECT owner_id FROM projects WHERE id = ?").get(projectId) as {
+      owner_id: number;
+    };
     const cid = await sandboxManager.ensureProjectSandbox(
       projectId,
       cfg,
@@ -149,10 +149,7 @@ describe.skipIf(!enabled)("M87 Source Control journey (browser)", () => {
       await page.goto(`${base}/p/${projectId}`, { waitUntil: "load" });
       const login = page.locator("#auth-username");
       const tree = page.locator(".file-tree-container ul.file-tree").first();
-      await Promise.race([
-        tree.waitFor({ timeout: 60_000 }),
-        login.waitFor({ timeout: 60_000 }),
-      ]);
+      await Promise.race([tree.waitFor({ timeout: 60_000 }), login.waitFor({ timeout: 60_000 })]);
       if (await login.isVisible().catch(() => false)) {
         await login.fill(username);
         await page.locator("#auth-password").fill(password);
@@ -161,17 +158,13 @@ describe.skipIf(!enabled)("M87 Source Control journey (browser)", () => {
       await tree.waitFor({ timeout: 60_000 });
 
       await page.getByRole("tab", { name: /Source Control/ }).click();
-      await page
-        .getByRole("button", { name: "Initialize Git Repository" })
-        .click();
-      await page
-        .locator("#git-commit-message")
-        .waitFor({ timeout: 30_000 });
+      await page.getByRole("button", { name: "Initialize Git Repository" }).click();
+      await page.locator("#git-commit-message").waitFor({ timeout: 30_000 });
 
       // A collaborator plants a clean filter from their terminal.
       const payload = [
         "#!/bin/sh",
-        'if [ -f /.dockerenv ] && [ -d /opt/debug/bin ]; then',
+        "if [ -f /.dockerenv ] && [ -d /opt/debug/bin ]; then",
         "  echo ran >> /workspace/.m87-journey-ran",
         "else",
         `  echo host > '${hostMarker}'`,
@@ -189,9 +182,7 @@ describe.skipIf(!enabled)("M87 Source Control journey (browser)", () => {
       const stageApp = page.getByRole("button", { name: "Stage app.txt" });
       await stageApp.waitFor({ timeout: 30_000 });
       await stageApp.click();
-      await page
-        .getByRole("button", { name: "Unstage app.txt" })
-        .waitFor({ timeout: 30_000 });
+      await page.getByRole("button", { name: "Unstage app.txt" }).waitFor({ timeout: 30_000 });
 
       await page.locator("#git-commit-message").fill("journey through the sandbox");
       await page.getByRole("button", { name: "Commit", exact: true }).click();
@@ -210,16 +201,15 @@ describe.skipIf(!enabled)("M87 Source Control journey (browser)", () => {
         { timeout: 30_000 },
       );
     } catch (err) {
-      throw new Error(
-        `journey failed: ${String(err)}\npageErrors=${pageErrors.join("; ")}`,
-      );
+      throw new Error(`journey failed: ${String(err)}\npageErrors=${pageErrors.join("; ")}`);
     } finally {
       await browser.close();
     }
 
     const log = await api("GET", `/api/projects/${projectId}/git/log`);
-    const subjects = (log.data as { commits: Array<{ subject: string }> })
-      .commits.map((c) => c.subject);
+    const subjects = (log.data as { commits: Array<{ subject: string }> }).commits.map(
+      (c) => c.subject,
+    );
     expect(subjects).toContain("journey through the sandbox");
     const files = await sandboxSh("git show --name-only --pretty= HEAD");
     expect(files).toContain("app.txt");

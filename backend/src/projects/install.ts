@@ -1,5 +1,5 @@
-import { promises as fs, constants } from 'node:fs';
-import { join } from 'node:path';
+import { promises as fs, constants } from "node:fs";
+import { join } from "node:path";
 
 export interface InstallSpec {
   workspaceDir: string;
@@ -12,9 +12,9 @@ export interface InstallResult {
   message: string;
 }
 
-const NODE_ARGS = ['install', '--ignore-scripts'];
-const PYTHON_CMD = 'sh';
-const PYTHON_ARGS = ['-c', 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt'];
+const NODE_ARGS = ["install", "--ignore-scripts"];
+const PYTHON_CMD = "sh";
+const PYTHON_ARGS = ["-c", "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"];
 
 /**
  * Determine which dependency manager to run for a project.
@@ -34,14 +34,14 @@ export async function resolveInstallSpec(spec: InstallSpec): Promise<InstallResu
   let reqExists = false;
 
   try {
-    await fs.access(join(spec.workspaceDir, 'package.json'), constants.F_OK);
+    await fs.access(join(spec.workspaceDir, "package.json"), constants.F_OK);
     pkgExists = true;
   } catch {
     /* not found */
   }
 
   try {
-    await fs.access(join(spec.workspaceDir, 'requirements.txt'), constants.F_OK);
+    await fs.access(join(spec.workspaceDir, "requirements.txt"), constants.F_OK);
     reqExists = true;
   } catch {
     /* not found */
@@ -49,22 +49,22 @@ export async function resolveInstallSpec(spec: InstallSpec): Promise<InstallResu
 
   // 1. requirements.txt takes precedence
   if (reqExists) {
-    return { cmd: PYTHON_CMD, args: PYTHON_ARGS, message: '' };
+    return { cmd: PYTHON_CMD, args: PYTHON_ARGS, message: "" };
   }
 
   // 2. package.json → npm
   if (pkgExists) {
-    return { cmd: 'npm', args: NODE_ARGS, message: '' };
+    return { cmd: "npm", args: NODE_ARGS, message: "" };
   }
 
   // 3. Language field fallback
-  if (spec.language === 'node' || spec.language === 'typescript') {
-    return { cmd: 'npm', args: NODE_ARGS, message: '' };
+  if (spec.language === "node" || spec.language === "typescript") {
+    return { cmd: "npm", args: NODE_ARGS, message: "" };
   }
 
-  if (spec.language === 'python') {
-    return { cmd: PYTHON_CMD, args: PYTHON_ARGS, message: '' };
+  if (spec.language === "python") {
+    return { cmd: PYTHON_CMD, args: PYTHON_ARGS, message: "" };
   }
 
-  return { cmd: null, args: [], message: 'No dependency configuration found for this language' };
+  return { cmd: null, args: [], message: "No dependency configuration found for this language" };
 }

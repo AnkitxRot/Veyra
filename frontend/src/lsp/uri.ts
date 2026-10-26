@@ -4,9 +4,7 @@ export const WORKSPACE_ROOT_URI = "file:///workspace";
 export function toWorkspaceUri(relPath: string): string | null {
   const rel = normalizeRelPath(relPath);
   if (rel === null) return null;
-  return (
-    WORKSPACE_URI_PREFIX + rel.split("/").map(encodeURIComponent).join("/")
-  );
+  return WORKSPACE_URI_PREFIX + rel.split("/").map(encodeURIComponent).join("/");
 }
 
 export function fromWorkspaceUri(uri: unknown): string | null {
@@ -32,11 +30,7 @@ export function normalizeRelPath(relPath: unknown): string | null {
   if (typeof relPath !== "string" || relPath.length === 0) return null;
   if (relPath.length > 512) return null;
   if (relPath.includes("\0")) return null;
-  if (
-    relPath.startsWith("/") ||
-    relPath.startsWith("\\") ||
-    /^[a-zA-Z]:/.test(relPath)
-  ) {
+  if (relPath.startsWith("/") || relPath.startsWith("\\") || /^[a-zA-Z]:/.test(relPath)) {
     return null;
   }
   const n = relPath.replace(/\\/g, "/");

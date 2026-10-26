@@ -36,15 +36,9 @@ function securityHeaders() {
     // blocking cross-origin framing.
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
     res.setHeader("Referrer-Policy", "same-origin");
-    res.setHeader(
-      "Permissions-Policy",
-      "camera=(), microphone=(), geolocation=()",
-    );
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     if (process.env.NODE_ENV === "production") {
-      res.setHeader(
-        "Strict-Transport-Security",
-        "max-age=31536000; includeSubDomains",
-      );
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     }
     next();
   };
@@ -59,10 +53,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   // burst / callout back into the live room as a receive-only `collab_change`.
   collaborationHistorian.init(db, cfg);
   collaborationHistorian.setBroadcaster((projectId, ev) =>
-    collaborationManager.broadcastCollabChange(
-      projectId,
-      ev as unknown as Record<string, unknown>,
-    ),
+    collaborationManager.broadcastCollabChange(projectId, ev as unknown as Record<string, unknown>),
   );
   // M74: let the sandbox lifecycle consult collaboration-room occupancy so an
   // occupied project's container is not idle-reaped and an empty one is
@@ -145,9 +136,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
     });
   }
 
-  app.use((_req, _res, next) =>
-    next(new ApiError(404, "not found", "not_found")),
-  );
+  app.use((_req, _res, next) => next(new ApiError(404, "not found", "not_found")));
   app.use(errorMiddleware);
 
   return app;

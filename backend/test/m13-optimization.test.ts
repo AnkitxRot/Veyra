@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { sandboxManager } from "../src/execution/sandbox.js";
-import { isDockerRunningAsync, isRunnerImageAvailableAsync, resetDockerCacheForTests } from "../src/tools.js";
+import {
+  isDockerRunningAsync,
+  isRunnerImageAvailableAsync,
+  resetDockerCacheForTests,
+} from "../src/tools.js";
 
 describe("M13 Optimizations: Parallelized Checks & Liveness Freshness", () => {
   beforeEach(() => {

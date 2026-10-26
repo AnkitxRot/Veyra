@@ -72,9 +72,7 @@ describe("M70 — keybinding lifecycle (integration)", () => {
 
   it("re-resolves on a preference change with no listener stacking", () => {
     const onCommand = vi.fn();
-    const { rerender } = render(
-      <KeymapHarness keymap={{}} onCommand={onCommand} />,
-    );
+    const { rerender } = render(<KeymapHarness keymap={{}} onCommand={onCommand} />);
     const { events, stop } = saveEvents();
 
     key({ code: "KeyS", ctrlKey: true }); // default -> save
@@ -123,9 +121,7 @@ describe("M70 — keybinding lifecycle (integration)", () => {
     const add = vi.spyOn(window, "addEventListener");
     const remove = vi.spyOn(window, "removeEventListener");
     const onCommand = vi.fn();
-    const { rerender, unmount } = render(
-      <KeymapHarness keymap={{}} onCommand={onCommand} />,
-    );
+    const { rerender, unmount } = render(<KeymapHarness keymap={{}} onCommand={onCommand} />);
     for (let i = 0; i < 5; i++) {
       rerender(
         <KeymapHarness

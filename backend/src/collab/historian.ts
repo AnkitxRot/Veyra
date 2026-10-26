@@ -70,9 +70,7 @@ export class CollaborationHistorian {
   private sweepTimer: NodeJS.Timeout | null = null;
   private purgeTimer: NodeJS.Timeout | null = null;
 
-  private broadcaster:
-    | ((projectId: string, ev: CollabChangeWire) => void)
-    | null = null;
+  private broadcaster: ((projectId: string, ev: CollabChangeWire) => void) | null = null;
 
   static getInstance(): CollaborationHistorian {
     if (!CollaborationHistorian.instance) {
@@ -89,23 +87,15 @@ export class CollaborationHistorian {
     if (this.purgeTimer) clearInterval(this.purgeTimer);
     this.db = db;
     this.cfg = cfg;
-    this.flushTimer = setInterval(
-      () => this.flushQueue(),
-      cfg.collabHistoryFlushIntervalMs,
-    );
+    this.flushTimer = setInterval(() => this.flushQueue(), cfg.collabHistoryFlushIntervalMs);
     this.flushTimer.unref?.();
     this.sweepTimer = setInterval(() => this.sweep(), cfg.collabBurstSweepMs);
     this.sweepTimer.unref?.();
-    this.purgeTimer = setInterval(
-      () => this.purgeExpired(),
-      15 * 60 * 1000,
-    );
+    this.purgeTimer = setInterval(() => this.purgeExpired(), 15 * 60 * 1000);
     this.purgeTimer.unref?.();
   }
 
-  setBroadcaster(
-    fn: (projectId: string, ev: CollabChangeWire) => void,
-  ): void {
+  setBroadcaster(fn: (projectId: string, ev: CollabChangeWire) => void): void {
     this.broadcaster = fn;
   }
 
@@ -130,11 +120,7 @@ export class CollaborationHistorian {
       }
     }
 
-    const key = burstKey(
-      input.projectId,
-      input.authorUserId,
-      input.filePath,
-    );
+    const key = burstKey(input.projectId, input.authorUserId, input.filePath);
     const existing = this.open.get(key);
     if (existing && !shouldCloseForNextEdit(existing, input.at, idle, max)) {
       extendBurst(existing, input);
@@ -197,11 +183,7 @@ export class CollaborationHistorian {
 
   // --- lifecycle close triggers --------------------------------------------
 
-  closeAuthorBursts(
-    projectId: string,
-    userId: number,
-    reason: CloseReason,
-  ): void {
+  closeAuthorBursts(projectId: string, userId: number, reason: CloseReason): void {
     for (const [k, b] of this.open) {
       if (b.projectId === projectId && b.authorUserId === userId) {
         this.enqueueClose(closeBurst(b, reason));
@@ -225,9 +207,7 @@ export class CollaborationHistorian {
   }
 
   private forceCloseOldest(cap: number): void {
-    const sorted = [...this.open.values()].sort(
-      (a, b) => a.startedAt - b.startedAt,
-    );
+    const sorted = [...this.open.values()].sort((a, b) => a.startedAt - b.startedAt);
     for (const b of sorted) {
       if (this.open.size <= cap) break;
       this.enqueueClose(closeBurst(b, "cap"));
@@ -242,8 +222,7 @@ export class CollaborationHistorian {
     const max = this.cfg.collabBurstMaxMs;
     for (const [k, b] of this.open) {
       if (isStale(b, now, idle, max)) {
-        const reason: CloseReason =
-          now - b.startedAt > max ? "max_age" : "idle";
+        const reason: CloseReason = now - b.startedAt > max ? "max_age" : "idle";
         this.enqueueClose(closeBurst(b, reason));
         this.open.delete(k);
       }

@@ -1,18 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { openDb } from "../src/db.js";
 import { resolveConfig } from "../src/config.js";
-import {
-  DeterministicEngineeringProvider,
-  type AIContextBundle,
-} from "../src/ai/provider.js";
+import { DeterministicEngineeringProvider, type AIContextBundle } from "../src/ai/provider.js";
 import { buildAIContext } from "../src/ai/context.js";
 import { runAIVerification } from "../src/ai/verify.js";
 import { collaborationManager } from "../src/collab/manager.js";
-import {
-  createProject,
-  requireProjectAccess,
-  projectDir,
-} from "../src/projects/service.js";
+import { createProject, requireProjectAccess, projectDir } from "../src/projects/service.js";
 import { promises as fs, mkdtempSync, rmSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -86,16 +79,14 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
   });
 
   it("2. Context Engine: Bounded, deduplicated context assembly", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("evaluator", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "evaluator",
+      "h",
+      "user",
+    );
     const project = await createProject(cfg, db, 1, { name: "ContextTest" });
     const pDir = projectDir(cfg, project.id);
-    await fs.writeFile(
-      join(pDir, "main.py"),
-      'print("Hello World")\n'.repeat(50),
-      "utf-8",
-    );
+    await fs.writeFile(join(pDir, "main.py"), 'print("Hello World")\n'.repeat(50), "utf-8");
 
     // Record a failed run in database
     db.prepare(
@@ -116,16 +107,14 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
   });
 
   it("2b. Context Engine: search step is bounded by the shared searchGate and degrades gracefully when exhausted", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("evaluator2", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "evaluator2",
+      "h",
+      "user",
+    );
     const project = await createProject(cfg, db, 1, { name: "GateTest" });
     const pDir = projectDir(cfg, project.id);
-    await fs.writeFile(
-      join(pDir, "main.py"),
-      "def hello():\n    print('hi')\n",
-      "utf-8",
-    );
+    await fs.writeFile(join(pDir, "main.py"), "def hello():\n    print('hi')\n", "utf-8");
 
     const { searchGate } = await import("../src/execution/runGate.js");
     // Distinctive from the project's owner id (1): `searchGate` is a
@@ -169,9 +158,11 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
   });
 
   it("3. Verification Pipeline: Explicit Skip Verification results in UNVERIFIED status with journal audit", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("evaluator", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "evaluator",
+      "h",
+      "user",
+    );
     const project = await createProject(cfg, db, 1, { name: "SkipVerifTest" });
 
     const result = await runAIVerification(cfg, db, {
@@ -191,9 +182,7 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
     expect(result.skipReason).toBe("Verification skipped by user.");
 
     // Journal table record assertion
-    const row = db
-      .prepare("SELECT * FROM ai_verifications WHERE id = ?")
-      .get(result.id) as any;
+    const row = db.prepare("SELECT * FROM ai_verifications WHERE id = ?").get(result.id) as any;
     expect(row).not.toBeUndefined();
     expect(row.status).toBe("UNVERIFIED");
     expect(row.skip_reason).toBe("Verification skipped by user.");
@@ -201,37 +190,35 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
   });
 
   it("4. Multi-Tenant Security: Unauthorized access rejected across user boundaries", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
 
     const project = await createProject(cfg, db, 1, { name: "AliceProj" });
 
     // Alice has access
-    expect(requireProjectAccess(db, 1, project.id, "editor").role).toBe(
-      "owner",
-    );
+    expect(requireProjectAccess(db, 1, project.id, "editor").role).toBe("owner");
 
     // Bob has NO access
-    expect(() =>
-      requireProjectAccess(db, 2, project.id, "editor"),
-    ).toThrowError(/not found/);
+    expect(() => requireProjectAccess(db, 2, project.id, "editor")).toThrowError(/not found/);
   });
 
   it("5. Multiplayer Yjs Integration: Accepted patch propagates via CRDT room", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    );
     const project = await createProject(cfg, db, 1, { name: "CollabAIPatch" });
     const pDir = projectDir(cfg, project.id);
-    await fs.writeFile(
-      join(pDir, "math.py"),
-      "def calculate():\n    return 10 / 0\n",
-      "utf-8",
-    );
+    await fs.writeFile(join(pDir, "math.py"), "def calculate():\n    return 10 / 0\n", "utf-8");
 
     // Connect room
     const room = collaborationManager.getOrCreateRoom(project.id);
@@ -239,23 +226,20 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
     expect(yText.toString()).toContain("10 / 0");
 
     // Apply AI Patch via external mutation
-    const patchedContent =
-      "def calculate():\n    # AI Patched\n    return 10\n";
+    const patchedContent = "def calculate():\n    # AI Patched\n    return 10\n";
     await fs.writeFile(join(pDir, "math.py"), patchedContent, "utf-8");
-    await collaborationManager.notifyExternalFileMutation(
-      project.id,
-      "math.py",
-      patchedContent,
-    );
+    await collaborationManager.notifyExternalFileMutation(project.id, "math.py", patchedContent);
 
     // CRITICAL COLLABORATION INVARIANT: In-memory Y.Doc updates to match patched code
     expect(yText.toString()).toBe(patchedContent);
   });
 
   it("6. Context Engine Security: a legitimate in-workspace activeFilePath is read, while '../' traversal to a sibling project or the host filesystem reads nothing", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("mallory", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "mallory",
+      "h",
+      "user",
+    ); // id 1
 
     const attacker = await createProject(cfg, db, 1, { name: "AttackerProj" });
     const victim = await createProject(cfg, db, 1, { name: "VictimProj" });
@@ -263,17 +247,9 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
     const victimDir = projectDir(cfg, victim.id);
 
     // The attacker's own legitimate file.
-    await fs.writeFile(
-      join(attackerDir, "main.py"),
-      "print('my own code')\n",
-      "utf-8",
-    );
+    await fs.writeFile(join(attackerDir, "main.py"), "print('my own code')\n", "utf-8");
     // A sibling project's secret, one level up from the attacker's workspace.
-    await fs.writeFile(
-      join(victimDir, ".env"),
-      "SIBLING_PROJECT_SECRET=deadbeef\n",
-      "utf-8",
-    );
+    await fs.writeFile(join(victimDir, ".env"), "SIBLING_PROJECT_SECRET=deadbeef\n", "utf-8");
     // A secret entirely outside workspacesDir, standing in for any host file.
     const outsideDir = await fs.mkdtemp(join(tmpdir(), "cloudide-m5-outside-"));
     const hostSecretFile = join(outsideDir, "id_rsa");
@@ -302,8 +278,7 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
       // 3. Traversal clean out of workspacesDir onto the host filesystem.
       const escapeDepth = "../".repeat(12);
       const hostCtx = await buildAIContext(cfg, db, attacker.id, 1, {
-        activeFilePath:
-          escapeDepth + relative("/", hostSecretFile).split(sep).join("/"),
+        activeFilePath: escapeDepth + relative("/", hostSecretFile).split(sep).join("/"),
       });
       expect(hostCtx.fileContent).toBe("");
 
@@ -326,9 +301,11 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
   });
 
   it("7. Context Engine Security: an activeFilePath resolving through a planted symlink reads nothing", async () => {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("trudy", "h", "user"); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "trudy",
+      "h",
+      "user",
+    ); // id 1
 
     const project = await createProject(cfg, db, 1, { name: "AISymlinkProj" });
     const workspace = projectDir(cfg, project.id);
@@ -356,16 +333,11 @@ describe("M5 — Verification-Aware AI Engineering Assistant", () => {
         });
         expect(ctx.fileContent).toBe("");
 
-        const res = await new DeterministicEngineeringProvider().executeAction(
-          "docstring",
-          ctx,
-        );
+        const res = await new DeterministicEngineeringProvider().executeAction("docstring", ctx);
         expect(JSON.stringify(res)).not.toContain("TOP SECRET HOST CONTENT");
 
         // The victim file is byte-for-byte untouched.
-        expect(await fs.readFile(victimFile, "utf-8")).toBe(
-          "TOP SECRET HOST CONTENT",
-        );
+        expect(await fs.readFile(victimFile, "utf-8")).toBe("TOP SECRET HOST CONTENT");
       }
     } finally {
       await fs.rm(join(workspace, "escape"), { recursive: true, force: true });

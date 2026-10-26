@@ -53,12 +53,7 @@ const _MESSAGE_AUTH = 2;
 const MESSAGE_CUSTOM = 3;
 
 export type CollabConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "reconnecting"
-  | "resynchronizing"
-  | "disconnected"
-  | "forbidden";
+  "connecting" | "connected" | "reconnecting" | "resynchronizing" | "disconnected" | "forbidden";
 
 /** M56: bounded metadata-only notice that an external mutation touched a file. */
 export type MutationType =
@@ -169,8 +164,7 @@ export class CollaborationClient {
     fromReset: boolean;
     timer: any;
   } | null = null;
-  private readonly listeners: Map<string, Set<(...args: any[]) => void>> =
-    new Map();
+  private readonly listeners: Map<string, Set<(...args: any[]) => void>> = new Map();
   private reconnectAttempts = 0;
   private reconnectTimer: any = null;
   // M63: true once MAX_RECONNECT_ATTEMPTS consecutive reconnects have failed.
@@ -235,9 +229,7 @@ export class CollaborationClient {
     this.user = user;
     this.initDocAndAwareness();
     this.initActivityListeners();
-    this.attentionStore.onChange(() =>
-      this.emit("attention_change", this.attentionStore.list()),
-    );
+    this.attentionStore.onChange(() => this.emit("attention_change", this.attentionStore.list()));
     this.connect();
   }
 
@@ -280,8 +272,7 @@ export class CollaborationClient {
       // local edit, never pending.
       if (origin === this) return;
 
-      const canSend =
-        this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+      const canSend = this.ws !== null && this.ws.readyState === WebSocket.OPEN;
       if (canSend) {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_SYNC);
@@ -302,11 +293,7 @@ export class CollaborationClient {
     this.awareness.on(
       "update",
       (
-        {
-          added,
-          updated,
-          removed,
-        }: { added: number[]; updated: number[]; removed: number[] },
+        { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
         origin: any,
       ) => {
         if (origin !== this) {
@@ -315,10 +302,7 @@ export class CollaborationClient {
           encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
           encoding.writeVarUint8Array(
             encoder,
-            awarenessProtocol.encodeAwarenessUpdate(
-              this.awareness,
-              changedClients,
-            ),
+            awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients),
           );
           this.send(encoding.toUint8Array(encoder));
         }
@@ -369,8 +353,7 @@ export class CollaborationClient {
     }
     if ("avatarVersion" in patch) {
       const v = patch.avatarVersion;
-      const next =
-        typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+      const next = typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
       if (next !== this.localAvatarVersion) {
         this.localAvatarVersion = next;
         changed = true;
@@ -616,11 +599,7 @@ export class CollaborationClient {
     this.sendAttentionFrame({ type: "attention_point", file, range });
   }
 
-  public sendAttentionCallout(
-    file: string,
-    range: AttentionRange,
-    message: string,
-  ): void {
+  public sendAttentionCallout(file: string, range: AttentionRange, message: string): void {
     if (this.isDisposed) return;
     this.sendAttentionFrame({
       type: "attention_callout",
@@ -737,12 +716,7 @@ export class CollaborationClient {
     // applied either, because attachBinding is told this bind originated
     // from a reset (fromReset=true), so the M52 dirty-at-bind policy is
     // suppressed for it.
-    if (
-      staleModel &&
-      staleEditor &&
-      staleFilePath &&
-      !staleModel.isDisposed()
-    ) {
+    if (staleModel && staleEditor && staleFilePath && !staleModel.isDisposed()) {
       this.attachBinding(staleFilePath, staleModel, staleEditor, true);
     }
   }
@@ -800,9 +774,7 @@ export class CollaborationClient {
         encoding.writeVarUint(awarenessEncoder, MESSAGE_AWARENESS);
         encoding.writeVarUint8Array(
           awarenessEncoder,
-          awarenessProtocol.encodeAwarenessUpdate(this.awareness, [
-            this.doc.clientID,
-          ]),
+          awarenessProtocol.encodeAwarenessUpdate(this.awareness, [this.doc.clientID]),
         );
         this.send(encoding.toUint8Array(awarenessEncoder));
 
@@ -838,8 +810,7 @@ export class CollaborationClient {
         // socket is open, mid post-reconnect sync) — a 1001 during it is still
         // an unambiguous explicit server disposal, so treat it the same.
         const wasExplicitDisposal =
-          event.code === 1001 &&
-          (this.status === "connected" || this.status === "resynchronizing");
+          event.code === 1001 && (this.status === "connected" || this.status === "resynchronizing");
 
         // M60: record the start of an offline window (first close only — a
         // reconnect that fails again must not reset the clock).
@@ -915,12 +886,7 @@ export class CollaborationClient {
         case MESSAGE_SYNC: {
           const encoder = encoding.createEncoder();
           encoding.writeVarUint(encoder, MESSAGE_SYNC);
-          const syncMessageType = syncProtocol.readSyncMessage(
-            decoder,
-            encoder,
-            this.doc,
-            this,
-          );
+          const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, this.doc, this);
           if (encoding.length(encoder) > 1) {
             this.send(encoding.toUint8Array(encoder));
           }
@@ -952,11 +918,7 @@ export class CollaborationClient {
           const jsonStr = decoding.readVarString(decoder);
           try {
             const parsed = JSON.parse(jsonStr);
-            if (
-              parsed &&
-              parsed.type === "file_ready" &&
-              typeof parsed.path === "string"
-            ) {
+            if (parsed && parsed.type === "file_ready" && typeof parsed.path === "string") {
               this.handleFileReady(parsed.path);
             } else if (
               parsed &&
@@ -984,14 +946,10 @@ export class CollaborationClient {
             ) {
               // M56: RECEIVE-only, exactly like file_ready / run_status —
               // the client never authors this, so a peer cannot fabricate it.
-              this.emit(
-                "external_mutation_notice",
-                parsed as ExternalMutationNotice,
-              );
+              this.emit("external_mutation_notice", parsed as ExternalMutationNotice);
             } else if (
               parsed &&
-              (parsed.type === "attention_event" ||
-                parsed.type === "attention_cleared")
+              (parsed.type === "attention_event" || parsed.type === "attention_cleared")
             ) {
               // M58: RECEIVE-only. The store shape-guards and locally expires.
               this.attentionStore.apply(parsed);
@@ -1057,10 +1015,7 @@ export class CollaborationClient {
     this.awareness.setLocalStateField("activeFile", filePath);
     // M57: working folder is derived from the focused editor file only —
     // dirname(activeFile). Never from Explorer browsing.
-    this.awareness.setLocalStateField(
-      "workingFolder",
-      deriveWorkingFolder(filePath),
-    );
+    this.awareness.setLocalStateField("workingFolder", deriveWorkingFolder(filePath));
     // M56: switching files clears the dirty bit; the new file's dirty state
     // is pushed separately by the editor once the tab is active.
     this.localActiveFileDirty = false;
@@ -1070,10 +1025,7 @@ export class CollaborationClient {
     // Send custom message to server
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_CUSTOM);
-    encoding.writeVarString(
-      encoder,
-      JSON.stringify({ type: "file_open", path: filePath }),
-    );
+    encoding.writeVarString(encoder, JSON.stringify({ type: "file_open", path: filePath }));
     this.send(encoding.toUint8Array(encoder));
   }
 
@@ -1098,11 +1050,7 @@ export class CollaborationClient {
     // keystroke because `openFiles` gets a new array/object reference per
     // edit. Without this guard, every keystroke would tear down and rebuild
     // the y-monaco binding and re-send a file_open message to the server.
-    if (
-      this.boundModel === model &&
-      this.activeFilePath === filePath &&
-      this.currentBinding
-    ) {
+    if (this.boundModel === model && this.activeFilePath === filePath && this.currentBinding) {
       return;
     }
 
@@ -1161,10 +1109,7 @@ export class CollaborationClient {
       editor,
       originalValue: model.getValue(),
       fromReset,
-      timer: setTimeout(
-        () => this.completeDeferredBind(filePath),
-        DEFERRED_BIND_FALLBACK_MS,
-      ),
+      timer: setTimeout(() => this.completeDeferredBind(filePath), DEFERRED_BIND_FALLBACK_MS),
     };
   }
 
@@ -1273,11 +1218,7 @@ export class CollaborationClient {
     if (!Array.isArray(raw)) return null;
     const out: RunOutputChunk[] = [];
     for (const c of raw) {
-      if (
-        !c ||
-        (c.stream !== "stdout" && c.stream !== "stderr") ||
-        typeof c.data !== "string"
-      ) {
+      if (!c || (c.stream !== "stdout" && c.stream !== "stderr") || typeof c.data !== "string") {
         return null;
       }
       out.push({ stream: c.stream, data: c.data });
@@ -1286,15 +1227,9 @@ export class CollaborationClient {
   }
 
   /** Client-side mirror of the server's 256 KB bound: drop oldest chunks. */
-  private capRunOutput(entry: {
-    chunks: RunOutputChunk[];
-    truncated: boolean;
-  }): void {
+  private capRunOutput(entry: { chunks: RunOutputChunk[]; truncated: boolean }): void {
     let total = entry.chunks.reduce((n, c) => n + c.data.length, 0);
-    while (
-      total > CollaborationClient.RUN_OUTPUT_CLIENT_MAX_CHARS &&
-      entry.chunks.length > 1
-    ) {
+    while (total > CollaborationClient.RUN_OUTPUT_CLIENT_MAX_CHARS && entry.chunks.length > 1) {
       total -= entry.chunks.shift()!.data.length;
       entry.truncated = true;
     }
@@ -1340,12 +1275,7 @@ export class CollaborationClient {
     const localValue = model.getValue();
 
     try {
-      const binding = new MonacoBinding(
-        yText,
-        model,
-        new Set([editor]),
-        this.awareness,
-      );
+      const binding = new MonacoBinding(yText, model, new Set([editor]), this.awareness);
 
       // Defer decoration re-rendering to next animation frame and guard against
       // re-entrant deltaDecorations calls triggered by Monaco cursor selection events.
@@ -1358,11 +1288,7 @@ export class CollaborationClient {
           if (pendingRaf !== null) return;
           pendingRaf = requestAnimationFrame(() => {
             pendingRaf = null;
-            if (
-              !this.isDisposed &&
-              this.currentBinding === binding &&
-              !isRerendering
-            ) {
+            if (!this.isDisposed && this.currentBinding === binding && !isRerendering) {
               isRerendering = true;
               try {
                 origRerender();
@@ -1387,11 +1313,7 @@ export class CollaborationClient {
 
       // M52 Phase-7 dirty-at-bind policy (deferred binds only): local
       // buffer wins if the user edited during the defer window.
-      if (
-        isDeferred &&
-        localValue !== originalValue &&
-        localValue !== model.getValue()
-      ) {
+      if (isDeferred && localValue !== originalValue && localValue !== model.getValue()) {
         model.setValue(localValue);
       }
 

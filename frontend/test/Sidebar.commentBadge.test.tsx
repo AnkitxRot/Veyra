@@ -7,8 +7,18 @@ const USER = { username: "owner", id: 1 } as any;
 const PROJECT = { id: "p", name: "demo" } as any;
 
 const tree = [
-  { name: "src", path: "src", type: "dir" as const, children: [{ name: "a.ts", path: "src/a.ts", type: "file" as const }] },
-  { name: "auth", path: "auth", type: "dir" as const, children: [{ name: "session.ts", path: "auth/session.ts", type: "file" as const }] },
+  {
+    name: "src",
+    path: "src",
+    type: "dir" as const,
+    children: [{ name: "a.ts", path: "src/a.ts", type: "file" as const }],
+  },
+  {
+    name: "auth",
+    path: "auth",
+    type: "dir" as const,
+    children: [{ name: "session.ts", path: "auth/session.ts", type: "file" as const }],
+  },
 ];
 
 describe("M61-A Explorer unresolved indicators", () => {

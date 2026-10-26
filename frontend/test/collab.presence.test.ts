@@ -33,31 +33,24 @@ describe("M62 — displayLabel / secondaryHandle", () => {
 describe("deriveWorkingFolder", () => {
   it("returns the parent dir", () =>
     expect(deriveWorkingFolder("src/auth/service.ts")).toBe("src/auth"));
-  it("returns null for a root-level file", () =>
-    expect(deriveWorkingFolder("main.py")).toBeNull());
+  it("returns null for a root-level file", () => expect(deriveWorkingFolder("main.py")).toBeNull());
   it("returns null for null / empty", () => {
     expect(deriveWorkingFolder(null)).toBeNull();
     expect(deriveWorkingFolder(undefined)).toBeNull();
     expect(deriveWorkingFolder("")).toBeNull();
   });
-  it("normalizes backslashes", () =>
-    expect(deriveWorkingFolder("src\\a\\b.ts")).toBe("src/a"));
-  it("handles deep nesting", () =>
-    expect(deriveWorkingFolder("a/b/c/d/e.ts")).toBe("a/b/c/d"));
+  it("normalizes backslashes", () => expect(deriveWorkingFolder("src\\a\\b.ts")).toBe("src/a"));
+  it("handles deep nesting", () => expect(deriveWorkingFolder("a/b/c/d/e.ts")).toBe("a/b/c/d"));
 });
 
 describe("formatRelativeTime", () => {
   const now = 1_000_000;
   it("'Active now' under 10s", () =>
     expect(formatRelativeTime(now - 4000, now)).toBe("Active now"));
-  it("seconds", () =>
-    expect(formatRelativeTime(now - 20_000, now)).toBe("20s ago"));
-  it("minutes", () =>
-    expect(formatRelativeTime(now - 125_000, now)).toBe("2m ago"));
-  it("hours", () =>
-    expect(formatRelativeTime(now - 7_200_000, now)).toBe("2h ago"));
-  it("never negative", () =>
-    expect(formatRelativeTime(now + 5000, now)).toBe("Active now"));
+  it("seconds", () => expect(formatRelativeTime(now - 20_000, now)).toBe("20s ago"));
+  it("minutes", () => expect(formatRelativeTime(now - 125_000, now)).toBe("2m ago"));
+  it("hours", () => expect(formatRelativeTime(now - 7_200_000, now)).toBe("2h ago"));
+  it("never negative", () => expect(formatRelativeTime(now + 5000, now)).toBe("Active now"));
 });
 
 describe("readPresenceState", () => {
@@ -114,8 +107,7 @@ describe("readPresenceState", () => {
   it("returns null without a user", () =>
     expect(readPresenceState(1, { status: "online" })).toBeNull());
 
-  it("returns null for a non-object", () =>
-    expect(readPresenceState(1, null)).toBeNull());
+  it("returns null for a non-object", () => expect(readPresenceState(1, null)).toBeNull());
 
   it("coerces an unknown availability to 'online'", () => {
     const p = readPresenceState(1, { user: { id: 1, name: "x" }, status: "wat" })!;
@@ -182,9 +174,7 @@ describe("readPresenceState", () => {
         user: { id: 1, name: "x", pronouns: 42 },
       })!.pronouns,
     ).toBeUndefined();
-    expect(
-      readPresenceState(1, { user: { id: 1, name: "x" } })!.pronouns,
-    ).toBeUndefined();
+    expect(readPresenceState(1, { user: { id: 1, name: "x" } })!.pronouns).toBeUndefined();
   });
 
   it("defaults activity to 'viewing' when absent", () => {
@@ -210,9 +200,27 @@ describe("who's-working-here selectors", () => {
     ...o,
   });
   const list = [
-    mk({ clientId: 1, userId: 10, name: "Rahul", activeFile: "src/auth/service.ts", workingFolder: "src/auth" }),
-    mk({ clientId: 2, userId: 11, name: "Priya", activeFile: "src/components/Login.tsx", workingFolder: "src/components" }),
-    mk({ clientId: 3, userId: 10, name: "Rahul", activeFile: "src/auth/session.ts", workingFolder: "src/auth" }),
+    mk({
+      clientId: 1,
+      userId: 10,
+      name: "Rahul",
+      activeFile: "src/auth/service.ts",
+      workingFolder: "src/auth",
+    }),
+    mk({
+      clientId: 2,
+      userId: 11,
+      name: "Priya",
+      activeFile: "src/components/Login.tsx",
+      workingFolder: "src/components",
+    }),
+    mk({
+      clientId: 3,
+      userId: 10,
+      name: "Rahul",
+      activeFile: "src/auth/session.ts",
+      workingFolder: "src/auth",
+    }),
   ];
 
   it("collaboratorsInFile matches the exact path", () => {
@@ -222,7 +230,11 @@ describe("who's-working-here selectors", () => {
     expect(collaboratorsInFile(list, "src/auth/service.ts", 10)).toEqual([]);
   });
   it("collaboratorsInFolder matches by prefix", () => {
-    expect(collaboratorsInFolder(list, "src/auth").map((c) => c.clientId).sort()).toEqual([1, 3]);
+    expect(
+      collaboratorsInFolder(list, "src/auth")
+        .map((c) => c.clientId)
+        .sort(),
+    ).toEqual([1, 3]);
   });
   it("collaboratorsInFolder matches a bare workingFolder with no activeFile", () => {
     const l2 = [mk({ clientId: 9, userId: 20, workingFolder: "src/auth", activeFile: null })];

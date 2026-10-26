@@ -75,8 +75,12 @@ describe("M88 — terminal reload persistence", () => {
   }
 
   it("resume=1 with no existing session sends 'ended' instead of spawning", async () => {
-    const { handleTerminalConnection, shouldRefuseSilentSpawn, parseTerminalResumeFlag, terminalSessions } =
-      await load();
+    const {
+      handleTerminalConnection,
+      shouldRefuseSilentSpawn,
+      parseTerminalResumeFlag,
+      terminalSessions,
+    } = await load();
 
     // Unit-test the helpers
     expect(shouldRefuseSilentSpawn(0, true)).toBe(true);
@@ -90,7 +94,16 @@ describe("M88 — terminal reload persistence", () => {
 
     // Integration: resume=1 with no session → ended, no PTY spawned
     const ws = makeFakeWs();
-    await handleTerminalConnection(ws as any, "proj-1", makeTestConfig(), 1, undefined, "reloaded-id", 0, true);
+    await handleTerminalConnection(
+      ws as any,
+      "proj-1",
+      makeTestConfig(),
+      1,
+      undefined,
+      "reloaded-id",
+      0,
+      true,
+    );
     expect(ws.sent).toEqual([{ type: "ended", reason: "grace_expired" }]);
     expect(ws.closed).toBe(true);
     expect(terminalSessions.size()).toBe(0);
@@ -99,7 +112,16 @@ describe("M88 — terminal reload persistence", () => {
   it("non-zero lastSeq with no existing session sends 'ended' instead of spawning", async () => {
     const { handleTerminalConnection, terminalSessions } = await load();
     const ws = makeFakeWs();
-    await handleTerminalConnection(ws as any, "proj-1", makeTestConfig(), 1, undefined, "old-id", 42, false);
+    await handleTerminalConnection(
+      ws as any,
+      "proj-1",
+      makeTestConfig(),
+      1,
+      undefined,
+      "old-id",
+      42,
+      false,
+    );
     expect(ws.sent).toEqual([{ type: "ended", reason: "grace_expired" }]);
     expect(ws.closed).toBe(true);
     expect(terminalSessions.size()).toBe(0);
@@ -151,7 +173,16 @@ describe("M88 — terminal reload persistence", () => {
   it("zero lastSeq without resume still spawns a fresh session when none exists", async () => {
     const { handleTerminalConnection, terminalSessions } = await load();
     const ws = makeFakeWs();
-    await handleTerminalConnection(ws as any, "proj-1", makeTestConfig(), 1, undefined, "new-id", 0, false);
+    await handleTerminalConnection(
+      ws as any,
+      "proj-1",
+      makeTestConfig(),
+      1,
+      undefined,
+      "new-id",
+      0,
+      false,
+    );
     // Should have spawned a PTY (verified by no "ended" message)
     expect(ws.sent).toEqual([]);
     expect(terminalSessions.has(1, "proj-1", "new-id")).toBe(true);

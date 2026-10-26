@@ -34,22 +34,10 @@ import { terminalSessions } from "../execution/terminalSessions.js";
 import { STARTER_TEMPLATES, applyTemplate } from "./templates.js";
 import { queryTimeline, queryWhileAway } from "../collab/timeline.js";
 import { getLastSeen, touchLastSeen } from "../collab/lastSeen.js";
-import {
-  createSnapshot,
-  listSnapshots,
-  restoreSnapshot,
-  deleteSnapshot,
-} from "./snapshots.js";
-import {
-  exportProjectZip,
-  importProjectZip,
-  importNewProjectZip,
-} from "./archive.js";
+import { createSnapshot, listSnapshots, restoreSnapshot, deleteSnapshot } from "./snapshots.js";
+import { exportProjectZip, importProjectZip, importNewProjectZip } from "./archive.js";
 import { forkProject } from "./fork.js";
-import {
-  resolveSecretsForInjection,
-  toGenericSecretError,
-} from "../projectsecrets/store.js";
+import { resolveSecretsForInjection, toGenericSecretError } from "../projectsecrets/store.js";
 import { recordAuditLog } from "../audit.js";
 import { cloneIntoProject } from "../git/remotes.js";
 import { upsertGitHttpsCredentials } from "../git/credentials.js";
@@ -58,10 +46,7 @@ import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { formatProjectFile } from "./format.js";
 import { discoverWorkflow } from "../workflow/discover.js";
 import { telemetryHistorian } from "../execution/historian.js";
-import {
-  collaborationManager,
-  requireLiveEditsPersisted,
-} from "../collab/manager.js";
+import { collaborationManager, requireLiveEditsPersisted } from "../collab/manager.js";
 import {
   uploadProjectFiles,
   parseMultipartFormData,
@@ -116,11 +101,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     try {
       const { templateId, name } = req.body ?? {};
       const tpl = STARTER_TEMPLATES.find((t) => t.id === templateId);
-      if (!tpl)
-        throw new ApiError(400, "Invalid template ID", "invalid_template");
+      if (!tpl) throw new ApiError(400, "Invalid template ID", "invalid_template");
 
-      const projectName =
-        typeof name === "string" && name.trim() ? name.trim() : tpl.name;
+      const projectName = typeof name === "string" && name.trim() ? name.trim() : tpl.name;
       const project = await createProject(cfg, db, userOf(req).id, {
         name: projectName,
         language: tpl.language,
@@ -147,11 +130,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
       const hasToken = typeof body.token === "string" && body.token.length > 0;
       if (hasToken && user.username.startsWith("evaluator_")) {
-        throw new ApiError(
-          403,
-          "demo accounts cannot store secrets",
-          "demo_forbidden",
-        );
+        throw new ApiError(403, "demo accounts cannot store secrets", "demo_forbidden");
       }
 
       const creds = hasToken
@@ -249,13 +228,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const zipBuffer = getZipBuffer(req);
       const name = (req.query.name as string) || req.body?.name;
       const language = (req.query.language as string) || req.body?.language;
-      const result = await importNewProjectZip(
-        cfg,
-        db,
-        userOf(req).id,
-        zipBuffer,
-        { name, language },
-      );
+      const result = await importNewProjectZip(cfg, db, userOf(req).id, zipBuffer, {
+        name,
+        language,
+      });
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -264,12 +240,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id", (req, res, next) => {
     try {
-      const access = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "viewer",
-      );
+      const access = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
       res.json({ project: access.project, role: access.role });
     } catch (err) {
       next(err);
@@ -300,11 +271,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         .get(username.trim()) as { id: number; username: string } | undefined;
 
       if (!targetUser) {
-        throw new ApiError(
-          404,
-          `User "${username}" not found`,
-          "user_not_found",
-        );
+        throw new ApiError(404, `User "${username}" not found`, "user_not_found");
       }
 
       const collabRole = role === "viewer" ? "viewer" : "editor";
@@ -334,8 +301,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     try {
       requireProjectAccess(db, userOf(req).id, req.params.id, "owner");
       const targetUserId = parseInt(req.params.userId, 10);
-      if (isNaN(targetUserId))
-        throw new ApiError(400, "invalid user ID", "invalid_id");
+      if (isNaN(targetUserId)) throw new ApiError(400, "invalid user ID", "invalid_id");
 
       removeProjectCollaborator(db, req.params.id, targetUserId);
       collaborationManager.revokeUser(req.params.id, targetUserId);
@@ -362,11 +328,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const targetUserId = parseInt(req.params.userId, 10);
       const { role } = req.body ?? {};
       if (role !== "editor" && role !== "viewer") {
-        throw new ApiError(
-          400,
-          "role must be editor or viewer",
-          "invalid_role",
-        );
+        throw new ApiError(400, "role must be editor or viewer", "invalid_role");
       }
 
       addProjectCollaborator(db, req.params.id, targetUserId, role);
@@ -401,12 +363,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // Live Container Resource Telemetry
   router.get("/:id/stats", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "viewer",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
       const stats = await sandboxManager.getContainerStats(project.id);
       res.json({ stats });
     } catch (err) {
@@ -455,10 +412,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/:id/runs/:executionId/telemetry", (req, res, next) => {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-      const result = telemetryHistorian.queryExecutionTelemetry(
-        project.id,
-        req.params.executionId,
-      );
+      const result = telemetryHistorian.queryExecutionTelemetry(project.id, req.params.executionId);
       res.json(result);
     } catch (err) {
       next(err);
@@ -495,10 +449,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/:id/runs", async (req, res, next) => {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-      const limit = Math.min(
-        Math.max(parseInt(req.query.limit as string, 10) || 20, 1),
-        100,
-      );
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 20, 1), 100);
       const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
 
       const runs = db
@@ -514,9 +465,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         .all(project.id, userOf(req).id, limit, offset);
 
       const totalRow = db
-        .prepare(
-          "SELECT COUNT(*) as total FROM runs WHERE project_id = ? AND user_id = ?",
-        )
+        .prepare("SELECT COUNT(*) as total FROM runs WHERE project_id = ? AND user_id = ?")
         .get(project.id, userOf(req).id) as { total: number };
 
       res.json({ runs, total: totalRow.total, limit, offset });
@@ -555,18 +504,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const user = userOf(req);
       requireProjectAccess(db, user.id, req.params.id, "viewer");
       const stored = getLastSeen(db, req.params.id, user.id);
-      const clampBoundary = new Date(
-        Date.now() - cfg.collabAwayMaxLookbackMs,
-      ).toISOString();
-      const since =
-        stored && stored > clampBoundary ? stored : clampBoundary;
-      const { events } = queryWhileAway(
-        db,
-        req.params.id,
-        user.id,
-        since,
-        cfg.collabAwayMaxEvents,
-      );
+      const clampBoundary = new Date(Date.now() - cfg.collabAwayMaxLookbackMs).toISOString();
+      const since = stored && stored > clampBoundary ? stored : clampBoundary;
+      const { events } = queryWhileAway(db, req.params.id, user.id, since, cfg.collabAwayMaxEvents);
       // Group by author, most-recently-active author first.
       const byAuthor = new Map<number, typeof events>();
       for (const e of events) {
@@ -581,9 +521,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           username: evs[0]!.actor.username,
           events: evs,
         }))
-        .sort((a, b) =>
-          (b.events[0]?.at ?? "").localeCompare(a.events[0]?.at ?? ""),
-        );
+        .sort((a, b) => (b.events[0]?.at ?? "").localeCompare(a.events[0]?.at ?? ""));
       res.json({ since, events, groupedByAuthor });
     } catch (err) {
       next(err);
@@ -624,13 +562,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
       const { name } = req.body ?? {};
-      const snapshot = await createSnapshot(
-        cfg,
-        db,
-        userOf(req).id,
-        project.id,
-        name,
-      );
+      const snapshot = await createSnapshot(cfg, db, userOf(req).id, project.id, name);
       res.status(201).json({ snapshot });
     } catch (err) {
       next(err);
@@ -660,13 +592,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   router.delete("/:id/snapshots/:snapshotId", async (req, res, next) => {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-      await deleteSnapshot(
-        cfg,
-        db,
-        userOf(req).id,
-        project.id,
-        req.params.snapshotId,
-      );
+      await deleteSnapshot(cfg, db, userOf(req).id, project.id, req.params.snapshotId);
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -682,13 +608,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         userOf(req).id,
         req.params.id!,
       );
-      const safeFilename =
-        projectName.replace(/[^a-zA-Z0-9._-]/g, "_") || "project";
+      const safeFilename = projectName.replace(/[^a-zA-Z0-9._-]/g, "_") || "project";
       res.setHeader("Content-Type", "application/zip");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${safeFilename}.zip"`,
-      );
+      res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}.zip"`);
       res.setHeader("Content-Length", zipBuffer.length);
       res.send(zipBuffer);
     } catch (err) {
@@ -701,23 +623,16 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     try {
       const zipBuffer = getZipBuffer(req);
       const replace =
-        req.query.replace === "true" ||
-        req.query.replace === "1" ||
-        req.body?.replace === true;
+        req.query.replace === "true" || req.query.replace === "1" || req.body?.replace === true;
       // M56: opt-in override when a live collab room's unsaved edits cannot
       // be flushed within the safety window.
       const force =
-        req.query.force === "true" ||
-        req.query.force === "1" ||
-        req.body?.force === true;
-      const result = await importProjectZip(
-        cfg,
-        db,
-        userOf(req).id,
-        req.params.id!,
-        zipBuffer,
-        { replace, force, actorUsername: userOf(req).username },
-      );
+        req.query.force === "true" || req.query.force === "1" || req.body?.force === true;
+      const result = await importProjectZip(cfg, db, userOf(req).id, req.params.id!, zipBuffer, {
+        replace,
+        force,
+        actorUsername: userOf(req).username,
+      });
       res.json(result);
     } catch (err) {
       next(err);
@@ -746,12 +661,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/workflow", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "viewer",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
       const cwd = await workspacePath(cfg, project.id);
       res.json(await discoverWorkflow(cwd));
     } catch (err) {
@@ -761,12 +671,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/tree", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "viewer",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
       const cwd = await workspacePath(cfg, project.id);
       const listing = await treeListing(cwd);
       res.json({
@@ -781,19 +686,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/file", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "viewer",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
       const path = req.query.path;
       if (typeof path !== "string")
-        throw new ApiError(
-          400,
-          "path query parameter is required",
-          "invalid_path",
-        );
+        throw new ApiError(400, "path query parameter is required", "invalid_path");
       const cwd = await workspacePath(cfg, project.id);
       res.json(await readProjectFile(cwd, path));
     } catch (err) {
@@ -803,15 +699,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/file", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "editor",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
       const { path, content } = req.body ?? {};
-      if (typeof path !== "string")
-        throw new ApiError(400, "path is required", "invalid_path");
+      if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
       if (typeof content !== "string")
         throw new ApiError(400, "content is required", "invalid_content");
       const cwd = await workspacePath(cfg, project.id);
@@ -875,33 +765,21 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const contentType = req.headers["content-type"] || "";
       let files: UploadFileItem[] = [];
       let targetDir = (req.query.targetDir as string) || "";
-      let overwrite =
-        req.query.overwrite === "true" || req.query.overwrite === "1";
+      let overwrite = req.query.overwrite === "true" || req.query.overwrite === "1";
 
       if (contentType.includes("multipart/form-data")) {
         if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-          throw new ApiError(
-            400,
-            "No multipart upload body received",
-            "empty_upload",
-          );
+          throw new ApiError(400, "No multipart upload body received", "empty_upload");
         }
         const parsed = parseMultipartFormData(req.body, contentType);
         files = parsed.files;
         if (!targetDir && parsed.fields.targetDir) {
           targetDir = parsed.fields.targetDir;
         }
-        if (
-          !overwrite &&
-          (parsed.fields.overwrite === "true" ||
-            parsed.fields.overwrite === "1")
-        ) {
+        if (!overwrite && (parsed.fields.overwrite === "true" || parsed.fields.overwrite === "1")) {
           overwrite = true;
         }
-      } else if (
-        req.body &&
-        (Array.isArray(req.body.files) || typeof req.body === "object")
-      ) {
+      } else if (req.body && (Array.isArray(req.body.files) || typeof req.body === "object")) {
         const body = req.body;
         if (!targetDir && typeof body.targetDir === "string") {
           targetDir = body.targetDir;
@@ -926,17 +804,11 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         );
       }
 
-      const result = await uploadProjectFiles(
-        cfg,
-        db,
-        userOf(req).id,
-        req.params.id!,
-        {
-          targetDir,
-          overwrite,
-          files,
-        },
-      );
+      const result = await uploadProjectFiles(cfg, db, userOf(req).id, req.params.id!, {
+        targetDir,
+        overwrite,
+        files,
+      });
 
       res.status(200).json(result);
     } catch (err) {
@@ -946,12 +818,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/move", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "editor",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
       const { from, to } = req.body ?? {};
       if (typeof from !== "string" || typeof to !== "string") {
         throw new ApiError(400, "from and to are required", "invalid_path");
@@ -964,25 +831,14 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       // otherwise the room's next debounced flush would resurrect a file at
       // its old path and leave the new path stuck on stale/empty content.
       const allFiles = await listFiles(cwd);
-      const affected = allFiles.filter(
-        (f) => f === from || f.startsWith(`${from}/`),
-      );
+      const affected = allFiles.filter((f) => f === from || f.startsWith(`${from}/`));
       const result = await moveProjectPath(cwd, from, to);
       for (const oldPath of affected) {
-        const newPath =
-          oldPath === from ? to : `${to}${oldPath.slice(from.length)}`;
-        await collaborationManager.notifyExternalFileMutation(
-          project.id,
-          oldPath,
-          "",
-        );
+        const newPath = oldPath === from ? to : `${to}${oldPath.slice(from.length)}`;
+        await collaborationManager.notifyExternalFileMutation(project.id, oldPath, "");
         try {
           const { content } = await readProjectFile(cwd, newPath);
-          await collaborationManager.notifyExternalFileMutation(
-            project.id,
-            newPath,
-            content,
-          );
+          await collaborationManager.notifyExternalFileMutation(project.id, newPath, content);
         } catch {}
       }
       res.json(result);
@@ -993,15 +849,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/delete", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "editor",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
       const { path } = req.body ?? {};
-      if (typeof path !== "string")
-        throw new ApiError(400, "path is required", "invalid_path");
+      if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
       const cwd = await workspacePath(cfg, project.id);
       // Deleting a file (or a whole directory) can remove multiple paths an
       // active collaboration room is tracking. Snapshot which tracked files
@@ -1009,16 +859,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       // otherwise the room's next debounced flush would silently rewrite
       // deleted files back to disk from stale in-memory Y.Doc content.
       const allFiles = await listFiles(cwd);
-      const affected = allFiles.filter(
-        (f) => f === path || f.startsWith(`${path}/`),
-      );
+      const affected = allFiles.filter((f) => f === path || f.startsWith(`${path}/`));
       await deleteProjectPath(cwd, path);
       for (const f of affected) {
-        await collaborationManager.notifyExternalFileMutation(
-          project.id,
-          f,
-          "",
-        );
+        await collaborationManager.notifyExternalFileMutation(project.id, f, "");
       }
       touchProject(db, project.id);
       res.json({ ok: true });
@@ -1030,30 +874,17 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // Full Workspace Text Search
   router.post("/:id/search", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "viewer",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
       // Every search spawns a worker thread that can live for the full
       // worker hard timeout, so cap how many a single user can have in
       // flight at once (own budget, separate from run/install).
       const userId = userOf(req).id;
       if (!searchGate.acquire(userId, cfg.maxConcurrentRuns)) {
-        throw new ApiError(
-          429,
-          "too many concurrent searches",
-          "too_many_searches",
-        );
+        throw new ApiError(429, "too many concurrent searches", "too_many_searches");
       }
       try {
         const cwd = await workspacePath(cfg, project.id);
-        const result = await searchProjectContent(
-          cwd,
-          req.body ?? {},
-          abortOnDisconnect(res),
-        );
+        const result = await searchProjectContent(cwd, req.body ?? {}, abortOnDisconnect(res));
         if (!res.writableEnded) res.json(result);
       } finally {
         searchGate.release(userId);
@@ -1065,19 +896,10 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.get("/:id/search", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "viewer",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "viewer");
       const userId = userOf(req).id;
       if (!searchGate.acquire(userId, cfg.maxConcurrentRuns)) {
-        throw new ApiError(
-          429,
-          "too many concurrent searches",
-          "too_many_searches",
-        );
+        throw new ApiError(429, "too many concurrent searches", "too_many_searches");
       }
       try {
         const cwd = await workspacePath(cfg, project.id);
@@ -1115,12 +937,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // never mutates the workspace by default.
   router.post("/:id/search/replace", async (req, res, next) => {
     try {
-      const { project, role } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "editor",
-      );
+      const { project, role } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
 
       const body = req.body ?? {};
       const {
@@ -1153,20 +970,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         files !== undefined &&
         (!Array.isArray(files) || files.some((f) => typeof f !== "string"))
       ) {
-        throw new ApiError(
-          400,
-          "files must be an array of strings",
-          "invalid_files",
-        );
+        throw new ApiError(400, "files must be an array of strings", "invalid_files");
       }
 
       const userId = userOf(req).id;
       if (!searchGate.acquire(userId, cfg.maxConcurrentRuns)) {
-        throw new ApiError(
-          429,
-          "too many concurrent searches",
-          "too_many_searches",
-        );
+        throw new ApiError(429, "too many concurrent searches", "too_many_searches");
       }
       try {
         const cwd = await workspacePath(cfg, project.id);
@@ -1204,21 +1013,18 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         }
 
         const scoped = files
-          ? result.groups.filter((g) =>
-              (files as string[]).includes(g.filePath),
-            )
+          ? result.groups.filter((g) => (files as string[]).includes(g.filePath))
           : result.groups;
 
         // M56: which other connected collaborators have any of the affected
         // files open / are editing / report unsaved edits. Metadata only —
         // never file content. Used to warn the initiator in the review UI
         // and (on apply) to gate a replace over a known-dirty buffer.
-        const collaboratorImpacts =
-          collaborationManager.getCollaboratorFileState(
-            project.id,
-            scoped.map((g) => g.filePath),
-            userOf(req).id,
-          );
+        const collaboratorImpacts = collaborationManager.getCollaboratorFileState(
+          project.id,
+          scoped.map((g) => g.filePath),
+          userOf(req).id,
+        );
 
         if (dryRun !== false) {
           // Preview only — never touches disk. newContent is internal
@@ -1241,10 +1047,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
         // M56: refuse to overwrite another collaborator's KNOWN-dirty buffer
         // without an explicit confirmation (`force`). "editing" alone (dirty
         // state unknown) is informational and does NOT block here.
-        if (
-          collaboratorImpacts.some((i) => i.dirty === true) &&
-          req.body?.force !== true
-        ) {
+        if (collaboratorImpacts.some((i) => i.dirty === true) && req.body?.force !== true) {
           throw new ApiError(
             409,
             "Another collaborator has unsaved changes in one or more of the selected files. Confirm to replace anyway.",
@@ -1319,12 +1122,11 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           }
           try {
             await writeProjectFile(cwd, group.filePath, group.newContent);
-            const mutation =
-              await collaborationManager.notifyExternalFileMutation(
-                project.id,
-                group.filePath,
-                group.newContent,
-              );
+            const mutation = await collaborationManager.notifyExternalFileMutation(
+              project.id,
+              group.filePath,
+              group.newContent,
+            );
             if (mutation.conflict) {
               // A collaborator has unsaved edits in this file in the live
               // session. Their content was preserved and reconverges disk;
@@ -1371,9 +1173,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
             mutationType: "replace",
             actorUserId: userOf(req).id,
             actorUsername: userOf(req).username,
-            matchCounts: Object.fromEntries(
-              replacedResults.map((r) => [r.filePath, r.matchCount]),
-            ),
+            matchCounts: Object.fromEntries(replacedResults.map((r) => [r.filePath, r.matchCount])),
           });
         }
 
@@ -1396,15 +1196,9 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   // Safe Code Auto-Formatting
   router.post("/:id/format", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "editor",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
       const { path, content } = req.body ?? {};
-      if (typeof path !== "string")
-        throw new ApiError(400, "path is required", "invalid_path");
+      if (typeof path !== "string") throw new ApiError(400, "path is required", "invalid_path");
       if (typeof content !== "string")
         throw new ApiError(400, "content is required", "invalid_content");
       const cwd = await workspacePath(cfg, project.id);
@@ -1417,30 +1211,17 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
 
   router.post("/:id/run", async (req, res, next) => {
     try {
-      const { project } = requireProjectAccess(
-        db,
-        userOf(req).id,
-        req.params.id!,
-        "editor",
-      );
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id!, "editor");
       const { language, stdin } = req.body ?? {};
       if (language !== undefined && typeof language !== "string") {
-        throw new ApiError(
-          400,
-          "language must be a string",
-          "invalid_language",
-        );
+        throw new ApiError(400, "language must be a string", "invalid_language");
       }
       if (stdin !== undefined && typeof stdin !== "string") {
         throw new ApiError(400, "stdin must be a string", "invalid_stdin");
       }
       const userId = userOf(req).id;
       if (!runGate.acquire(userId, cfg.maxConcurrentRuns)) {
-        throw new ApiError(
-          429,
-          "concurrent execution limit reached",
-          "too_many_runs",
-        );
+        throw new ApiError(429, "concurrent execution limit reached", "too_many_runs");
       }
       try {
         const cwd = await workspacePath(cfg, project.id);
@@ -1476,20 +1257,13 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
       const userId = userOf(req).id;
       if (!runGate.acquire(userId, cfg.maxConcurrentRuns)) {
-        throw new ApiError(
-          429,
-          "concurrent execution limit reached",
-          "too_many_runs",
-        );
+        throw new ApiError(429, "concurrent execution limit reached", "too_many_runs");
       }
       try {
         const workspaceDir = await workspacePath(cfg, project.id);
         // M86: install reads the dependency manifests from disk; land the
         // room's latest edits (e.g. a just-typed requirements.txt) first.
-        await requireLiveEditsPersisted(
-          project.id,
-          "Dependencies were not installed.",
-        );
+        await requireLiveEditsPersisted(project.id, "Dependencies were not installed.");
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.setHeader("Transfer-Encoding", "chunked");
 
@@ -1505,9 +1279,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
           return;
         }
 
-        res.write(
-          `Running ${installResult.cmd} ${installResult.args.join(" ")}...\n\n`,
-        );
+        res.write(`Running ${installResult.cmd} ${installResult.args.join(" ")}...\n\n`);
 
         const result = await sandboxRun(project.id, workspaceDir, {
           command: installResult.cmd,
@@ -1530,9 +1302,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
       if (!res.headersSent) {
         next(err);
       } else {
-        res.write(
-          `\nError: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
+        res.write(`\nError: ${err instanceof Error ? err.message : String(err)}\n`);
         res.end();
       }
     }

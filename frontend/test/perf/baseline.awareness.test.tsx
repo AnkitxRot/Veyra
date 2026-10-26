@@ -31,10 +31,7 @@ function rawState(userId: number, file: string) {
 }
 
 /** Sidebar's exact derivation (Sidebar.tsx:100-119). */
-function deriveSidebarMaps(
-  collaborators: CollaboratorPresence[],
-  currentUserId: number,
-) {
+function deriveSidebarMaps(collaborators: CollaboratorPresence[], currentUserId: number) {
   const byPath = new Map<string, CollaboratorPresence[]>();
   const byFolder = new Map<string, CollaboratorPresence[]>();
   for (const c of collaborators) {

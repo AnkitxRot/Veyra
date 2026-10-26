@@ -26,9 +26,7 @@ vi.mock("../src/execution/pipeline.js", async (orig) => {
   const actual = (await orig()) as any;
   return {
     ...actual,
-    runProject: vi.fn(async () =>
-      mockRun.impl ? mockRun.impl() : mockRun.result,
-    ),
+    runProject: vi.fn(async () => (mockRun.impl ? mockRun.impl() : mockRun.result)),
   };
 });
 vi.mock("../src/projects/service.js", async (orig) => {
@@ -149,15 +147,13 @@ describe("M54 — collaborative run awareness (server-authoritative)", () => {
       durationMs: 1,
     };
     const d = (o: any) => deriveRunState(o);
-    expect(
-      d({ threw: false, disconnected: false, stopRequested: true, result: ok }),
-    ).toBe("stopped");
-    expect(
-      d({ threw: false, disconnected: true, stopRequested: false, result: ok }),
-    ).toBe("stopped");
-    expect(d({ threw: true, disconnected: false, stopRequested: false })).toBe(
-      "failed",
+    expect(d({ threw: false, disconnected: false, stopRequested: true, result: ok })).toBe(
+      "stopped",
     );
+    expect(d({ threw: false, disconnected: true, stopRequested: false, result: ok })).toBe(
+      "stopped",
+    );
+    expect(d({ threw: true, disconnected: false, stopRequested: false })).toBe("failed");
     expect(
       d({
         threw: false,
@@ -235,9 +231,7 @@ describe("M54 — collaborative run awareness (server-authoritative)", () => {
   });
 
   it("manager.notifyRunStatus is a no-op when no room exists", () => {
-    expect(() =>
-      collaborationManager.notifyRunStatus("no-such-project", entry()),
-    ).not.toThrow();
+    expect(() => collaborationManager.notifyRunStatus("no-such-project", entry())).not.toThrow();
   });
 
   it("project isolation: a run status for project A never reaches project B's clients", async () => {
@@ -341,9 +335,7 @@ describe("M54 — collaborative run awareness (server-authoritative)", () => {
     const a = makeCapturingWs();
     await room.addClient(a.ws, { userId: 1, username: "alice", role: "owner" });
     room.handleRunStatus(entry());
-    room.handleRunStatus(
-      entry({ state: "success", endedAt: Date.now(), exitCode: 0 }),
-    );
+    room.handleRunStatus(entry({ state: "success", endedAt: Date.now(), exitCode: 0 }));
     expect((room as any).runStatus.size).toBe(2);
 
     room.dispose();
@@ -418,14 +410,11 @@ describe("M54 — collaborative run awareness (server-authoritative)", () => {
     const a = makeCapturingWs();
     await room.addClient(a.ws, { userId: 1, username: "alice", role: "owner" });
 
-    const count = () =>
-      (db.prepare("SELECT COUNT(*) AS n FROM runs").get() as any).n;
+    const count = () => (db.prepare("SELECT COUNT(*) AS n FROM runs").get() as any).n;
     const before = count();
 
     room.handleRunStatus(entry());
-    room.handleRunStatus(
-      entry({ state: "failed", endedAt: Date.now(), exitCode: 1 }),
-    );
+    room.handleRunStatus(entry({ state: "failed", endedAt: Date.now(), exitCode: 1 }));
 
     expect(count()).toBe(before);
   });
@@ -469,9 +458,7 @@ describe("M54 — execution socket → collaboration room integration", () => {
     tmp = mkdtempSync(join(tmpdir(), "cloudide-m54i-"));
     tmpForWs = tmp;
     db = openDb(":memory:");
-    db.prepare(
-      "INSERT INTO users (id, username, password_hash) VALUES (1, 'alice', 'x')",
-    ).run();
+    db.prepare("INSERT INTO users (id, username, password_hash) VALUES (1, 'alice', 'x')").run();
     db.prepare(
       "INSERT INTO projects (id, owner_id, name, language) VALUES (?, 1, 'P', 'python')",
     ).run(PID);

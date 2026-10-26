@@ -29,13 +29,9 @@ const base = {
 
 describe("CollaboratorAvatarStack — M58 attention badge", () => {
   it("shows the attention badge only when count > 0", () => {
-    const { rerender } = render(
-      <CollaboratorAvatarStack {...base} incomingRequestCount={0} />,
-    );
+    const { rerender } = render(<CollaboratorAvatarStack {...base} incomingRequestCount={0} />);
     expect(document.querySelector(".collab-attn-badge")).toBeNull();
-    rerender(
-      <CollaboratorAvatarStack {...base} incomingRequestCount={2} />,
-    );
+    rerender(<CollaboratorAvatarStack {...base} incomingRequestCount={2} />);
     expect(screen.getByLabelText(/2 attention requests/i)).toBeTruthy();
   });
 
@@ -48,14 +44,10 @@ describe("CollaboratorAvatarStack — M58 attention badge", () => {
         onOpenTeamPanel={onOpenTeamPanel}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /open team panel/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /open team panel/i }));
     expect(onOpenTeamPanel).toHaveBeenCalled();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /Collaborator Rahul/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Collaborator Rahul/i }));
     expect(document.querySelector(".collab-popover")).not.toBeNull();
   });
 
@@ -72,12 +64,8 @@ describe("CollaboratorAvatarStack — M58 attention badge", () => {
         expiresAt: Date.now() + 90_000,
       },
     ];
-    render(
-      <CollaboratorAvatarStack {...base} attention={attention as any} />,
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: /Collaborator Rahul/i }),
-    );
+    render(<CollaboratorAvatarStack {...base} attention={attention as any} />);
+    fireEvent.click(screen.getByRole("button", { name: /Collaborator Rahul/i }));
     expect(screen.getByText(/the race is here/)).toBeTruthy();
     expect(screen.getByText(/Lines 40–52/)).toBeTruthy();
     expect(document.querySelector(".focus-state-focused")).not.toBeNull();
@@ -85,21 +73,15 @@ describe("CollaboratorAvatarStack — M58 attention badge", () => {
 
   it("M59 — no focus block when the collaborator has no range or message", () => {
     render(<CollaboratorAvatarStack {...base} />);
-    fireEvent.click(
-      screen.getByRole("button", { name: /Collaborator Rahul/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Collaborator Rahul/i }));
     expect(document.querySelector(".collab-popover-focus")).toBeNull();
   });
 
   it("dispatches ide-focus-attention-tray when the chip is clicked with pending requests", () => {
     const spy = vi.fn();
     document.addEventListener("ide-focus-attention-tray", spy);
-    render(
-      <CollaboratorAvatarStack {...base} incomingRequestCount={3} />,
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: /open team panel/i }),
-    );
+    render(<CollaboratorAvatarStack {...base} incomingRequestCount={3} />);
+    fireEvent.click(screen.getByRole("button", { name: /open team panel/i }));
     expect(spy).toHaveBeenCalled();
     document.removeEventListener("ide-focus-attention-tray", spy);
   });

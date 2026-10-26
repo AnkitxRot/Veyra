@@ -14,13 +14,7 @@
 export type AvailabilityStatus = "online" | "idle" | "away" | "dnd";
 
 export type ActivityType =
-  | "viewing"
-  | "editing"
-  | "navigating"
-  | "running"
-  | "terminal"
-  | "searching"
-  | "reviewing";
+  "viewing" | "editing" | "navigating" | "running" | "terminal" | "searching" | "reviewing";
 
 export interface ActivityState {
   type: ActivityType;
@@ -109,10 +103,7 @@ export function getUserColor(userId: number): string {
  * ONLY. Never a key, never a lookup, never used for colour (that stays
  * `getUserColor(userId)`). Every collaboration surface reads through this.
  */
-export function displayLabel(c: {
-  name: string;
-  displayName?: string | null;
-}): string {
+export function displayLabel(c: { name: string; displayName?: string | null }): string {
   const d = c.displayName;
   return typeof d === "string" && d.trim().length > 0 ? d : c.name;
 }
@@ -122,17 +113,12 @@ export function displayLabel(c: {
  * display label actually differs from the username (so an unchanged
  * identity is not shown twice). `null` = show nothing extra.
  */
-export function secondaryHandle(c: {
-  name: string;
-  displayName?: string | null;
-}): string | null {
+export function secondaryHandle(c: { name: string; displayName?: string | null }): string | null {
   return displayLabel(c) !== c.name ? `@${c.name}` : null;
 }
 
 /** dirname(activeFile), workspace-relative. Root-level files → null. */
-export function deriveWorkingFolder(
-  activeFile: string | null | undefined,
-): string | null {
+export function deriveWorkingFolder(activeFile: string | null | undefined): string | null {
   if (!activeFile) return null;
   const norm = activeFile.replace(/\\/g, "/");
   const i = norm.lastIndexOf("/");
@@ -157,10 +143,7 @@ export function formatRelativeTime(then: number, now: number): string {
  * state has already passed the server-authoritative M55 rebuild, but the
  * client still never trusts a shape blindly.
  */
-export function readPresenceState(
-  clientId: number,
-  raw: unknown,
-): CollaboratorPresence | null {
+export function readPresenceState(clientId: number, raw: unknown): CollaboratorPresence | null {
   if (!raw || typeof raw !== "object") return null;
   const state = raw as Record<string, any>;
   if (!state.user || typeof state.user !== "object") return null;
@@ -170,12 +153,8 @@ export function readPresenceState(
     rawActivity && typeof rawActivity.type === "string"
       ? {
           type: rawActivity.type as ActivityType,
-          detail:
-            typeof rawActivity.detail === "string" ? rawActivity.detail : null,
-          timestamp:
-            typeof rawActivity.timestamp === "number"
-              ? rawActivity.timestamp
-              : Date.now(),
+          detail: typeof rawActivity.detail === "string" ? rawActivity.detail : null,
+          timestamp: typeof rawActivity.timestamp === "number" ? rawActivity.timestamp : Date.now(),
         }
       : {
           type: "viewing",
@@ -208,9 +187,7 @@ export function readPresenceState(
       : undefined;
 
   const availability: AvailabilityStatus =
-    state.status === "idle" ||
-    state.status === "away" ||
-    state.status === "dnd"
+    state.status === "idle" || state.status === "away" || state.status === "dnd"
       ? state.status
       : "online";
 
@@ -220,10 +197,7 @@ export function readPresenceState(
     name: typeof state.user.name === "string" ? state.user.name : "Anonymous",
     // M62: server-authored effective display name. Absent on older peers —
     // stays `undefined`, and every surface falls back to `name`.
-    displayName:
-      typeof state.user.displayName === "string"
-        ? state.user.displayName
-        : undefined,
+    displayName: typeof state.user.displayName === "string" ? state.user.displayName : undefined,
     // M72: server-authored avatar cache-buster. Only a finite positive
     // integer counts; anything else (absent, forged, NaN) → 0 = initials.
     avatarVersion:
@@ -235,14 +209,10 @@ export function readPresenceState(
     // M73: server-authored sanitized pronouns. Only a non-empty string
     // counts; anything else (absent, blank, non-string) → undefined.
     pronouns:
-      typeof state.user.pronouns === "string" &&
-      state.user.pronouns.trim().length > 0
+      typeof state.user.pronouns === "string" && state.user.pronouns.trim().length > 0
         ? state.user.pronouns.slice(0, 24)
         : undefined,
-    role:
-      state.user.role === "owner" || state.user.role === "viewer"
-        ? state.user.role
-        : "editor",
+    role: state.user.role === "owner" || state.user.role === "viewer" ? state.user.role : "editor",
     color:
       typeof state.user.color === "string"
         ? state.user.color
@@ -250,12 +220,8 @@ export function readPresenceState(
     status: availability,
     activity,
     activeFile: typeof state.activeFile === "string" ? state.activeFile : null,
-    workingFolder:
-      typeof state.workingFolder === "string" ? state.workingFolder : null,
-    activeFileDirty:
-      typeof state.activeFileDirty === "boolean"
-        ? state.activeFileDirty
-        : undefined,
+    workingFolder: typeof state.workingFolder === "string" ? state.workingFolder : null,
+    activeFileDirty: typeof state.activeFileDirty === "boolean" ? state.activeFileDirty : undefined,
     cursor:
       state.cursor &&
       typeof state.cursor.line === "number" &&
@@ -264,8 +230,7 @@ export function readPresenceState(
         : null,
     selection,
     intent,
-    lastActive:
-      typeof state.lastActive === "number" ? state.lastActive : Date.now(),
+    lastActive: typeof state.lastActive === "number" ? state.lastActive : Date.now(),
   };
 }
 
@@ -276,9 +241,7 @@ export function collaboratorsInFile(
   path: string,
   excludeUserId?: number,
 ): CollaboratorPresence[] {
-  return list.filter(
-    (c) => c.userId !== excludeUserId && c.activeFile === path,
-  );
+  return list.filter((c) => c.userId !== excludeUserId && c.activeFile === path);
 }
 
 export function collaboratorsInFolder(

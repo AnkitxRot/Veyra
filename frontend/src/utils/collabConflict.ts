@@ -58,9 +58,7 @@ export function handleSaveError(
     handlers.onCollabConflict(collabSaveConflictMessage(path));
     return;
   }
-  handlers.onFailure(
-    err instanceof Error ? err.message : String(err ?? "unknown error"),
-  );
+  handlers.onFailure(err instanceof Error ? err.message : String(err ?? "unknown error"));
 }
 
 /**

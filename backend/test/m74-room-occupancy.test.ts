@@ -40,9 +40,11 @@ describe("M74 — CollaborationManager.roomOccupancy", () => {
   });
 
   async function makeProject(name: string) {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run(`${name}_owner`, "h", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      `${name}_owner`,
+      "h",
+      "user",
+    );
     return createProject(cfg, db, 1, { name });
   }
 

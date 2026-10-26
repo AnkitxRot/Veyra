@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(
-  join(here, "../src/components/IDE/IDE.tsx"),
-  "utf-8",
-);
+const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
 
 /**
  * M68 — IDE.tsx wiring for project/workspace load reliability & recovery.
@@ -19,9 +16,7 @@ const src = readFileSync(
  */
 describe("M68 — role fetch fails closed", () => {
   it("takes its role from useProjectRole, not a local useState default", () => {
-    expect(src).toContain(
-      'import { useProjectRole } from "../../hooks/useProjectRole"',
-    );
+    expect(src).toContain('import { useProjectRole } from "../../hooks/useProjectRole"');
     expect(src).toContain("} = useProjectRole(project?.id ?? null);");
     // the old fail-open path is gone: no local role state, no owner default
     expect(src).not.toContain("setProjectRole");
@@ -30,9 +25,7 @@ describe("M68 — role fetch fails closed", () => {
 
   it("no longer fetches the role inside the collab lifecycle effect", () => {
     expect(src).not.toContain("// Fetch project access role");
-    expect(src).not.toContain(
-      'api<{ project: Project; role?: "owner" | "editor" | "viewer" }>',
-    );
+    expect(src).not.toContain('api<{ project: Project; role?: "owner" | "editor" | "viewer" }>');
   });
 
   it("surfaces a persistent, retryable notice while the role lookup is errored", () => {
@@ -59,7 +52,9 @@ describe("M68 — role fetch fails closed", () => {
 
 describe("M68 — file tree load state & retry", () => {
   it("tracks the tree fetch lifecycle instead of swallowing failures", () => {
-    expect(src).not.toMatch(/\/api\/projects\/\$\{pid\}\/tree`,\n\s*\);\n\s*setTree\(res\.tree\);\n\s*treeLoadedForRef\.current = pid;\n\s*\} catch \{\}/);
+    expect(src).not.toMatch(
+      /\/api\/projects\/\$\{pid\}\/tree`,\n\s*\);\n\s*setTree\(res\.tree\);\n\s*treeLoadedForRef\.current = pid;\n\s*\} catch \{\}/,
+    );
     expect(src).toContain(
       'const [treeStatus, setTreeStatus] = useState<"loading" | "ready" | "error">',
     );
@@ -94,9 +89,7 @@ describe("M68 — file tree load state & retry", () => {
     // M71: <Sidebar> is memoized, so the retry handler must be a stable
     // identity, not an inline arrow (which would defeat the memo).
     expect(src).toContain("onRetryTree={handleRetryTree}");
-    expect(src).toContain(
-      "const handleRetryTree = useCallback(() => loadTreeRef.current(), []);",
-    );
+    expect(src).toContain("const handleRetryTree = useCallback(() => loadTreeRef.current(), []);");
   });
 
   it("drops the previous project's tree on a project switch (no stale files under a failed load)", () => {

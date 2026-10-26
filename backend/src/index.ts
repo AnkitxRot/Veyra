@@ -98,9 +98,7 @@ export async function performGracefulShutdown(
 ): Promise<void> {
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const { server, wss, db, config } = ctx;
-  console.log(
-    `[shutdown] ${options.signal ?? "shutdown"} received, draining...`,
-  );
+  console.log(`[shutdown] ${options.signal ?? "shutdown"} received, draining...`);
 
   // Force-exit fallback armed for the entire sequence.
   const forceTimer = setTimeout(() => {
@@ -167,10 +165,7 @@ export async function performGracefulShutdown(
   // 3. Persist all dirty collaboration rooms. Budget: min(5s, grace-1s),
   //    i.e. bounded strictly inside the force-exit window so the database
   //    close below still runs under any plausible timing.
-  const flushBudgetMs = Math.max(
-    0,
-    Math.min(5000, config.shutdownGraceMs - 1000),
-  );
+  const flushBudgetMs = Math.max(0, Math.min(5000, config.shutdownGraceMs - 1000));
   const flushed = Promise.race([
     collaborationManager.flushAllRooms(),
     new Promise<void>((resolve) => {
@@ -257,9 +252,7 @@ async function start(): Promise<void> {
   auditGcTimer.unref();
 
   const server = app.listen(config.port, () => {
-    console.log(
-      `Cloud IDE backend listening on http://localhost:${config.port}`,
-    );
+    console.log(`Cloud IDE backend listening on http://localhost:${config.port}`);
     console.log(`  data dir:    ${config.dataDir}`);
     console.log(`  platform:    ${process.platform}`);
     console.log(
@@ -289,8 +282,7 @@ async function start(): Promise<void> {
 // NODE_ENV=test is the conventional signal) importing this module must stay
 // side-effect free — tests construct their own config/db/app and invoke
 // performGracefulShutdown() directly.
-const SHOULD_AUTO_START =
-  !process.env.VITEST && process.env.NODE_ENV !== "test";
+const SHOULD_AUTO_START = !process.env.VITEST && process.env.NODE_ENV !== "test";
 
 if (SHOULD_AUTO_START) {
   start().catch((err) => {

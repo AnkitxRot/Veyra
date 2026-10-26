@@ -71,19 +71,12 @@ export interface ClosedBurst {
   closeReason: CloseReason;
 }
 
-export function burstKey(
-  projectId: string,
-  authorUserId: number,
-  filePath: string,
-): string {
+export function burstKey(projectId: string, authorUserId: number, filePath: string): string {
   return `${projectId}:${authorUserId}:${filePath}`;
 }
 
 /** Insert `next` and merge overlapping/adjacent intervals (adjacent = gap ≤ 1 line). */
-function foldInterval(
-  intervals: Array<[number, number]>,
-  next: [number, number],
-): void {
+function foldInterval(intervals: Array<[number, number]>, next: [number, number]): void {
   const lo = Math.min(next[0], next[1]);
   const hi = Math.max(next[0], next[1]);
   intervals.push([lo, hi]);
@@ -149,12 +142,7 @@ export function shouldCloseForNextEdit(
 }
 
 /** The sweep timer runs at `now`: is this burst stale enough to close with no follow-up edit? */
-export function isStale(
-  b: OpenBurst,
-  now: number,
-  idleMs: number,
-  maxMs: number,
-): boolean {
+export function isStale(b: OpenBurst, now: number, idleMs: number, maxMs: number): boolean {
   return now - b.lastEditAt > idleMs || now - b.startedAt > maxMs;
 }
 
@@ -178,8 +166,7 @@ export function summarizeBurst(b: OpenBurst): {
 export function closeBurst(b: OpenBurst, reason: CloseReason): ClosedBurst {
   // §5: an exact range survives ONLY when nothing contaminated it, every folded
   // edit contributed a usable contiguous span, and the union is one interval.
-  const rangeOk =
-    !b.rangeContaminated && !b.observerMissed && b.intervals.length === 1;
+  const rangeOk = !b.rangeContaminated && !b.observerMissed && b.intervals.length === 1;
   return {
     key: b.key,
     projectId: b.projectId,

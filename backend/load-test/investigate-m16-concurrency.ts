@@ -29,7 +29,10 @@ interface PhaseTimings {
   totalMs: number;
 }
 
-async function measureColdStartPhases(projectId: string, workspaceDir: string): Promise<PhaseTimings> {
+async function measureColdStartPhases(
+  projectId: string,
+  workspaceDir: string,
+): Promise<PhaseTimings> {
   const containerId = `m16-phase-${projectId}-${Date.now()}`;
   const netName = `m16-net-${projectId}-${Date.now()}`;
 
@@ -45,28 +48,43 @@ async function measureColdStartPhases(projectId: string, workspaceDir: string): 
 
   const hardeningArgs = [
     "--read-only",
-    "--tmpfs", "/tmp:rw,size=64m,mode=1777",
-    "--tmpfs", "/run:rw,size=16m,mode=1777",
-    "--tmpfs", "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
+    "--tmpfs",
+    "/tmp:rw,size=64m,mode=1777",
+    "--tmpfs",
+    "/run:rw,size=16m,mode=1777",
+    "--tmpfs",
+    "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
   ];
   const portArgs = [3000, 4173, 5173, 8000, 8080].flatMap((p) => ["-p", `127.0.0.1::${p}`]);
 
   const dockerArgs = [
-    "run", "-d",
-    "--name", containerId,
-    "--network", netName,
-    "--security-opt", "no-new-privileges",
-    "--cap-drop", "ALL",
-    "--memory", "536870912b",
-    "--cpus", "1.0",
-    "--pids-limit", "100",
+    "run",
+    "-d",
+    "--name",
+    containerId,
+    "--network",
+    netName,
+    "--security-opt",
+    "no-new-privileges",
+    "--cap-drop",
+    "ALL",
+    "--memory",
+    "536870912b",
+    "--cpus",
+    "1.0",
+    "--pids-limit",
+    "100",
     ...hardeningArgs,
     ...portArgs,
-    "-v", `${workspaceDir}:/workspace`,
-    "-w", "/workspace",
-    "--user", "ide",
+    "-v",
+    `${workspaceDir}:/workspace`,
+    "-w",
+    "/workspace",
+    "--user",
+    "ide",
     "cloudeeeide-runner:latest",
-    "sleep", "infinity",
+    "sleep",
+    "infinity",
   ];
 
   await execFileAsync("docker", dockerArgs);
@@ -75,7 +93,16 @@ async function measureColdStartPhases(projectId: string, workspaceDir: string): 
   await execFileAsync("docker", ["port", containerId]);
   const t5 = performance.now();
 
-  await execFileAsync("docker", ["exec", "-i", "-w", "/workspace", containerId, "python3", "-c", "print('hello')"]);
+  await execFileAsync("docker", [
+    "exec",
+    "-i",
+    "-w",
+    "/workspace",
+    containerId,
+    "python3",
+    "-c",
+    "print('hello')",
+  ]);
   const t6 = performance.now();
 
   await execFileAsync("docker", ["rm", "-f", containerId]);
@@ -164,16 +191,24 @@ async function run() {
   // 2. Concurrency matrix: 1, 5, 10, 20
   console.log("\n--- Measuring Concurrency Scale (1, 5, 10, 20) ---");
   const c1 = await measureConcurrency(1);
-  console.log(`[C=1]  p50=${c1.p50.toFixed(1)}ms, p95=${c1.p95.toFixed(1)}ms, wall=${c1.wallMs.toFixed(1)}ms, runAvg=${c1.avgDockerRunMs.toFixed(1)}ms, portAvg=${c1.avgPortLookupMs.toFixed(1)}ms, netAvg=${c1.avgNetCreateMs.toFixed(1)}ms`);
+  console.log(
+    `[C=1]  p50=${c1.p50.toFixed(1)}ms, p95=${c1.p95.toFixed(1)}ms, wall=${c1.wallMs.toFixed(1)}ms, runAvg=${c1.avgDockerRunMs.toFixed(1)}ms, portAvg=${c1.avgPortLookupMs.toFixed(1)}ms, netAvg=${c1.avgNetCreateMs.toFixed(1)}ms`,
+  );
 
   const c5 = await measureConcurrency(5);
-  console.log(`[C=5]  p50=${c5.p50.toFixed(1)}ms, p95=${c5.p95.toFixed(1)}ms, wall=${c5.wallMs.toFixed(1)}ms, runAvg=${c5.avgDockerRunMs.toFixed(1)}ms, portAvg=${c5.avgPortLookupMs.toFixed(1)}ms, netAvg=${c5.avgNetCreateMs.toFixed(1)}ms`);
+  console.log(
+    `[C=5]  p50=${c5.p50.toFixed(1)}ms, p95=${c5.p95.toFixed(1)}ms, wall=${c5.wallMs.toFixed(1)}ms, runAvg=${c5.avgDockerRunMs.toFixed(1)}ms, portAvg=${c5.avgPortLookupMs.toFixed(1)}ms, netAvg=${c5.avgNetCreateMs.toFixed(1)}ms`,
+  );
 
   const c10 = await measureConcurrency(10);
-  console.log(`[C=10] p50=${c10.p50.toFixed(1)}ms, p95=${c10.p95.toFixed(1)}ms, wall=${c10.wallMs.toFixed(1)}ms, runAvg=${c10.avgDockerRunMs.toFixed(1)}ms, portAvg=${c10.avgPortLookupMs.toFixed(1)}ms, netAvg=${c10.avgNetCreateMs.toFixed(1)}ms`);
+  console.log(
+    `[C=10] p50=${c10.p50.toFixed(1)}ms, p95=${c10.p95.toFixed(1)}ms, wall=${c10.wallMs.toFixed(1)}ms, runAvg=${c10.avgDockerRunMs.toFixed(1)}ms, portAvg=${c10.avgPortLookupMs.toFixed(1)}ms, netAvg=${c10.avgNetCreateMs.toFixed(1)}ms`,
+  );
 
   const c20 = await measureConcurrency(20);
-  console.log(`[C=20] p50=${c20.p50.toFixed(1)}ms, p95=${c20.p95.toFixed(1)}ms, wall=${c20.wallMs.toFixed(1)}ms, runAvg=${c20.avgDockerRunMs.toFixed(1)}ms, portAvg=${c20.avgPortLookupMs.toFixed(1)}ms, netAvg=${c20.avgNetCreateMs.toFixed(1)}ms`);
+  console.log(
+    `[C=20] p50=${c20.p50.toFixed(1)}ms, p95=${c20.p95.toFixed(1)}ms, wall=${c20.wallMs.toFixed(1)}ms, runAvg=${c20.avgDockerRunMs.toFixed(1)}ms, portAvg=${c20.avgPortLookupMs.toFixed(1)}ms, netAvg=${c20.avgNetCreateMs.toFixed(1)}ms`,
+  );
 
   const report = {
     single,

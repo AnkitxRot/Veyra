@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  cleanup,
-  fireEvent,
-  waitFor,
-  screen,
-} from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor, screen } from "@testing-library/react";
 import * as React from "react";
 import type { UserProfile } from "../src/types";
 
@@ -22,9 +16,7 @@ vi.mock("../src/api", () => ({
     self ? `/api/auth/profile/avatar?v=${v}` : `/api/auth/profile/${userId}/avatar?v=${v}`,
 }));
 
-import SettingsModal, {
-  DEFAULT_PREFERENCES,
-} from "../src/components/Settings/SettingsModal";
+import SettingsModal, { DEFAULT_PREFERENCES } from "../src/components/Settings/SettingsModal";
 
 function profile(overrides: Partial<UserProfile> = {}): UserProfile {
   return {
@@ -102,9 +94,7 @@ describe("M62-4 — SettingsModal Profile tab", () => {
 
   it("4. shows a loading state before the profile resolves", async () => {
     let resolve!: (v: { profile: UserProfile }) => void;
-    getProfileMock.mockImplementation(
-      () => new Promise((r) => (resolve = r)),
-    );
+    getProfileMock.mockImplementation(() => new Promise((r) => (resolve = r)));
     renderModal();
     fireEvent.click(screen.getByRole("tab", { name: "Profile" }));
     expect(screen.getByText("Loading…")).toBeTruthy();
@@ -202,16 +192,12 @@ describe("M62-4 — SettingsModal Profile tab", () => {
   });
 
   it("17. a 400 surfaces the server's own message verbatim", async () => {
-    updateProfileMock.mockRejectedValue(
-      new Error("displayName must be at most 48 characters"),
-    );
+    updateProfileMock.mockRejectedValue(new Error("displayName must be at most 48 characters"));
     renderModal();
     await openProfileTab();
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "x" } });
     fireEvent.click(screen.getByText("Save Profile"));
-    expect(
-      await screen.findByText("displayName must be at most 48 characters"),
-    ).toBeTruthy();
+    expect(await screen.findByText("displayName must be at most 48 characters")).toBeTruthy();
   });
 
   it("18. demo mode disables every profile control", async () => {
@@ -312,9 +298,7 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     });
     renderModal();
     await openProfileTab();
-    expect(document.querySelector("img")!.getAttribute("src")).toBe(
-      "/api/auth/profile/avatar?v=4",
-    );
+    expect(document.querySelector("img")!.getAttribute("src")).toBe("/api/auth/profile/avatar?v=4");
     expect(screen.getByText("Replace")).toBeTruthy();
   });
 
@@ -335,9 +319,7 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     });
     const { container } = renderModal();
     await openProfileTab();
-    const input = container.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [png()] } });
     await waitFor(() => expect(uploadAvatarMock).toHaveBeenCalledTimes(1));
     await waitFor(() =>
@@ -353,10 +335,9 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     });
     const { container } = renderModal();
     await openProfileTab();
-    fireEvent.change(
-      container.querySelector('input[type="file"]') as HTMLInputElement,
-      { target: { files: [big] } },
-    );
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [big] },
+    });
     expect(await screen.findByText(/512 KB or smaller/)).toBeTruthy();
     expect(uploadAvatarMock).not.toHaveBeenCalled();
   });
@@ -365,10 +346,9 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     const pdf = new File(["x"], "cv.pdf", { type: "application/pdf" });
     const { container } = renderModal();
     await openProfileTab();
-    fireEvent.change(
-      container.querySelector('input[type="file"]') as HTMLInputElement,
-      { target: { files: [pdf] } },
-    );
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [pdf] },
+    });
     expect(await screen.findByText(/PNG, JPEG or WebP/)).toBeTruthy();
     expect(uploadAvatarMock).not.toHaveBeenCalled();
   });
@@ -377,13 +357,10 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     uploadAvatarMock.mockRejectedValue(new Error("image has trailing garbage"));
     const { container } = renderModal();
     await openProfileTab();
-    fireEvent.change(
-      container.querySelector('input[type="file"]') as HTMLInputElement,
-      { target: { files: [png()] } },
-    );
-    expect(
-      await screen.findByText("image has trailing garbage"),
-    ).toBeTruthy();
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [png()] },
+    });
+    expect(await screen.findByText("image has trailing garbage")).toBeTruthy();
   });
 
   it("removes the avatar and falls back to initials", async () => {
@@ -405,12 +382,7 @@ describe("M62-4 — SettingsModal Profile tab", () => {
     });
     const { container } = renderModal({ isDemo: true });
     await openProfileTab();
-    expect(
-      (container.querySelector('input[type="file"]') as HTMLInputElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByText("Remove") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect((container.querySelector('input[type="file"]') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByText("Remove") as HTMLButtonElement).disabled).toBe(true);
   });
 });

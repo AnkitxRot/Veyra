@@ -17,14 +17,7 @@ import { render, cleanup, act } from "@testing-library/react";
 import * as React from "react";
 import type { CollaboratorPresence } from "../../src/collab/presence";
 import { monaco } from "../mocks/monaco";
-import {
-  RenderRecorder,
-  Probe,
-  buildTree,
-  makePresence,
-  reproject,
-  summarize,
-} from "./harness";
+import { RenderRecorder, Probe, buildTree, makePresence, reproject, summarize } from "./harness";
 
 vi.mock("../../src/api", () => ({
   api: vi.fn(() => new Promise(() => {})),
@@ -38,31 +31,19 @@ import Editor from "../../src/components/Editor/Editor";
 import { throttleLatest } from "../../src/utils/throttleLatest";
 import type { TreeNode } from "../../src/types";
 
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 const user = { id: 1, username: "alice" };
 const project = { id: "proj-1", name: "P" };
 
 let emit: ((list: CollaboratorPresence[]) => void) | null = null;
 
-function CollabHost({
-  recorder,
-  tree,
-}: {
-  recorder: RenderRecorder;
-  tree: TreeNode[];
-}) {
-  const [collaborators, setCollaborators] = React.useState<
-    CollaboratorPresence[]
-  >([]);
+function CollabHost({ recorder, tree }: { recorder: RenderRecorder; tree: TreeNode[] }) {
+  const [collaborators, setCollaborators] = React.useState<CollaboratorPresence[]>([]);
 
   React.useEffect(() => {
     // Exactly IDE.tsx's wiring.
-    const throttled = throttleLatest<CollaboratorPresence[]>(
-      setCollaborators,
-      200,
-    );
+    const throttled = throttleLatest<CollaboratorPresence[]>(setCollaborators, 200);
     emit = throttled;
     return () => {
       throttled.cancel();
@@ -119,9 +100,7 @@ function CollabHost({
       <Probe id="editor" recorder={recorder}>
         <Editor
           project={project}
-          openFiles={[
-            { path: "src/mod0/file0.ts", content: "x", dirty: false },
-          ]}
+          openFiles={[{ path: "src/mod0/file0.ts", content: "x", dirty: false }]}
           setOpenFiles={() => {}}
           activeFile="src/mod0/file0.ts"
           setActiveFile={() => {}}
@@ -143,7 +122,9 @@ const TICKS = 8; // simulated remote keystrokes within a run
 const REPEATS = 3;
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "Date"] });
+  vi.useFakeTimers({
+    toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "Date"],
+  });
 });
 afterEach(() => {
   cleanup();
@@ -204,13 +185,9 @@ describe("M71 BASELINE A — collaborator-awareness tick", () => {
 
         for (const id of Object.keys(perComponent)) {
           perComponent[id]!.push(recorder.count(id));
-          durByComponent[id]!.push(
-            Math.round(recorder.totalDuration(id) * 100) / 100,
-          );
+          durByComponent[id]!.push(Math.round(recorder.totalDuration(id) * 100) / 100);
         }
-        liLast.push(
-          view!.container.querySelectorAll('li[role="none"]').length,
-        );
+        liLast.push(view!.container.querySelectorAll('li[role="none"]').length);
 
         act(() => {
           view!.unmount();
@@ -238,12 +215,8 @@ describe("M71 BASELINE A — collaborator-awareness tick", () => {
     // is the baseline the M71 optimization must reduce. One Sidebar commit per
     // throttled tick.
     for (const size of TREE_SIZES) {
-      expect(
-        results[size].commitsOverTicks["sidebar"].min,
-      ).toBeGreaterThanOrEqual(TICKS);
-      expect(
-        results[size].commitsOverTicks["toolbar"].min,
-      ).toBeGreaterThanOrEqual(TICKS);
+      expect(results[size].commitsOverTicks["sidebar"].min).toBeGreaterThanOrEqual(TICKS);
+      expect(results[size].commitsOverTicks["toolbar"].min).toBeGreaterThanOrEqual(TICKS);
     }
   });
 });

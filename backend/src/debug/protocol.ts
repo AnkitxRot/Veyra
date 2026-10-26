@@ -12,11 +12,7 @@ import {
   DEBUG_MAX_BREAKPOINTS_PER_FILE,
   DEBUG_MAX_PROGRAM_ARGS,
 } from "./bounds.js";
-import {
-  getDebugLanguage,
-  languageMatchesEntry,
-  type DebugLanguageSpec,
-} from "./languages.js";
+import { getDebugLanguage, languageMatchesEntry, type DebugLanguageSpec } from "./languages.js";
 import { isForbiddenRelPath, normalizeRelPath } from "./paths.js";
 
 export type DebugClientCommand =
@@ -84,9 +80,9 @@ export interface SetBreakpointsConfig {
   lines: number[];
 }
 
-export function parseLaunch(raw: unknown):
-  | { ok: true; value: LaunchConfig }
-  | { ok: false; error: string } {
+export function parseLaunch(
+  raw: unknown,
+): { ok: true; value: LaunchConfig } | { ok: false; error: string } {
   if (!raw || typeof raw !== "object") {
     return { ok: false, error: "invalid launch payload" };
   }
@@ -110,9 +106,9 @@ export function parseLaunch(raw: unknown):
   return { ok: true, value: { language: spec, entryFile, args, breakpoints } };
 }
 
-export function parseSetBreakpoints(raw: unknown):
-  | { ok: true; value: SetBreakpointsConfig }
-  | { ok: false; error: string } {
+export function parseSetBreakpoints(
+  raw: unknown,
+): { ok: true; value: SetBreakpointsConfig } | { ok: false; error: string } {
   if (!raw || typeof raw !== "object") {
     return { ok: false, error: "invalid breakpoints payload" };
   }
@@ -164,9 +160,7 @@ export function parseLines(raw: unknown): number[] | null {
   return out;
 }
 
-export function parseBreakpointMap(
-  raw: unknown,
-): Map<string, number[]> | null {
+export function parseBreakpointMap(raw: unknown): Map<string, number[]> | null {
   const map = new Map<string, number[]>();
   if (raw === undefined || raw === null) return map;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;

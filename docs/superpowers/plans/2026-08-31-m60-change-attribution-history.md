@@ -8,7 +8,7 @@ as a live "last change" line, a Team Activity timeline inside TeamPanel, and a
 dismissible "While You Were Away" card on reconnect.
 
 **Architecture:** A new backend `CollaborationHistorian` singleton (mirroring
-the existing `TelemetryHistorian`) accumulates authenticated edit *bursts* in
+the existing `TelemetryHistorian`) accumulates authenticated edit _bursts_ in
 memory off the Yjs `afterTransaction` hook, batches them to a new
 `collaboration_changes` SQLite table, and broadcasts each closed burst over one
 new receive-only `MESSAGE_CUSTOM` wire event. A read-side `timeline` module
@@ -31,7 +31,7 @@ reconnect card, navigating via the existing `openAndRevealLocation` primitive.
 - **Author identity is always `this.clients.get(tr.origin).userId`** — the authenticated WS session (M55-forced). Never a client-asserted value, never a `clientId`. String origins (`"initial_disk_load"`, `"external_mutation"`) and `null` are excluded. (Spec §3.1, §12.)
 - **No DB write on the typing hot path.** `afterTransaction` does zero I/O — pure in-memory routing. Writes are batched every `COLLAB_HISTORY_FLUSH_INTERVAL_MS` (5000) / at queue ≥ 100 / on `stop()`. (Spec §6.1, §12, §20.)
 - **All reads server-authorized** via `requireProjectAccess(db, callerUserId, projectId, "viewer")`. No frontend-only filtering. Every source query has `WHERE project_id = ?` first, indexed. Explicit safe column projections — never `SELECT *` from `runs`/`audit_logs`. (Spec §7.3, §9.4, §12.)
-- **Receive-only wire event.** The client has no code path that *sends* `collab_change`. Only `CollaborationHistorian` → `CollaborationManager.broadcastCollabChange` emits it. (Spec §8.1.)
+- **Receive-only wire event.** The client has no code path that _sends_ `collab_change`. Only `CollaborationHistorian` → `CollaborationManager.broadcastCollabChange` emits it. (Spec §8.1.)
 - **Config pattern** (backend/src/config.ts): `overrides.X ?? Number(process.env.X ?? default)`.
 - **Migration pattern** (backend/src/db.ts): append `{ version: 11, description, up }` to `MIGRATIONS[]` AND mirror the `CREATE TABLE IF NOT EXISTS` in `openDb()`'s inline SQL. Transactional, idempotent.
 - **Frontend/backend types are hand-synced** — there is no shared cross-package module. `TimelineEvent` lives in both `backend/src/collab/timeline.ts` and `frontend/src/types.ts`; keep them identical.
@@ -43,52 +43,58 @@ reconnect card, navigating via the existing `openAndRevealLocation` primitive.
 ## File Structure
 
 ### Backend — new
-| File | Responsibility |
-|---|---|
-| `backend/src/collab/changeAttribution.ts` | **Pure.** Burst state machine: open/extend/close decisions, range folding, burst summary. No `db`, no `Y.*` runtime imports (types only), no timers. |
-| `backend/src/collab/historian.ts` | `CollaborationHistorian` singleton. In-memory open-burst map + write queue → batched SQLite → retention purge → live-broadcast callback → lifecycle (`stop`, `disposeProject`, `closeProjectBursts`, `closeAuthorBursts`). |
-| `backend/src/collab/timeline.ts` | **Read-side.** `TimelineEvent` type + `queryTimeline` + `queryWhileAway` — union of `collaboration_changes` + `runs` + `audit_logs` with explicit safe columns, deterministic ordering, stable pagination. |
-| `backend/src/collab/lastSeen.ts` | `collab_last_seen` upsert/read helpers: `touchLastSeen`, `getLastSeen`, `insertLastSeenIfAbsent`. |
+
+| File                                      | Responsibility                                                                                                                                                                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/src/collab/changeAttribution.ts` | **Pure.** Burst state machine: open/extend/close decisions, range folding, burst summary. No `db`, no `Y.*` runtime imports (types only), no timers.                                                                       |
+| `backend/src/collab/historian.ts`         | `CollaborationHistorian` singleton. In-memory open-burst map + write queue → batched SQLite → retention purge → live-broadcast callback → lifecycle (`stop`, `disposeProject`, `closeProjectBursts`, `closeAuthorBursts`). |
+| `backend/src/collab/timeline.ts`          | **Read-side.** `TimelineEvent` type + `queryTimeline` + `queryWhileAway` — union of `collaboration_changes` + `runs` + `audit_logs` with explicit safe columns, deterministic ordering, stable pagination.                 |
+| `backend/src/collab/lastSeen.ts`          | `collab_last_seen` upsert/read helpers: `touchLastSeen`, `getLastSeen`, `insertLastSeenIfAbsent`.                                                                                                                          |
 
 ### Backend — modified
-| File | Change |
-|---|---|
-| `backend/src/db.ts` | Migration v11 + inline schema for `collaboration_changes`, `collab_last_seen`. |
-| `backend/src/config.ts` | 11 config knobs (spec §14). |
-| `backend/src/collab/manager.ts` | `afterTransaction` attribution hook; idempotent `Y.Text.observe` in `ensureFileLoaded`; `broadcastCollabChange` (room + manager); burst-close calls in `removeClient`/`flushToDisk`/`flushBeforeDestructiveDispose`/`dispose`; callout capture in `handleAttentionMessage`. |
-| `backend/src/ws/index.ts` | `insertLastSeenIfAbsent` on collab `addClient`. |
-| `backend/src/projects/routes.ts` | `GET /:id/collab/timeline`, `GET /:id/collab/while-away`, `POST /:id/collab/while-away/ack`. |
-| `backend/src/index.ts` | `collaborationHistorian.init(db, cfg)` on startup; `collaborationHistorian.stop()` in `performGracefulShutdown` step 0. |
-| `backend/src/projects/service.ts`, `backend/src/backup/workspaceRestore.ts` | `collaborationHistorian.disposeProject(projectId)` beside each `telemetryHistorian.disposeProject` call. |
+
+| File                                                                        | Change                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/src/db.ts`                                                         | Migration v11 + inline schema for `collaboration_changes`, `collab_last_seen`.                                                                                                                                                                                              |
+| `backend/src/config.ts`                                                     | 11 config knobs (spec §14).                                                                                                                                                                                                                                                 |
+| `backend/src/collab/manager.ts`                                             | `afterTransaction` attribution hook; idempotent `Y.Text.observe` in `ensureFileLoaded`; `broadcastCollabChange` (room + manager); burst-close calls in `removeClient`/`flushToDisk`/`flushBeforeDestructiveDispose`/`dispose`; callout capture in `handleAttentionMessage`. |
+| `backend/src/ws/index.ts`                                                   | `insertLastSeenIfAbsent` on collab `addClient`.                                                                                                                                                                                                                             |
+| `backend/src/projects/routes.ts`                                            | `GET /:id/collab/timeline`, `GET /:id/collab/while-away`, `POST /:id/collab/while-away/ack`.                                                                                                                                                                                |
+| `backend/src/index.ts`                                                      | `collaborationHistorian.init(db, cfg)` on startup; `collaborationHistorian.stop()` in `performGracefulShutdown` step 0.                                                                                                                                                     |
+| `backend/src/projects/service.ts`, `backend/src/backup/workspaceRestore.ts` | `collaborationHistorian.disposeProject(projectId)` beside each `telemetryHistorian.disposeProject` call.                                                                                                                                                                    |
 
 ### Frontend — new
-| File | Responsibility |
-|---|---|
-| `frontend/src/collab/timeline.ts` | **Pure.** `formatTimelineEvent`, `groupWhileAway`, `mergeTimeline` (de-dupe by id, sort, cap). No React. |
-| `frontend/src/components/Collab/ActivityTimeline.tsx` | Team Activity section rendered inside TeamPanel. |
-| `frontend/src/components/Collab/WhileYouWereAway.tsx` | Dismissible reconnect card. |
+
+| File                                                  | Responsibility                                                                                           |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `frontend/src/collab/timeline.ts`                     | **Pure.** `formatTimelineEvent`, `groupWhileAway`, `mergeTimeline` (de-dupe by id, sort, cap). No React. |
+| `frontend/src/components/Collab/ActivityTimeline.tsx` | Team Activity section rendered inside TeamPanel.                                                         |
+| `frontend/src/components/Collab/WhileYouWereAway.tsx` | Dismissible reconnect card.                                                                              |
 
 ### Frontend — modified
-| File | Change |
-|---|---|
-| `frontend/src/collab/client.ts` | `collab_change` receive branch + `emit`; `disconnectedAt` + `reconnected_after_gap` emit. |
-| `frontend/src/types.ts` | `TimelineEvent` (hand-synced with backend). |
-| `frontend/src/api.ts` | `fetchCollabTimeline`, `fetchWhileAway`, `ackWhileAway`. |
-| `frontend/src/components/IDE/IDE.tsx` | `timeline` state; `collab_change` + `reconnected_after_gap` listeners; initial fetch on first TeamPanel open; `lastChangeByUser` memo; `<WhileYouWereAway>` mount; prop wiring. |
-| `frontend/src/components/Collab/TeamPanel.tsx` | `<ActivityTimeline>` section. |
-| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | "Last change:" line in the popover. |
-| `frontend/src/styles/collab.css` | timeline + while-away styles. |
+
+| File                                                         | Change                                                                                                                                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/src/collab/client.ts`                              | `collab_change` receive branch + `emit`; `disconnectedAt` + `reconnected_after_gap` emit.                                                                                       |
+| `frontend/src/types.ts`                                      | `TimelineEvent` (hand-synced with backend).                                                                                                                                     |
+| `frontend/src/api.ts`                                        | `fetchCollabTimeline`, `fetchWhileAway`, `ackWhileAway`.                                                                                                                        |
+| `frontend/src/components/IDE/IDE.tsx`                        | `timeline` state; `collab_change` + `reconnected_after_gap` listeners; initial fetch on first TeamPanel open; `lastChangeByUser` memo; `<WhileYouWereAway>` mount; prop wiring. |
+| `frontend/src/components/Collab/TeamPanel.tsx`               | `<ActivityTimeline>` section.                                                                                                                                                   |
+| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | "Last change:" line in the popover.                                                                                                                                             |
+| `frontend/src/styles/collab.css`                             | timeline + while-away styles.                                                                                                                                                   |
 
 ---
 
 ## Task 1: Schema migration v11 + config knobs
 
 **Files:**
+
 - Modify: `backend/src/db.ts` (inline `openDb` SQL + `MIGRATIONS[]`)
 - Modify: `backend/src/config.ts` (`AppConfig` interface + `resolveConfig`)
 - Test: `backend/test/m60-schema.test.ts`
 
 **Interfaces:**
+
 - Produces: tables `collaboration_changes`, `collab_last_seen` (spec §6). Config keys: `collabBurstIdleMs`, `collabBurstMaxMs`, `collabBurstSweepMs`, `collabHistoryFlushIntervalMs`, `collabHistoryRetentionDays`, `collabHistoryMaxPerProject`, `collabAwayThresholdMs`, `collabAwayMaxLookbackMs`, `collabAwayMaxEvents`, `collabAwayNoticeMs`, `collabOpenBurstsMax` (all `number`).
 
 - [ ] **Step 1: Write the failing test**
@@ -103,15 +109,30 @@ describe("M60 schema + config", () => {
   it("creates collaboration_changes and collab_last_seen at v11", () => {
     const db = openDb(":memory:");
     expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(11);
-    const cols = (db.prepare("PRAGMA table_info(collaboration_changes)").all() as any[])
-      .map((r) => r.name);
-    expect(cols).toEqual(expect.arrayContaining([
-      "id", "project_id", "author_user_id", "file_path", "kind",
-      "started_at", "ended_at", "update_count", "lines_added",
-      "lines_removed", "start_line", "end_line", "detail", "created_at",
-    ]));
-    const ls = (db.prepare("PRAGMA table_info(collab_last_seen)").all() as any[])
-      .map((r) => r.name);
+    const cols = (db.prepare("PRAGMA table_info(collaboration_changes)").all() as any[]).map(
+      (r) => r.name,
+    );
+    expect(cols).toEqual(
+      expect.arrayContaining([
+        "id",
+        "project_id",
+        "author_user_id",
+        "file_path",
+        "kind",
+        "started_at",
+        "ended_at",
+        "update_count",
+        "lines_added",
+        "lines_removed",
+        "start_line",
+        "end_line",
+        "detail",
+        "created_at",
+      ]),
+    );
+    const ls = (db.prepare("PRAGMA table_info(collab_last_seen)").all() as any[]).map(
+      (r) => r.name,
+    );
     expect(ls).toEqual(expect.arrayContaining(["project_id", "user_id", "last_seen_at"]));
     // FK cascade present
     const fks = db.prepare("PRAGMA foreign_key_list(collaboration_changes)").all() as any[];
@@ -211,17 +232,17 @@ Append to `MIGRATIONS[]`:
 In `backend/src/config.ts` `AppConfig` interface (near `collabLowWatermarkBytes`):
 
 ```ts
-  collabBurstIdleMs: number;
-  collabBurstMaxMs: number;
-  collabBurstSweepMs: number;
-  collabHistoryFlushIntervalMs: number;
-  collabHistoryRetentionDays: number;
-  collabHistoryMaxPerProject: number;
-  collabAwayThresholdMs: number;
-  collabAwayMaxLookbackMs: number;
-  collabAwayMaxEvents: number;
-  collabAwayNoticeMs: number;
-  collabOpenBurstsMax: number;
+collabBurstIdleMs: number;
+collabBurstMaxMs: number;
+collabBurstSweepMs: number;
+collabHistoryFlushIntervalMs: number;
+collabHistoryRetentionDays: number;
+collabHistoryMaxPerProject: number;
+collabAwayThresholdMs: number;
+collabAwayMaxLookbackMs: number;
+collabAwayMaxEvents: number;
+collabAwayNoticeMs: number;
+collabOpenBurstsMax: number;
 ```
 
 In `resolveConfig` return object (near `collabLowWatermarkBytes`):
@@ -279,41 +300,68 @@ git commit -m "feat(m60): add collaboration_changes + collab_last_seen schema an
 ## Task 2: `changeAttribution.ts` — pure burst state machine
 
 **Files:**
+
 - Create: `backend/src/collab/changeAttribution.ts`
 - Test: `backend/test/m60-change-attribution.test.ts`
 
 **Interfaces:**
+
 - Consumes: config values `{ idleMs, maxMs }` passed explicitly (no `cfg` import).
 - Produces:
   ```ts
   export interface EditInput {
-    projectId: string; authorUserId: number; username: string;
-    filePath: string; at: number;
+    projectId: string;
+    authorUserId: number;
+    username: string;
+    filePath: string;
+    at: number;
     // best-effort, from the Y.Text observer; null when unavailable/ambiguous
     range: { startLine: number; endLine: number; contiguous: boolean } | null;
-    linesAdded: number; linesRemoved: number;
+    linesAdded: number;
+    linesRemoved: number;
   }
   export interface OpenBurst {
-    key: string; projectId: string; authorUserId: number; username: string;
-    filePath: string; kind: "edit_burst";
-    startedAt: number; endedAt: number; lastEditAt: number;
-    updateCount: number; linesAdded: number; linesRemoved: number;
+    key: string;
+    projectId: string;
+    authorUserId: number;
+    username: string;
+    filePath: string;
+    kind: "edit_burst";
+    startedAt: number;
+    endedAt: number;
+    lastEditAt: number;
+    updateCount: number;
+    linesAdded: number;
+    linesRemoved: number;
     // merged set of touched line intervals, in order; used by resolveBurstRange
     intervals: Array<[number, number]>;
     rangeContaminated: boolean;
     observerMissed: boolean; // true if any folded edit had range === null
   }
   export interface ClosedBurst extends Omit<OpenBurst, "lastEditAt" | "intervals"> {
-    startLine: number | null; endLine: number | null;
+    startLine: number | null;
+    endLine: number | null;
     closeReason: CloseReason;
   }
   export type CloseReason =
-    | "idle" | "max_age" | "author_switch" | "flush"
-    | "disconnect" | "dispose" | "shutdown" | "external_mutation" | "cap";
+    | "idle"
+    | "max_age"
+    | "author_switch"
+    | "flush"
+    | "disconnect"
+    | "dispose"
+    | "shutdown"
+    | "external_mutation"
+    | "cap";
   export function burstKey(projectId: string, authorUserId: number, filePath: string): string;
   export function openBurst(input: EditInput): OpenBurst;
   export function extendBurst(b: OpenBurst, input: EditInput): void; // mutates
-  export function shouldCloseForNextEdit(b: OpenBurst, now: number, idleMs: number, maxMs: number): boolean;
+  export function shouldCloseForNextEdit(
+    b: OpenBurst,
+    now: number,
+    idleMs: number,
+    maxMs: number,
+  ): boolean;
   export function isStale(b: OpenBurst, now: number, idleMs: number, maxMs: number): boolean;
   export function markContaminated(b: OpenBurst): void;
   export function closeBurst(b: OpenBurst, reason: CloseReason): ClosedBurst;
@@ -328,15 +376,28 @@ git commit -m "feat(m60): add collaboration_changes + collab_last_seen schema an
 // backend/test/m60-change-attribution.test.ts
 import { describe, it, expect } from "vitest";
 import {
-  burstKey, openBurst, extendBurst, shouldCloseForNextEdit, isStale,
-  markContaminated, closeBurst, type EditInput,
+  burstKey,
+  openBurst,
+  extendBurst,
+  shouldCloseForNextEdit,
+  isStale,
+  markContaminated,
+  closeBurst,
+  type EditInput,
 } from "../src/collab/changeAttribution.js";
 
-const IDLE = 15000, MAX = 300000;
+const IDLE = 15000,
+  MAX = 300000;
 const mk = (over: Partial<EditInput> = {}): EditInput => ({
-  projectId: "p1", authorUserId: 7, username: "rahul", filePath: "a.ts",
-  at: 1_000_000, range: { startLine: 10, endLine: 10, contiguous: true },
-  linesAdded: 0, linesRemoved: 0, ...over,
+  projectId: "p1",
+  authorUserId: 7,
+  username: "rahul",
+  filePath: "a.ts",
+  at: 1_000_000,
+  range: { startLine: 10, endLine: 10, contiguous: true },
+  linesAdded: 0,
+  linesRemoved: 0,
+  ...over,
 });
 
 describe("changeAttribution", () => {
@@ -435,29 +496,58 @@ Run: `cd backend && npx vitest run test/m60-change-attribution.test.ts`
 // spec §4/§5 is proven by backend/test/m60-change-attribution.test.ts.
 
 export interface EditInput {
-  projectId: string; authorUserId: number; username: string;
-  filePath: string; at: number;
+  projectId: string;
+  authorUserId: number;
+  username: string;
+  filePath: string;
+  at: number;
   range: { startLine: number; endLine: number; contiguous: boolean } | null;
-  linesAdded: number; linesRemoved: number;
+  linesAdded: number;
+  linesRemoved: number;
 }
 export interface OpenBurst {
-  key: string; projectId: string; authorUserId: number; username: string;
-  filePath: string; kind: "edit_burst";
-  startedAt: number; endedAt: number; lastEditAt: number;
-  updateCount: number; linesAdded: number; linesRemoved: number;
+  key: string;
+  projectId: string;
+  authorUserId: number;
+  username: string;
+  filePath: string;
+  kind: "edit_burst";
+  startedAt: number;
+  endedAt: number;
+  lastEditAt: number;
+  updateCount: number;
+  linesAdded: number;
+  linesRemoved: number;
   intervals: Array<[number, number]>;
-  rangeContaminated: boolean; observerMissed: boolean;
+  rangeContaminated: boolean;
+  observerMissed: boolean;
 }
 export type CloseReason =
-  | "idle" | "max_age" | "author_switch" | "flush" | "disconnect"
-  | "dispose" | "shutdown" | "external_mutation" | "cap";
+  | "idle"
+  | "max_age"
+  | "author_switch"
+  | "flush"
+  | "disconnect"
+  | "dispose"
+  | "shutdown"
+  | "external_mutation"
+  | "cap";
 export interface ClosedBurst {
-  key: string; projectId: string; authorUserId: number; username: string;
-  filePath: string; kind: "edit_burst";
-  startedAt: number; endedAt: number;
-  updateCount: number; linesAdded: number; linesRemoved: number;
-  rangeContaminated: boolean; observerMissed: boolean;
-  startLine: number | null; endLine: number | null;
+  key: string;
+  projectId: string;
+  authorUserId: number;
+  username: string;
+  filePath: string;
+  kind: "edit_burst";
+  startedAt: number;
+  endedAt: number;
+  updateCount: number;
+  linesAdded: number;
+  linesRemoved: number;
+  rangeContaminated: boolean;
+  observerMissed: boolean;
+  startLine: number | null;
+  endLine: number | null;
   closeReason: CloseReason;
 }
 
@@ -481,11 +571,20 @@ function foldInterval(intervals: Array<[number, number]>, next: [number, number]
 export function openBurst(input: EditInput): OpenBurst {
   const b: OpenBurst = {
     key: burstKey(input.projectId, input.authorUserId, input.filePath),
-    projectId: input.projectId, authorUserId: input.authorUserId,
-    username: input.username, filePath: input.filePath, kind: "edit_burst",
-    startedAt: input.at, endedAt: input.at, lastEditAt: input.at,
-    updateCount: 1, linesAdded: input.linesAdded, linesRemoved: input.linesRemoved,
-    intervals: [], rangeContaminated: false, observerMissed: false,
+    projectId: input.projectId,
+    authorUserId: input.authorUserId,
+    username: input.username,
+    filePath: input.filePath,
+    kind: "edit_burst",
+    startedAt: input.at,
+    endedAt: input.at,
+    lastEditAt: input.at,
+    updateCount: 1,
+    linesAdded: input.linesAdded,
+    linesRemoved: input.linesRemoved,
+    intervals: [],
+    rangeContaminated: false,
+    observerMissed: false,
   };
   applyRange(b, input);
   return b;
@@ -509,14 +608,15 @@ export function extendBurst(b: OpenBurst, input: EditInput): void {
 }
 
 export function shouldCloseForNextEdit(
-  b: OpenBurst, now: number, idleMs: number, maxMs: number,
+  b: OpenBurst,
+  now: number,
+  idleMs: number,
+  maxMs: number,
 ): boolean {
   return now - b.lastEditAt > idleMs || now - b.startedAt > maxMs;
 }
 
-export function isStale(
-  b: OpenBurst, now: number, idleMs: number, maxMs: number,
-): boolean {
+export function isStale(b: OpenBurst, now: number, idleMs: number, maxMs: number): boolean {
   return now - b.lastEditAt > idleMs || now - b.startedAt > maxMs;
 }
 
@@ -525,14 +625,20 @@ export function markContaminated(b: OpenBurst): void {
 }
 
 export function closeBurst(b: OpenBurst, reason: CloseReason): ClosedBurst {
-  const rangeOk =
-    !b.rangeContaminated && !b.observerMissed && b.intervals.length === 1;
+  const rangeOk = !b.rangeContaminated && !b.observerMissed && b.intervals.length === 1;
   return {
-    key: b.key, projectId: b.projectId, authorUserId: b.authorUserId,
-    username: b.username, filePath: b.filePath, kind: b.kind,
-    startedAt: b.startedAt, endedAt: b.endedAt,
-    updateCount: b.updateCount, linesAdded: b.linesAdded,
-    linesRemoved: b.linesRemoved, rangeContaminated: b.rangeContaminated,
+    key: b.key,
+    projectId: b.projectId,
+    authorUserId: b.authorUserId,
+    username: b.username,
+    filePath: b.filePath,
+    kind: b.kind,
+    startedAt: b.startedAt,
+    endedAt: b.endedAt,
+    updateCount: b.updateCount,
+    linesAdded: b.linesAdded,
+    linesRemoved: b.linesRemoved,
+    rangeContaminated: b.rangeContaminated,
     observerMissed: b.observerMissed,
     startLine: rangeOk ? b.intervals[0][0] : null,
     endLine: rangeOk ? b.intervals[0][1] : null,
@@ -561,10 +667,12 @@ git commit -m "feat(m60): pure burst state machine (changeAttribution)"
 ## Task 3: `lastSeen.ts` helpers
 
 **Files:**
+
 - Create: `backend/src/collab/lastSeen.ts`
 - Test: `backend/test/m60-last-seen.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Db` from `../db.js`.
 - Produces:
   ```ts
@@ -590,7 +698,10 @@ function seed(db: any) {
 
 describe("collab_last_seen helpers", () => {
   let db: any;
-  beforeEach(() => { db = openDb(":memory:"); seed(db); });
+  beforeEach(() => {
+    db = openDb(":memory:");
+    seed(db);
+  });
 
   it("getLastSeen is null before any write", () => {
     expect(getLastSeen(db, "p", 1)).toBeNull();
@@ -631,25 +742,27 @@ export function getLastSeen(db: Db, projectId: string, userId: number): string |
   return row?.last_seen_at ?? null;
 }
 
-export function touchLastSeen(
-  db: Db, projectId: string, userId: number, atIso?: string,
-): void {
+export function touchLastSeen(db: Db, projectId: string, userId: number, atIso?: string): void {
   const at = atIso ?? new Date().toISOString();
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO collab_last_seen (project_id, user_id, last_seen_at)
     VALUES (?, ?, ?)
     ON CONFLICT(project_id, user_id) DO UPDATE SET
       last_seen_at = CASE WHEN excluded.last_seen_at > last_seen_at
                           THEN excluded.last_seen_at ELSE last_seen_at END
-  `).run(projectId, userId, at);
+  `,
+  ).run(projectId, userId, at);
 }
 
 export function insertLastSeenIfAbsent(db: Db, projectId: string, userId: number): void {
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO collab_last_seen (project_id, user_id, last_seen_at)
     VALUES (?, ?, ?)
     ON CONFLICT(project_id, user_id) DO NOTHING
-  `).run(projectId, userId, new Date().toISOString());
+  `,
+  ).run(projectId, userId, new Date().toISOString());
 }
 ```
 
@@ -667,12 +780,14 @@ git commit -m "feat(m60): collab_last_seen upsert/read helpers"
 ## Task 4: `CollaborationHistorian` — accumulation, batching, retention, lifecycle
 
 **Files:**
+
 - Create: `backend/src/collab/historian.ts`
 - Test: `backend/test/m60-historian.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Db`, `AppConfig`, everything from `changeAttribution.ts`, the
-  `TimelineEvent` type from `timeline.ts` (Task 6 — but only the *type*;
+  `TimelineEvent` type from `timeline.ts` (Task 6 — but only the _type_;
   declare a local structural type here and swap the import in Task 6 if
   ordering forces it — simpler: do Task 6's type file first, see note below).
 - Produces:
@@ -683,9 +798,15 @@ git commit -m "feat(m60): collab_last_seen upsert/read helpers"
     setBroadcaster(fn: (projectId: string, ev: CollabChangeWire) => void): void;
     recordEdit(input: EditInput): void;
     recordCallout(input: {
-      projectId: string; authorUserId: number; username: string;
-      filePath: string; startLine: number | null; endLine: number | null;
-      messagePreview: string; targeted: boolean; at: number;
+      projectId: string;
+      authorUserId: number;
+      username: string;
+      filePath: string;
+      startLine: number | null;
+      endLine: number | null;
+      messagePreview: string;
+      targeted: boolean;
+      at: number;
     }): void;
     closeAuthorBursts(projectId: string, userId: number, reason: CloseReason): void;
     closeProjectBursts(projectId: string, reason: CloseReason): void;
@@ -698,19 +819,24 @@ git commit -m "feat(m60): collab_last_seen upsert/read helpers"
     _openBurstCount(): number;
     _queueLength(): number;
   }
-  export interface CollabChangeWire {  // the shape sent over MESSAGE_CUSTOM + returned by REST
-    id: string; kind: "edit_burst" | "callout"; at: string;
+  export interface CollabChangeWire {
+    // the shape sent over MESSAGE_CUSTOM + returned by REST
+    id: string;
+    kind: "edit_burst" | "callout";
+    at: string;
     actor: { userId: number; username: string };
     filePath: string;
     lineRange: { startLine: number; endLine: number } | null;
-    updateCount: number; linesAdded: number; linesRemoved: number;
+    updateCount: number;
+    linesAdded: number;
+    linesRemoved: number;
     calloutPreview?: string;
   }
   export const collaborationHistorian: CollaborationHistorian; // singleton
   ```
 - **Note on Task ordering:** create `timeline.ts`'s `TimelineEvent` type stub
   first (Task 6 Step 3 defines it fully). Here, import only `CollabChangeWire`
-  which this file *owns*. `timeline.ts` maps a stored row → `TimelineEvent`;
+  which this file _owns_. `timeline.ts` maps a stored row → `TimelineEvent`;
   the wire event is a sibling shape. Keep them distinct.
 
 - [ ] **Step 1: Failing tests**
@@ -723,19 +849,28 @@ import { resolveConfig } from "../src/config.js";
 import { CollaborationHistorian } from "../src/collab/historian.js";
 
 function seed(db: any) {
-  db.prepare("INSERT INTO users (id,username,password_hash) VALUES (7,'rahul','h'),(8,'ankit','h')").run();
+  db.prepare(
+    "INSERT INTO users (id,username,password_hash) VALUES (7,'rahul','h'),(8,'ankit','h')",
+  ).run();
   db.prepare("INSERT INTO projects (id,owner_id,name) VALUES ('p',7,'P')").run();
 }
 const edit = (over = {}) => ({
-  projectId: "p", authorUserId: 7, username: "rahul", filePath: "a.ts",
-  at: Date.now(), range: { startLine: 10, endLine: 10, contiguous: true },
-  linesAdded: 1, linesRemoved: 0, ...over,
+  projectId: "p",
+  authorUserId: 7,
+  username: "rahul",
+  filePath: "a.ts",
+  at: Date.now(),
+  range: { startLine: 10, endLine: 10, contiguous: true },
+  linesAdded: 1,
+  linesRemoved: 0,
+  ...over,
 });
 
 describe("CollaborationHistorian", () => {
   let db: any, h: CollaborationHistorian;
   beforeEach(() => {
-    db = openDb(":memory:"); seed(db);
+    db = openDb(":memory:");
+    seed(db);
     h = new (CollaborationHistorian as any)();
     h.init(db, resolveConfig());
   });
@@ -748,7 +883,9 @@ describe("CollaborationHistorian", () => {
     h.recordEdit(edit({ at: t + 100000, filePath: "b.ts" })); // different file → prior key still open; force close:
     h.closeProjectBursts("p", "flush");
     h.flushQueue();
-    const rows = db.prepare("SELECT * FROM collaboration_changes WHERE project_id='p'").all() as any[];
+    const rows = db
+      .prepare("SELECT * FROM collaboration_changes WHERE project_id='p'")
+      .all() as any[];
     expect(rows.filter((r) => r.file_path === "a.ts")).toHaveLength(1);
     expect(rows.find((r) => r.file_path === "a.ts").update_count).toBe(2);
   });
@@ -759,9 +896,9 @@ describe("CollaborationHistorian", () => {
     h.recordEdit(edit({ at: t + 1000, authorUserId: 8, username: "ankit" }));
     h.closeProjectBursts("p", "flush");
     h.flushQueue();
-    const rahul = db.prepare(
-      "SELECT * FROM collaboration_changes WHERE author_user_id=7 AND file_path='a.ts'"
-    ).get() as any;
+    const rahul = db
+      .prepare("SELECT * FROM collaboration_changes WHERE author_user_id=7 AND file_path='a.ts'")
+      .get() as any;
     expect(rahul.start_line).toBeNull();
   });
 
@@ -794,8 +931,15 @@ describe("CollaborationHistorian", () => {
 
   it("recordCallout writes a kind='callout' row with only allowlisted detail", () => {
     h.recordCallout({
-      projectId: "p", authorUserId: 7, username: "rahul", filePath: "a.ts",
-      startLine: 40, endLine: 52, messagePreview: "look here", targeted: false, at: 6_000_000,
+      projectId: "p",
+      authorUserId: 7,
+      username: "rahul",
+      filePath: "a.ts",
+      startLine: 40,
+      endLine: 52,
+      messagePreview: "look here",
+      targeted: false,
+      at: 6_000_000,
     });
     h.flushQueue();
     const row = db.prepare("SELECT * FROM collaboration_changes WHERE kind='callout'").get() as any;
@@ -807,27 +951,38 @@ describe("CollaborationHistorian", () => {
 
   it("retention: time purge + per-project cap", () => {
     // insert 5 old + 5 fresh; retention 0 days, cap 3
-    const cfg = { ...resolveConfig(), collabHistoryRetentionDays: 0, collabHistoryMaxPerProject: 3 };
-    h.stop(); h = new (CollaborationHistorian as any)(); h.init(db, cfg);
+    const cfg = {
+      ...resolveConfig(),
+      collabHistoryRetentionDays: 0,
+      collabHistoryMaxPerProject: 3,
+    };
+    h.stop();
+    h = new (CollaborationHistorian as any)();
+    h.init(db, cfg);
     const old = "2000-01-01T00:00:00.000Z";
     for (let i = 0; i < 5; i++) {
-      db.prepare(`INSERT INTO collaboration_changes
+      db.prepare(
+        `INSERT INTO collaboration_changes
         (id,project_id,author_user_id,file_path,kind,started_at,ended_at)
-        VALUES (?,?,?,?,?,?,?)`).run(`old${i}`, "p", 7, "a.ts", "edit_burst", old, old);
+        VALUES (?,?,?,?,?,?,?)`,
+      ).run(`old${i}`, "p", 7, "a.ts", "edit_burst", old, old);
     }
     for (let i = 0; i < 5; i++) {
       h.recordEdit(edit({ at: 7_000_000 + i * 20000, filePath: `n${i}.ts` }));
     }
-    h.closeProjectBursts("p", "flush"); h.flushQueue();
+    h.closeProjectBursts("p", "flush");
+    h.flushQueue();
     h.purgeExpired();
     const rows = db.prepare("SELECT id FROM collaboration_changes").all() as any[];
     expect(rows.every((r) => !r.id.startsWith("old"))).toBe(true); // time purge
-    expect(rows.length).toBeLessThanOrEqual(3);                    // cap
+    expect(rows.length).toBeLessThanOrEqual(3); // cap
   });
 
   it("open-burst map is capped (oldest force-closed)", () => {
     const cfg = { ...resolveConfig(), collabOpenBurstsMax: 3 };
-    h.stop(); h = new (CollaborationHistorian as any)(); h.init(db, cfg);
+    h.stop();
+    h = new (CollaborationHistorian as any)();
+    h.init(db, cfg);
     for (let i = 0; i < 5; i++) h.recordEdit(edit({ at: 8_000_000 + i, filePath: `c${i}.ts` }));
     expect(h._openBurstCount()).toBeLessThanOrEqual(3);
   });
@@ -836,9 +991,16 @@ describe("CollaborationHistorian", () => {
     const t = 9_000_000;
     h.recordEdit(edit({ at: t }));
     h.closeAuthorBursts("p", 7, "disconnect");
-    h.recordEdit(edit({ at: t + 2000 }));       // "reconnected", new edit
-    h.closeProjectBursts("p", "flush"); h.flushQueue();
-    expect((db.prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE file_path='a.ts'").get() as any).c).toBe(2);
+    h.recordEdit(edit({ at: t + 2000 })); // "reconnected", new edit
+    h.closeProjectBursts("p", "flush");
+    h.flushQueue();
+    expect(
+      (
+        db
+          .prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE file_path='a.ts'")
+          .get() as any
+      ).c,
+    ).toBe(2);
   });
 
   it("broadcasts each closed burst once", () => {
@@ -853,11 +1015,22 @@ describe("CollaborationHistorian", () => {
 
   it("contaminateFile forces null range on the matching open burst", () => {
     const t = 11_000_000;
-    h.recordEdit(edit({ at: t, filePath: "x.ts", range: { startLine: 3, endLine: 3, contiguous: true } }));
+    h.recordEdit(
+      edit({ at: t, filePath: "x.ts", range: { startLine: 3, endLine: 3, contiguous: true } }),
+    );
     h.contaminateFile("p", "x.ts");
-    h.recordEdit(edit({ at: t + 500, filePath: "x.ts", range: { startLine: 4, endLine: 4, contiguous: true } }));
-    h.closeProjectBursts("p", "flush"); h.flushQueue();
-    const row = db.prepare("SELECT * FROM collaboration_changes WHERE file_path='x.ts'").get() as any;
+    h.recordEdit(
+      edit({
+        at: t + 500,
+        filePath: "x.ts",
+        range: { startLine: 4, endLine: 4, contiguous: true },
+      }),
+    );
+    h.closeProjectBursts("p", "flush");
+    h.flushQueue();
+    const row = db
+      .prepare("SELECT * FROM collaboration_changes WHERE file_path='x.ts'")
+      .get() as any;
     expect(row.start_line).toBeNull();
   });
 });
@@ -877,25 +1050,46 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import {
-  burstKey, openBurst, extendBurst, shouldCloseForNextEdit, isStale,
-  markContaminated, closeBurst,
-  type EditInput, type OpenBurst, type ClosedBurst, type CloseReason,
+  burstKey,
+  openBurst,
+  extendBurst,
+  shouldCloseForNextEdit,
+  isStale,
+  markContaminated,
+  closeBurst,
+  type EditInput,
+  type OpenBurst,
+  type ClosedBurst,
+  type CloseReason,
 } from "./changeAttribution.js";
 
 export interface CollabChangeWire {
-  id: string; kind: "edit_burst" | "callout"; at: string;
+  id: string;
+  kind: "edit_burst" | "callout";
+  at: string;
   actor: { userId: number; username: string };
   filePath: string;
   lineRange: { startLine: number; endLine: number } | null;
-  updateCount: number; linesAdded: number; linesRemoved: number;
+  updateCount: number;
+  linesAdded: number;
+  linesRemoved: number;
   calloutPreview?: string;
 }
 
 type StoredRow = {
-  id: string; project_id: string; author_user_id: number; file_path: string;
-  kind: "edit_burst" | "callout"; started_at: string; ended_at: string;
-  update_count: number; lines_added: number; lines_removed: number;
-  start_line: number | null; end_line: number | null; detail: string | null;
+  id: string;
+  project_id: string;
+  author_user_id: number;
+  file_path: string;
+  kind: "edit_burst" | "callout";
+  started_at: string;
+  ended_at: string;
+  update_count: number;
+  lines_added: number;
+  lines_removed: number;
+  start_line: number | null;
+  end_line: number | null;
+  detail: string | null;
 };
 
 export class CollaborationHistorian {
@@ -918,7 +1112,8 @@ export class CollaborationHistorian {
   }
 
   init(db: Db, cfg: AppConfig): void {
-    this.db = db; this.cfg = cfg;
+    this.db = db;
+    this.cfg = cfg;
     this.flushTimer = setInterval(() => this.flushQueue(), cfg.collabHistoryFlushIntervalMs);
     this.flushTimer.unref?.();
     this.sweepTimer = setInterval(() => this.sweep(), cfg.collabBurstSweepMs);
@@ -936,8 +1131,11 @@ export class CollaborationHistorian {
     const { collabBurstIdleMs: idle, collabBurstMaxMs: max, collabOpenBurstsMax: cap } = this.cfg;
     // different-author contamination: close any OTHER author's open burst for this file
     for (const [k, b] of this.open) {
-      if (b.projectId === input.projectId && b.filePath === input.filePath
-          && b.authorUserId !== input.authorUserId) {
+      if (
+        b.projectId === input.projectId &&
+        b.filePath === input.filePath &&
+        b.authorUserId !== input.authorUserId
+      ) {
         markContaminated(b);
         this.enqueueClose(closeBurst(b, "author_switch"));
         this.open.delete(k);
@@ -948,24 +1146,44 @@ export class CollaborationHistorian {
     if (existing && !shouldCloseForNextEdit(existing, input.at, idle, max)) {
       extendBurst(existing, input);
     } else {
-      if (existing) { this.enqueueClose(closeBurst(existing, "idle")); this.open.delete(key); }
+      if (existing) {
+        this.enqueueClose(closeBurst(existing, "idle"));
+        this.open.delete(key);
+      }
       this.open.set(key, openBurst(input));
     }
     if (this.open.size > cap) this.forceCloseOldest(cap);
   }
 
   recordCallout(i: {
-    projectId: string; authorUserId: number; username: string; filePath: string;
-    startLine: number | null; endLine: number | null;
-    messagePreview: string; targeted: boolean; at: number;
+    projectId: string;
+    authorUserId: number;
+    username: string;
+    filePath: string;
+    startLine: number | null;
+    endLine: number | null;
+    messagePreview: string;
+    targeted: boolean;
+    at: number;
   }): void {
     const iso = new Date(i.at).toISOString();
     const row: StoredRow = {
-      id: randomUUID(), project_id: i.projectId, author_user_id: i.authorUserId,
-      file_path: i.filePath, kind: "callout", started_at: iso, ended_at: iso,
-      update_count: 0, lines_added: 0, lines_removed: 0,
-      start_line: i.startLine, end_line: i.endLine,
-      detail: JSON.stringify({ messagePreview: i.messagePreview.slice(0, 120), targeted: !!i.targeted }),
+      id: randomUUID(),
+      project_id: i.projectId,
+      author_user_id: i.authorUserId,
+      file_path: i.filePath,
+      kind: "callout",
+      started_at: iso,
+      ended_at: iso,
+      update_count: 0,
+      lines_added: 0,
+      lines_removed: 0,
+      start_line: i.startLine,
+      end_line: i.endLine,
+      detail: JSON.stringify({
+        messagePreview: i.messagePreview.slice(0, 120),
+        targeted: !!i.targeted,
+      }),
     };
     this.queue.push(row);
     this.projectsTouchedSinceLastPurge.add(i.projectId);
@@ -988,13 +1206,17 @@ export class CollaborationHistorian {
   closeAuthorBursts(projectId: string, userId: number, reason: CloseReason): void {
     for (const [k, b] of this.open) {
       if (b.projectId === projectId && b.authorUserId === userId) {
-        this.enqueueClose(closeBurst(b, reason)); this.open.delete(k);
+        this.enqueueClose(closeBurst(b, reason));
+        this.open.delete(k);
       }
     }
   }
   closeProjectBursts(projectId: string, reason: CloseReason): void {
     for (const [k, b] of this.open) {
-      if (b.projectId === projectId) { this.enqueueClose(closeBurst(b, reason)); this.open.delete(k); }
+      if (b.projectId === projectId) {
+        this.enqueueClose(closeBurst(b, reason));
+        this.open.delete(k);
+      }
     }
   }
   contaminateFile(projectId: string, filePath: string): void {
@@ -1011,18 +1233,27 @@ export class CollaborationHistorian {
     const sorted = [...this.open.values()].sort((a, b) => a.startedAt - b.startedAt);
     while (this.open.size > cap && sorted.length) {
       const b = sorted.shift()!;
-      this.enqueueClose(closeBurst(b, "cap")); this.open.delete(b.key);
+      this.enqueueClose(closeBurst(b, "cap"));
+      this.open.delete(b.key);
     }
   }
 
   private enqueueClose(c: ClosedBurst): void {
     const iso = (n: number) => new Date(n).toISOString();
     const row: StoredRow = {
-      id: randomUUID(), project_id: c.projectId, author_user_id: c.authorUserId,
-      file_path: c.filePath, kind: "edit_burst",
-      started_at: iso(c.startedAt), ended_at: iso(c.endedAt),
-      update_count: c.updateCount, lines_added: c.linesAdded, lines_removed: c.linesRemoved,
-      start_line: c.startLine, end_line: c.endLine, detail: null,
+      id: randomUUID(),
+      project_id: c.projectId,
+      author_user_id: c.authorUserId,
+      file_path: c.filePath,
+      kind: "edit_burst",
+      started_at: iso(c.startedAt),
+      ended_at: iso(c.endedAt),
+      update_count: c.updateCount,
+      lines_added: c.linesAdded,
+      lines_removed: c.linesRemoved,
+      start_line: c.startLine,
+      end_line: c.endLine,
+      detail: null,
     };
     this.queue.push(row);
     this.projectsTouchedSinceLastPurge.add(c.projectId);
@@ -1034,20 +1265,31 @@ export class CollaborationHistorian {
     if (!this.broadcaster) return;
     const detail = row.detail ? JSON.parse(row.detail) : null;
     const ev: CollabChangeWire = {
-      id: `collab:${row.id}`, kind: row.kind, at: row.ended_at,
+      id: `collab:${row.id}`,
+      kind: row.kind,
+      at: row.ended_at,
       actor: { userId: row.author_user_id, username },
       filePath: row.file_path,
-      lineRange: row.start_line != null && row.end_line != null
-        ? { startLine: row.start_line, endLine: row.end_line } : null,
-      updateCount: row.update_count, linesAdded: row.lines_added, linesRemoved: row.lines_removed,
+      lineRange:
+        row.start_line != null && row.end_line != null
+          ? { startLine: row.start_line, endLine: row.end_line }
+          : null,
+      updateCount: row.update_count,
+      linesAdded: row.lines_added,
+      linesRemoved: row.lines_removed,
       calloutPreview: detail?.messagePreview,
     };
-    try { this.broadcaster(row.project_id, ev); } catch { /* never throw into a room */ }
+    try {
+      this.broadcaster(row.project_id, ev);
+    } catch {
+      /* never throw into a room */
+    }
   }
 
   flushQueue(): void {
     if (!this.db || this.queue.length === 0) return;
-    const rows = this.queue; this.queue = [];
+    const rows = this.queue;
+    this.queue = [];
     try {
       this.db.exec("BEGIN TRANSACTION;");
       const stmt = this.db.prepare(`INSERT INTO collaboration_changes
@@ -1055,13 +1297,29 @@ export class CollaborationHistorian {
          update_count,lines_added,lines_removed,start_line,end_line,detail)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
       for (const r of rows) {
-        stmt.run(r.id, r.project_id, r.author_user_id, r.file_path, r.kind,
-          r.started_at, r.ended_at, r.update_count, r.lines_added, r.lines_removed,
-          r.start_line, r.end_line, r.detail);
+        stmt.run(
+          r.id,
+          r.project_id,
+          r.author_user_id,
+          r.file_path,
+          r.kind,
+          r.started_at,
+          r.ended_at,
+          r.update_count,
+          r.lines_added,
+          r.lines_removed,
+          r.start_line,
+          r.end_line,
+          r.detail,
+        );
       }
       this.db.exec("COMMIT;");
     } catch (err) {
-      try { this.db.exec("ROLLBACK;"); } catch { /* */ }
+      try {
+        this.db.exec("ROLLBACK;");
+      } catch {
+        /* */
+      }
       console.error("[CollabHistorian] flush failed:", err);
     }
     this.maybePurgeCaps();
@@ -1071,10 +1329,14 @@ export class CollaborationHistorian {
     if (!this.db || !this.cfg) return;
     const cap = this.cfg.collabHistoryMaxPerProject;
     for (const pid of this.projectsTouchedSinceLastPurge) {
-      this.db.prepare(`DELETE FROM collaboration_changes
+      this.db
+        .prepare(
+          `DELETE FROM collaboration_changes
         WHERE project_id = ? AND id NOT IN (
           SELECT id FROM collaboration_changes WHERE project_id = ?
-          ORDER BY ended_at DESC, id DESC LIMIT ?)`).run(pid, pid, cap);
+          ORDER BY ended_at DESC, id DESC LIMIT ?)`,
+        )
+        .run(pid, pid, cap);
     }
     this.projectsTouchedSinceLastPurge.clear();
   }
@@ -1083,9 +1345,9 @@ export class CollaborationHistorian {
     if (!this.db || !this.cfg) return;
     const days = this.cfg.collabHistoryRetentionDays;
     try {
-      this.db.prepare(
-        `DELETE FROM collaboration_changes WHERE ended_at < datetime('now', ?)`
-      ).run(`-${days} days`);
+      this.db
+        .prepare(`DELETE FROM collaboration_changes WHERE ended_at < datetime('now', ?)`)
+        .run(`-${days} days`);
     } catch (err) {
       console.warn("[CollabHistorian] purge warning:", err);
     }
@@ -1097,12 +1359,19 @@ export class CollaborationHistorian {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     if (this.purgeTimer) clearInterval(this.purgeTimer);
     this.flushTimer = this.sweepTimer = this.purgeTimer = null;
-    for (const [k, b] of this.open) { this.enqueueClose(closeBurst(b, "shutdown")); this.open.delete(k); }
+    for (const [k, b] of this.open) {
+      this.enqueueClose(closeBurst(b, "shutdown"));
+      this.open.delete(k);
+    }
     this.flushQueue();
   }
 
-  _openBurstCount(): number { return this.open.size; }
-  _queueLength(): number { return this.queue.length; }
+  _openBurstCount(): number {
+    return this.open.size;
+  }
+  _queueLength(): number {
+    return this.queue.length;
+  }
 }
 
 export const collaborationHistorian = CollaborationHistorian.getInstance();
@@ -1134,10 +1403,12 @@ git commit -m "feat(m60): CollaborationHistorian — batched, bounded, retained 
 ## Task 5: Room wiring — `afterTransaction` attribution + range observer + burst-close hooks
 
 **Files:**
+
 - Modify: `backend/src/collab/manager.ts` (ctor `afterTransaction` listener; `ensureFileLoaded`; `removeClient`; `flushToDisk`; `flushBeforeDestructiveDispose`; `dispose`; `handleAttentionMessage`; `CollaborationManager.broadcastCollabChange` + `notifyRunStatus`-style plumbing)
 - Test: `backend/test/m60-room-attribution.test.ts`
 
 **Interfaces:**
+
 - Consumes: `collaborationHistorian` from `./historian.js`; `changeAttribution` types.
 - Produces: `CollaborationManager.broadcastCollabChange(projectId, ev)` (fans out `MESSAGE_CUSTOM` `{type:"collab_change", ...ev}`); `CollaborationRoom.broadcastCollabChange(ev)`.
 
@@ -1247,8 +1518,8 @@ describe("M60 room attribution", () => {
 });
 ```
 
-*(Adjust the `projects/p/a.ts` path in the `external_mutation` test to whatever
-`projectDir(cfg, "p")` resolves to — mkdir it in `beforeEach`.)*
+_(Adjust the `projects/p/a.ts` path in the `external_mutation` test to whatever
+`projectDir(cfg, "p")` resolves to — mkdir it in `beforeEach`.)_
 
 - [ ] **Step 2: Run — expect FAIL** (ctor arity, no attribution)
 
@@ -1333,9 +1604,9 @@ private stashRange(filePath: string, evt: Y.YTextEvent): void {
 }
 ```
 
-*(Deleted-line counting is best-effort — leaving `removed` at 0 is acceptable
+_(Deleted-line counting is best-effort — leaving `removed` at 0 is acceptable
 per spec §3.3; if `evt.changes.deleted` items expose the removed text, count
-its newlines there. Do not block the task on perfect deletion counts.)*
+its newlines there. Do not block the task on perfect deletion counts.)_
 
 **3c. `afterTransaction` attribution** — inside the **existing** listener, after
 the current dirty-file mapping loop:
@@ -1352,30 +1623,46 @@ this.doc.on("afterTransaction", (tr: Y.Transaction) => {
     // contaminate any open burst for the touched files
     for (const changedType of tr.changed.keys()) {
       for (const [key, type] of (this.doc.share as Map<string, unknown>).entries()) {
-        if (type === changedType) { this.historian.contaminateFile?.(this.projectId, key); break; }
+        if (type === changedType) {
+          this.historian.contaminateFile?.(this.projectId, key);
+          break;
+        }
       }
     }
     this.rangeStash.delete(tr);
     return;
   }
-  if (!isWs) { this.rangeStash.delete(tr); return; }
+  if (!isWs) {
+    this.rangeStash.delete(tr);
+    return;
+  }
   const cs = this.clients.get(origin as WebSocket);
-  if (!cs || tr.changed.size === 0) { this.rangeStash.delete(tr); return; }
+  if (!cs || tr.changed.size === 0) {
+    this.rangeStash.delete(tr);
+    return;
+  }
 
   const stash = this.rangeStash.get(tr);
   const now = Date.now();
   for (const changedType of tr.changed.keys()) {
     let filePath: string | null = null;
     for (const [key, type] of (this.doc.share as Map<string, unknown>).entries()) {
-      if (type === changedType) { filePath = key; break; }
+      if (type === changedType) {
+        filePath = key;
+        break;
+      }
     }
     if (!filePath || !this.isPersistablePath(filePath)) continue;
     const r = stash?.get(filePath) ?? null;
     this.historian.recordEdit({
-      projectId: this.projectId, authorUserId: cs.userId, username: cs.username,
-      filePath, at: now,
+      projectId: this.projectId,
+      authorUserId: cs.userId,
+      username: cs.username,
+      filePath,
+      at: now,
       range: r ? { startLine: r.startLine, endLine: r.endLine, contiguous: r.contiguous } : null,
-      linesAdded: r?.linesAdded ?? 0, linesRemoved: r?.linesRemoved ?? 0,
+      linesAdded: r?.linesAdded ?? 0,
+      linesRemoved: r?.linesRemoved ?? 0,
     });
   }
   this.rangeStash.delete(tr);
@@ -1432,14 +1719,19 @@ Wire the broadcaster once, where the manager is initialised (`index.ts`, Task 8)
 
 ```ts
 this.historian.recordCallout({
-  projectId: this.projectId, authorUserId: clientState.userId,
-  username: clientState.username, filePath: activeFileRef, // the callout's file
-  startLine: event.range.startLine, endLine: event.range.endLine,
+  projectId: this.projectId,
+  authorUserId: clientState.userId,
+  username: clientState.username,
+  filePath: activeFileRef, // the callout's file
+  startLine: event.range.startLine,
+  endLine: event.range.endLine,
   messagePreview: (event.message ?? "").slice(0, 120),
-  targeted: false, at: now,
+  targeted: false,
+  at: now,
 });
 ```
-*(For a targeted `request`, `targeted: true` and use `input.file`.)*
+
+_(For a targeted `request`, `targeted: true` and use `input.file`.)_
 
 - [ ] **Step 4: Run — expect PASS**
 
@@ -1448,7 +1740,7 @@ Run: `cd backend && npx vitest run test/m60-room-attribution.test.ts test/m60-hi
 - [ ] **Step 5: Run the full collab regression**
 
 Run: `cd backend && npx vitest run test/m4-collab test/m57-presence test/m58-attention test/collab test/m52 test/api.test.ts`
-Expected: all PASS (no attribution logic changes any existing behavior — it only *reads* transactions). Then `npm run typecheck && npm run lint`.
+Expected: all PASS (no attribution logic changes any existing behavior — it only _reads_ transactions). Then `npm run typecheck && npm run lint`.
 
 - [ ] **Step 6: Commit**
 
@@ -1462,16 +1754,18 @@ git commit -m "feat(m60): attribute Yjs edit bursts + capture callouts in the ro
 ## Task 6: `timeline.ts` — read-side union
 
 **Files:**
+
 - Create: `backend/src/collab/timeline.ts`
 - Test: `backend/test/m60-timeline.test.ts`
 
 **Interfaces:**
+
 - Produces:
   ```ts
   export interface TimelineEvent {
-    id: string;                    // "<source>:<sourceId>"
+    id: string; // "<source>:<sourceId>"
     kind: "edit_burst" | "callout" | "run" | "commit" | "snapshot";
-    at: string;                    // ISO ms — the sort key
+    at: string; // ISO ms — the sort key
     actor: { userId: number | null; username: string };
     filePath?: string;
     lineRange?: { startLine: number; endLine: number };
@@ -1479,14 +1773,23 @@ git commit -m "feat(m60): attribute Yjs edit bursts + capture callouts in the ro
     subtitle?: string;
     navigable: boolean;
   }
-  export interface TimelinePage { events: TimelineEvent[]; nextBefore: string | null; }
+  export interface TimelinePage {
+    events: TimelineEvent[];
+    nextBefore: string | null;
+  }
   export function queryTimeline(
-    db: Db, projectId: string, opts: { limit?: number; before?: string | null; since?: string | null }
+    db: Db,
+    projectId: string,
+    opts: { limit?: number; before?: string | null; since?: string | null },
   ): TimelinePage;
   export function queryWhileAway(
-    db: Db, projectId: string, callerUserId: number, since: string, maxEvents: number
+    db: Db,
+    projectId: string,
+    callerUserId: number,
+    since: string,
+    maxEvents: number,
   ): { since: string; events: TimelineEvent[] };
-  export function encodeCursor(at: string, id: string): string;   // "<at>|<id>"
+  export function encodeCursor(at: string, id: string): string; // "<at>|<id>"
   export function decodeCursor(c: string): { at: string; id: string } | null;
   ```
 - **Ordering:** `(at DESC, id DESC)` total order. **Pagination:** `before`
@@ -1498,37 +1801,69 @@ git commit -m "feat(m60): attribute Yjs edit bursts + capture callouts in the ro
 // backend/test/m60-timeline.test.ts
 import { describe, it, expect, beforeEach } from "vitest";
 import { openDb } from "../src/db.js";
-import { queryTimeline, queryWhileAway, encodeCursor, decodeCursor } from "../src/collab/timeline.js";
+import {
+  queryTimeline,
+  queryWhileAway,
+  encodeCursor,
+  decodeCursor,
+} from "../src/collab/timeline.js";
 
 function seed(db: any) {
-  db.prepare("INSERT INTO users (id,username,password_hash) VALUES (7,'rahul','h'),(8,'ankit','h')").run();
+  db.prepare(
+    "INSERT INTO users (id,username,password_hash) VALUES (7,'rahul','h'),(8,'ankit','h')",
+  ).run();
   db.prepare("INSERT INTO projects (id,owner_id,name) VALUES ('p',7,'P'),('q',8,'Q')").run();
   const cc = (id: string, at: string, kind = "edit_burst", uid = 7, file = "a.ts", proj = "p") =>
-    db.prepare(`INSERT INTO collaboration_changes
+    db
+      .prepare(
+        `INSERT INTO collaboration_changes
       (id,project_id,author_user_id,file_path,kind,started_at,ended_at,update_count,lines_added,start_line,end_line,detail)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(id, proj, uid, file, kind, at, at, 3, 8,
-           kind === "edit_burst" ? 40 : null, kind === "edit_burst" ? 48 : null,
-           kind === "callout" ? JSON.stringify({ messagePreview: "look", targeted: false }) : null);
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        id,
+        proj,
+        uid,
+        file,
+        kind,
+        at,
+        at,
+        3,
+        8,
+        kind === "edit_burst" ? 40 : null,
+        kind === "edit_burst" ? 48 : null,
+        kind === "callout" ? JSON.stringify({ messagePreview: "look", targeted: false }) : null,
+      );
   cc("c1", "2026-08-31T10:00:00.000Z");
   cc("c2", "2026-08-31T10:05:00.000Z", "callout");
   cc("cX", "2026-08-31T10:99:00.000Z", "edit_burst", 8, "z.ts", "q"); // other project
-  db.prepare(`INSERT INTO runs (id,project_id,user_id,language,file_path,status,exit_code,duration_ms,created_at)
-    VALUES ('r1','p',7,'python','main.py','success',0,120,'2026-08-31T10:02:00.000Z')`).run();
-  db.prepare(`INSERT INTO audit_logs (user_id,project_id,event_type,details,created_at)
-    VALUES (7,'p','GIT_COMMIT','${JSON.stringify({ shortHash: 'abc123', subjectPreview: 'Fix login UI' }).replace(/'/g, "''")}','2026-08-31T10:03:00.000Z')`).run();
-  db.prepare(`INSERT INTO audit_logs (user_id,project_id,event_type,details,created_at)
-    VALUES (8,'p','SNAPSHOT_RESTORED','${JSON.stringify({ name: 'pre-refactor' })}','2026-08-31T10:04:00.000Z')`).run();
+  db.prepare(
+    `INSERT INTO runs (id,project_id,user_id,language,file_path,status,exit_code,duration_ms,created_at)
+    VALUES ('r1','p',7,'python','main.py','success',0,120,'2026-08-31T10:02:00.000Z')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO audit_logs (user_id,project_id,event_type,details,created_at)
+    VALUES (7,'p','GIT_COMMIT','${JSON.stringify({ shortHash: "abc123", subjectPreview: "Fix login UI" }).replace(/'/g, "''")}','2026-08-31T10:03:00.000Z')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO audit_logs (user_id,project_id,event_type,details,created_at)
+    VALUES (8,'p','SNAPSHOT_RESTORED','${JSON.stringify({ name: "pre-refactor" })}','2026-08-31T10:04:00.000Z')`,
+  ).run();
 }
 
 describe("timeline union", () => {
   let db: any;
-  beforeEach(() => { db = openDb(":memory:"); seed(db); });
+  beforeEach(() => {
+    db = openDb(":memory:");
+    seed(db);
+  });
 
   it("unions all five sources for one project, newest first", () => {
     const { events } = queryTimeline(db, "p", { limit: 50 });
     const kinds = events.map((e) => e.kind);
-    expect(kinds).toEqual(expect.arrayContaining(["edit_burst", "callout", "run", "commit", "snapshot"]));
+    expect(kinds).toEqual(
+      expect.arrayContaining(["edit_burst", "callout", "run", "commit", "snapshot"]),
+    );
     // strictly descending by at
     const ats = events.map((e) => e.at);
     expect([...ats].sort().reverse()).toEqual(ats);
@@ -1603,12 +1938,17 @@ export interface TimelineEvent {
   subtitle?: string;
   navigable: boolean;
 }
-export interface TimelinePage { events: TimelineEvent[]; nextBefore: string | null; }
+export interface TimelinePage {
+  events: TimelineEvent[];
+  nextBefore: string | null;
+}
 
 const clamp = (n: number | undefined, lo: number, hi: number, dflt: number) =>
   Math.max(lo, Math.min(hi, Number.isFinite(n as number) ? (n as number) : dflt));
 
-export function encodeCursor(at: string, id: string): string { return `${at}|${id}`; }
+export function encodeCursor(at: string, id: string): string {
+  return `${at}|${id}`;
+}
 export function decodeCursor(c: string): { at: string; id: string } | null {
   const i = c.indexOf("|");
   if (i < 0) return null;
@@ -1620,13 +1960,16 @@ function cmp(a: TimelineEvent, b: TimelineEvent): number {
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 function beforePredicate(cur: { at: string; id: string } | null) {
-  return (e: TimelineEvent) => !cur || (e.at < cur.at || (e.at === cur.at && e.id < cur.id));
+  return (e: TimelineEvent) => !cur || e.at < cur.at || (e.at === cur.at && e.id < cur.id);
 }
 
-function relFile(p: string): string { return p.split("/").pop() || p; }
+function relFile(p: string): string {
+  return p.split("/").pop() || p;
+}
 
 export function queryTimeline(
-  db: Db, projectId: string,
+  db: Db,
+  projectId: string,
   opts: { limit?: number; before?: string | null; since?: string | null },
 ): TimelinePage {
   const limit = clamp(opts.limit, 1, 100, 40);
@@ -1636,64 +1979,94 @@ export function queryTimeline(
   const out: TimelineEvent[] = [];
 
   // 1. collaboration_changes
-  for (const r of db.prepare(`
+  for (const r of db
+    .prepare(
+      `
     SELECT cc.id, cc.author_user_id, cc.file_path, cc.kind, cc.ended_at,
            cc.update_count, cc.lines_added, cc.lines_removed, cc.start_line, cc.end_line, cc.detail,
            u.username
     FROM collaboration_changes cc LEFT JOIN users u ON u.id = cc.author_user_id
     WHERE cc.project_id = ? AND cc.ended_at > ?
     ORDER BY cc.ended_at DESC, cc.id DESC LIMIT ?
-  `).all(projectId, since, fetch) as any[]) {
+  `,
+    )
+    .all(projectId, since, fetch) as any[]) {
     const id = `collab:${r.id}`;
-    const lineRange = r.start_line != null && r.end_line != null
-      ? { startLine: r.start_line, endLine: r.end_line } : undefined;
+    const lineRange =
+      r.start_line != null && r.end_line != null
+        ? { startLine: r.start_line, endLine: r.end_line }
+        : undefined;
     const detail = r.detail ? safeParse(r.detail) : null;
     out.push({
-      id, kind: r.kind, at: r.ended_at,
+      id,
+      kind: r.kind,
+      at: r.ended_at,
       actor: { userId: r.author_user_id ?? null, username: r.username ?? "(removed user)" },
-      filePath: r.file_path, lineRange,
-      title: r.kind === "callout"
-        ? "left a callout"
-        : lineRange
-          ? `changed lines ${lineRange.startLine}–${lineRange.endLine}`
-          : `changed ${relFile(r.file_path)}` +
-            (r.lines_added + r.lines_removed > 0 ? ` (~${r.lines_added + r.lines_removed} lines)` : ""),
+      filePath: r.file_path,
+      lineRange,
+      title:
+        r.kind === "callout"
+          ? "left a callout"
+          : lineRange
+            ? `changed lines ${lineRange.startLine}–${lineRange.endLine}`
+            : `changed ${relFile(r.file_path)}` +
+              (r.lines_added + r.lines_removed > 0
+                ? ` (~${r.lines_added + r.lines_removed} lines)`
+                : ""),
       subtitle: r.kind === "callout" ? String(detail?.messagePreview ?? "") : undefined,
       navigable: true,
     });
   }
 
   // 2. runs (SAFE COLUMNS ONLY)
-  for (const r of db.prepare(`
+  for (const r of db
+    .prepare(
+      `
     SELECT r.id, r.user_id, r.language, r.file_path, r.status, r.exit_code, r.created_at, u.username
     FROM runs r LEFT JOIN users u ON u.id = r.user_id
     WHERE r.project_id = ? AND r.created_at > ?
     ORDER BY r.created_at DESC, r.id DESC LIMIT ?
-  `).all(projectId, since, fetch) as any[]) {
+  `,
+    )
+    .all(projectId, since, fetch) as any[]) {
     const ok = r.status === "success" && (r.exit_code === 0 || r.exit_code == null);
     out.push({
-      id: `run:${r.id}`, kind: "run", at: r.created_at,
+      id: `run:${r.id}`,
+      kind: "run",
+      at: r.created_at,
       actor: { userId: r.user_id ?? null, username: r.username ?? "(removed user)" },
       filePath: r.file_path,
       title: `ran ${relFile(r.file_path)} — ${
-        r.status === "success" ? `exit ${r.exit_code ?? 0}`
-        : r.status === "cancelled" ? "cancelled"
-        : r.status === "timeout" ? "timed out"
-        : r.status === "killed" ? "killed" : "failed"}`,
+        r.status === "success"
+          ? `exit ${r.exit_code ?? 0}`
+          : r.status === "cancelled"
+            ? "cancelled"
+            : r.status === "timeout"
+              ? "timed out"
+              : r.status === "killed"
+                ? "killed"
+                : "failed"
+      }`,
       navigable: true, // opens the file
     });
   }
 
   // 3. GIT_COMMIT
-  for (const r of db.prepare(`
+  for (const r of db
+    .prepare(
+      `
     SELECT a.id, a.user_id, a.details, a.created_at, u.username
     FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
     WHERE a.project_id = ? AND a.event_type = 'GIT_COMMIT' AND a.created_at > ?
     ORDER BY a.created_at DESC, a.id DESC LIMIT ?
-  `).all(projectId, since, fetch) as any[]) {
+  `,
+    )
+    .all(projectId, since, fetch) as any[]) {
     const d = safeParse(r.details) ?? {};
     out.push({
-      id: `commit:${r.id}`, kind: "commit", at: r.created_at,
+      id: `commit:${r.id}`,
+      kind: "commit",
+      at: r.created_at,
       actor: { userId: r.user_id ?? null, username: r.username ?? "(removed user)" },
       title: `committed "${String(d.subjectPreview ?? "").slice(0, 120)}"`,
       subtitle: d.shortHash ? String(d.shortHash) : undefined,
@@ -1702,16 +2075,22 @@ export function queryTimeline(
   }
 
   // 4. SNAPSHOT_CREATED / SNAPSHOT_RESTORED
-  for (const r of db.prepare(`
+  for (const r of db
+    .prepare(
+      `
     SELECT a.id, a.user_id, a.event_type, a.details, a.created_at, u.username
     FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
     WHERE a.project_id = ? AND a.event_type IN ('SNAPSHOT_CREATED','SNAPSHOT_RESTORED') AND a.created_at > ?
     ORDER BY a.created_at DESC, a.id DESC LIMIT ?
-  `).all(projectId, since, fetch) as any[]) {
+  `,
+    )
+    .all(projectId, since, fetch) as any[]) {
     const d = safeParse(r.details) ?? {};
     const restored = r.event_type === "SNAPSHOT_RESTORED";
     out.push({
-      id: `snap:${r.id}`, kind: "snapshot", at: r.created_at,
+      id: `snap:${r.id}`,
+      kind: "snapshot",
+      at: r.created_at,
       actor: { userId: r.user_id ?? null, username: r.username ?? "(removed user)" },
       title: `${restored ? "restored" : "created"} snapshot${d.name ? ` "${String(d.name).slice(0, 80)}"` : ""}`,
       navigable: false,
@@ -1721,13 +2100,19 @@ export function queryTimeline(
   out.sort(cmp);
   const filtered = out.filter(beforePredicate(cur));
   const page = filtered.slice(0, limit);
-  const nextBefore = filtered.length > limit && page.length > 0
-    ? encodeCursor(page[page.length - 1].at, page[page.length - 1].id) : null;
+  const nextBefore =
+    filtered.length > limit && page.length > 0
+      ? encodeCursor(page[page.length - 1].at, page[page.length - 1].id)
+      : null;
   return { events: page, nextBefore };
 }
 
 export function queryWhileAway(
-  db: Db, projectId: string, callerUserId: number, since: string, maxEvents: number,
+  db: Db,
+  projectId: string,
+  callerUserId: number,
+  since: string,
+  maxEvents: number,
 ): { since: string; events: TimelineEvent[] } {
   const { events } = queryTimeline(db, projectId, { limit: Math.min(maxEvents, 100), since });
   const meaningful = new Set(["edit_burst", "callout", "run", "commit", "snapshot"]);
@@ -1737,7 +2122,13 @@ export function queryWhileAway(
   };
 }
 
-function safeParse(s: string): any { try { return JSON.parse(s); } catch { return null; } }
+function safeParse(s: string): any {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
 ```
 
 - [ ] **Step 4: Run — expect PASS**
@@ -1758,10 +2149,12 @@ git commit -m "feat(m60): timeline read-model — safe-column union of 5 sources
 ## Task 7: REST endpoints + authorization
 
 **Files:**
+
 - Modify: `backend/src/projects/routes.ts` (3 routes)
 - Test: `backend/test/m60-timeline-api.test.ts` (use `startTestApi` from `test/helpers.ts`)
 
 **Interfaces:**
+
 - Consumes: `queryTimeline`, `queryWhileAway` (Task 6); `getLastSeen`,
   `touchLastSeen` (Task 3); `requireProjectAccess` (existing).
 - Produces:
@@ -1778,14 +2171,20 @@ import { startTestApi, type TestApi } from "./helpers.js";
 
 describe("M60 timeline API", () => {
   let api: TestApi;
-  beforeAll(async () => { api = await startTestApi(); });
-  afterAll(async () => { await api.close(); });
+  beforeAll(async () => {
+    api = await startTestApi();
+  });
+  afterAll(async () => {
+    await api.close();
+  });
 
   it("timeline requires viewer access; non-member gets 403/404", async () => {
     const owner = await api.registerAndLogin("owner");
     const stranger = await api.registerAndLogin("stranger");
     const proj = await api.createProject(owner, "P");
-    const r = await api.fetch(`/api/projects/${proj.id}/collab/timeline`, { token: stranger.token });
+    const r = await api.fetch(`/api/projects/${proj.id}/collab/timeline`, {
+      token: stranger.token,
+    });
     expect([403, 404]).toContain(r.status);
     const ok = await api.fetch(`/api/projects/${proj.id}/collab/timeline`, { token: owner.token });
     expect(ok.status).toBe(200);
@@ -1808,13 +2207,19 @@ describe("M60 timeline API", () => {
     const owner = await api.registerAndLogin("o3");
     const proj = await api.createProject(owner, "P3");
     // ... insert a collaboration_changes row via api.db for another user ...
-    const first = await api.fetch(`/api/projects/${proj.id}/collab/while-away`, { token: owner.token });
+    const first = await api.fetch(`/api/projects/${proj.id}/collab/while-away`, {
+      token: owner.token,
+    });
     const body = await first.json();
     if (body.events.length) {
       await api.fetch(`/api/projects/${proj.id}/collab/while-away/ack`, {
-        method: "POST", token: owner.token, body: { upTo: body.events[0].at },
+        method: "POST",
+        token: owner.token,
+        body: { upTo: body.events[0].at },
       });
-      const second = await (await api.fetch(`/api/projects/${proj.id}/collab/while-away`, { token: owner.token })).json();
+      const second = await (
+        await api.fetch(`/api/projects/${proj.id}/collab/while-away`, { token: owner.token })
+      ).json();
       expect(second.events.length).toBe(0);
     }
   });
@@ -1829,8 +2234,8 @@ describe("M60 timeline API", () => {
 });
 ```
 
-*(Extend `test/helpers.ts` with `addCollaborator` / `removeCollaborator` /
-`db` accessor helpers if not present — small, fold into this task.)*
+_(Extend `test/helpers.ts` with `addCollaborator` / `removeCollaborator` /
+`db` accessor helpers if not present — small, fold into this task.)_
 
 - [ ] **Step 2: Run — expect FAIL**
 
@@ -1846,7 +2251,9 @@ router.get("/:id/collab/timeline", (req, res, next) => {
     const limit = parseInt(String(req.query.limit ?? ""), 10);
     const before = typeof req.query.before === "string" ? req.query.before : null;
     res.json(queryTimeline(db, req.params.id, { limit, before }));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/:id/collab/while-away", (req, res, next) => {
@@ -1867,7 +2274,9 @@ router.get("/:id/collab/while-away", (req, res, next) => {
       .map(([userId, evs]) => ({ userId, username: evs[0].actor.username, events: evs }))
       .sort((a, b) => (b.events[0]?.at ?? "").localeCompare(a.events[0]?.at ?? ""));
     res.json({ since, events, groupedByAuthor });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post("/:id/collab/while-away/ack", (req, res, next) => {
@@ -1877,12 +2286,14 @@ router.post("/:id/collab/while-away/ack", (req, res, next) => {
     const upTo = typeof req.body?.upTo === "string" ? req.body.upTo : new Date().toISOString();
     touchLastSeen(db, req.params.id, user.id, upTo);
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 ```
 
-*(Confirm `cfg` is in scope in this router factory — `projectRoutes(cfg, db)`
-signature; if not, thread it.)*
+_(Confirm `cfg` is in scope in this router factory — `projectRoutes(cfg, db)`
+signature; if not, thread it.)_
 
 - [ ] **Step 4: Run — expect PASS**
 
@@ -1900,12 +2311,14 @@ git commit -m "feat(m60): collab timeline + while-away REST endpoints (viewer-au
 ## Task 8: Lifecycle wiring — startup init, graceful shutdown, disposeProject
 
 **Files:**
+
 - Modify: `backend/src/index.ts` (startup + `performGracefulShutdown`)
 - Modify: `backend/src/projects/service.ts` (`deleteProject`)
 - Modify: `backend/src/backup/workspaceRestore.ts` (beside `telemetryHistorian.disposeProject`)
 - Test: `backend/test/m60-lifecycle.test.ts`
 
 **Interfaces:**
+
 - Consumes: `collaborationHistorian`, `collaborationManager`.
 
 - [ ] **Step 1: Failing test**
@@ -1942,19 +2355,23 @@ import { collaborationManager } from "./collab/manager.js";
 // ...after collaborationManager.init(config, db):
 collaborationHistorian.init(db, config);
 collaborationHistorian.setBroadcaster((pid, ev) =>
-  collaborationManager.broadcastCollabChange(pid, ev as Record<string, unknown>));
+  collaborationManager.broadcastCollabChange(pid, ev as Record<string, unknown>),
+);
 ```
 
 - [ ] **Step 4: Wire shutdown** — in `performGracefulShutdown` step 0, next to `telemetryHistorian.stop()`:
 
 ```ts
-try { collaborationHistorian.stop(); }
-catch (err) { console.error("[shutdown] collaboration historian stop failed:", err); }
+try {
+  collaborationHistorian.stop();
+} catch (err) {
+  console.error("[shutdown] collaboration historian stop failed:", err);
+}
 ```
 
 - [ ] **Step 5: Wire disposeProject** — in `backend/src/projects/service.ts`
-`deleteProject`, next to the existing sandbox teardown (and any
-`telemetryHistorian.disposeProject` call):
+      `deleteProject`, next to the existing sandbox teardown (and any
+      `telemetryHistorian.disposeProject` call):
 
 ```ts
 import { collaborationHistorian } from "../collab/historian.js";
@@ -1996,12 +2413,14 @@ git commit -m "feat(m60): historian startup init, graceful-shutdown flush, dispo
 ## Task 9: Frontend — `client.ts` receive branch + reconnect-gap signal + types + api
 
 **Files:**
+
 - Modify: `frontend/src/collab/client.ts`
 - Modify: `frontend/src/types.ts` (`TimelineEvent`, `CollabChangeWire`)
 - Modify: `frontend/src/api.ts` (3 helpers)
 - Test: `frontend/test/collab.change.client.test.ts`
 
 **Interfaces:**
+
 - Produces: `client.on("collab_change", (ev: CollabChangeWire) => …)`,
   `client.on("reconnected_after_gap", (info: { offlineMs: number }) => …)`.
   `fetchCollabTimeline(projectId, { limit?, before? })`,
@@ -2028,11 +2447,22 @@ describe("client collab_change", () => {
     const c = new (CollaborationClient as any)("proj", { id: 1, name: "me", color: "#fff" });
     const spy = vi.fn();
     c.on("collab_change", spy);
-    (c as any).handleMessage(new Uint8Array(customFrame({
-      type: "collab_change", id: "collab:x", kind: "edit_burst",
-      at: "2026-08-31T10:00:00.000Z", actor: { userId: 7, username: "rahul" },
-      filePath: "a.ts", lineRange: null, updateCount: 2, linesAdded: 3, linesRemoved: 0,
-    })));
+    (c as any).handleMessage(
+      new Uint8Array(
+        customFrame({
+          type: "collab_change",
+          id: "collab:x",
+          kind: "edit_burst",
+          at: "2026-08-31T10:00:00.000Z",
+          actor: { userId: 7, username: "rahul" },
+          filePath: "a.ts",
+          lineRange: null,
+          updateCount: 2,
+          linesAdded: 3,
+          linesRemoved: 0,
+        }),
+      ),
+    );
     expect(spy).toHaveBeenCalledOnce();
     (c as any).handleMessage(new Uint8Array(customFrame({ type: "collab_change", actor: 123 })));
     expect(spy).toHaveBeenCalledOnce(); // malformed ignored
@@ -2065,16 +2495,21 @@ export interface TimelineEvent {
 }
 export interface CollabChangeWire {
   type: "collab_change";
-  id: string; kind: "edit_burst" | "callout"; at: string;
+  id: string;
+  kind: "edit_burst" | "callout";
+  at: string;
   actor: { userId: number; username: string };
   filePath: string;
   lineRange: { startLine: number; endLine: number } | null;
-  updateCount: number; linesAdded: number; linesRemoved: number;
+  updateCount: number;
+  linesAdded: number;
+  linesRemoved: number;
   calloutPreview?: string;
 }
 ```
 
 `frontend/src/collab/client.ts`:
+
 - In `case MESSAGE_CUSTOM`, add a branch (after the `attention_rate_limited` one):
   ```ts
   } else if (
@@ -2103,7 +2538,8 @@ export interface CollabChangeWire {
 
 ```ts
 export async function fetchCollabTimeline(
-  projectId: string, opts: { limit?: number; before?: string | null } = {},
+  projectId: string,
+  opts: { limit?: number; before?: string | null } = {},
 ): Promise<{ events: TimelineEvent[]; nextBefore: string | null }> {
   const q = new URLSearchParams();
   if (opts.limit) q.set("limit", String(opts.limit));
@@ -2111,18 +2547,21 @@ export async function fetchCollabTimeline(
   return apiFetch(`/api/projects/${projectId}/collab/timeline?${q}`);
 }
 export async function fetchWhileAway(projectId: string): Promise<{
-  since: string; events: TimelineEvent[];
+  since: string;
+  events: TimelineEvent[];
   groupedByAuthor: { userId: number; username: string; events: TimelineEvent[] }[];
 }> {
   return apiFetch(`/api/projects/${projectId}/collab/while-away`);
 }
 export async function ackWhileAway(projectId: string, upTo: string): Promise<void> {
   await apiFetch(`/api/projects/${projectId}/collab/while-away/ack`, {
-    method: "POST", body: JSON.stringify({ upTo }),
+    method: "POST",
+    body: JSON.stringify({ upTo }),
   });
 }
 ```
-*(match the existing `apiFetch` wrapper signature in `api.ts`.)*
+
+_(match the existing `apiFetch` wrapper signature in `api.ts`.)_
 
 - [ ] **Step 4: Run — expect PASS**
 
@@ -2140,17 +2579,27 @@ git commit -m "feat(m60): client collab_change receive + reconnect-gap signal + 
 ## Task 10: Frontend — pure `timeline.ts` helpers
 
 **Files:**
+
 - Create: `frontend/src/collab/timeline.ts`
 - Test: `frontend/test/collab.timeline.test.ts`
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
-  export function formatTimelineEvent(ev: TimelineEvent, now: number):
-    { time: string; actor: string; text: string; navigable: boolean };
-  export function mergeTimeline(prev: TimelineEvent[], incoming: TimelineEvent[], cap?: number): TimelineEvent[];
-  export function groupWhileAway(events: TimelineEvent[]):
-    { username: string; userId: number | null; lines: string[]; events: TimelineEvent[] }[];
+  export function formatTimelineEvent(
+    ev: TimelineEvent,
+    now: number,
+  ): { time: string; actor: string; text: string; navigable: boolean };
+  export function mergeTimeline(
+    prev: TimelineEvent[],
+    incoming: TimelineEvent[],
+    cap?: number,
+  ): TimelineEvent[];
+  export function groupWhileAway(
+    events: TimelineEvent[],
+  ): { username: string; userId: number | null; lines: string[]; events: TimelineEvent[] }[];
   export function whileAwayLine(ev: TimelineEvent): string; // per-event line used inside a group ("edited auth/session.ts"); the run fail→pass collapse is done in groupWhileAway
   export function wireToTimelineEvent(w: CollabChangeWire): TimelineEvent;
   ```
@@ -2160,25 +2609,42 @@ git commit -m "feat(m60): client collab_change receive + reconnect-gap signal + 
 ```ts
 // frontend/test/collab.timeline.test.ts
 import { describe, it, expect } from "vitest";
-import { formatTimelineEvent, mergeTimeline, groupWhileAway, wireToTimelineEvent } from "../src/collab/timeline";
+import {
+  formatTimelineEvent,
+  mergeTimeline,
+  groupWhileAway,
+  wireToTimelineEvent,
+} from "../src/collab/timeline";
 import type { TimelineEvent } from "../src/types";
 
 const ev = (over: Partial<TimelineEvent> = {}): TimelineEvent => ({
-  id: "collab:1", kind: "edit_burst", at: "2026-08-31T10:00:00.000Z",
-  actor: { userId: 7, username: "rahul" }, filePath: "src/auth/session.ts",
-  title: "changed lines 40–52", navigable: true, ...over,
+  id: "collab:1",
+  kind: "edit_burst",
+  at: "2026-08-31T10:00:00.000Z",
+  actor: { userId: 7, username: "rahul" },
+  filePath: "src/auth/session.ts",
+  title: "changed lines 40–52",
+  navigable: true,
+  ...over,
 });
 
 describe("frontend timeline helpers", () => {
   it("mergeTimeline de-dupes by id, sorts desc, caps", () => {
-    const merged = mergeTimeline([ev({ id: "a", at: "2026-08-31T10:00:00.000Z" })],
-      [ev({ id: "a", at: "2026-08-31T10:00:00.000Z" }), ev({ id: "b", at: "2026-08-31T11:00:00.000Z" })], 10);
+    const merged = mergeTimeline(
+      [ev({ id: "a", at: "2026-08-31T10:00:00.000Z" })],
+      [
+        ev({ id: "a", at: "2026-08-31T10:00:00.000Z" }),
+        ev({ id: "b", at: "2026-08-31T11:00:00.000Z" }),
+      ],
+      10,
+    );
     expect(merged.map((e) => e.id)).toEqual(["b", "a"]);
   });
 
   it("mergeTimeline cap drops oldest", () => {
     const many = Array.from({ length: 5 }, (_, i) =>
-      ev({ id: `e${i}`, at: `2026-08-31T1${i}:00:00.000Z` }));
+      ev({ id: `e${i}`, at: `2026-08-31T1${i}:00:00.000Z` }),
+    );
     expect(mergeTimeline([], many, 3).map((e) => e.id)).toEqual(["e4", "e3", "e2"]);
   });
 
@@ -2192,8 +2658,22 @@ describe("frontend timeline helpers", () => {
   it("groupWhileAway groups by author, newest author first, collapses run fail→pass", () => {
     const events = [
       ev({ id: "1", actor: { userId: 7, username: "rahul" }, at: "2026-08-31T10:10:00.000Z" }),
-      ev({ id: "2", kind: "run", actor: { userId: 8, username: "aman" }, at: "2026-08-31T10:05:00.000Z", title: "ran main.py — failed", filePath: "main.py" }),
-      ev({ id: "3", kind: "run", actor: { userId: 8, username: "aman" }, at: "2026-08-31T10:06:00.000Z", title: "ran main.py — exit 0", filePath: "main.py" }),
+      ev({
+        id: "2",
+        kind: "run",
+        actor: { userId: 8, username: "aman" },
+        at: "2026-08-31T10:05:00.000Z",
+        title: "ran main.py — failed",
+        filePath: "main.py",
+      }),
+      ev({
+        id: "3",
+        kind: "run",
+        actor: { userId: 8, username: "aman" },
+        at: "2026-08-31T10:06:00.000Z",
+        title: "ran main.py — exit 0",
+        filePath: "main.py",
+      }),
     ];
     const g = groupWhileAway(events);
     expect(g[0].username).toBe("rahul"); // most recent event
@@ -2203,9 +2683,16 @@ describe("frontend timeline helpers", () => {
 
   it("wireToTimelineEvent maps a wire frame", () => {
     const t = wireToTimelineEvent({
-      type: "collab_change", id: "collab:9", kind: "edit_burst", at: "2026-08-31T10:00:00.000Z",
-      actor: { userId: 7, username: "rahul" }, filePath: "a.ts", lineRange: null,
-      updateCount: 4, linesAdded: 8, linesRemoved: 2,
+      type: "collab_change",
+      id: "collab:9",
+      kind: "edit_burst",
+      at: "2026-08-31T10:00:00.000Z",
+      actor: { userId: 7, username: "rahul" },
+      filePath: "a.ts",
+      lineRange: null,
+      updateCount: 4,
+      linesAdded: 8,
+      linesRemoved: 2,
     });
     expect(t.navigable).toBe(true);
     expect(t.title).toMatch(/changed/);
@@ -2231,12 +2718,14 @@ git commit -m "feat(m60): pure frontend timeline helpers (format, merge, group)"
 ## Task 11: Frontend — `ActivityTimeline.tsx` + TeamPanel integration
 
 **Files:**
+
 - Create: `frontend/src/components/Collab/ActivityTimeline.tsx`
 - Modify: `frontend/src/components/Collab/TeamPanel.tsx`
 - Modify: `frontend/src/styles/collab.css`
 - Test: `frontend/test/ActivityTimeline.test.tsx`, extend `frontend/test/TeamPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `TimelineEvent[]`, `formatTimelineEvent`.
 - Produces: `<ActivityTimeline events onLoadMore hasMore onNavigate />`.
   `TeamPanel` gains props `timeline: TimelineEvent[]`, `timelineHasMore: boolean`,
@@ -2253,17 +2742,37 @@ import ActivityTimeline from "../src/components/Collab/ActivityTimeline";
 import type { TimelineEvent } from "../src/types";
 
 const ev = (o: Partial<TimelineEvent> = {}): TimelineEvent => ({
-  id: "collab:1", kind: "edit_burst", at: new Date().toISOString(),
-  actor: { userId: 7, username: "rahul" }, filePath: "src/auth/session.ts",
-  title: "changed lines 40–52", navigable: true, ...o,
+  id: "collab:1",
+  kind: "edit_burst",
+  at: new Date().toISOString(),
+  actor: { userId: 7, username: "rahul" },
+  filePath: "src/auth/session.ts",
+  title: "changed lines 40–52",
+  navigable: true,
+  ...o,
 });
 
 afterEach(cleanup);
 
 describe("ActivityTimeline", () => {
   it("renders rows with actor + title", () => {
-    render(<ActivityTimeline events={[ev(), ev({ id: "collab:2", kind: "commit", title: 'committed "Fix"', navigable: false, filePath: undefined })]}
-      hasMore={false} onLoadMore={() => {}} onNavigate={() => {}} />);
+    render(
+      <ActivityTimeline
+        events={[
+          ev(),
+          ev({
+            id: "collab:2",
+            kind: "commit",
+            title: 'committed "Fix"',
+            navigable: false,
+            filePath: undefined,
+          }),
+        ]}
+        hasMore={false}
+        onLoadMore={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
     expect(screen.getByText(/rahul/)).toBeTruthy();
     expect(screen.getByText(/changed lines 40/)).toBeTruthy();
     expect(screen.getByText(/committed "Fix"/)).toBeTruthy();
@@ -2271,8 +2780,23 @@ describe("ActivityTimeline", () => {
 
   it("clicking a navigable row calls onNavigate; non-navigable does not", () => {
     const nav = vi.fn();
-    render(<ActivityTimeline events={[ev({ id: "n1" }), ev({ id: "n2", navigable: false, filePath: undefined, kind: "commit", title: "committed" })]}
-      hasMore={false} onLoadMore={() => {}} onNavigate={nav} />);
+    render(
+      <ActivityTimeline
+        events={[
+          ev({ id: "n1" }),
+          ev({
+            id: "n2",
+            navigable: false,
+            filePath: undefined,
+            kind: "commit",
+            title: "committed",
+          }),
+        ]}
+        hasMore={false}
+        onLoadMore={() => {}}
+        onNavigate={nav}
+      />,
+    );
     fireEvent.click(screen.getByText(/changed lines 40/));
     expect(nav).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByText(/committed/));
@@ -2310,11 +2834,13 @@ git commit -m "feat(m60): ActivityTimeline section inside TeamPanel"
 ## Task 12: Frontend — `WhileYouWereAway.tsx`
 
 **Files:**
+
 - Create: `frontend/src/components/Collab/WhileYouWereAway.tsx`
 - Modify: `frontend/src/styles/collab.css`
 - Test: `frontend/test/WhileYouWereAway.test.tsx`
 
 **Interfaces:**
+
 - Produces: `<WhileYouWereAway groups onNavigate onDismiss autoDismissMs />`
   where `groups` is `groupWhileAway`'s output.
 
@@ -2328,17 +2854,36 @@ import * as React from "react";
 import WhileYouWereAway from "../src/components/Collab/WhileYouWereAway";
 
 const groups = [
-  { username: "rahul", userId: 7, lines: ["edited auth/session.ts"], events: [
-    { id: "collab:1", kind: "edit_burst", at: new Date().toISOString(),
-      actor: { userId: 7, username: "rahul" }, filePath: "auth/session.ts",
-      title: "changed auth/session.ts", navigable: true } as any ] },
+  {
+    username: "rahul",
+    userId: 7,
+    lines: ["edited auth/session.ts"],
+    events: [
+      {
+        id: "collab:1",
+        kind: "edit_burst",
+        at: new Date().toISOString(),
+        actor: { userId: 7, username: "rahul" },
+        filePath: "auth/session.ts",
+        title: "changed auth/session.ts",
+        navigable: true,
+      } as any,
+    ],
+  },
 ];
 
 afterEach(cleanup);
 
 describe("WhileYouWereAway", () => {
   it("renders grouped events and a header", () => {
-    render(<WhileYouWereAway groups={groups} onNavigate={() => {}} onDismiss={() => {}} autoDismissMs={99999} />);
+    render(
+      <WhileYouWereAway
+        groups={groups}
+        onNavigate={() => {}}
+        onDismiss={() => {}}
+        autoDismissMs={99999}
+      />,
+    );
     expect(screen.getByText(/while you were away/i)).toBeTruthy();
     expect(screen.getByText(/rahul/)).toBeTruthy();
     expect(screen.getByText(/edited auth\/session\.ts/)).toBeTruthy();
@@ -2346,14 +2891,28 @@ describe("WhileYouWereAway", () => {
 
   it("Dismiss calls onDismiss", () => {
     const d = vi.fn();
-    render(<WhileYouWereAway groups={groups} onNavigate={() => {}} onDismiss={d} autoDismissMs={99999} />);
+    render(
+      <WhileYouWereAway
+        groups={groups}
+        onNavigate={() => {}}
+        onDismiss={d}
+        autoDismissMs={99999}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
     expect(d).toHaveBeenCalled();
   });
 
   it("navigable row click calls onNavigate", () => {
     const nav = vi.fn();
-    render(<WhileYouWereAway groups={groups} onNavigate={nav} onDismiss={() => {}} autoDismissMs={99999} />);
+    render(
+      <WhileYouWereAway
+        groups={groups}
+        onNavigate={nav}
+        onDismiss={() => {}}
+        autoDismissMs={99999}
+      />,
+    );
     fireEvent.click(screen.getByText(/changed auth\/session\.ts/));
     expect(nav).toHaveBeenCalled();
   });
@@ -2361,8 +2920,12 @@ describe("WhileYouWereAway", () => {
   it("auto-dismisses after autoDismissMs", () => {
     vi.useFakeTimers();
     const d = vi.fn();
-    render(<WhileYouWereAway groups={groups} onNavigate={() => {}} onDismiss={d} autoDismissMs={1000} />);
-    act(() => { vi.advanceTimersByTime(1100); });
+    render(
+      <WhileYouWereAway groups={groups} onNavigate={() => {}} onDismiss={d} autoDismissMs={1000} />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(1100);
+    });
     expect(d).toHaveBeenCalled();
     vi.useRealTimers();
   });
@@ -2387,11 +2950,13 @@ git commit -m "feat(m60): WhileYouWereAway reconnect card"
 ## Task 13: Frontend — IDE.tsx wiring (state, listeners, fetch, mounts)
 
 **Files:**
+
 - Modify: `frontend/src/components/IDE/IDE.tsx`
 - Modify: `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` ("Last change:" line)
 - Test: `frontend/test/IDE.timeline.test.tsx`, extend `frontend/test/CollaboratorAvatarStack.*`
 
 **Interfaces:**
+
 - Consumes: `fetchCollabTimeline`, `fetchWhileAway`, `ackWhileAway`,
   `mergeTimeline`, `wireToTimelineEvent`, `groupWhileAway`, `openAndRevealLocation`.
 
@@ -2440,37 +3005,37 @@ describe("IDE M60 wiring", () => {
   `fetchCollabTimeline(project.id, { limit: 40 })` → `setTimeline`,
   `setTimelineNextBefore`, `setTimelineLoaded(true)`.
 - `collabClient.on("collab_change", (w) => setTimeline((prev) =>
-  mergeTimeline(prev, [wireToTimelineEvent(w)], 200)))` — in the existing
+mergeTimeline(prev, [wireToTimelineEvent(w)], 200)))` — in the existing
   collab-subscription effect; return the unsubscribe.
 - `collabClient.on("reconnected_after_gap", async ({ offlineMs }) => {
-    if (offlineMs < COLLAB_AWAY_THRESHOLD_MS_CLIENT) return;
-    const r = await fetchWhileAway(project.id);
-    if (r.events.length) setWhileAwayGroups(r.groupedByAuthor.map(g => ({
-      username: g.username, userId: g.userId, events: g.events,
-      lines: g.events.map(formatWhileAwayLine),
-    })));
-  })` — client threshold const mirrors the server default (180000); acceptable
+  if (offlineMs < COLLAB_AWAY_THRESHOLD_MS_CLIENT) return;
+  const r = await fetchWhileAway(project.id);
+  if (r.events.length) setWhileAwayGroups(r.groupedByAuthor.map(g => ({
+    username: g.username, userId: g.userId, events: g.events,
+    lines: g.events.map(formatWhileAwayLine),
+  })));
+})` — client threshold const mirrors the server default (180000); acceptable
   duplication (one number, documented).
 - `handleTimelineLoadMore`: `fetchCollabTimeline(project.id, { limit: 40, before: timelineNextBefore })` → `setTimeline((p) => mergeTimeline(p, r.events, 400))`, update `nextBefore`.
 - `handleTimelineNavigate(ev)`: `if (!ev.navigable || !ev.filePath) return;
-  openAndRevealLocation(handleOpenFile, { filePath: ev.filePath,
-  line: ev.lineRange?.startLine ?? 1, column: 1 });`
+openAndRevealLocation(handleOpenFile, { filePath: ev.filePath,
+line: ev.lineRange?.startLine ?? 1, column: 1 });`
 - `lastChangeByUser` memo: `useMemo(() => { const m = new Map<number, TimelineEvent>();
-  for (const e of timeline) { if ((e.kind === "edit_burst" || e.kind === "callout")
-  && e.actor.userId != null && !m.has(e.actor.userId)) m.set(e.actor.userId, e); } return m; }, [timeline])`
+for (const e of timeline) { if ((e.kind === "edit_burst" || e.kind === "callout")
+&& e.actor.userId != null && !m.has(e.actor.userId)) m.set(e.actor.userId, e); } return m; }, [timeline])`
   (timeline is sorted desc so first-seen = newest).
 - Pass `timeline`, `timelineNextBefore != null`, `handleTimelineLoadMore`,
   `handleTimelineNavigate` into `<TeamPanel …/>`.
 - Pass `lastChangeByUser` into `<CollaboratorAvatarStack …/>`.
 - Render `{whileAwayGroups && <WhileYouWereAway groups={whileAwayGroups}
-  autoDismissMs={20000}
-  onNavigate={handleTimelineNavigate}
-  onDismiss={async () => {
-    const newest = whileAwayGroups.flatMap(g => g.events)
-      .reduce((a, b) => (a && a.at > b.at ? a : b), null as TimelineEvent | null);
-    if (newest) await ackWhileAway(project.id, newest.at);
-    setWhileAwayGroups(null);
-  }} />}` near the other collab overlays.
+autoDismissMs={20000}
+onNavigate={handleTimelineNavigate}
+onDismiss={async () => {
+  const newest = whileAwayGroups.flatMap(g => g.events)
+    .reduce((a, b) => (a && a.at > b.at ? a : b), null as TimelineEvent | null);
+  if (newest) await ackWhileAway(project.id, newest.at);
+  setWhileAwayGroups(null);
+}} />}` near the other collab overlays.
 
 `CollaboratorAvatarStack.tsx` — accept `lastChangeByUser?: Map<number, TimelineEvent>`;
 in the popover, below the activity line, when an entry exists:
@@ -2490,24 +3055,29 @@ git commit -m "feat(m60): IDE wiring — timeline state, live merge, while-away,
 ## Task 14: Full regression + browser acceptance + STATUS.md
 
 **Files:**
+
 - Modify: `STATUS.md`
 - Test: all
 
 - [ ] **Step 1: Backend full suite + typecheck + lint**
 
 Run:
+
 ```bash
 cd backend && npx vitest run && npm run typecheck && npm run lint
 ```
+
 Expected: all pass. Record counts. Investigate any failure; a Docker-skipped
 test is not a pass — report it as skipped.
 
 - [ ] **Step 2: Frontend full suite + typecheck + lint + build**
 
 Run:
+
 ```bash
 cd frontend && npx vitest run && npx tsc --noEmit && npx eslint src/ && npm run build
 ```
+
 Expected: all pass. Record counts.
 
 - [ ] **Step 3: `git diff --check`; review `git diff` and `git diff --cached`**
@@ -2541,24 +3111,24 @@ git commit -m "docs(m60): STATUS.md — M60 change attribution & collaboration h
 
 **1. Spec coverage**
 
-| Spec section | Task(s) |
-|---|---|
-| §3 attribution pipeline | 2 (pure rules), 5 (`afterTransaction` hook + observer) |
-| §4 burst grouping + close triggers | 2, 4 (historian close methods), 5 (room hooks) |
-| §5 range derivation | 2 (`closeBurst` rule), 5 (`stashRange` contiguity) |
-| §6 schema + historian | 1 (schema), 4 (historian) |
-| §7 metadata allowlist | 4 (`recordCallout` detail), 6 (safe-column queries) |
-| §8 transport (wire + REST) | 5 (`broadcastCollabChange`), 7 (REST), 9 (client receive) |
-| §9 timeline read model + ordering + pagination | 6 |
-| §10 while-away + last-seen | 3 (helpers), 7 (endpoints), 9 (reconnect signal), 13 (mount) |
-| §11 frontend surfaces | 10 (pure), 11 (timeline), 12 (while-away), 13 (IDE + last-change) |
-| §12 security/privacy/authz | 5, 6, 7 (all enforce it); tests in 6, 7 |
-| §13 retention | 4 (`purgeExpired` + cap) |
-| §14 config knobs | 1 |
-| §16 edge-case matrix | 2 + 5 tests cover each row |
-| §17 test strategy | every task is TDD; §17.9 regression = Task 5 Step 5 + Task 14 |
-| §18 browser acceptance | Task 14 Step 4 |
-| §20 files | matches the File Structure section above |
+| Spec section                                   | Task(s)                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| §3 attribution pipeline                        | 2 (pure rules), 5 (`afterTransaction` hook + observer)            |
+| §4 burst grouping + close triggers             | 2, 4 (historian close methods), 5 (room hooks)                    |
+| §5 range derivation                            | 2 (`closeBurst` rule), 5 (`stashRange` contiguity)                |
+| §6 schema + historian                          | 1 (schema), 4 (historian)                                         |
+| §7 metadata allowlist                          | 4 (`recordCallout` detail), 6 (safe-column queries)               |
+| §8 transport (wire + REST)                     | 5 (`broadcastCollabChange`), 7 (REST), 9 (client receive)         |
+| §9 timeline read model + ordering + pagination | 6                                                                 |
+| §10 while-away + last-seen                     | 3 (helpers), 7 (endpoints), 9 (reconnect signal), 13 (mount)      |
+| §11 frontend surfaces                          | 10 (pure), 11 (timeline), 12 (while-away), 13 (IDE + last-change) |
+| §12 security/privacy/authz                     | 5, 6, 7 (all enforce it); tests in 6, 7                           |
+| §13 retention                                  | 4 (`purgeExpired` + cap)                                          |
+| §14 config knobs                               | 1                                                                 |
+| §16 edge-case matrix                           | 2 + 5 tests cover each row                                        |
+| §17 test strategy                              | every task is TDD; §17.9 regression = Task 5 Step 5 + Task 14     |
+| §18 browser acceptance                         | Task 14 Step 4                                                    |
+| §20 files                                      | matches the File Structure section above                          |
 
 No gap.
 
@@ -2566,12 +3136,13 @@ No gap.
 `// ...` comments describing setup that depends on `test/helpers.ts` internals
 not visible here. These are marked as sketches with the exact assertions
 spelled out; the executor fills the harness plumbing following the sibling
-`api.test.ts` / `IDE.*.test.tsx` patterns. Every *behavioural assertion* is
+`api.test.ts` / `IDE.*.test.tsx` patterns. Every _behavioural assertion_ is
 concrete. Acceptable for tasks whose test harness is an existing shared helper.
 No "TODO"/"implement later"/"add error handling" placeholders in implementation
 code.
 
 **3. Type consistency** — checked:
+
 - `EditInput` / `OpenBurst` / `ClosedBurst` / `CloseReason` identical between
   Task 2 (defined) and Tasks 4, 5 (consumed).
 - `CollabChangeWire` defined in Task 4 (`historian.ts`), re-declared identically
@@ -2596,6 +3167,7 @@ code.
   in Task 13. Noted.
 
 **Fixes applied inline:**
+
 - Task 4 Step 3: add `contaminateFile(projectId, filePath)` + a test in
   `m60-historian.test.ts` ("external mutation contaminates the matching open burst").
 - Task 8 Step 5: also add `insertLastSeenIfAbsent(db, projectId, row.id)` in

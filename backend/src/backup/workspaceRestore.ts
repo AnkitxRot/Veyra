@@ -117,11 +117,7 @@ function assertValidManifest(
   expectedProjectId: string,
 ): asserts manifest is WorkspaceBackupManifest {
   if (!manifest || typeof manifest !== "object") {
-    throw new ApiError(
-      400,
-      "Missing or invalid backup manifest",
-      "invalid_manifest",
-    );
+    throw new ApiError(400, "Missing or invalid backup manifest", "invalid_manifest");
   }
   if (manifest.version !== 1 && manifest.version !== 2) {
     throw new ApiError(
@@ -268,11 +264,7 @@ export async function restoreWorkspaceBackup(
     throw new ApiError(404, "project not found", "not_found");
   }
 
-  const { stagingDir, manifest } = await prepareRestoreStaging(
-    cfg,
-    projectId,
-    filename,
-  );
+  const { stagingDir, manifest } = await prepareRestoreStaging(cfg, projectId, filename);
 
   try {
     return await withProjectSnapshotLock(projectId, async () => {
@@ -283,8 +275,7 @@ export async function restoreWorkspaceBackup(
       // so if the flush cannot complete within the bound we abort here with
       // the workspace still completely untouched and the room still alive —
       // no rollback needed. `force` explicitly accepts the loss.
-      const flushResult =
-        await collaborationManager.flushRoomBeforeDestruction(projectId);
+      const flushResult = await collaborationManager.flushRoomBeforeDestruction(projectId);
       if (!flushResult.flushed && !options?.force) {
         throw new ApiError(
           409,
@@ -313,10 +304,7 @@ export async function restoreWorkspaceBackup(
 
       const cwd = projectDir(cfg, projectId);
       const liveSnapDir = snapshotDir(cfg, projectId);
-      const rollbackDir = join(
-        cfg.dataDir,
-        `tmp_restore_rollback_${randomUUID()}`,
-      );
+      const rollbackDir = join(cfg.dataDir, `tmp_restore_rollback_${randomUUID()}`);
       await fs.mkdir(rollbackDir, { recursive: true });
       const rollbackWorkspacePath = join(rollbackDir, "workspace");
       const rollbackSnapshotPath = join(rollbackDir, "snapshots");
@@ -345,10 +333,7 @@ export async function restoreWorkspaceBackup(
       let workspaceSwapped = false;
       let snapshotDirMoved = false;
       let dbReplaced = false;
-      const quarantineDir = join(
-        cfg.dataDir,
-        `tmp_restore_quarantine_${randomUUID()}`,
-      );
+      const quarantineDir = join(cfg.dataDir, `tmp_restore_quarantine_${randomUUID()}`);
 
       try {
         // SWAP — rename current state into rollback staging FIRST; never
@@ -407,15 +392,11 @@ export async function restoreWorkspaceBackup(
 
           db.exec("BEGIN TRANSACTION;");
           try {
-            db.prepare("DELETE FROM snapshots WHERE project_id = ?").run(
-              projectId,
-            );
+            db.prepare("DELETE FROM snapshots WHERE project_id = ?").run(projectId);
             const insertStmt = db.prepare(
               "INSERT INTO snapshots (id, project_id, user_id, name, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             );
-            const userExistsStmt = db.prepare(
-              "SELECT id FROM users WHERE id = ?",
-            );
+            const userExistsStmt = db.prepare("SELECT id FROM users WHERE id = ?");
             for (const entry of manifest.snapshots) {
               let userId = entry.userId;
               if (userExistsStmt.get(userId) === undefined) {
@@ -459,9 +440,7 @@ export async function restoreWorkspaceBackup(
         if (manifest.version === 2) {
           const dbCount = (
             db
-              .prepare(
-                "SELECT COUNT(*) as c FROM snapshots WHERE project_id = ?",
-              )
+              .prepare("SELECT COUNT(*) as c FROM snapshots WHERE project_id = ?")
               .get(projectId) as { c: number }
           ).c;
           if (dbCount !== manifest.snapshots.length) {
@@ -502,8 +481,7 @@ export async function restoreWorkspaceBackup(
           await fs.rm(rollbackDir, { recursive: true, force: true });
         } catch {}
 
-        const skippedReason =
-          manifest.version === 1 ? V1_SKIP_REASON : undefined;
+        const skippedReason = manifest.version === 1 ? V1_SKIP_REASON : undefined;
 
         recordAuditLog(db, {
           userId: options?.actorUserId,
@@ -568,9 +546,7 @@ export async function restoreWorkspaceBackup(
         if (dbReplaced) {
           try {
             db.exec("BEGIN TRANSACTION;");
-            db.prepare("DELETE FROM snapshots WHERE project_id = ?").run(
-              projectId,
-            );
+            db.prepare("DELETE FROM snapshots WHERE project_id = ?").run(projectId);
             const insertStmt = db.prepare(
               "INSERT INTO snapshots (id, project_id, user_id, name, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             );
@@ -610,11 +586,7 @@ export async function restoreWorkspaceBackup(
 
         throw err instanceof ApiError
           ? err
-          : new ApiError(
-              500,
-              `Workspace restore failed: ${err?.message}`,
-              "restore_failed",
-            );
+          : new ApiError(500, `Workspace restore failed: ${err?.message}`, "restore_failed");
       }
     });
   } finally {

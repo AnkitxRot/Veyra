@@ -118,10 +118,7 @@ export async function forkProject(
           await fs.mkdir(dirname(destPath), { recursive: true });
           // M87: read through the confined helper (the source workspace is
           // sandbox-writable); the staging copy is server-owned.
-          await fs.writeFile(
-            destPath,
-            await readConfinedBytes(sourceCwd, join(sourceCwd, fp)),
-          );
+          await fs.writeFile(destPath, await readConfinedBytes(sourceCwd, join(sourceCwd, fp)));
         }
       } catch (err) {
         try {

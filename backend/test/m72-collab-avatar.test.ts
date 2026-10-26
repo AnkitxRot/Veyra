@@ -34,10 +34,7 @@ function makeWs(): any {
 }
 
 function storedUser(projectId: string, clientId: number): any {
-  return collaborationManager
-    .getRoom(projectId)!
-    .awareness.getStates()
-    .get(clientId)?.user;
+  return collaborationManager.getRoom(projectId)!.awareness.getStates().get(clientId)?.user;
 }
 
 describe("M72 — avatar version through collaboration awareness", () => {
@@ -77,10 +74,7 @@ describe("M72 — avatar version through collaboration awareness", () => {
     const r = room("p1");
     const ws = makeWs();
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]));
     expect(storedUser("p1", 10).avatarVersion).toBe(0);
   });
 
@@ -89,10 +83,7 @@ describe("M72 — avatar version through collaboration awareness", () => {
     const r = room("p1");
     const ws = makeWs();
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]));
     expect(storedUser("p1", 10).avatarVersion).toBe(1);
   });
 
@@ -100,19 +91,13 @@ describe("M72 — avatar version through collaboration awareness", () => {
     const r = room("p1");
     const ws = makeWs();
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 1, state: { user: {} } }]));
     expect(storedUser("p1", 10).avatarVersion).toBe(0);
 
     await storeAvatar(db, cfg, 1, makePng(80, 80));
     collaborationManager.broadcastProfileEventForUser(1);
 
-    r.handleMessage(
-      ws,
-      awarenessFrame([{ clientId: 10, clock: 2, state: { user: {} } }]),
-    );
+    r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock: 2, state: { user: {} } }]));
     expect(storedUser("p1", 10).avatarVersion).toBe(1);
   });
 
@@ -141,19 +126,14 @@ describe("M72 — avatar version through collaboration awareness", () => {
     await r.addClient(ws, { userId: 1, username: "alice", role: "editor" });
     const spy = vi.spyOn(profileStore, "getAvatarVersion");
     for (let clock = 1; clock <= 5; clock++) {
-      r.handleMessage(
-        ws,
-        awarenessFrame([{ clientId: 10, clock, state: { user: {} } }]),
-      );
+      r.handleMessage(ws, awarenessFrame([{ clientId: 10, clock, state: { user: {} } }]));
     }
     expect(spy).not.toHaveBeenCalled();
     expect(storedUser("p1", 10).avatarVersion).toBe(1);
   });
 
   it("7. the REST roster reports each collaborator's avatarVersion", async () => {
-    db.prepare(
-      "INSERT INTO projects (id, owner_id, name) VALUES ('pr', 1, 'pr')",
-    ).run();
+    db.prepare("INSERT INTO projects (id, owner_id, name) VALUES ('pr', 1, 'pr')").run();
     db.prepare(
       "INSERT INTO project_collaborators (project_id, user_id, role) VALUES ('pr', 2, 'editor')",
     ).run();
@@ -172,10 +152,7 @@ describe("M72 — avatar version through collaboration awareness", () => {
     await storeAvatar(db, cfg, 1, makePng(64, 64));
     const ws2 = makeWs();
     await r.addClient(ws2, { userId: 1, username: "alice", role: "editor" });
-    r.handleMessage(
-      ws2,
-      awarenessFrame([{ clientId: 12, clock: 1, state: { user: {} } }]),
-    );
+    r.handleMessage(ws2, awarenessFrame([{ clientId: 12, clock: 1, state: { user: {} } }]));
     expect(storedUser("p1", 12).avatarVersion).toBe(1);
   });
 });

@@ -31,9 +31,7 @@ export const SERVER_REQUESTS_HANDLED = new Set<string>([
   "client/unregisterCapability",
 ]);
 
-export const SERVER_NOTIFICATIONS_FORWARDED = new Set<string>([
-  "textDocument/publishDiagnostics",
-]);
+export const SERVER_NOTIFICATIONS_FORWARDED = new Set<string>(["textDocument/publishDiagnostics"]);
 
 export function isAllowedClientNotification(method: string): boolean {
   return CLIENT_NOTIFICATIONS.has(method);
@@ -44,7 +42,5 @@ export function isAllowedClientRequest(method: string): boolean {
 }
 
 export function clientMethodAllowed(method: string): boolean {
-  return (
-    isAllowedClientNotification(method) || isAllowedClientRequest(method)
-  );
+  return isAllowedClientNotification(method) || isAllowedClientRequest(method);
 }

@@ -7,7 +7,8 @@
   height: 100vh;
   width: 100vw;
   background: var(--bg-deep);
-  background-image: radial-gradient(circle at 15% 15%, rgba(137, 180, 250, 0.04) 0%, transparent 40%),
+  background-image:
+    radial-gradient(circle at 15% 15%, rgba(137, 180, 250, 0.04) 0%, transparent 40%),
     radial-gradient(circle at 85% 85%, rgba(148, 226, 213, 0.03) 0%, transparent 40%);
   color: var(--fg-primary);
   font-family: var(--font-sans);

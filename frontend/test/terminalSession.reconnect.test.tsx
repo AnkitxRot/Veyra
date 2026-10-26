@@ -82,10 +82,7 @@ vi.mock("../src/api", () => ({
 }));
 
 import { useTerminalSession } from "../src/hooks/useTerminalSession";
-import {
-  TERMINAL_STATES,
-  RECONNECT_MAX_ATTEMPTS,
-} from "../src/hooks/terminalSessionState";
+import { TERMINAL_STATES, RECONNECT_MAX_ATTEMPTS } from "../src/hooks/terminalSessionState";
 
 beforeEach(() => {
   FakeXTerm.instances = [];
@@ -114,8 +111,7 @@ function mount() {
   });
   return h;
 }
-const sock = (i = -1) =>
-  FakeWS.instances.at(i)!;
+const sock = (i = -1) => FakeWS.instances.at(i)!;
 const lastReconnectTimerCount = () => vi.getTimerCount();
 
 describe("M79 — terminal reconnect state machine", () => {
@@ -199,9 +195,7 @@ describe("M79 — terminal reconnect state machine", () => {
   it("a server 'ended' frame stops the reconnect loop and yields state ended", () => {
     const h = mount();
     act(() => sock()._open());
-    act(() =>
-      sock()._message({ type: "ended", reason: "grace_expired" }),
-    );
+    act(() => sock()._message({ type: "ended", reason: "grace_expired" }));
     expect(h.result.current.state).toBe(TERMINAL_STATES.ended);
     expect(h.result.current.endedReason).toBe("grace_expired");
     // no reconnect timer, and a subsequent close does not restart the loop

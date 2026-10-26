@@ -139,11 +139,9 @@ describe("sessionStore — validation & corruption safety", () => {
   });
 
   it("write survives localStorage.setItem throwing (quota / disabled)", () => {
-    const spy = vi
-      .spyOn(Storage.prototype, "setItem")
-      .mockImplementation(() => {
-        throw new DOMException("QuotaExceededError");
-      });
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("QuotaExceededError");
+    });
     expect(() =>
       writeProjectSession("q", { openTabs: ["a"], active: "a", bottomTab: null }),
     ).not.toThrow();
@@ -151,11 +149,9 @@ describe("sessionStore — validation & corruption safety", () => {
   });
 
   it("read survives localStorage.getItem throwing", () => {
-    const spy = vi
-      .spyOn(Storage.prototype, "getItem")
-      .mockImplementation(() => {
-        throw new DOMException("SecurityError");
-      });
+    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("SecurityError");
+    });
     expect(() => readProjectSession("x")).not.toThrow();
     expect(readProjectSession("x")).toBeNull();
     spy.mockRestore();
@@ -184,11 +180,9 @@ describe("sessionStore — last project", () => {
   it("ignores empty and survives storage errors", () => {
     setLastProjectId("");
     expect(getLastProjectId()).toBeNull();
-    const spy = vi
-      .spyOn(Storage.prototype, "getItem")
-      .mockImplementation(() => {
-        throw new Error("boom");
-      });
+    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("boom");
+    });
     expect(getLastProjectId()).toBeNull();
     spy.mockRestore();
   });
@@ -318,12 +312,8 @@ describe("sessionStore — resolvePendingEntryOpen (pure)", () => {
   });
 
   it("waits until the tree for this project has loaded", () => {
-    expect(
-      resolvePendingEntryOpen({ ...ready, treeLoadedFor: null }),
-    ).toBeNull();
-    expect(
-      resolvePendingEntryOpen({ ...ready, treeLoadedFor: "P-old" }),
-    ).toBeNull();
+    expect(resolvePendingEntryOpen({ ...ready, treeLoadedFor: null })).toBeNull();
+    expect(resolvePendingEntryOpen({ ...ready, treeLoadedFor: "P-old" })).toBeNull();
   });
 
   it("stands down once the user has opened a tab of their own", () => {
@@ -335,8 +325,6 @@ describe("sessionStore — resolvePendingEntryOpen (pure)", () => {
   });
 
   it("stands down when no project is active", () => {
-    expect(
-      resolvePendingEntryOpen({ ...ready, projectId: undefined }),
-    ).toBeNull();
+    expect(resolvePendingEntryOpen({ ...ready, projectId: undefined })).toBeNull();
   });
 });

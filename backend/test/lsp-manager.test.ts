@@ -2,10 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeTestConfig } from "./helpers.js";
-import {
-  languageServers,
-  resetLanguageServersForTests,
-} from "../src/lsp/manager.js";
+import { languageServers, resetLanguageServersForTests } from "../src/lsp/manager.js";
 import type { LspClientSocket } from "../src/lsp/session.js";
 import type { LspSpawnRequest } from "../src/lsp/process.js";
 
@@ -34,11 +31,7 @@ class FakeSock implements LspClientSocket {
   }
 }
 
-async function waitFor(
-  pred: () => boolean,
-  ms = 5000,
-  label = "condition",
-): Promise<void> {
+async function waitFor(pred: () => boolean, ms = 5000, label = "condition"): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
     if (pred()) return;
@@ -111,8 +104,7 @@ describe("lsp manager lifecycle", () => {
       () =>
         sock.messages.some(
           (m) =>
-            m.method === "textDocument/publishDiagnostics" &&
-            m.params?.diagnostics?.length > 0,
+            m.method === "textDocument/publishDiagnostics" && m.params?.diagnostics?.length > 0,
         ),
       5000,
       "diagnostics",
@@ -172,15 +164,9 @@ describe("lsp manager lifecycle", () => {
     }
     const completion = sock.messages.find((m) => m.id === 10);
     expect(completion.result.items[0].label).toBe("hello");
-    expect(sock.messages.find((m) => m.id === 11).result.contents.value).toMatch(
-      /fake hover/,
-    );
-    expect(sock.messages.find((m) => m.id === 12).result.uri).toBe(
-      "file:///workspace/main.py",
-    );
-    expect(sock.messages.find((m) => m.id === 13).result[0].uri).toBe(
-      "file:///workspace/main.py",
-    );
+    expect(sock.messages.find((m) => m.id === 11).result.contents.value).toMatch(/fake hover/);
+    expect(sock.messages.find((m) => m.id === 12).result.uri).toBe("file:///workspace/main.py");
+    expect(sock.messages.find((m) => m.id === 13).result[0].uri).toBe("file:///workspace/main.py");
     expect(sock.messages.find((m) => m.id === 14).result[0].name).toBe("main");
     expect(sock.messages.find((m) => m.id === 15).result[0].name).toBe("main");
   });
@@ -260,11 +246,7 @@ describe("lsp manager lifecycle", () => {
       socket: sock,
       workspaceDir: cfg.workspacesDir,
     });
-    await waitFor(
-      () => sock.lastStatus()?.state === "failed",
-      8000,
-      "failed after restart cap",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "failed", 8000, "failed after restart cap");
   });
 
   it("times out a hung initialize without restarting", async () => {
@@ -281,11 +263,7 @@ describe("lsp manager lifecycle", () => {
     });
     expect(cfg.lspStartupTimeoutMs).toBe(80);
     expect(session?.limits.startupTimeoutMs).toBe(80);
-    await waitFor(
-      () => sock.lastStatus()?.state === "unavailable",
-      3000,
-      "startup timeout",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "unavailable", 3000, "startup timeout");
     expect(session?.currentState).toBe("unavailable");
     expect(session?.pid).toBeUndefined();
     await new Promise((r) => setTimeout(r, 250));
@@ -365,9 +343,7 @@ describe("lsp manager lifecycle", () => {
       workspaceDir: cfg.workspacesDir,
     });
     await waitFor(
-      () =>
-        sock.lastStatus()?.state === "failed" ||
-        sock.lastStatus()?.state === "unavailable",
+      () => sock.lastStatus()?.state === "failed" || sock.lastStatus()?.state === "unavailable",
       5000,
       "malformed frame",
     );
@@ -458,15 +434,12 @@ describe("lsp manager lifecycle", () => {
       () =>
         a.messages.some(
           (m) =>
-            m.method === "textDocument/publishDiagnostics" &&
-            m.params?.diagnostics?.length > 0,
+            m.method === "textDocument/publishDiagnostics" && m.params?.diagnostics?.length > 0,
         ),
       5000,
       "diags from A",
     );
-    a.messages = a.messages.filter(
-      (m) => m.method !== "textDocument/publishDiagnostics",
-    );
+    a.messages = a.messages.filter((m) => m.method !== "textDocument/publishDiagnostics");
     session!.handleClientMessage(b, {
       jsonrpc: "2.0",
       method: "textDocument/didOpen",
@@ -517,9 +490,7 @@ describe("lsp manager lifecycle", () => {
       params: { textDocument: { uri: "file:///workspace/main.py" } },
     });
     await new Promise((r) => setTimeout(r, 50));
-    sock.messages = sock.messages.filter(
-      (m) => m.method !== "textDocument/publishDiagnostics",
-    );
+    sock.messages = sock.messages.filter((m) => m.method !== "textDocument/publishDiagnostics");
     session!.handleClientMessage(sock, {
       jsonrpc: "2.0",
       method: "textDocument/didOpen",
@@ -579,24 +550,27 @@ describe("lsp manager lifecycle", () => {
       () =>
         sock.messages.some(
           (m) =>
-            m.method === "textDocument/publishDiagnostics" &&
-            m.params?.diagnostics?.length > 0,
+            m.method === "textDocument/publishDiagnostics" && m.params?.diagnostics?.length > 0,
         ),
       5000,
       "open diags",
     );
     expect(listener).not.toBeNull();
     listener!("x = 1\n");
-    await waitFor(() => {
-      const last = [...sock.messages]
-        .reverse()
-        .find(
-          (m) =>
-            m.method === "textDocument/publishDiagnostics" &&
-            m.params?.uri === "file:///workspace/main.py",
-        );
-      return Array.isArray(last?.params?.diagnostics) && last.params.diagnostics.length === 0;
-    }, 5000, "subscribe cleared diags");
+    await waitFor(
+      () => {
+        const last = [...sock.messages]
+          .reverse()
+          .find(
+            (m) =>
+              m.method === "textDocument/publishDiagnostics" &&
+              m.params?.uri === "file:///workspace/main.py",
+          );
+        return Array.isArray(last?.params?.diagnostics) && last.params.diagnostics.length === 0;
+      },
+      5000,
+      "subscribe cleared diags",
+    );
   });
 
   it("prefers the canonical document source over a stale client payload", async () => {
@@ -630,8 +604,7 @@ describe("lsp manager lifecycle", () => {
       () =>
         sock.messages.some(
           (m) =>
-            m.method === "textDocument/publishDiagnostics" &&
-            m.params?.diagnostics?.length > 0,
+            m.method === "textDocument/publishDiagnostics" && m.params?.diagnostics?.length > 0,
         ),
       5000,
       "canonical diags",

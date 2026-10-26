@@ -1,15 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createRequire } from "node:module";
-import {
-  createProject,
-  deleteProject,
-  projectDir,
-} from "../src/projects/service.js";
-import {
-  createSnapshot,
-  restoreSnapshot,
-  deleteSnapshot,
-} from "../src/projects/snapshots.js";
+import { createProject, deleteProject, projectDir } from "../src/projects/service.js";
+import { createSnapshot, restoreSnapshot, deleteSnapshot } from "../src/projects/snapshots.js";
 import { writeProjectFile } from "../src/files/service.js";
 import {
   recordAuditLog,
@@ -195,24 +187,16 @@ describe("Milestone 33 — Audit Trail Coverage & Deletion Integrity", () => {
     await createSnapshot(cfg, db, ownerId, projectA.id, "s");
 
     const byEvent = queryAuditLogs(db, { eventType: "PROJECT_CREATED" });
-    expect(byEvent.logs.every((l) => l.event_type === "PROJECT_CREATED")).toBe(
-      true,
-    );
+    expect(byEvent.logs.every((l) => l.event_type === "PROJECT_CREATED")).toBe(true);
     expect(byEvent.total).toBeGreaterThanOrEqual(2);
 
     const byUser = queryAuditLogs(db, { userId: ownerId });
     expect(byUser.logs.every((l) => l.user_id === ownerId)).toBe(true);
 
     const byProject = queryAuditLogs(db, { projectId: projectA.id });
-    expect(byProject.logs.every((l) => l.project_id === projectA.id)).toBe(
-      true,
-    );
-    expect(
-      byProject.logs.some((l) => l.event_type === "SNAPSHOT_CREATED"),
-    ).toBe(true);
-    expect(byProject.logs.some((l) => l.project_id === projectB.id)).toBe(
-      false,
-    );
+    expect(byProject.logs.every((l) => l.project_id === projectA.id)).toBe(true);
+    expect(byProject.logs.some((l) => l.event_type === "SNAPSHOT_CREATED")).toBe(true);
+    expect(byProject.logs.some((l) => l.project_id === projectB.id)).toBe(false);
 
     const page1 = queryAuditLogs(db, { limit: 1, offset: 0 });
     const page2 = queryAuditLogs(db, { limit: 1, offset: 1 });
@@ -247,9 +231,7 @@ describe("Milestone 33 — Audit Trail Coverage & Deletion Integrity", () => {
   it("the M27/M31 project-existence check before recordAuditLog for a since-deleted project remains necessary — ON DELETE SET NULL does not relax FK validation on INSERT (verified directly, not assumed)", () => {
     expect(() =>
       db
-        .prepare(
-          "INSERT INTO audit_logs (project_id, event_type, details) VALUES (?, ?, ?)",
-        )
+        .prepare("INSERT INTO audit_logs (project_id, event_type, details) VALUES (?, ?, ?)")
         .run("00000000-0000-0000-0000-000000000000", "ADMIN_ACTION", "{}"),
     ).toThrow(/FOREIGN KEY/i);
   });
@@ -369,8 +351,8 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
 
     // Insert an old audit log row directly by manipulating created_at
     db.prepare(
-      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-730 days'))"
-    ).run(ownerId, project.id, "PROJECT_CREATED", '{}', null);
+      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-730 days'))",
+    ).run(ownerId, project.id, "PROJECT_CREATED", "{}", null);
 
     // Insert a recent audit log row
     recordAuditLog(db, {
@@ -435,8 +417,8 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
 
     // Insert a row exactly 365 days old (at boundary, not older)
     db.prepare(
-      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-365 days'))"
-    ).run(ownerId, project.id, "PROJECT_CREATED", '{}', null);
+      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-365 days'))",
+    ).run(ownerId, project.id, "PROJECT_CREATED", "{}", null);
 
     const beforeCount = db.prepare("SELECT COUNT(*) as c FROM audit_logs").get() as { c: number };
 
@@ -453,8 +435,8 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
 
     // Insert a row one second OLDER than 365 days (365 days + 1 second ago)
     db.prepare(
-      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-365 days', '-1 second'))"
-    ).run(ownerId, project.id, "PROJECT_CREATED", '{}', null);
+      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-365 days', '-1 second'))",
+    ).run(ownerId, project.id, "PROJECT_CREATED", "{}", null);
 
     const beforeCount = db.prepare("SELECT COUNT(*) as c FROM audit_logs").get() as { c: number };
 
@@ -512,20 +494,23 @@ describe("M93 — Audit Failure Monitoring & Integrity Signaling", () => {
     const project = await createProject(cfg, db, ownerId, { name: "Isolation Test" });
 
     // Create a row in the users table (a different table)
-    db.prepare(
-      "INSERT INTO users (username, password_hash) VALUES (?, ?)"
-    ).run("isolated_user", "hash");
+    db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)").run(
+      "isolated_user",
+      "hash",
+    );
 
     // Insert an old audit log row
     db.prepare(
-      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-730 days'))"
-    ).run(ownerId, project.id, "PROJECT_CREATED", '{}', null);
+      "INSERT INTO audit_logs (user_id, project_id, event_type, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-730 days'))",
+    ).run(ownerId, project.id, "PROJECT_CREATED", "{}", null);
 
     const pruned = pruneAuditLogs(db, 365);
     expect(pruned).toBe(1);
 
     // Verify the users table row is untouched
-    const userRow = db.prepare("SELECT * FROM users WHERE username = ?").get("isolated_user") as any;
+    const userRow = db
+      .prepare("SELECT * FROM users WHERE username = ?")
+      .get("isolated_user") as any;
     expect(userRow).toBeDefined();
   });
 });

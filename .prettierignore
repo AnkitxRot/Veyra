@@ -5,3 +5,4 @@ coverage
 package-lock.json
 docs/reports
 load-test/results
+frontend/src/components/IDE/IDE.tsx

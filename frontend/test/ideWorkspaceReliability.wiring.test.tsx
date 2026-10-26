@@ -29,9 +29,7 @@ describe("M85 — project switch and git tree wiring", () => {
   });
 
   it("does not steal the Tests tab when a test run reports failures", () => {
-    expect(src).toContain(
-      "const testRun = Array.isArray(tests) && tests.length > 0",
-    );
+    expect(src).toContain("const testRun = Array.isArray(tests) && tests.length > 0");
     expect(src).toContain("!testRun");
   });
 });

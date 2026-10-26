@@ -62,11 +62,9 @@ describe("M61-A comment REST", () => {
     expect(created.status).toBe(200);
     expect(created.data.thread.root.body).toBe("root comment");
 
-    const read = await api.request(
-      "GET",
-      `/api/projects/${projectId}/comments?file=src/a.ts`,
-      { token: viewer },
-    );
+    const read = await api.request("GET", `/api/projects/${projectId}/comments?file=src/a.ts`, {
+      token: viewer,
+    });
     expect(read.status).toBe(200);
     expect(read.data.threads.length).toBe(1);
 
@@ -89,9 +87,7 @@ describe("M61-A comment REST", () => {
       mentions: [viewerId, 99999],
     });
     expect(created.status).toBe(200);
-    expect(created.data.thread.mentions).toEqual([
-      { userId: viewerId, username: "viewer" },
-    ]);
+    expect(created.data.thread.mentions).toEqual([{ userId: viewerId, username: "viewer" }]);
   });
 
   it("edit is author-only; delete is author-or-owner; replies survive", async () => {
@@ -106,11 +102,10 @@ describe("M61-A comment REST", () => {
     );
     expect(reply.status).toBe(200);
 
-    const badEdit = await api.request(
-      "PATCH",
-      `/api/projects/${projectId}/comments/${commentId}`,
-      { token: owner, body: { body: "hijacked" } },
-    );
+    const badEdit = await api.request("PATCH", `/api/projects/${projectId}/comments/${commentId}`, {
+      token: owner,
+      body: { body: "hijacked" },
+    });
     expect(badEdit.status).toBe(403);
 
     const goodEdit = await api.request(
@@ -123,17 +118,13 @@ describe("M61-A comment REST", () => {
     expect(goodEdit.data.thread.root.editedAt).not.toBeNull();
 
     // owner (not author) may delete
-    const del = await api.request(
-      "DELETE",
-      `/api/projects/${projectId}/comments/${commentId}`,
-      { token: owner },
-    );
+    const del = await api.request("DELETE", `/api/projects/${projectId}/comments/${commentId}`, {
+      token: owner,
+    });
     expect(del.status).toBe(200);
     expect(del.data.thread.root.deletedAt).not.toBeNull();
     expect(del.data.thread.root.body).toBe("");
-    expect(del.data.thread.replies.map((r: any) => r.body)).toEqual([
-      "a reply",
-    ]);
+    expect(del.data.thread.replies.map((r: any) => r.body)).toEqual(["a reply"]);
   });
 
   it("reactions: fixed set enforced (400 for 💩); PK dedupe; toggle off", async () => {
@@ -149,8 +140,7 @@ describe("M61-A comment REST", () => {
     const dup = await api.request("PUT", url("\u{1F44D}"), { token: editor });
     expect(dup.status).toBe(200);
     expect(
-      dup.data.thread.root.reactions.find((r: any) => r.emoji === "\u{1F44D}")
-        .userIds.length,
+      dup.data.thread.root.reactions.find((r: any) => r.emoji === "\u{1F44D}").userIds.length,
     ).toBe(1);
 
     const off = await api.request("DELETE", url("\u{1F44D}"), { token: editor });
@@ -158,7 +148,7 @@ describe("M61-A comment REST", () => {
   });
 
   it("body XSS payload is stored and returned literally", async () => {
-    const payload = '<img src=x onerror=alert(1)> [x](javascript:evil)';
+    const payload = "<img src=x onerror=alert(1)> [x](javascript:evil)";
     const t = await createThread(editor, payload);
     expect(t.data.thread.root.body).toBe(payload);
     const read = await api.request(
@@ -208,15 +198,10 @@ describe("M61-A comment REST", () => {
       projectId,
       expect.objectContaining({ kind: "created", filePath: "src/a.ts" }),
     );
-    await api.request(
-      "POST",
-      `/api/projects/${projectId}/comments/${t.data.thread.id}/resolve`,
-      { token: editor },
-    );
-    expect(spy).toHaveBeenCalledWith(
-      projectId,
-      expect.objectContaining({ kind: "resolved" }),
-    );
+    await api.request("POST", `/api/projects/${projectId}/comments/${t.data.thread.id}/resolve`, {
+      token: editor,
+    });
+    expect(spy).toHaveBeenCalledWith(projectId, expect.objectContaining({ kind: "resolved" }));
     spy.mockRestore();
   });
 });

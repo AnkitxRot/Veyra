@@ -21,21 +21,24 @@ function writeLargeFixture(root: string): void {
   mkdirSync(join(root, ".cloudide-build-debug", "9"), { recursive: true });
   mkdirSync(join(root, "vendor", "deep", "a", "b"), { recursive: true });
 
-  writeFileSync(join(root, "package.json"), JSON.stringify({
-    name: "scale-fixture",
-    scripts: { test: "node --test", build: "echo ok" },
-  }));
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({
+      name: "scale-fixture",
+      scripts: { test: "node --test", build: "echo ok" },
+    }),
+  );
   writeFileSync(join(root, "src", "main.ts"), "export const SCALE_MARKER = 1;\n");
-  writeFileSync(join(root, "src", "pkg", "util.ts"), "export function util() { return SCALE_MARKER_UTIL; }\n");
+  writeFileSync(
+    join(root, "src", "pkg", "util.ts"),
+    "export function util() { return SCALE_MARKER_UTIL; }\n",
+  );
   writeFileSync(join(root, "tests", "unit", "math_test.py"), "def test_ok():\n    assert True\n");
   writeFileSync(join(root, "node_modules", "left-pad", "index.js"), "SCALE_MARKER_NODE_MODULES\n");
   writeFileSync(join(root, ".venv", "lib", "site.py"), "SCALE_MARKER_VENV\n");
   writeFileSync(join(root, ".git", "objects", "pack"), "SCALE_MARKER_GIT\n");
   writeFileSync(join(root, "__pycache__", "x.pyc"), "SCALE_MARKER_PYC\n");
-  writeFileSync(
-    join(root, ".cloudide-build-debug", "9", "main.js"),
-    "SCALE_MARKER_BUILD\n",
-  );
+  writeFileSync(join(root, ".cloudide-build-debug", "9", "main.js"), "SCALE_MARKER_BUILD\n");
   writeFileSync(join(root, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0]));
   writeFileSync(join(root, "big.log"), "x".repeat(200_000) + "SCALE_MARKER_BIG\n");
 

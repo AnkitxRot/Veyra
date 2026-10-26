@@ -13,9 +13,7 @@ const members = [
 describe("M61-A CommentComposer", () => {
   it("derives mentions from known @tokens; unknown handles stay literal", () => {
     const onSubmit = vi.fn();
-    render(
-      React.createElement(CommentComposer, { members, onSubmit } as never),
-    );
+    render(React.createElement(CommentComposer, { members, onSubmit } as never));
     const ta = screen.getByLabelText("Comment") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "@rahul look @ghost" } });
     fireEvent.keyDown(ta, { key: "Enter" });
@@ -27,9 +25,7 @@ describe("M61-A CommentComposer", () => {
 
   it("@ prefix opens a member menu; Shift+Enter does not submit", () => {
     const onSubmit = vi.fn();
-    render(
-      React.createElement(CommentComposer, { members, onSubmit } as never),
-    );
+    render(React.createElement(CommentComposer, { members, onSubmit } as never));
     const ta = screen.getByLabelText("Comment") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hey @ra" } });
     expect(screen.getByRole("listbox")).toBeTruthy();
@@ -40,9 +36,7 @@ describe("M61-A CommentComposer", () => {
 
   it("selecting a suggestion inserts @username and a trailing space", () => {
     const onSubmit = vi.fn();
-    render(
-      React.createElement(CommentComposer, { members, onSubmit } as never),
-    );
+    render(React.createElement(CommentComposer, { members, onSubmit } as never));
     const ta = screen.getByLabelText("Comment") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "cc @an" } });
     fireEvent.keyDown(ta, { key: "Enter" }); // picks the highlighted suggestion

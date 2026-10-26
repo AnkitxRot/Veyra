@@ -14,10 +14,7 @@ import {
   SecretsDecryptError,
   type SecretIdentity,
 } from "../src/projectsecrets/crypto.js";
-import {
-  renderSecretsEnvFile,
-  secretsExecPrefix,
-} from "../src/projectsecrets/inject.js";
+import { renderSecretsEnvFile, secretsExecPrefix } from "../src/projectsecrets/inject.js";
 import { resolveSecretsForInjection } from "../src/projectsecrets/store.js";
 import { createDatabaseBackup } from "../src/backup/service.js";
 import { createWorkspaceBackup } from "../src/backup/workspaceBackup.js";
@@ -77,9 +74,7 @@ describe("secrets crypto", () => {
 
   it("fails with the wrong key", () => {
     const enc = encryptSecret("secret", KEY_B64, ID);
-    expect(() => decryptSecret(enc, WRONG_KEY, ID)).toThrow(
-      SecretsDecryptError,
-    );
+    expect(() => decryptSecret(enc, WRONG_KEY, ID)).toThrow(SecretsDecryptError);
   });
 
   it("throws SecretsKeyError when the key is missing", () => {
@@ -90,9 +85,7 @@ describe("secrets crypto", () => {
 
   it("rejects malformed key material", () => {
     expect(() => resolveMasterKey("not-a-real-key")).toThrow(SecretsKeyError);
-    expect(() => resolveMasterKey(Buffer.alloc(16).toString("base64"))).toThrow(
-      SecretsKeyError,
-    );
+    expect(() => resolveMasterKey(Buffer.alloc(16).toString("base64"))).toThrow(SecretsKeyError);
   });
 
   it("rejects malformed ciphertext records", () => {
@@ -107,9 +100,9 @@ describe("secrets crypto", () => {
 
   it("rejects an unknown key version", () => {
     const enc = encryptSecret("x", KEY_B64, ID);
-    expect(() =>
-      decryptSecret({ ...enc, keyVersion: 99 }, KEY_B64, ID),
-    ).toThrow(SecretsDecryptError);
+    expect(() => decryptSecret({ ...enc, keyVersion: 99 }, KEY_B64, ID)).toThrow(
+      SecretsDecryptError,
+    );
   });
 
   it("computes a last-4 fingerprint only for long values", () => {
@@ -158,9 +151,9 @@ describe("secrets schema", () => {
     expect(byName.is_secret!.dflt_value).toBe("1");
     expect(byName.key_version!.dflt_value).toBe("1");
     expect(byName.environment).toBeDefined();
-    const ver = db
-      .prepare("SELECT MAX(version) AS v FROM schema_migrations")
-      .get() as { v: number };
+    const ver = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as {
+      v: number;
+    };
     expect(ver.v).toBeGreaterThanOrEqual(10);
     db.close();
   });
@@ -256,11 +249,9 @@ describe("secrets CRUD API", () => {
   });
 
   it("does not return the value of an is_secret=true entry", async () => {
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/secrets/API_KEY/value`,
-      { token: owner },
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/secrets/API_KEY/value`, {
+      token: owner,
+    });
     expect(r.status).toBe(403);
     expect(r.text).not.toContain("supersecretvalue123");
   });
@@ -270,21 +261,18 @@ describe("secrets CRUD API", () => {
       token: owner,
       body: { name: "NODE_ENV", value: "production", isSecret: false },
     });
-    const r = await api.request(
-      "GET",
-      `/api/projects/${projectId}/secrets/NODE_ENV/value`,
-      { token: owner },
-    );
+    const r = await api.request("GET", `/api/projects/${projectId}/secrets/NODE_ENV/value`, {
+      token: owner,
+    });
     expect(r.status).toBe(200);
     expect(r.data.value).toBe("production");
   });
 
   it("updates (overwrites) a secret value", async () => {
-    const r = await api.request(
-      "PUT",
-      `/api/projects/${projectId}/secrets/API_KEY`,
-      { token: owner, body: { value: "rotatedvalue999" } },
-    );
+    const r = await api.request("PUT", `/api/projects/${projectId}/secrets/API_KEY`, {
+      token: owner,
+      body: { value: "rotatedvalue999" },
+    });
     expect(r.status).toBe(200);
     expect(r.data.secret.fingerprint).toBe("e999");
     expect(r.text).not.toContain("rotatedvalue999");
@@ -300,11 +288,10 @@ describe("secrets CRUD API", () => {
 
   it("rejects invalid names", async () => {
     for (const bad of ["1BAD", "has space", "has-dash", "n\u0000ull", ""]) {
-      const r = await api.request(
-        "POST",
-        `/api/projects/${projectId}/secrets`,
-        { token: owner, body: { name: bad, value: "x" } },
-      );
+      const r = await api.request("POST", `/api/projects/${projectId}/secrets`, {
+        token: owner,
+        body: { name: bad, value: "x" },
+      });
       expect(r.status).toBe(400);
     }
   });
@@ -320,11 +307,7 @@ describe("secrets CRUD API", () => {
     });
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
-    const list = await api.request(
-      "GET",
-      `/api/projects/${projectId}/secrets`,
-      { token: owner },
-    );
+    const list = await api.request("GET", `/api/projects/${projectId}/secrets`, { token: owner });
     const envs = list.data.secrets
       .filter((s: any) => s.name === "DB_URL")
       .map((s: any) => s.environment)
@@ -378,17 +361,13 @@ describe("secrets CRUD API", () => {
   });
 
   it("deletes a secret", async () => {
-    const r = await api.request(
-      "DELETE",
-      `/api/projects/${projectId}/secrets/NODE_ENV`,
-      { token: owner },
-    );
+    const r = await api.request("DELETE", `/api/projects/${projectId}/secrets/NODE_ENV`, {
+      token: owner,
+    });
     expect(r.status).toBe(200);
-    const missing = await api.request(
-      "DELETE",
-      `/api/projects/${projectId}/secrets/NODE_ENV`,
-      { token: owner },
-    );
+    const missing = await api.request("DELETE", `/api/projects/${projectId}/secrets/NODE_ENV`, {
+      token: owner,
+    });
     expect(missing.status).toBe(404);
   });
 
@@ -398,9 +377,7 @@ describe("secrets CRUD API", () => {
       body: { name: "AUDIT_ME", value: "auditsecretvalue" },
     });
     const rows = api.db
-      .prepare(
-        "SELECT event_type, details FROM audit_logs WHERE event_type LIKE 'SECRET_%'",
-      )
+      .prepare("SELECT event_type, details FROM audit_logs WHERE event_type LIKE 'SECRET_%'")
       .all() as Array<{ event_type: string; details: string }>;
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
@@ -486,9 +463,7 @@ describe("resolveSecretsForInjection", () => {
   it("decrypts every entry and records exactly one SECRET_ACCESSED", () => {
     const before = (
       api.db
-        .prepare(
-          "SELECT COUNT(*) AS c FROM audit_logs WHERE event_type = 'SECRET_ACCESSED'",
-        )
+        .prepare("SELECT COUNT(*) AS c FROM audit_logs WHERE event_type = 'SECRET_ACCESSED'")
         .get() as { c: number }
     ).c;
     const env = resolveSecretsForInjection(api.db, cfg, projectId, {
@@ -506,9 +481,7 @@ describe("resolveSecretsForInjection", () => {
       .get() as { details: string };
     const count = (
       api.db
-        .prepare(
-          "SELECT COUNT(*) AS c FROM audit_logs WHERE event_type = 'SECRET_ACCESSED'",
-        )
+        .prepare("SELECT COUNT(*) AS c FROM audit_logs WHERE event_type = 'SECRET_ACCESSED'")
         .get() as { c: number }
     ).c;
     expect(count).toBe(before + 1);
@@ -610,9 +583,9 @@ describe("secrets lifecycle", () => {
     });
     expect(
       (
-        api.db
-          .prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?")
-          .get(pid) as { c: number }
+        api.db.prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?").get(pid) as {
+          c: number;
+        }
       ).c,
     ).toBe(1);
     const del = await api.request("DELETE", `/api/projects/${pid}`, {
@@ -621,9 +594,9 @@ describe("secrets lifecycle", () => {
     expect(del.status).toBe(200);
     expect(
       (
-        api.db
-          .prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?")
-          .get(pid) as { c: number }
+        api.db.prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?").get(pid) as {
+          c: number;
+        }
       ).c,
     ).toBe(0);
   });
@@ -637,9 +610,9 @@ describe("secrets lifecycle", () => {
     const forkId = fork.data.project.id;
     expect(
       (
-        api.db
-          .prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?")
-          .get(forkId) as { c: number }
+        api.db.prepare("SELECT COUNT(*) AS c FROM secrets WHERE scope_id = ?").get(forkId) as {
+          c: number;
+        }
       ).c,
     ).toBe(0);
     const list = await api.request("GET", `/api/projects/${forkId}/secrets`, {
@@ -676,12 +649,8 @@ describe("secrets lifecycle", () => {
     const bdb = openDb(backupPath);
     try {
       const row = bdb
-        .prepare(
-          "SELECT ciphertext, nonce, key_version FROM secrets WHERE name = 'LIFE_SECRET'",
-        )
-        .get() as
-        | { ciphertext: Uint8Array; nonce: Uint8Array; key_version: number }
-        | undefined;
+        .prepare("SELECT ciphertext, nonce, key_version FROM secrets WHERE name = 'LIFE_SECRET'")
+        .get() as { ciphertext: Uint8Array; nonce: Uint8Array; key_version: number } | undefined;
       expect(row).toBeDefined();
       expect(Buffer.from(row!.ciphertext).toString("utf8")).not.toContain(
         "lifecycleplaintextvalue",
@@ -712,70 +681,65 @@ describe("secrets lifecycle", () => {
 // ---------------------------------------------------------------------------
 // Docker-gated: real run / terminal injection
 // ---------------------------------------------------------------------------
-describe.skipIf(!isDockerRunning())(
-  "secrets runtime injection (docker)",
-  () => {
-    let api: TestApi;
-    let cfg: ReturnType<typeof makeTestConfig>;
-    let owner: string;
-    let projectId: string;
+describe.skipIf(!isDockerRunning())("secrets runtime injection (docker)", () => {
+  let api: TestApi;
+  let cfg: ReturnType<typeof makeTestConfig>;
+  let owner: string;
+  let projectId: string;
 
-    beforeAll(async () => {
-      cfg = makeTestConfig({ secretsMasterKey: KEY_B64 });
-      api = await startTestApi(cfg);
-      owner = (
-        await api.request("POST", "/api/auth/register", {
-          body: { username: "dockowner", password: "password12" },
-        })
-      ).data.token;
-      projectId = (
-        await api.request("POST", "/api/projects", {
-          token: owner,
-          body: { name: "dock" },
-        })
-      ).data.project.id;
-      await api.request("POST", `/api/projects/${projectId}/file`, {
+  beforeAll(async () => {
+    cfg = makeTestConfig({ secretsMasterKey: KEY_B64 });
+    api = await startTestApi(cfg);
+    owner = (
+      await api.request("POST", "/api/auth/register", {
+        body: { username: "dockowner", password: "password12" },
+      })
+    ).data.token;
+    projectId = (
+      await api.request("POST", "/api/projects", {
         token: owner,
-        body: {
-          path: "main.py",
-          content:
-            "import os\nprint('VAL=' + os.environ.get('MY_SECRET','MISSING'))\n",
-        },
-      });
-      await api.request("POST", `/api/projects/${projectId}/secrets`, {
-        token: owner,
-        body: { name: "MY_SECRET", value: "injected-xyz-42" },
-      });
-    }, 120_000);
+        body: { name: "dock" },
+      })
+    ).data.project.id;
+    await api.request("POST", `/api/projects/${projectId}/file`, {
+      token: owner,
+      body: {
+        path: "main.py",
+        content: "import os\nprint('VAL=' + os.environ.get('MY_SECRET','MISSING'))\n",
+      },
+    });
+    await api.request("POST", `/api/projects/${projectId}/secrets`, {
+      token: owner,
+      body: { name: "MY_SECRET", value: "injected-xyz-42" },
+    });
+  }, 120_000);
 
-    afterAll(async () => {
-      try {
-        const { sandboxManager } = await import("../src/execution/sandbox.js");
-        await sandboxManager.stopProjectSandbox(projectId);
-      } catch {}
-      await api?.close();
-    }, 60_000);
+  afterAll(async () => {
+    try {
+      const { sandboxManager } = await import("../src/execution/sandbox.js");
+      await sandboxManager.stopProjectSandbox(projectId);
+    } catch {}
+    await api?.close();
+  }, 60_000);
 
-    it("injects the secret into a run", async () => {
-      const r = await api.request("POST", `/api/projects/${projectId}/run`, {
-        token: owner,
-        body: { language: "python" },
-      });
-      expect(r.status).toBe(200);
-      expect(r.data.stdout).toContain("VAL=injected-xyz-42");
-    }, 120_000);
+  it("injects the secret into a run", async () => {
+    const r = await api.request("POST", `/api/projects/${projectId}/run`, {
+      token: owner,
+      body: { language: "python" },
+    });
+    expect(r.status).toBe(200);
+    expect(r.data.stdout).toContain("VAL=injected-xyz-42");
+  }, 120_000);
 
-    it("does not inject the secret into install", async () => {
-      await api.request("POST", `/api/projects/${projectId}/file`, {
-        token: owner,
-        body: { path: "requirements.txt", content: "# no packages\n" },
-      });
-      const r = await api.request(
-        "POST",
-        `/api/projects/${projectId}/install`,
-        { token: owner, body: {} },
-      );
-      expect(r.text).not.toContain("injected-xyz-42");
-    }, 120_000);
-  },
-);
+  it("does not inject the secret into install", async () => {
+    await api.request("POST", `/api/projects/${projectId}/file`, {
+      token: owner,
+      body: { path: "requirements.txt", content: "# no packages\n" },
+    });
+    const r = await api.request("POST", `/api/projects/${projectId}/install`, {
+      token: owner,
+      body: {},
+    });
+    expect(r.text).not.toContain("injected-xyz-42");
+  }, 120_000);
+});

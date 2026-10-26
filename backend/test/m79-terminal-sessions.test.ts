@@ -96,12 +96,7 @@ describe("M79 — TerminalSessionRegistry", () => {
     vi.useRealTimers();
   });
 
-  function create(
-    userId = U,
-    projectId = P,
-    terminalId = T,
-    pty = fakePty(),
-  ) {
+  function create(userId = U, projectId = P, terminalId = T, pty = fakePty()) {
     reg.create({
       userId,
       projectId,

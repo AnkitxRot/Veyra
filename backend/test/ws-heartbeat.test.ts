@@ -95,18 +95,12 @@ async function registerAndCreateProject(booted: Booted) {
 }
 
 /** Connects to /ws/collab; pre-arms listeners to dodge the SyncStep1 race. */
-async function connectCollab(
-  base: string,
-  projectId: string,
-  token: string,
-): Promise<WebSocket> {
+async function connectCollab(base: string, projectId: string, token: string): Promise<WebSocket> {
   const wsUrl = `${base.replace(/^http/, "ws")}/ws/collab?projectId=${encodeURIComponent(projectId)}`;
   const ws = new WebSocket(wsUrl, {
     headers: { Cookie: `session_token=${token}` },
   });
-  const step1 = new Promise<void>((resolve) =>
-    ws.once("message", () => resolve()),
-  );
+  const step1 = new Promise<void>((resolve) => ws.once("message", () => resolve()));
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("open timeout")), 4000);
     ws.once("open", () => {
@@ -127,10 +121,7 @@ function wait(ms: number): Promise<void> {
 }
 
 /** Waits until the predicate holds, polling on real time. */
-async function waitFor(
-  predicate: () => boolean,
-  timeoutMs = 3000,
-): Promise<boolean> {
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return true;
@@ -163,8 +154,7 @@ describe("M3 websocket heartbeat reaper", () => {
     vi.useFakeTimers();
     const booted = await bootServer();
     try {
-      const { token, userId, projectId } =
-        await registerAndCreateProject(booted);
+      const { token, userId, projectId } = await registerAndCreateProject(booted);
       const ws = await connectCollab(booted.base, projectId, token);
 
       let pingsReceived = 0;
@@ -201,8 +191,7 @@ describe("M3 websocket heartbeat reaper", () => {
     const booted = await bootServer();
     const touched: string[] = [];
     try {
-      const { token, userId, projectId } =
-        await registerAndCreateProject(booted);
+      const { token, userId, projectId } = await registerAndCreateProject(booted);
       touched.push(projectId);
       const ws = await connectCollab(booted.base, projectId, token);
 
@@ -228,18 +217,12 @@ describe("M3 websocket heartbeat reaper", () => {
       (ws as any)._socket.resume();
 
       vi.useRealTimers();
-      const code = await Promise.race([
-        closedCode,
-        wait(2000).then(() => undefined),
-      ]);
+      const code = await Promise.race([closedCode, wait(2000).then(() => undefined)]);
       expect(code).toBeDefined(); // hard termination surfaced as a close
 
       // Registry cleanup flows through the socket's own close/error handlers
       // once terminate() lands.
-      const gone = await waitFor(
-        () => activeConnectionCountForUser(userId) === 0,
-        3000,
-      );
+      const gone = await waitFor(() => activeConnectionCountForUser(userId) === 0, 3000);
       expect(gone).toBe(true);
       ws.terminate();
     } finally {
@@ -285,10 +268,7 @@ describe("M3 websocket heartbeat reaper", () => {
       const oversized = Buffer.alloc(DEFAULT_WS_MAX_PAYLOAD + 1, 0x41);
       ws.send(oversized);
 
-      const code = await Promise.race([
-        closed.then((c) => c ?? -1),
-        wait(4000).then(() => -2),
-      ]);
+      const code = await Promise.race([closed.then((c) => c ?? -1), wait(4000).then(() => -2)]);
       expect(code).toBe(1009);
 
       // The process must be none-the-worse: health stays green.
@@ -336,15 +316,9 @@ describe("M3 websocket heartbeat reaper", () => {
       // Two independent servers must hold independent controllers.
       const otherBoot = await bootServer();
       expect(getHeartbeatController(otherBoot.wss)).toBeDefined();
-      expect(getHeartbeatController(otherBoot.wss)).not.toBe(
-        getHeartbeatController(booted.wss),
-      );
+      expect(getHeartbeatController(otherBoot.wss)).not.toBe(getHeartbeatController(booted.wss));
 
-      const ws = await connectCollab(
-        booted.base,
-        createdA.projectId,
-        createdA.token,
-      );
+      const ws = await connectCollab(booted.base, createdA.projectId, createdA.token);
       const closedCode = new Promise<number | undefined>((resolve) => {
         ws.once("close", (code) => resolve(code));
       });
@@ -363,10 +337,7 @@ describe("M3 websocket heartbeat reaper", () => {
       expect(exitSpy).toHaveBeenCalledTimes(1);
       expect(exitSpy).toHaveBeenCalledWith(0);
 
-      const code = await Promise.race([
-        closedCode,
-        wait(2000).then(() => undefined),
-      ]);
+      const code = await Promise.race([closedCode, wait(2000).then(() => undefined)]);
       expect(code).toBe(1001); // graceful close from the teardown loop
 
       // Controller survives as an object but its interval is stopped:

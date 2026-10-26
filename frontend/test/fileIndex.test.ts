@@ -19,11 +19,7 @@ describe("fileIndex", () => {
       file("README.md"),
     ];
     const index = buildFileIndex(tree);
-    expect(index.map((f) => f.path).sort()).toEqual([
-      "README.md",
-      "src/a.ts",
-      "src/b.ts",
-    ]);
+    expect(index.map((f) => f.path).sort()).toEqual(["README.md", "src/a.ts", "src/b.ts"]);
   });
 
   it("caps empty-query results so Quick Open cannot mount thousands of rows", () => {

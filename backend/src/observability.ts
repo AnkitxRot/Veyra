@@ -124,12 +124,9 @@ function recordDbCall(label: string, elapsedNs: number): void {
 /** Exported for tests; not sophisticated SQL parsing, just a bounded label. */
 export function labelForSql(sql: string): string {
   const verbMatch =
-    /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|BEGIN|COMMIT|ROLLBACK)\b/i.exec(
-      sql,
-    );
+    /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|BEGIN|COMMIT|ROLLBACK)\b/i.exec(sql);
   const verb = verbMatch ? verbMatch[1]!.toUpperCase() : "OTHER";
-  const tableMatch =
-    /\b(?:FROM|INTO|UPDATE|TABLE)\s+([a-zA-Z_][a-zA-Z0-9_]*)/i.exec(sql);
+  const tableMatch = /\b(?:FROM|INTO|UPDATE|TABLE)\s+([a-zA-Z_][a-zA-Z0-9_]*)/i.exec(sql);
   const table = tableMatch ? tableMatch[1]!.toLowerCase() : "";
   return table ? `${verb} ${table}` : verb;
 }
@@ -150,9 +147,7 @@ export function instrumentDb(db: Db): Db {
     for (const method of ["run", "get", "all"] as const) {
       const original = stmt[method];
       if (typeof original !== "function") continue;
-      const boundOriginal = (original as (...a: unknown[]) => unknown).bind(
-        stmt,
-      );
+      const boundOriginal = (original as (...a: unknown[]) => unknown).bind(stmt);
       stmt[method] = (...args: unknown[]) => {
         const start = process.hrtime.bigint();
         try {
@@ -236,9 +231,7 @@ export interface ObservabilityDeps {
   };
 }
 
-export function getObservabilitySnapshot(
-  deps: ObservabilityDeps,
-): ObservabilitySnapshot {
+export function getObservabilitySnapshot(deps: ObservabilityDeps): ObservabilitySnapshot {
   const mem = process.memoryUsage();
   const byOperation: Record<string, LatencySnapshot> = {};
   for (const [label, h] of dbHistogramsByLabel) {
@@ -270,8 +263,7 @@ export function getObservabilitySnapshot(
     activeSandboxes: deps.getActiveSandboxCount(),
     containers: sandboxRoomOccupancy.containers,
     containersWithMultipleUsers: sandboxRoomOccupancy.containersWithMultipleUsers,
-    provisionedContainerRoomOccupancy:
-      sandboxRoomOccupancy.provisionedContainerRoomOccupancy,
+    provisionedContainerRoomOccupancy: sandboxRoomOccupancy.provisionedContainerRoomOccupancy,
     totalCollabBroadcastSends: deps.getTotalCollabBroadcastSends(),
     memory: {
       rssBytes: mem.rss,

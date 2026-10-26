@@ -63,9 +63,7 @@ describe("M61-A comment timeline source", () => {
       body: "root",
       anchor,
     });
-    const ev = queryTimeline(db, "p", { limit: 50 }).events.find(
-      (e) => e.kind === "comment",
-    )!;
+    const ev = queryTimeline(db, "p", { limit: 50 }).events.find((e) => e.kind === "comment")!;
     expect(ev.navigable).toBe(true);
     expect(ev.filePath).toBe("src/a.ts");
     expect(ev.lineRange).toEqual({ startLine: 3, endLine: 3 });

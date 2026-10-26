@@ -82,13 +82,19 @@ describe("AI verification honours the per-user runGate", () => {
     // journal INSERT needs these rows to exist. Inserted directly with explicit
     // ids because projects/service.js is mocked out below.
     for (const id of [USER_ID, OTHER_USER_ID]) {
-      db.prepare(
-        "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
-      ).run(id, `gate-user-${id}`, "h", "user");
+      db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)").run(
+        id,
+        `gate-user-${id}`,
+        "h",
+        "user",
+      );
     }
-    db.prepare(
-      "INSERT INTO projects (id, owner_id, name, language) VALUES (?, ?, ?, ?)",
-    ).run(PROJECT_ID, USER_ID, "GateVerifyTest", "python");
+    db.prepare("INSERT INTO projects (id, owner_id, name, language) VALUES (?, ?, ?, ?)").run(
+      PROJECT_ID,
+      USER_ID,
+      "GateVerifyTest",
+      "python",
+    );
   });
 
   afterEach(() => {
@@ -99,8 +105,7 @@ describe("AI verification honours the per-user runGate", () => {
 
   it("blocks a second concurrent verification for the same user instead of running it", async () => {
     const cfg = makeTestConfig({ maxConcurrentRuns: 1 });
-    const { runAIVerification, runProject, release } =
-      await loadVerifyWithPendingRun(OK_RESULT);
+    const { runAIVerification, runProject, release } = await loadVerifyWithPendingRun(OK_RESULT);
 
     // First call takes the single slot and parks inside the mocked runProject.
     const first = runAIVerification(cfg as any, db, baseRequest() as any);
@@ -111,11 +116,7 @@ describe("AI verification honours the per-user runGate", () => {
     // not awaited yet: without the gate this would enter the mocked runProject
     // and hang on its pending promise, so awaiting here would surface as an
     // opaque 60s timeout instead of a clear call-count failure.
-    const secondPromise = runAIVerification(
-      cfg as any,
-      db,
-      baseRequest() as any,
-    );
+    const secondPromise = runAIVerification(cfg as any, db, baseRequest() as any);
     await flush();
 
     // The gate must reject it outright — not queue it, not run it anyway.
@@ -127,9 +128,7 @@ describe("AI verification honours the per-user runGate", () => {
     expect(second.exitCode).toBeNull();
 
     // Blocked attempts still degrade gracefully: journalled, not thrown.
-    const row = db
-      .prepare("SELECT * FROM ai_verifications WHERE id = ?")
-      .get(second.id) as any;
+    const row = db.prepare("SELECT * FROM ai_verifications WHERE id = ?").get(second.id) as any;
     expect(row).not.toBeUndefined();
     expect(row.status).toBe("UNVERIFIED");
     expect(row.skip_reason).toMatch(/too many concurrent/i);
@@ -144,16 +143,11 @@ describe("AI verification honours the per-user runGate", () => {
 
   it("releases the slot so sequential verifications for the same user both run", async () => {
     const cfg = makeTestConfig({ maxConcurrentRuns: 1 });
-    const { runAIVerification, runProject, release } =
-      await loadVerifyWithPendingRun(OK_RESULT);
+    const { runAIVerification, runProject, release } = await loadVerifyWithPendingRun(OK_RESULT);
     release(); // never pend: each call resolves immediately
 
     const first = await runAIVerification(cfg as any, db, baseRequest() as any);
-    const second = await runAIVerification(
-      cfg as any,
-      db,
-      baseRequest() as any,
-    );
+    const second = await runAIVerification(cfg as any, db, baseRequest() as any);
 
     // Non-overlapping requests must not be penalised by the gate.
     expect(runProject).toHaveBeenCalledTimes(2);
@@ -164,18 +158,13 @@ describe("AI verification honours the per-user runGate", () => {
 
   it("budgets per user, so one user's in-flight run does not block another", async () => {
     const cfg = makeTestConfig({ maxConcurrentRuns: 1 });
-    const { runAIVerification, runProject, release } =
-      await loadVerifyWithPendingRun(OK_RESULT);
+    const { runAIVerification, runProject, release } = await loadVerifyWithPendingRun(OK_RESULT);
 
     const mine = runAIVerification(cfg as any, db, baseRequest() as any);
     await flush();
     expect(runProject).toHaveBeenCalledTimes(1);
 
-    const theirs = runAIVerification(
-      cfg as any,
-      db,
-      baseRequest(OTHER_USER_ID) as any,
-    );
+    const theirs = runAIVerification(cfg as any, db, baseRequest(OTHER_USER_ID) as any);
     await flush();
 
     // Separate user, separate budget — must have been allowed to start.
@@ -188,8 +177,7 @@ describe("AI verification honours the per-user runGate", () => {
 
   it("does not consume a run slot when verification is explicitly skipped", async () => {
     const cfg = makeTestConfig({ maxConcurrentRuns: 1 });
-    const { runAIVerification, runProject, release } =
-      await loadVerifyWithPendingRun(OK_RESULT);
+    const { runAIVerification, runProject, release } = await loadVerifyWithPendingRun(OK_RESULT);
     release();
 
     const skipped = await runAIVerification(cfg as any, db, {
@@ -220,20 +208,12 @@ describe("AI verification honours the per-user runGate", () => {
     }));
     const { runAIVerification } = await import("../src/ai/verify.js");
 
-    const failed = await runAIVerification(
-      cfg as any,
-      db,
-      baseRequest() as any,
-    );
+    const failed = await runAIVerification(cfg as any, db, baseRequest() as any);
     expect(failed.status).toBe("FAILED");
 
     // If the finally-release were missing, this second call would be starved
     // forever by the leaked slot.
-    const recovered = await runAIVerification(
-      cfg as any,
-      db,
-      baseRequest() as any,
-    );
+    const recovered = await runAIVerification(cfg as any, db, baseRequest() as any);
     expect(runProject).toHaveBeenCalledTimes(2);
     expect(recovered.status).toBe("VERIFIED");
   });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
 export interface TimeSeriesPoint {
   timestamp: string | number;
@@ -19,8 +19,8 @@ export interface TimeSeriesChartProps {
 export default function TimeSeriesChart({
   title,
   data,
-  color = '#89b4fa',
-  unit = '',
+  color = "#89b4fa",
+  unit = "",
   maxValue,
   height = 140,
   showTableFallback = false,
@@ -30,9 +30,9 @@ export default function TimeSeriesChart({
 
   const formatVal = (v: number) => {
     if (valueFormatter) return valueFormatter(v);
-    if (unit === '%') return `${v.toFixed(1)}%`;
-    if (unit === 'MB') return `${v.toFixed(1)} MB`;
-    if (unit === 'PIDs') return `${Math.round(v)} PIDs`;
+    if (unit === "%") return `${v.toFixed(1)}%`;
+    if (unit === "MB") return `${v.toFixed(1)} MB`;
+    if (unit === "PIDs") return `${Math.round(v)} PIDs`;
     return `${v.toLocaleString()} ${unit}`.trim();
   };
 
@@ -41,14 +41,14 @@ export default function TimeSeriesChart({
       <div
         className="glass-card"
         style={{
-          padding: '14px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
+          padding: "14px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
           height: `${height}px`,
-          color: 'var(--fg-muted)',
-          fontSize: '12px',
+          color: "var(--fg-muted)",
+          fontSize: "12px",
         }}
       >
         <span>No telemetry samples recorded yet for {title}.</span>
@@ -77,11 +77,11 @@ export default function TimeSeriesChart({
 
   const pathD = points.reduce((acc, p, i) => {
     return i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
-  }, '');
+  }, "");
 
   const areaD = `${pathD} L ${points[points.length - 1]!.x} ${chartHeight - paddingY} L ${points[0]!.x} ${chartHeight - paddingY} Z`;
 
-  const gradientId = `grad-${title.replace(/[^a-zA-Z0-9]/g, '')}-${color.replace(/[^a-zA-Z0-9]/g, '')}`;
+  const gradientId = `grad-${title.replace(/[^a-zA-Z0-9]/g, "")}-${color.replace(/[^a-zA-Z0-9]/g, "")}`;
 
   const hoveredPoint = hoverIndex !== null && points[hoverIndex] ? points[hoverIndex] : null;
 
@@ -89,39 +89,42 @@ export default function TimeSeriesChart({
     <div
       className="glass-card"
       style={{
-        padding: '12px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        background: 'rgba(255, 255, 255, 0.02)',
-        border: '1px solid var(--glass-border-subtle)',
-        borderRadius: 'var(--radius-md)',
+        padding: "12px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        background: "rgba(255, 255, 255, 0.02)",
+        border: "1px solid var(--glass-border-subtle)",
+        borderRadius: "var(--radius-md)",
       }}
       role="region"
       aria-label={`${title} Time Series Chart`}
     >
       {/* Header with Title and Metrics Pills */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px' }}>
-        <span style={{ fontWeight: 600, color: 'var(--fg-primary)' }}>{title}</span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          fontSize: "12px",
+        }}
+      >
+        <span style={{ fontWeight: 600, color: "var(--fg-primary)" }}>{title}</span>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
-          <span style={{ color: color, fontWeight: 700 }}>
-            Cur: {formatVal(currentVal)}
-          </span>
-          <span style={{ color: 'var(--fg-muted)' }}>
-            Avg: {formatVal(avgVal)}
-          </span>
-          <span style={{ color: 'var(--fg-secondary)' }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px" }}>
+          <span style={{ color: color, fontWeight: 700 }}>Cur: {formatVal(currentVal)}</span>
+          <span style={{ color: "var(--fg-muted)" }}>Avg: {formatVal(avgVal)}</span>
+          <span style={{ color: "var(--fg-secondary)" }}>
             Peak: {formatVal(Math.max(...values))}
           </span>
         </div>
       </div>
 
       {/* SVG Time-Series Visualizer */}
-      <div style={{ position: 'relative', width: '100%', height: `${chartHeight}px` }}>
+      <div style={{ position: "relative", width: "100%", height: `${chartHeight}px` }}>
         <svg
           viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          style={{ width: '100%', height: '100%', overflow: 'visible' }}
+          style={{ width: "100%", height: "100%", overflow: "visible" }}
           preserveAspectRatio="none"
           onMouseLeave={() => setHoverIndex(null)}
         >
@@ -171,7 +174,7 @@ export default function TimeSeriesChart({
               cy={p.y}
               r={hoverIndex === idx ? 4.5 : 2}
               fill={color}
-              style={{ transition: 'r 100ms ease', cursor: 'pointer' }}
+              style={{ transition: "r 100ms ease", cursor: "pointer" }}
               onMouseEnter={() => setHoverIndex(idx)}
             />
           ))}
@@ -194,24 +197,24 @@ export default function TimeSeriesChart({
         {hoveredPoint && (
           <div
             style={{
-              position: 'absolute',
+              position: "absolute",
               left: `${(hoveredPoint.x / chartWidth) * 100}%`,
               top: `${Math.max(0, hoveredPoint.y - 32)}px`,
-              transform: 'translateX(-50%)',
-              background: 'rgba(17, 19, 28, 0.95)',
+              transform: "translateX(-50%)",
+              background: "rgba(17, 19, 28, 0.95)",
               border: `1px solid ${color}`,
-              borderRadius: '4px',
-              padding: '2px 8px',
-              fontSize: '11px',
-              color: 'var(--fg-primary)',
-              whiteSpace: 'nowrap',
-              pointerEvents: 'none',
+              borderRadius: "4px",
+              padding: "2px 8px",
+              fontSize: "11px",
+              color: "var(--fg-primary)",
+              whiteSpace: "nowrap",
+              pointerEvents: "none",
               zIndex: 10,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
             }}
           >
             <strong>{formatVal(hoveredPoint.raw.value)}</strong>
-            <span style={{ marginLeft: '6px', color: 'var(--fg-muted)', fontSize: '10px' }}>
+            <span style={{ marginLeft: "6px", color: "var(--fg-muted)", fontSize: "10px" }}>
               {new Date(hoveredPoint.raw.timestamp).toLocaleTimeString()}
             </span>
           </div>
@@ -220,21 +223,23 @@ export default function TimeSeriesChart({
 
       {/* Screen Reader Accessible Data Table Fallback */}
       {showTableFallback && (
-        <details style={{ fontSize: '11px', marginTop: '4px', color: 'var(--fg-muted)' }}>
-          <summary style={{ cursor: 'pointer' }}>View tabular data ({data.length} samples)</summary>
-          <div style={{ maxHeight: '120px', overflowY: 'auto', marginTop: '4px' }}>
-            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+        <details style={{ fontSize: "11px", marginTop: "4px", color: "var(--fg-muted)" }}>
+          <summary style={{ cursor: "pointer" }}>View tabular data ({data.length} samples)</summary>
+          <div style={{ maxHeight: "120px", overflowY: "auto", marginTop: "4px" }}>
+            <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--glass-border-subtle)' }}>
-                  <th style={{ padding: '2px 6px' }}>Time</th>
-                  <th style={{ padding: '2px 6px' }}>Value</th>
+                <tr style={{ borderBottom: "1px solid var(--glass-border-subtle)" }}>
+                  <th style={{ padding: "2px 6px" }}>Time</th>
+                  <th style={{ padding: "2px 6px" }}>Value</th>
                 </tr>
               </thead>
               <tbody>
                 {data.map((d, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                    <td style={{ padding: '2px 6px' }}>{new Date(d.timestamp).toLocaleTimeString()}</td>
-                    <td style={{ padding: '2px 6px' }}>{formatVal(d.value)}</td>
+                  <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.02)" }}>
+                    <td style={{ padding: "2px 6px" }}>
+                      {new Date(d.timestamp).toLocaleTimeString()}
+                    </td>
+                    <td style={{ padding: "2px 6px" }}>{formatVal(d.value)}</td>
                   </tr>
                 ))}
               </tbody>

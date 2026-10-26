@@ -49,14 +49,10 @@ describe("M61-A comment store", () => {
     });
     addReply(db, { threadId, projectId: "p", authorId: 1, body: "reply" });
     resolveThread(db, { threadId, actorId: 1 });
-    expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.thread.resolved_by).toBe(
-      1,
-    );
+    expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.thread.resolved_by).toBe(1);
     reopenThread(db, { threadId });
     expect(listThreadsForFile(db, "p", "a.ts", "active").length).toBe(1);
-    expect(
-      editComment(db, { commentId: rootCommentId, authorId: 1, body: "hax" }),
-    ).toBe(false);
+    expect(editComment(db, { commentId: rootCommentId, authorId: 1, body: "hax" })).toBe(false);
     expect(
       tombstoneComment(db, {
         commentId: rootCommentId,
@@ -78,9 +74,7 @@ describe("M61-A comment store", () => {
       body: "root",
       anchor,
     });
-    expect(
-      editComment(db, { commentId: rootCommentId, authorId: 2, body: "fixed" }),
-    ).toBe(true);
+    expect(editComment(db, { commentId: rootCommentId, authorId: 2, body: "fixed" })).toBe(true);
     expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.root.body).toBe("fixed");
     // non-author cannot tombstone unless project owner
     expect(
@@ -109,9 +103,7 @@ describe("M61-A comment store", () => {
       ).length,
     ).toBe(1);
     removeReaction(db, rootCommentId, 1, "\u{1F44D}");
-    expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.reactions.length).toBe(
-      0,
-    );
+    expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.reactions.length).toBe(0);
   });
 
   it("mentions surface deduped at thread level; tombstone clears them", () => {
@@ -130,17 +122,17 @@ describe("M61-A comment store", () => {
       body: "also @owner",
     });
     replaceMentions(db, commentId, [1]);
-    expect(
-      listThreadsForFile!(db, "p", "a.ts", "all")[0]!.mentions,
-    ).toEqual([{ userId: 1, username: "owner" }]);
+    expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.mentions).toEqual([
+      { userId: 1, username: "owner" },
+    ]);
     tombstoneComment(db, {
       commentId: rootCommentId,
       actorId: 2,
       projectOwnerId: 1,
     });
-    expect(
-      listThreadsForFile!(db, "p", "a.ts", "all")[0]!.mentions,
-    ).toEqual([{ userId: 1, username: "owner" }]); // reply mention survives
+    expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.mentions).toEqual([
+      { userId: 1, username: "owner" },
+    ]); // reply mention survives
   });
 
   it("listUnresolved paginates by (updated_at,id), excludes resolved", () => {
@@ -156,14 +148,10 @@ describe("M61-A comment store", () => {
     expect(p1.threads.length).toBe(2);
     expect(p1.nextBefore).not.toBeNull();
     const p2 = listUnresolved(db, "p", 2, p1.nextBefore);
-    expect(p2.threads.map((t) => t.thread.id)).not.toContain(
-      p1!.threads[0]!.thread.id,
-    );
+    expect(p2.threads.map((t) => t.thread.id)).not.toContain(p1!.threads[0]!.thread.id);
     // resolve one and confirm it drops out
     resolveThread(db, { threadId: p1!.threads[0]!.thread.id, actorId: 1 });
-    const all = [
-      ...listUnresolved(db, "p", 100, null).threads,
-    ].map((t) => t.thread.id);
+    const all = [...listUnresolved(db, "p", 100, null).threads].map((t) => t.thread.id);
     expect(all).not.toContain(p1!.threads[0]!.thread.id);
   });
 
@@ -180,8 +168,6 @@ describe("M61-A comment store", () => {
     expect(t.anchor_rel_end).toBe("Qg==");
     expect(t.anchor_prefix).toBe("x");
     setThreadAnchorStatus(db, threadId, "stale");
-    expect(
-      listThreadsForFile!(db, "p", "a.ts", "all")[0]!.thread.anchor_status,
-    ).toBe("stale");
+    expect(listThreadsForFile!(db, "p", "a.ts", "all")[0]!.thread.anchor_status).toBe("stale");
   });
 });

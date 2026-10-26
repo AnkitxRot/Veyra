@@ -87,7 +87,7 @@ export function createZipArchive(files: ZipFileEntry[]): Buffer {
     centralHeader.writeUInt16LE(0, 34); // Disk start
     centralHeader.writeUInt16LE(0, 36); // Internal attr
     // External attributes: standard file permissions (e.g. 0644 -> 0x81a40000)
-    const modeAttr = (((file.mode ?? 0o644) << 16) >>> 0);
+    const modeAttr = ((file.mode ?? 0o644) << 16) >>> 0;
     centralHeader.writeUInt32LE(modeAttr, 38);
     centralHeader.writeUInt32LE(currentOffset, 42); // Offset of local header
 
@@ -209,7 +209,11 @@ export async function extractZipArchive(
   }
 
   if (centralDirOffset + centralDirSize > zipBuffer.length) {
-    throw new ApiError(400, "Corrupted ZIP archive: invalid central directory bounds", "invalid_archive");
+    throw new ApiError(
+      400,
+      "Corrupted ZIP archive: invalid central directory bounds",
+      "invalid_archive",
+    );
   }
 
   const maxUncompressed = cfg.maxArchiveUncompressedBytes ?? 50 * 1024 * 1024;
@@ -231,12 +235,20 @@ export async function extractZipArchive(
 
   for (let i = 0; i < totalEntries; i++) {
     if (cdPtr + 46 > zipBuffer.length) {
-      throw new ApiError(400, "Corrupted ZIP archive: truncated central directory header", "invalid_archive");
+      throw new ApiError(
+        400,
+        "Corrupted ZIP archive: truncated central directory header",
+        "invalid_archive",
+      );
     }
 
     const signature = zipBuffer.readUInt32LE(cdPtr);
     if (signature !== 0x02014b50) {
-      throw new ApiError(400, `Corrupted ZIP archive: invalid central header at entry ${i}`, "invalid_archive");
+      throw new ApiError(
+        400,
+        `Corrupted ZIP archive: invalid central header at entry ${i}`,
+        "invalid_archive",
+      );
     }
 
     const compressionMethod = zipBuffer.readUInt16LE(cdPtr + 10);
@@ -267,7 +279,11 @@ export async function extractZipArchive(
     const unixMode = externalAttr >>> 16;
     const isSymlink = (unixMode & 0o170000) === 0o120000;
     if (isSymlink) {
-      throw new ApiError(400, "Archive contains symlink entries which are forbidden", "forbidden_archive_entry");
+      throw new ApiError(
+        400,
+        "Archive contains symlink entries which are forbidden",
+        "forbidden_archive_entry",
+      );
     }
 
     // Skip unwanted system/metadata directories
@@ -336,7 +352,11 @@ export async function extractZipArchive(
 
     const localSig = zipBuffer.readUInt32LE(lOffset);
     if (localSig !== 0x04034b50) {
-      throw new ApiError(400, "Corrupted ZIP archive: invalid local header signature", "invalid_archive");
+      throw new ApiError(
+        400,
+        "Corrupted ZIP archive: invalid local header signature",
+        "invalid_archive",
+      );
     }
 
     const localNameLen = zipBuffer.readUInt16LE(lOffset + 26);
@@ -344,7 +364,11 @@ export async function extractZipArchive(
     const dataStart = lOffset + 30 + localNameLen + localExtraLen;
 
     if (dataStart + entry.compressedSize > zipBuffer.length) {
-      throw new ApiError(400, "Corrupted ZIP archive: truncated compressed data", "invalid_archive");
+      throw new ApiError(
+        400,
+        "Corrupted ZIP archive: truncated compressed data",
+        "invalid_archive",
+      );
     }
 
     const compressedSlice = zipBuffer.subarray(dataStart, dataStart + entry.compressedSize);
@@ -369,7 +393,11 @@ export async function extractZipArchive(
             "invalid_archive",
           );
         }
-        throw new ApiError(400, `Corrupted ZIP data for ${entry.relPath}: ${err.message}`, "invalid_archive");
+        throw new ApiError(
+          400,
+          `Corrupted ZIP data for ${entry.relPath}: ${err.message}`,
+          "invalid_archive",
+        );
       }
     } else {
       throw new ApiError(
@@ -388,7 +416,11 @@ export async function extractZipArchive(
     }
 
     if (entry.crc !== 0 && crc32(uncompressedData) !== entry.crc) {
-      throw new ApiError(400, `CRC32 checksum failure for ${entry.relPath}`, "corrupted_archive_data");
+      throw new ApiError(
+        400,
+        `CRC32 checksum failure for ${entry.relPath}`,
+        "corrupted_archive_data",
+      );
     }
 
     await fs.mkdir(dirname(absPath), { recursive: true });

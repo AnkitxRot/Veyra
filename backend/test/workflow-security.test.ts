@@ -3,10 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
 import { handleExecutionConnection } from "../src/ws/execution.js";
-import {
-  debugSessions,
-  resetDebugSessionsForTests,
-} from "../src/debug/manager.js";
+import { debugSessions, resetDebugSessionsForTests } from "../src/debug/manager.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { workspacePath } from "../src/projects/service.js";
@@ -38,11 +35,7 @@ function makeFakeExecWs() {
   };
 }
 
-async function waitFor(
-  pred: () => boolean,
-  ms = 4000,
-  label = "condition",
-): Promise<void> {
+async function waitFor(pred: () => boolean, ms = 4000, label = "condition"): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
     if (pred()) return;
@@ -95,11 +88,9 @@ describe("workflow security", () => {
     const other = await api!.request("POST", "/api/auth/register", {
       body: { username: `wf2${Date.now().toString(36)}`, password: "secret123" },
     });
-    const cross = await api!.request(
-      "GET",
-      `/api/projects/${projectId}/workflow`,
-      { token: other.data.token },
-    );
+    const cross = await api!.request("GET", `/api/projects/${projectId}/workflow`, {
+      token: other.data.token,
+    });
     expect(cross.status).toBe(404);
 
     const ok = await api!.request("GET", `/api/projects/${projectId}/workflow`, {
@@ -111,25 +102,17 @@ describe("workflow security", () => {
 
   it("does not expose a REST command-execution endpoint", async () => {
     const { token, projectId } = await boot();
-    const post = await api!.request(
-      "POST",
-      `/api/projects/${projectId}/workflow`,
-      { token, body: { command: "sh", args: ["-c", "id"] } },
-    );
+    const post = await api!.request("POST", `/api/projects/${projectId}/workflow`, {
+      token,
+      body: { command: "sh", args: ["-c", "id"] },
+    });
     expect(post.status).toBeGreaterThanOrEqual(400);
   });
 
   it("WS workflow rejects injected command/env/cwd and unknown scripts", async () => {
     const { cfg, projectId, userId } = await boot();
     const ws = makeFakeExecWs();
-    await handleExecutionConnection(
-      ws as any,
-      projectId,
-      userId,
-      "wf",
-      cfg,
-      api!.db,
-    );
+    await handleExecutionConnection(ws as any, projectId, userId, "wf", cfg, api!.db);
 
     ws.emit(
       "message",
@@ -147,25 +130,13 @@ describe("workflow security", () => {
     );
 
     const ws2 = makeFakeExecWs();
-    await handleExecutionConnection(
-      ws2 as any,
-      projectId,
-      userId,
-      "wf",
-      cfg,
-      api!.db,
-    );
+    await handleExecutionConnection(ws2 as any, projectId, userId, "wf", cfg, api!.db);
     ws2.emit(
       "message",
-      Buffer.from(
-        JSON.stringify({ type: "start", workflow: { taskId: "npm:start" } }),
-      ),
+      Buffer.from(JSON.stringify({ type: "start", workflow: { taskId: "npm:start" } })),
     );
     await waitFor(
-      () =>
-        ws2.sent.some((s) =>
-          /unknown or disallowed|invalid task/i.test(s),
-        ),
+      () => ws2.sent.some((s) => /unknown or disallowed|invalid task/i.test(s)),
       2000,
       "reject start script",
     );
@@ -201,26 +172,13 @@ describe("workflow security", () => {
       entryFile: "main.py",
       breakpoints: {},
     });
-    await waitFor(
-      () => debugSessions.hasLiveForProject(projectId),
-      4000,
-      "live debug",
-    );
+    await waitFor(() => debugSessions.hasLiveForProject(projectId), 4000, "live debug");
 
     const ws = makeFakeExecWs();
-    await handleExecutionConnection(
-      ws as any,
-      projectId,
-      userId,
-      "wf",
-      cfg,
-      api!.db,
-    );
+    await handleExecutionConnection(ws as any, projectId, userId, "wf", cfg, api!.db);
     ws.emit(
       "message",
-      Buffer.from(
-        JSON.stringify({ type: "start", workflow: { taskId: "npm:test" } }),
-      ),
+      Buffer.from(JSON.stringify({ type: "start", workflow: { taskId: "npm:test" } })),
     );
     await waitFor(
       () => ws.sent.some((s) => s.includes("Debugger is active")),

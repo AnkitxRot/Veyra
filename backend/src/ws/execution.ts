@@ -7,14 +7,8 @@ import { requireProjectAccess, workspacePath } from "../projects/service.js";
 import type { SandboxController } from "../execution/sandbox.js";
 import { runGate } from "../execution/runGate.js";
 import { telemetryHistorian } from "../execution/historian.js";
-import {
-  collaborationManager,
-  describeUnpersistedLiveEdits,
-} from "../collab/manager.js";
-import {
-  resolveSecretsForInjection,
-  toGenericSecretError,
-} from "../projectsecrets/store.js";
+import { collaborationManager, describeUnpersistedLiveEdits } from "../collab/manager.js";
+import { resolveSecretsForInjection, toGenericSecretError } from "../projectsecrets/store.js";
 import { debugSessions } from "../debug/manager.js";
 import { parseWorkflowRequest } from "../workflow/resolve.js";
 import { runWorkflowTask } from "../workflow/run.js";
@@ -166,10 +160,7 @@ export async function handleExecutionConnection(
         });
 
         let terminalPublished = false;
-        const publishTerminal = (
-          result: RunResult | undefined,
-          threw: boolean,
-        ) => {
+        const publishTerminal = (result: RunResult | undefined, threw: boolean) => {
           if (terminalPublished) return;
           terminalPublished = true;
           const state = deriveRunState({
@@ -207,18 +198,11 @@ export async function handleExecutionConnection(
         let workflowTests: TestCaseResult[] | undefined;
         try {
           const streamOut = (channel: "stdout" | "stderr", data: string) => {
-            if (ws.readyState === ws.OPEN)
-              ws.send(JSON.stringify({ type: channel, data }));
-            collaborationManager.notifyRunOutput(
-              projectId,
-              executionId,
-              channel,
-              data,
-            );
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: channel, data }));
+            collaborationManager.notifyRunOutput(projectId, executionId, channel, data);
           };
           const streamStatus = (data: string) => {
-            if (ws.readyState === ws.OPEN)
-              ws.send(JSON.stringify({ type: "status", data }));
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "status", data }));
           };
 
           const workflowReq =
@@ -229,16 +213,13 @@ export async function handleExecutionConnection(
             throw new Error(workflowReq.error);
           }
           if (workflowReq?.ok && debugSessions.hasLiveForProject(projectId)) {
-            throw new Error(
-              "Debugger is active; stop it before running tests or builds.",
-            );
+            throw new Error("Debugger is active; stop it before running tests or builds.");
           }
 
           // M86: the sandbox reads the workspace from disk, which lags the
           // collaboration room by the persistence debounce. Land every edit
           // the room already holds first; refuse rather than run stale code.
-          const persisted =
-            await collaborationManager.persistLiveEdits(projectId);
+          const persisted = await collaborationManager.persistLiveEdits(projectId);
           if (!persisted.ok) {
             throw new Error(
               `${describeUnpersistedLiveEdits(persisted.unpersisted)}; not started so stale code is not run.`,

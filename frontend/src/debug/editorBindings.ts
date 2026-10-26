@@ -1,10 +1,6 @@
 import { useEffect, useRef } from "react";
 import { monaco } from "../monacoSetup";
-import {
-  DEBUG_BREAKPOINTS_EVENT,
-  DEBUG_EXECUTION_EVENT,
-  DEBUG_TOGGLE_BP_EVENT,
-} from "./types";
+import { DEBUG_BREAKPOINTS_EVENT, DEBUG_EXECUTION_EVENT, DEBUG_TOGGLE_BP_EVENT } from "./types";
 import type { DebugBreakpoint } from "./types";
 
 const MouseTargetType = (monaco.editor as { MouseTargetType?: { GUTTER_GLYPH_MARGIN: number } })
@@ -89,9 +85,7 @@ export function bindDebugEditor(
     const line = t.position?.lineNumber;
     const path = getActiveFile();
     if (!line || !path) return;
-    document.dispatchEvent(
-      new CustomEvent(DEBUG_TOGGLE_BP_EVENT, { detail: { path, line } }),
-    );
+    document.dispatchEvent(new CustomEvent(DEBUG_TOGGLE_BP_EVENT, { detail: { path, line } }));
   });
 
   return () => {

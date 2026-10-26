@@ -3,10 +3,7 @@ import { renderHook, cleanup } from "@testing-library/react";
 import { useKeyboardShortcuts } from "../src/hooks/useKeyboardShortcuts";
 import { resolveKeymap } from "../src/keymap/keymap";
 
-function dispatchKeydown(
-  init: KeyboardEventInit & { code?: string },
-  target?: EventTarget,
-) {
+function dispatchKeydown(init: KeyboardEventInit & { code?: string }, target?: EventTarget) {
   const event = new KeyboardEvent("keydown", {
     bubbles: true,
     cancelable: true,
@@ -150,11 +147,7 @@ describe("useKeyboardShortcuts — M70 configurable dispatch", () => {
   it("fires a command on its REMAPPED chord and no longer on the default", () => {
     const h = HANDLERS();
     renderHook(() =>
-      useKeyboardShortcuts(
-        h,
-        true,
-        resolveKeymap({ "workbench.action.saveFile": "mod+alt+s" }),
-      ),
+      useKeyboardShortcuts(h, true, resolveKeymap({ "workbench.action.saveFile": "mod+alt+s" })),
     );
     const { events, stop } = collectSaveEvents();
 
@@ -215,10 +208,9 @@ describe("useKeyboardShortcuts — M70 configurable dispatch", () => {
 
   it("does not re-register the listener when the keymap changes (one dispatch per keystroke)", () => {
     const h = HANDLERS();
-    const { rerender } = renderHook(
-      ({ km }) => useKeyboardShortcuts(h, true, km),
-      { initialProps: { km: resolveKeymap({}) } },
-    );
+    const { rerender } = renderHook(({ km }) => useKeyboardShortcuts(h, true, km), {
+      initialProps: { km: resolveKeymap({}) },
+    });
     const { events, stop } = collectSaveEvents();
 
     dispatchKeydown({ code: "KeyS", ctrlKey: true });
@@ -236,14 +228,10 @@ describe("useKeyboardShortcuts — M70 configurable dispatch", () => {
     const h = HANDLERS();
     const add = vi.spyOn(window, "addEventListener");
     const remove = vi.spyOn(window, "removeEventListener");
-    const { unmount } = renderHook(() =>
-      useKeyboardShortcuts(h, true, resolveKeymap({})),
-    );
+    const { unmount } = renderHook(() => useKeyboardShortcuts(h, true, resolveKeymap({})));
     const addedKeydown = add.mock.calls.filter((c) => c[0] === "keydown").length;
     unmount();
-    const removedKeydown = remove.mock.calls.filter(
-      (c) => c[0] === "keydown",
-    ).length;
+    const removedKeydown = remove.mock.calls.filter((c) => c[0] === "keydown").length;
     expect(addedKeydown).toBe(1);
     expect(removedKeydown).toBe(1);
     add.mockRestore();

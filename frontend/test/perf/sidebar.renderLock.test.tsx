@@ -21,12 +21,7 @@ import { render, cleanup, act } from "@testing-library/react";
 import * as React from "react";
 import type { CollaboratorPresence } from "../../src/collab/presence";
 import type { TreeNode, RunStatusEntry } from "../../src/types";
-import {
-  RenderRecorder,
-  profiledMemo,
-  buildTree,
-  makePresence,
-} from "./harness";
+import { RenderRecorder, profiledMemo, buildTree, makePresence } from "./harness";
 
 vi.mock("../../src/api", () => ({
   api: vi.fn(() => new Promise(() => {})),
@@ -59,25 +54,13 @@ let setActiveFileExternal: ((f: string | null) => void) | null = null;
 let setRunStatusesExternal: ((r: RunStatusEntry[]) => void) | null = null;
 let setCommentCountsExternal: ((m: Map<string, number>) => void) | null = null;
 
-function Host({
-  recorder,
-  initialTree,
-}: {
-  recorder: RenderRecorder;
-  initialTree: TreeNode[];
-}) {
-  const [collaborators, setCollaborators] = React.useState<
-    CollaboratorPresence[]
-  >([]);
+function Host({ recorder, initialTree }: { recorder: RenderRecorder; initialTree: TreeNode[] }) {
+  const [collaborators, setCollaborators] = React.useState<CollaboratorPresence[]>([]);
   const [bump, setBump] = React.useState(0); // stands in for setStats
   const [tree, setTree] = React.useState(initialTree);
-  const [activeFile, setActiveFile] = React.useState<string | null>(
-    "src/mod0/file0.ts",
-  );
+  const [activeFile, setActiveFile] = React.useState<string | null>("src/mod0/file0.ts");
   const [runStatuses, setRunStatuses] = React.useState<RunStatusEntry[]>([]);
-  const [commentCounts, setCommentCounts] = React.useState<Map<string, number>>(
-    new Map(),
-  );
+  const [commentCounts, setCommentCounts] = React.useState<Map<string, number>>(new Map());
 
   React.useEffect(() => {
     const t = throttleLatest<CollaboratorPresence[]>(setCollaborators, 200);
@@ -120,10 +103,7 @@ function Host({
   );
 }
 
-function reproject(
-  list: CollaboratorPresence[],
-  cursorLine: number,
-): CollaboratorPresence[] {
+function reproject(list: CollaboratorPresence[], cursorLine: number): CollaboratorPresence[] {
   return list.map((c) => ({
     ...c,
     cursor: { line: cursorLine, column: 1 },
@@ -133,13 +113,7 @@ function reproject(
 
 beforeEach(() => {
   vi.useFakeTimers({
-    toFake: [
-      "setTimeout",
-      "clearTimeout",
-      "requestAnimationFrame",
-      "cancelAnimationFrame",
-      "Date",
-    ],
+    toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "Date"],
   });
 });
 afterEach(() => {
@@ -178,9 +152,7 @@ describe("M71 — Sidebar render lock", () => {
   it("the Sidebar default export is a React.memo boundary", () => {
     // If this regresses, `profiledMemo`'s outer bail would mask a missing
     // inner memo — so assert the real thing directly.
-    expect((Sidebar as { $$typeof?: symbol }).$$typeof).toBe(
-      Symbol.for("react.memo"),
-    );
+    expect((Sidebar as { $$typeof?: symbol }).$$typeof).toBe(Symbol.for("react.memo"));
   });
 
   it("cursor-only awareness churn does NOT re-render Sidebar", () => {

@@ -44,9 +44,7 @@ function makeWs() {
   } as unknown as WebSocket & { sent: Uint8Array[] };
 }
 
-function customMessages(
-  ws: { sent: Uint8Array[] },
-): Record<string, unknown>[] {
+function customMessages(ws: { sent: Uint8Array[] }): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const buf of ws.sent) {
     try {
@@ -69,9 +67,7 @@ function freshHistorian(db: Db, cfg: RoomCfg): CollaborationHistorian {
   const h = new Ctor();
   h.init(db, cfg);
   h.setBroadcaster((_pid, ev) =>
-    roomRef?.broadcastCollabChange(
-      ev as unknown as Record<string, unknown>,
-    ),
+    roomRef?.broadcastCollabChange(ev as unknown as Record<string, unknown>),
   );
   return h;
 }
@@ -91,9 +87,7 @@ describe("M60 room attribution", () => {
     db.prepare(
       "INSERT INTO users (id,username,password_hash) VALUES (7,'rahul','h'),(8,'ankit','h'),(9,'viewer','h')",
     ).run();
-    db.prepare(
-      "INSERT INTO projects (id,owner_id,name) VALUES ('p',7,'P')",
-    ).run();
+    db.prepare("INSERT INTO projects (id,owner_id,name) VALUES ('p',7,'P')").run();
     cfg = { ...resolveConfig(), workspacesDir: tmp, dataDir: tmp };
     mkdirSync(join(tmp, "p"), { recursive: true });
     h = freshHistorian(db, cfg);
@@ -117,9 +111,8 @@ describe("M60 room attribution", () => {
     );
     room.dispose();
     h.flushQueue();
-    const row = db
-      .prepare("SELECT * FROM collaboration_changes WHERE file_path='a.ts'")
-      .get() as { author_user_id: number; update_count: number } | undefined;
+    const row = db.prepare("SELECT * FROM collaboration_changes WHERE file_path='a.ts'").get() as
+      { author_user_id: number; update_count: number } | undefined;
     expect(row?.author_user_id).toBe(7);
     expect(row!.update_count).toBeGreaterThanOrEqual(1);
   });
@@ -163,11 +156,9 @@ describe("M60 room attribution", () => {
     h.flushQueue();
     expect(
       (
-        db
-          .prepare(
-            "SELECT COUNT(*) c FROM collaboration_changes WHERE author_user_id=7",
-          )
-          .get() as { c: number }
+        db.prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE author_user_id=7").get() as {
+          c: number;
+        }
       ).c,
     ).toBe(1);
   });
@@ -255,9 +246,9 @@ describe("M60 room attribution", () => {
     expect(res.conflict).toBe(true);
     room.dispose();
     h.flushQueue();
-    const rows = db
-      .prepare("SELECT * FROM collaboration_changes")
-      .all() as Array<{ author_user_id: number }>;
+    const rows = db.prepare("SELECT * FROM collaboration_changes").all() as Array<{
+      author_user_id: number;
+    }>;
     expect(rows.length).toBe(1);
     expect(rows[0]!.author_user_id).toBe(7);
   });
@@ -279,22 +270,18 @@ describe("M60 room attribution", () => {
     h.flushQueue();
     expect(
       (
-        db
-          .prepare(
-            "SELECT COUNT(*) c FROM collaboration_changes WHERE author_user_id=7",
-          )
-          .get() as { c: number }
+        db.prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE author_user_id=7").get() as {
+          c: number;
+        }
       ).c,
     ).toBe(1);
     room.dispose();
     h.flushQueue();
     expect(
       (
-        db
-          .prepare(
-            "SELECT COUNT(*) c FROM collaboration_changes WHERE author_user_id=8",
-          )
-          .get() as { c: number }
+        db.prepare("SELECT COUNT(*) c FROM collaboration_changes WHERE author_user_id=8").get() as {
+          c: number;
+        }
       ).c,
     ).toBe(1);
   });
@@ -312,11 +299,7 @@ describe("M60 room attribution", () => {
     h.flushQueue();
     const msgs = customMessages(b);
     expect(
-      msgs.some(
-        (m) =>
-          m.type === "collab_change" &&
-          (m.actor as { userId: number }).userId === 7,
-      ),
+      msgs.some((m) => m.type === "collab_change" && (m.actor as { userId: number }).userId === 7),
     ).toBe(true);
   });
 

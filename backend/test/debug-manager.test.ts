@@ -4,10 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeTestConfig, makeWorkspace } from "./helpers.js";
-import {
-  debugSessions,
-  resetDebugSessionsForTests,
-} from "../src/debug/manager.js";
+import { debugSessions, resetDebugSessionsForTests } from "../src/debug/manager.js";
 import type { DebugClientSocket } from "../src/debug/session.js";
 import type { DebugSpawnRequest } from "../src/debug/process.js";
 
@@ -39,11 +36,7 @@ class FakeSock implements DebugClientSocket {
   }
 }
 
-async function waitFor(
-  pred: () => boolean,
-  ms = 5000,
-  label = "condition",
-): Promise<void> {
+async function waitFor(pred: () => boolean, ms = 5000, label = "condition"): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
     if (pred()) return;
@@ -102,18 +95,10 @@ describe("debug session lifecycle (fake adapter)", () => {
     expect(locals.map((v) => v.name)).toEqual(expect.arrayContaining(["x", "y"]));
 
     session.handleClientMessage(sock, { type: "next" });
-    await waitFor(
-      () => sock.ofType("stopped").length >= 2,
-      3000,
-      "step",
-    );
+    await waitFor(() => sock.ofType("stopped").length >= 2, 3000, "step");
 
     session.handleClientMessage(sock, { type: "continue" });
-    await waitFor(
-      () => sock.lastStatus()?.state === "terminated",
-      3000,
-      "terminated",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "terminated", 3000, "terminated");
   });
 
   it("reuses one session per user+project and isolates a second user", async () => {
@@ -218,9 +203,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       type: "evaluate",
       expression: "__import__('os').system('id')",
     });
-    expect(sock.messages.some((m) => m.result === "should-never-run")).toBe(
-      false,
-    );
+    expect(sock.messages.some((m) => m.result === "should-never-run")).toBe(false);
   });
 
   it("caps concurrent live sessions", async () => {
@@ -258,9 +241,7 @@ describe("debug session lifecycle (fake adapter)", () => {
     });
     await waitFor(() =>
       b.messages.some(
-        (m) =>
-          m.type === "error" ||
-          (m.type === "status" && m.state === "unavailable"),
+        (m) => m.type === "error" || (m.type === "status" && m.state === "unavailable"),
       ),
     );
     expect(a.lastStatus()?.state).toBe("paused");
@@ -284,11 +265,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       language: "python",
       entryFile: "main.py",
     });
-    await waitFor(
-      () => sock.lastStatus()?.state === "unavailable",
-      3000,
-      "unavailable",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "unavailable", 3000, "unavailable");
     expect(debugSessions.liveSessionCount()).toBe(0);
   });
 
@@ -328,9 +305,7 @@ describe("debug session lifecycle (fake adapter)", () => {
       breakpoints: { "main.py": [3] },
     });
     await waitFor(
-      () =>
-        sock.lastStatus()?.state === "failed" ||
-        sock.lastStatus()?.state === "unavailable",
+      () => sock.lastStatus()?.state === "failed" || sock.lastStatus()?.state === "unavailable",
       4000,
       "failed",
     );
@@ -379,11 +354,7 @@ describe("debug session lifecycle (fake adapter)", () => {
     session.handleClientMessage(sock, { type: "pause" });
     await waitPaused(sock, 3000);
     session.handleClientMessage(sock, { type: "terminate" });
-    await waitFor(
-      () => sock.lastStatus()?.state === "terminated",
-      3000,
-      "terminated",
-    );
+    await waitFor(() => sock.lastStatus()?.state === "terminated", 3000, "terminated");
     expect(debugSessions.liveSessionCount()).toBe(0);
   });
 

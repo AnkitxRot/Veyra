@@ -39,9 +39,7 @@ describe("safeResolve", () => {
   });
 
   it("rejects absolute Unix path", () => {
-    expect(() => safeResolve(makeRoot("r2"), "/etc/passwd")).toThrow(
-      "path escapes the workspace",
-    );
+    expect(() => safeResolve(makeRoot("r2"), "/etc/passwd")).toThrow("path escapes the workspace");
   });
 
   it("rejects Windows absolute path", () => {
@@ -57,9 +55,7 @@ describe("safeResolve", () => {
   });
 
   it("rejects null byte", () => {
-    expect(() => safeResolve(makeRoot("r5"), "foo\0bar.txt")).toThrow(
-      "path escapes the workspace",
-    );
+    expect(() => safeResolve(makeRoot("r5"), "foo\0bar.txt")).toThrow("path escapes the workspace");
   });
 
   it("allows path traversal within workspace", () => {
@@ -97,9 +93,7 @@ describe("tree", () => {
     const files: string[] = [];
     await listFiles(root, "", files);
     expect(files).toContain("src/main.js");
-    expect(files.filter((f) => f.startsWith(".cloudide-build-"))).toHaveLength(
-      0,
-    );
+    expect(files.filter((f) => f.startsWith(".cloudide-build-"))).toHaveLength(0);
   });
 
   it("skips generated interpreter/cache directories", async () => {

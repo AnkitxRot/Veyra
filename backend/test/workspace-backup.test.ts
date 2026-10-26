@@ -10,11 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  createProject,
-  projectDir,
-  deleteProject,
-} from "../src/projects/service.js";
+import { createProject, projectDir, deleteProject } from "../src/projects/service.js";
 import { writeProjectFile } from "../src/files/service.js";
 import { createSnapshot, snapshotDir } from "../src/projects/snapshots.js";
 import { extractZipArchive } from "../src/projects/zip.js";
@@ -100,24 +96,17 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     expect(existsSync(result.filePath)).toBe(true);
 
     const scratch = await extractToScratch(result.filePath);
-    expect(readFileSync(join(scratch, "workspace/main.py"), "utf8")).toBe(
-      "print('hello')\n",
+    expect(readFileSync(join(scratch, "workspace/main.py"), "utf8")).toBe("print('hello')\n");
+    expect(readFileSync(join(scratch, "workspace/src/nested/deep.py"), "utf8")).toBe(
+      "def f(): pass\n",
     );
-    expect(
-      readFileSync(join(scratch, "workspace/src/nested/deep.py"), "utf8"),
-    ).toBe("def f(): pass\n");
     expect(readFileSync(join(scratch, "workspace/empty.txt")).length).toBe(0);
     const extractedBinary = readFileSync(join(scratch, "workspace/asset.bin"));
-    expect(
-      Buffer.compare(
-        extractedBinary,
-        Buffer.from([0, 1, 2, 255, 254, 253, 0, 10, 13]),
-      ),
-    ).toBe(0);
-
-    const manifest = JSON.parse(
-      readFileSync(join(scratch, "manifest.json"), "utf8"),
+    expect(Buffer.compare(extractedBinary, Buffer.from([0, 1, 2, 255, 254, 253, 0, 10, 13]))).toBe(
+      0,
     );
+
+    const manifest = JSON.parse(readFileSync(join(scratch, "manifest.json"), "utf8"));
     expect(manifest.projectId).toBe(projectId);
     expect(manifest.workspaceFileCount).toBe(5);
     // Milestone 32: manifest is now v2 and carries per-snapshot row
@@ -138,17 +127,13 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     expect(result.snapshotCount).toBe(1);
 
     const scratch = await extractToScratch(result.filePath);
-    const extractedSnapshotBody = readFileSync(
-      join(scratch, "snapshots", snapFiles[0]!),
-    );
+    const extractedSnapshotBody = readFileSync(join(scratch, "snapshots", snapFiles[0]!));
     const originalSnapshotBody = readFileSync(join(snapDir, snapFiles[0]!));
     expect(Buffer.compare(extractedSnapshotBody, originalSnapshotBody)).toBe(0);
 
     // Milestone 32: the v2 manifest carries the matching DB row metadata
     // for this snapshot, not just its body.
-    const manifest = JSON.parse(
-      readFileSync(join(scratch, "manifest.json"), "utf8"),
-    );
+    const manifest = JSON.parse(readFileSync(join(scratch, "manifest.json"), "utf8"));
     expect(manifest.version).toBe(2);
     expect(manifest.snapshots.length).toBe(1);
     expect(manifest.snapshots[0].id).toBe(snapFiles[0]!.replace(/\.gz$/, ""));
@@ -161,9 +146,7 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     const { id: projectId, cwd } = await makeProjectWithContent();
     const result = await createWorkspaceBackup(cfg, db, projectId);
     const scratch = await extractToScratch(result.filePath);
-    expect(readFileSync(join(scratch, "workspace/.env"), "utf8")).toBe(
-      "SECRET_KEY=abc123\n",
-    );
+    expect(readFileSync(join(scratch, "workspace/.env"), "utf8")).toBe("SECRET_KEY=abc123\n");
     void cwd;
   });
 
@@ -174,17 +157,11 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
       mkdirSync(join(cwd, ".git"), { recursive: true });
       writeFileSync(join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n");
       mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
-      writeFileSync(
-        join(cwd, "node_modules", "left-pad", "index.js"),
-        "module.exports = {};\n",
-      );
+      writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "module.exports = {};\n");
       mkdirSync(join(cwd, ".venv", "bin"), { recursive: true });
       writeFileSync(join(cwd, ".venv", "bin", "activate"), "# venv\n");
       mkdirSync(join(cwd, ".cloudide-build-abc"), { recursive: true });
-      writeFileSync(
-        join(cwd, ".cloudide-build-abc", "out.js"),
-        "// build output\n",
-      );
+      writeFileSync(join(cwd, ".cloudide-build-abc", "out.js"), "// build output\n");
 
       const secretOutside = join(
         tmpdir(),
@@ -201,9 +178,7 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
       expect(existsSync(join(scratch, "workspace/.git"))).toBe(false);
       expect(existsSync(join(scratch, "workspace/node_modules"))).toBe(false);
       expect(existsSync(join(scratch, "workspace/.venv"))).toBe(false);
-      expect(existsSync(join(scratch, "workspace/.cloudide-build-abc"))).toBe(
-        false,
-      );
+      expect(existsSync(join(scratch, "workspace/.cloudide-build-abc"))).toBe(false);
       expect(existsSync(join(scratch, "workspace/link.txt"))).toBe(false);
     },
   );
@@ -211,18 +186,12 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
   it("6. admin auth: anonymous rejected, non-admin rejected, admin succeeds", async () => {
     const { id: projectId } = await makeProjectWithContent();
 
-    const anonRes = await api.request(
-      "POST",
-      `/api/admin/workspace-backups/${projectId}`,
-      {},
-    );
+    const anonRes = await api.request("POST", `/api/admin/workspace-backups/${projectId}`, {});
     expect(anonRes.status).toBe(401);
 
-    const nonAdminRes = await api.request(
-      "POST",
-      `/api/admin/workspace-backups/${projectId}`,
-      { token: ownerToken },
-    );
+    const nonAdminRes = await api.request("POST", `/api/admin/workspace-backups/${projectId}`, {
+      token: ownerToken,
+    });
     expect(nonAdminRes.status).toBe(403);
 
     const adminHash = await hashPassword("AdminPass@123");
@@ -232,11 +201,9 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     });
     const adminToken = adminLogin.data.token;
 
-    const adminRes = await api.request(
-      "POST",
-      `/api/admin/workspace-backups/${projectId}`,
-      { token: adminToken },
-    );
+    const adminRes = await api.request("POST", `/api/admin/workspace-backups/${projectId}`, {
+      token: adminToken,
+    });
     expect(adminRes.status).toBe(201);
     expect(adminRes.data.backup.workspaceFileCount).toBe(5);
   });
@@ -257,12 +224,7 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     );
     expect(nonexistentRes.status).toBe(404);
 
-    const malicious = [
-      "../etc/passwd",
-      "..%2Fetc%2Fpasswd",
-      "not-a-uuid",
-      "..",
-    ];
+    const malicious = ["../etc/passwd", "..%2Fetc%2Fpasswd", "not-a-uuid", ".."];
     for (const projectId of malicious) {
       const res = await api.request(
         "POST",
@@ -354,23 +316,17 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     });
     const adminToken = adminLogin.data.token;
 
-    const createRes = await api.request(
-      "POST",
-      `/api/admin/workspace-backups/${projectId}`,
-      { token: adminToken },
-    );
+    const createRes = await api.request("POST", `/api/admin/workspace-backups/${projectId}`, {
+      token: adminToken,
+    });
     const filename = createRes.data.backup.filename;
 
-    await api.request(
-      "GET",
-      `/api/admin/workspace-backups/${projectId}/${filename}`,
-      { token: adminToken },
-    );
-    await api.request(
-      "DELETE",
-      `/api/admin/workspace-backups/${projectId}/${filename}`,
-      { token: adminToken },
-    );
+    await api.request("GET", `/api/admin/workspace-backups/${projectId}/${filename}`, {
+      token: adminToken,
+    });
+    await api.request("DELETE", `/api/admin/workspace-backups/${projectId}/${filename}`, {
+      token: adminToken,
+    });
 
     const rows = db
       .prepare(
@@ -424,11 +380,9 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
     });
     const adminToken = adminLogin.data.token;
 
-    const listRes = await api.request(
-      "GET",
-      `/api/admin/workspace-backups/${projectId}`,
-      { token: adminToken },
-    );
+    const listRes = await api.request("GET", `/api/admin/workspace-backups/${projectId}`, {
+      token: adminToken,
+    });
     expect(listRes.status).toBe(200);
     expect(listRes.data.backups.length).toBe(1);
 
@@ -473,10 +427,7 @@ describe("Milestone 31 — Automated Per-Project Workspace & Snapshot-Body Backu
   });
 
   it("14. the implementation reuses shared zip primitives rather than a duplicate ZIP/extraction implementation", () => {
-    const source = readFileSync(
-      join(__dirname, "../src/backup/workspaceBackup.ts"),
-      "utf8",
-    );
+    const source = readFileSync(join(__dirname, "../src/backup/workspaceBackup.ts"), "utf8");
     expect(source).toMatch(/from ["']\.\.\/projects\/zip\.js["']/);
     expect(source).toMatch(/createZipArchive/);
     expect(source).toMatch(/extractZipArchive/);

@@ -13,15 +13,11 @@ import { fileURLToPath } from "node:url";
 
 vi.mock("../src/api", () => ({
   api: vi.fn(),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
   getWorkflow: vi.fn(async () => ({ tasks: [] })),
 }));
 
-import {
-  ExecutionSessionProvider,
-  useExecutionSession,
-} from "../src/hooks/useExecutionSession";
+import { ExecutionSessionProvider, useExecutionSession } from "../src/hooks/useExecutionSession";
 
 class FakeWebSocket {
   static CONNECTING = 0;
@@ -66,10 +62,7 @@ function Probe() {
       <button type="button" onClick={() => s.runWorkflow({ taskId: "npm:test" })}>
         wf
       </button>
-      <button
-        type="button"
-        onClick={() => s.run({ language: "python", activeFile: "main.py" })}
-      >
+      <button type="button" onClick={() => s.run({ language: "python", activeFile: "main.py" })}>
         run
       </button>
       <span data-testid="running">{String(s.isRunning)}</span>
@@ -113,18 +106,12 @@ describe("M86 — a server refusal ends the execution attempt", () => {
         }),
       );
 
-      await waitFor(() =>
-        expect(view.getByTestId("running").textContent).toBe("false"),
-      );
+      await waitFor(() => expect(view.getByTestId("running").textContent).toBe("false"));
       expect(stopped).toHaveBeenCalledTimes(1);
       expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
       expect(view.getByTestId("status").textContent).toBe("Error");
-      expect(view.getByTestId("logs").textContent).toContain(
-        "could not be saved to disk",
-      );
-      expect(view.getByTestId("logs").textContent).not.toContain(
-        "Execution stream closed",
-      );
+      expect(view.getByTestId("logs").textContent).toContain("could not be saved to disk");
+      expect(view.getByTestId("logs").textContent).not.toContain("Execution stream closed");
     } finally {
       document.removeEventListener("run-stopped", stopped);
     }
@@ -142,9 +129,7 @@ describe("M86 — a server refusal ends the execution attempt", () => {
     act(() => ws.simulateOpen());
     const onmessage = ws.onmessage;
     act(() => ws.simulateMessage({ type: "error", data: "refused" }));
-    await waitFor(() =>
-      expect(view.getByTestId("running").textContent).toBe("false"),
-    );
+    await waitFor(() => expect(view.getByTestId("running").textContent).toBe("false"));
     // Even if a stale frame were delivered, it must not change the state.
     act(() =>
       onmessage?.({
@@ -161,7 +146,10 @@ describe("M86 — Stop pressed while the execution socket is still connecting", 
       const s = useExecutionSession();
       return (
         <div>
-          <button type="button" onClick={() => s.run({ language: "python", activeFile: "main.py" })}>
+          <button
+            type="button"
+            onClick={() => s.run({ language: "python", activeFile: "main.py" })}
+          >
             run
           </button>
           <button type="button" onClick={() => s.stop()}>
@@ -191,9 +179,7 @@ describe("M86 — Stop pressed while the execution socket is still connecting", 
 describe("M86 — workflow tasks prepare the workspace before starting", () => {
   it("does not open the socket until prepareRun resolves", async () => {
     let resolvePrepare!: () => void;
-    const prepareRun = vi.fn(
-      () => new Promise<void>((r) => (resolvePrepare = r)),
-    );
+    const prepareRun = vi.fn(() => new Promise<void>((r) => (resolvePrepare = r)));
     const view = render(
       <ExecutionSessionProvider projectId="p1" prepareRun={prepareRun}>
         <Probe />
@@ -215,9 +201,7 @@ describe("M86 — workflow tasks prepare the workspace before starting", () => {
 
   it("ignores a second request while the first is still preparing", async () => {
     let resolvePrepare!: () => void;
-    const prepareRun = vi.fn(
-      () => new Promise<void>((r) => (resolvePrepare = r)),
-    );
+    const prepareRun = vi.fn(() => new Promise<void>((r) => (resolvePrepare = r)));
     const view = render(
       <ExecutionSessionProvider projectId="p1" prepareRun={prepareRun}>
         <Probe />
@@ -236,9 +220,7 @@ describe("M86 — workflow tasks prepare the workspace before starting", () => {
 
   it("does not start the task for a project the user already switched away from", async () => {
     let resolvePrepare!: () => void;
-    const prepareRun = vi.fn(
-      () => new Promise<void>((r) => (resolvePrepare = r)),
-    );
+    const prepareRun = vi.fn(() => new Promise<void>((r) => (resolvePrepare = r)));
     const view = render(
       <ExecutionSessionProvider projectId="p1" prepareRun={prepareRun}>
         <Probe />

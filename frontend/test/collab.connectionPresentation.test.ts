@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  collaborationIsLive,
-  rosterStalenessNote,
-} from "../src/collab/connectionPresentation";
+import { collaborationIsLive, rosterStalenessNote } from "../src/collab/connectionPresentation";
 import type { CollabConnectionStatus } from "../src/collab/client";
 
 const ALL: CollabConnectionStatus[] = [

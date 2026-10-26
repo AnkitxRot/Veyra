@@ -20,10 +20,7 @@ export function isPersistableTerminalUser(userId: unknown): userId is number {
   return typeof userId === "number" && Number.isInteger(userId) && userId > 0;
 }
 
-export function readTerminalResume(
-  userId: number,
-  projectId: string,
-): string | null {
+export function readTerminalResume(userId: number, projectId: string): string | null {
   if (!isPersistableTerminalUser(userId) || !projectId) return null;
   let raw: string | null;
   try {
@@ -35,11 +32,7 @@ export function readTerminalResume(
   return raw;
 }
 
-export function writeTerminalResume(
-  userId: number,
-  projectId: string,
-  terminalId: string,
-): void {
+export function writeTerminalResume(userId: number, projectId: string, terminalId: string): void {
   if (!isPersistableTerminalUser(userId) || !projectId) return;
   if (!TERMINAL_RESUME_ID_RE.test(terminalId)) return;
   try {

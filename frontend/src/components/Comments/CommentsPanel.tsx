@@ -24,11 +24,7 @@ function ThreadRow({
   const replies = thread.replies.filter((c) => c.deletedAt == null).length;
   return (
     <li className="comments-panel-row">
-      <button
-        type="button"
-        className="comments-panel-rowbtn"
-        onClick={() => onNavigate(thread)}
-      >
+      <button type="button" className="comments-panel-rowbtn" onClick={() => onNavigate(thread)}>
         <span className="comments-panel-loc">
           {relFile(thread.filePath)} L{thread.anchor.startLine}
         </span>

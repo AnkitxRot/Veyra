@@ -20,10 +20,7 @@ describe("makeStdinWriter", () => {
     // Child exits the moment it receives any stdin byte.
     const child = spawn(
       process.execPath,
-      [
-        "-e",
-        "process.stdin.on('data', () => process.exit(0)); process.stdin.resume();",
-      ],
+      ["-e", "process.stdin.on('data', () => process.exit(0)); process.stdin.resume();"],
       { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
     );
 

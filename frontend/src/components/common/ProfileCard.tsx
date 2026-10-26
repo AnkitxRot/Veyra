@@ -10,12 +10,7 @@ import UserAvatar from "./UserAvatar";
  * Deliberately NOT here: followers, likes, activity feeds, links, badges.
  */
 
-export type ProfilePresenceTone =
-  | "online"
-  | "idle"
-  | "away"
-  | "dnd"
-  | "offline";
+export type ProfilePresenceTone = "online" | "idle" | "away" | "dnd" | "offline";
 
 export interface ProfileCardProps {
   userId: number;
@@ -43,9 +38,7 @@ export default function ProfileCard({
   avatarSize = 40,
 }: ProfileCardProps) {
   const label =
-    typeof displayName === "string" && displayName.trim().length > 0
-      ? displayName
-      : username;
+    typeof displayName === "string" && displayName.trim().length > 0 ? displayName : username;
   const showHandle = label !== username;
 
   return (
@@ -60,19 +53,13 @@ export default function ProfileCard({
       <div className="profile-card__body">
         <div className="profile-card__name-row">
           <span className="profile-card__name">{label}</span>
-          {showHandle && (
-            <span className="profile-card__handle">@{username}</span>
-          )}
+          {showHandle && <span className="profile-card__handle">@{username}</span>}
         </div>
         {(pronouns || presence) && (
           <div className="profile-card__meta-row">
-            {pronouns && (
-              <span className="profile-card__pronouns">{pronouns}</span>
-            )}
+            {pronouns && <span className="profile-card__pronouns">{pronouns}</span>}
             {presence && (
-              <span
-                className={`profile-card__presence profile-card__presence--${presence.tone}`}
-              >
+              <span className={`profile-card__presence profile-card__presence--${presence.tone}`}>
                 <span className="profile-card__presence-dot" />
                 {presence.label}
               </span>

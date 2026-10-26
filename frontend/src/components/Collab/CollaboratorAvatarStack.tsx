@@ -10,9 +10,7 @@ import { buildFocusContext } from "../../collab/focus";
 import { displayLabel, secondaryHandle } from "../../collab/presence";
 import { IconUsers } from "../common/Icons";
 import UserAvatar from "../common/UserAvatar";
-import ProfileCard, {
-  type ProfilePresenceTone,
-} from "../common/ProfileCard";
+import ProfileCard, { type ProfilePresenceTone } from "../common/ProfileCard";
 import { rosterStalenessNote } from "../../collab/connectionPresentation";
 import { pickRunForUser, formatRunText } from "./runActivity";
 
@@ -72,22 +70,18 @@ export default function CollaboratorAvatarStack({
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [anyRunning]);
-  const [selectedCollaborator, setSelectedCollaborator] =
-    useState<CollaboratorPresence | null>(null);
+  const [selectedCollaborator, setSelectedCollaborator] = useState<CollaboratorPresence | null>(
+    null,
+  );
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const staleNote = rosterStalenessNote(status);
-  const otherCollaborators = collaborators.filter(
-    (c) => c.userId !== currentUserId,
-  );
+  const otherCollaborators = collaborators.filter((c) => c.userId !== currentUserId);
 
   // Close popover on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node)
-      ) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         setSelectedCollaborator(null);
       }
     };
@@ -159,24 +153,13 @@ export default function CollaboratorAvatarStack({
   const renderStatusDot = (availability: AvailabilityStatus) => {
     switch (availability) {
       case "online":
-        return (
-          <span
-            className="collab-avatar-status online"
-            title="Online & Active"
-          />
-        );
+        return <span className="collab-avatar-status online" title="Online & Active" />;
       case "idle":
-        return (
-          <span className="collab-avatar-status idle" title="Idle" />
-        );
+        return <span className="collab-avatar-status idle" title="Idle" />;
       case "away":
-        return (
-          <span className="collab-avatar-status idle" title="Away" />
-        );
+        return <span className="collab-avatar-status idle" title="Away" />;
       case "dnd":
-        return (
-          <span className="collab-avatar-status dnd" title="Do Not Disturb" />
-        );
+        return <span className="collab-avatar-status dnd" title="Do Not Disturb" />;
       default:
         return null;
     }
@@ -199,13 +182,9 @@ export default function CollaboratorAvatarStack({
 
     switch (act) {
       case "editing":
-        return file
-          ? `Editing ${file}${line ? ` · L${line}` : ""}`
-          : "Editing code";
+        return file ? `Editing ${file}${line ? ` · L${line}` : ""}` : "Editing code";
       case "viewing":
-        return file
-          ? `Viewing ${file}${line ? ` · L${line}` : ""}`
-          : "Viewing project";
+        return file ? `Viewing ${file}${line ? ` · L${line}` : ""}` : "Viewing project";
       case "running":
         return "Running code / execution";
       case "terminal":
@@ -248,9 +227,7 @@ export default function CollaboratorAvatarStack({
             transition: "opacity 150ms ease",
           }}
           role="group"
-          aria-label={
-            staleNote ? `Active Collaborators — ${staleNote}` : "Active Collaborators"
-          }
+          aria-label={staleNote ? `Active Collaborators — ${staleNote}` : "Active Collaborators"}
           title={staleNote ?? undefined}
         >
           {otherCollaborators.map((c) => {
@@ -266,10 +243,7 @@ export default function CollaboratorAvatarStack({
             );
 
             return (
-              <div
-                key={c.clientId}
-                style={{ position: "relative", marginLeft: "-6px" }}
-              >
+              <div key={c.clientId} style={{ position: "relative", marginLeft: "-6px" }}>
                 <button
                   onClick={() => {
                     setSelectedCollaborator(
@@ -284,9 +258,7 @@ export default function CollaboratorAvatarStack({
                     alignItems: "center",
                     justifyContent: "center",
                     background: "transparent",
-                    border: isFollowing
-                      ? "2px solid #89b4fa"
-                      : "2px solid rgba(17, 19, 28, 0.9)",
+                    border: isFollowing ? "2px solid #89b4fa" : "2px solid rgba(17, 19, 28, 0.9)",
                     cursor: "pointer",
                     padding: 0,
                     transition: "transform 120ms ease, box-shadow 120ms ease",
@@ -295,12 +267,9 @@ export default function CollaboratorAvatarStack({
                       : "0 2px 6px rgba(0,0,0,0.3)",
                   }}
                   onMouseEnter={(e) =>
-                    (e.currentTarget.style.transform =
-                      "translateY(-2px) scale(1.1)")
+                    (e.currentTarget.style.transform = "translateY(-2px) scale(1.1)")
                   }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.transform = "translateY(0) scale(1)")
-                  }
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0) scale(1)")}
                   title={`${identity} — ${(c.role || "collaborator").toUpperCase()} — ${activitySummary} [${(c.status || "online").toUpperCase()}]`}
                   aria-label={`Collaborator ${identity}, ${c.role || "collaborator"}, ${c.status || "online"}. ${activitySummary}.`}
                 >
@@ -346,9 +315,7 @@ export default function CollaboratorAvatarStack({
             onOpenTeamPanel();
             // M58: nudge the AttentionTray into view when there are requests.
             if (incomingRequestCount > 0) {
-              document.dispatchEvent(
-                new CustomEvent("ide-focus-attention-tray"),
-              );
+              document.dispatchEvent(new CustomEvent("ide-focus-attention-tray"));
             }
           }}
           title="Open team panel"
@@ -446,10 +413,7 @@ export default function CollaboratorAvatarStack({
               CURRENT ACTIVITY
             </div>
             {(() => {
-              const run = pickRunForUser(
-                runStatuses,
-                selectedCollaborator.userId,
-              );
+              const run = pickRunForUser(runStatuses, selectedCollaborator.userId);
               const runColor = !run
                 ? "#89b4fa"
                 : run.state === "success"
@@ -550,9 +514,7 @@ export default function CollaboratorAvatarStack({
               }}
               title={`Follow ${displayLabel(selectedCollaborator)}'s editor and navigation`}
             >
-              {followingUserId === selectedCollaborator.userId
-                ? "Unfollow"
-                : "Follow"}
+              {followingUserId === selectedCollaborator.userId ? "Unfollow" : "Follow"}
             </button>
             {selectedCollaborator.activeFile && onJumpToCollaborator && (
               <button
@@ -584,9 +546,7 @@ export default function CollaboratorAvatarStack({
           style={{
             padding: "4px 8px",
             fontSize: "11px",
-            background: isDnd
-              ? "rgba(203, 166, 247, 0.15)"
-              : "rgba(255, 255, 255, 0.04)",
+            background: isDnd ? "rgba(203, 166, 247, 0.15)" : "rgba(255, 255, 255, 0.04)",
             color: isDnd ? "#cba6f7" : "var(--fg-muted, #a6adc8)",
             border: isDnd
               ? "1px solid rgba(203, 166, 247, 0.4)"
@@ -595,14 +555,8 @@ export default function CollaboratorAvatarStack({
             alignItems: "center",
             gap: "5px",
           }}
-          title={
-            isDnd
-              ? "Do Not Disturb active (Click to disable)"
-              : "Set Do Not Disturb"
-          }
-          aria-label={
-            isDnd ? "Disable Do Not Disturb" : "Enable Do Not Disturb"
-          }
+          title={isDnd ? "Do Not Disturb active (Click to disable)" : "Set Do Not Disturb"}
+          aria-label={isDnd ? "Disable Do Not Disturb" : "Enable Do Not Disturb"}
           aria-pressed={isDnd}
         >
           <span

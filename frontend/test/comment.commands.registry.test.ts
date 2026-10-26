@@ -18,9 +18,24 @@ describe("M61-A Comments command registry navigation", () => {
   it("registers Comments: Next/Previous/Go to Unresolved and they are searchable (keyboard accessible)", () => {
     const handler = vi.fn();
     registry.registerMany([
-      { id: "comments.action.nextInFile", title: "Comments: Next in File", category: "Navigation" as const, handler },
-      { id: "comments.action.previousInFile", title: "Comments: Previous in File", category: "Navigation" as const, handler },
-      { id: "comments.action.goToUnresolved", title: "Comments: Go to Unresolved", category: "Navigation" as const, handler },
+      {
+        id: "comments.action.nextInFile",
+        title: "Comments: Next in File",
+        category: "Navigation" as const,
+        handler,
+      },
+      {
+        id: "comments.action.previousInFile",
+        title: "Comments: Previous in File",
+        category: "Navigation" as const,
+        handler,
+      },
+      {
+        id: "comments.action.goToUnresolved",
+        title: "Comments: Go to Unresolved",
+        category: "Navigation" as const,
+        handler,
+      },
     ]);
     const results = registry.search("Comments");
     expect(results.map((c) => c.id).sort()).toEqual([
@@ -37,11 +52,46 @@ describe("M61-A Comments command registry navigation", () => {
     const openMock = vi.fn(async () => {});
     // Mock store
     const threads = [
-      { id: "t1", filePath: "a.ts", anchor: { startLine: 10, endLine: 10 }, anchorStatus: "ok", resolvedAt: null, root: { deletedAt: null } },
-      { id: "t2", filePath: "a.ts", anchor: { startLine: 2, endLine: 2 }, anchorStatus: "stale", resolvedAt: null, root: { deletedAt: null } },
-      { id: "t3", filePath: "a.ts", anchor: { startLine: 5, endLine: 5 }, anchorStatus: "ok", resolvedAt: "now", root: { deletedAt: null } },
-      { id: "t4", filePath: "a.ts", anchor: { startLine: 7, endLine: 7 }, anchorStatus: "ok", resolvedAt: null, root: { deletedAt: "now" } },
-      { id: "t5", filePath: "a.ts", anchor: { startLine: 3, endLine: 3 }, anchorStatus: "ok", resolvedAt: null, root: { deletedAt: null } },
+      {
+        id: "t1",
+        filePath: "a.ts",
+        anchor: { startLine: 10, endLine: 10 },
+        anchorStatus: "ok",
+        resolvedAt: null,
+        root: { deletedAt: null },
+      },
+      {
+        id: "t2",
+        filePath: "a.ts",
+        anchor: { startLine: 2, endLine: 2 },
+        anchorStatus: "stale",
+        resolvedAt: null,
+        root: { deletedAt: null },
+      },
+      {
+        id: "t3",
+        filePath: "a.ts",
+        anchor: { startLine: 5, endLine: 5 },
+        anchorStatus: "ok",
+        resolvedAt: "now",
+        root: { deletedAt: null },
+      },
+      {
+        id: "t4",
+        filePath: "a.ts",
+        anchor: { startLine: 7, endLine: 7 },
+        anchorStatus: "ok",
+        resolvedAt: null,
+        root: { deletedAt: "now" },
+      },
+      {
+        id: "t5",
+        filePath: "a.ts",
+        anchor: { startLine: 3, endLine: 3 },
+        anchorStatus: "ok",
+        resolvedAt: null,
+        root: { deletedAt: null },
+      },
     ] as any;
     const store = { threadsFor: () => threads, unresolved: () => [] } as any;
     const { nextInFile } = await import("../src/comments/navigation");
@@ -52,8 +102,14 @@ describe("M61-A Comments command registry navigation", () => {
     const target = nextInFile(store.threadsFor("a.ts"), "t5");
     expect(target!.id).toBe("t1");
     // Verify navigation would use openAndRevealLocation with correct file/line
-    const spy = vi.spyOn(await import("../src/utils/revealLocation"), "openAndRevealLocation").mockResolvedValue(undefined);
-    await openAndRevealLocation(openMock, { filePath: target!.filePath, line: target!.anchor.startLine, column: 1 });
+    const spy = vi
+      .spyOn(await import("../src/utils/revealLocation"), "openAndRevealLocation")
+      .mockResolvedValue(undefined);
+    await openAndRevealLocation(openMock, {
+      filePath: target!.filePath,
+      line: target!.anchor.startLine,
+      column: 1,
+    });
     expect(spy).toHaveBeenCalledWith(openMock, { filePath: "a.ts", line: 10, column: 1 });
     spy.mockRestore();
   });

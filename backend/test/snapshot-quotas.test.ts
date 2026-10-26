@@ -8,11 +8,7 @@ import {
   restoreSnapshot,
   deleteSnapshot,
 } from "../src/projects/snapshots.js";
-import {
-  createProject,
-  deleteProject,
-  projectDir,
-} from "../src/projects/service.js";
+import { createProject, deleteProject, projectDir } from "../src/projects/service.js";
 import { writeProjectFile, readProjectFile } from "../src/files/service.js";
 import type { AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
@@ -98,18 +94,11 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
     expect(ids).toContain(snap4.id);
 
     // Verify evicted archive file is deleted from disk
-    const snap1Archive = join(
-      cfg.dataDir,
-      "snapshots",
-      project.id,
-      `${snap1.id}.gz`,
-    );
+    const snap1Archive = join(cfg.dataDir, "snapshots", project.id, `${snap1.id}.gz`);
     expect(existsSync(snap1Archive)).toBe(false);
 
     // Verify surviving archive files exist on disk
-    expect(
-      existsSync(join(cfg.dataDir, "snapshots", project.id, `${snap4.id}.gz`)),
-    ).toBe(true);
+    expect(existsSync(join(cfg.dataDir, "snapshots", project.id, `${snap4.id}.gz`))).toBe(true);
   });
 
   it("C. enforces byte quota with oldest-first eviction", async () => {
@@ -165,15 +154,11 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
     const wsDir = projectDir(cfg, project.id);
     // Write 30KB of truly random uncompressible data
     const { randomBytes } = await import("node:crypto");
-    await writeProjectFile(
-      wsDir,
-      "large.bin",
-      randomBytes(30 * 1024).toString("base64"),
-    );
+    await writeProjectFile(wsDir, "large.bin", randomBytes(30 * 1024).toString("base64"));
 
-    await expect(
-      createSnapshot(cfg, db, userId, project.id, "TooLarge"),
-    ).rejects.toThrow(/exceeds limit/);
+    await expect(createSnapshot(cfg, db, userId, project.id, "TooLarge")).rejects.toThrow(
+      /exceeds limit/,
+    );
   });
 
   it("E. ensures newest snapshot survives and restore works after eviction", async () => {
@@ -277,19 +262,13 @@ describe("Milestone 20 — Project Snapshot Quotas & Retention Management", () =
     const snap = await createSnapshot(cfg, db, userId, project.id, "OwnerSnap");
 
     // Non-owner trying to create snapshot
-    await expect(
-      createSnapshot(cfg, db, user2Id, project.id, "AttackerSnap"),
-    ).rejects.toThrow();
+    await expect(createSnapshot(cfg, db, user2Id, project.id, "AttackerSnap")).rejects.toThrow();
 
     // Non-owner trying to restore snapshot
-    await expect(
-      restoreSnapshot(cfg, db, user2Id, project.id, snap.id),
-    ).rejects.toThrow();
+    await expect(restoreSnapshot(cfg, db, user2Id, project.id, snap.id)).rejects.toThrow();
 
     // Non-owner trying to delete snapshot
-    await expect(
-      deleteSnapshot(cfg, db, user2Id, project.id, snap.id),
-    ).rejects.toThrow();
+    await expect(deleteSnapshot(cfg, db, user2Id, project.id, snap.id)).rejects.toThrow();
   });
 
   it("J. rejects snapshot when single snapshot exceeds project storage limit", async () => {

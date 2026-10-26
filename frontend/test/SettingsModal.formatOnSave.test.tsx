@@ -7,9 +7,7 @@ vi.mock("../src/api", () => ({
   updateProfile: () => Promise.resolve({}),
 }));
 
-import SettingsModal, {
-  DEFAULT_PREFERENCES,
-} from "../src/components/Settings/SettingsModal";
+import SettingsModal, { DEFAULT_PREFERENCES } from "../src/components/Settings/SettingsModal";
 
 afterEach(cleanup);
 
@@ -19,9 +17,7 @@ function renderModal(formatOnSave: boolean) {
     <SettingsModal
       isOpen
       preferences={{ ...DEFAULT_PREFERENCES, formatOnSave }}
-      onSave={
-        onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]
-      }
+      onSave={onSave as unknown as React.ComponentProps<typeof SettingsModal>["onSave"]}
       onClose={vi.fn()}
       username="ada99"
     />,
@@ -40,9 +36,7 @@ describe("M66 — SettingsModal Format on Save toggle", () => {
     while (row && !row.querySelector('input[type="checkbox"]')) {
       row = row.parentElement;
     }
-    const checkbox = row!.querySelector(
-      'input[type="checkbox"]',
-    ) as HTMLInputElement;
+    const checkbox = row!.querySelector('input[type="checkbox"]') as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
   });
 
@@ -52,13 +46,9 @@ describe("M66 — SettingsModal Format on Save toggle", () => {
     while (row && !row.querySelector('input[type="checkbox"]')) {
       row = row.parentElement;
     }
-    const checkbox = row!.querySelector(
-      'input[type="checkbox"]',
-    ) as HTMLInputElement;
+    const checkbox = row!.querySelector('input[type="checkbox"]') as HTMLInputElement;
     fireEvent.click(checkbox);
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
-    expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ formatOnSave: true }),
-    );
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ formatOnSave: true }));
   });
 });

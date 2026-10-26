@@ -1,4 +1,4 @@
-@import './styles/context-menu.css';
+@import "./styles/context-menu.css";
 
 :root {
   --bg: #1e1e2e;
@@ -18,7 +18,7 @@
 
 body {
   margin: 0;
-  font-family: 'SF Mono', 'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace;
+  font-family: "SF Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   background: var(--bg);
   color: var(--fg);
   font-size: 14px;

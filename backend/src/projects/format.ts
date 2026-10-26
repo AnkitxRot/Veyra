@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process';
-import { isAbsolute } from 'node:path';
-import { ApiError } from '../errors.js';
-import { commandExists } from '../tools.js';
+import { spawn } from "node:child_process";
+import { isAbsolute } from "node:path";
+import { ApiError } from "../errors.js";
+import { commandExists } from "../tools.js";
 
 export interface FormatResult {
   formatted: string;
@@ -10,31 +10,36 @@ export interface FormatResult {
   warning?: string;
 }
 
-function runFormatterProcess(cmd: string, args: string[], input: string, timeoutMs = 4000): Promise<string> {
+function runFormatterProcess(
+  cmd: string,
+  args: string[],
+  input: string,
+  timeoutMs = 4000,
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
+    const proc = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
 
     const timer = setTimeout(() => {
-      proc.kill('SIGKILL');
+      proc.kill("SIGKILL");
       reject(new Error(`Formatter ${cmd} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    proc.stdout.on('data', (d) => {
+    proc.stdout.on("data", (d) => {
       stdout += d.toString();
     });
 
-    proc.stderr.on('data', (d) => {
+    proc.stderr.on("data", (d) => {
       stderr += d.toString();
     });
 
-    proc.on('error', (err) => {
+    proc.on("error", (err) => {
       clearTimeout(timer);
       reject(err);
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) {
         resolve(stdout);
@@ -54,45 +59,45 @@ function runFormatterProcess(cmd: string, args: string[], input: string, timeout
 export async function formatProjectFile(
   workspaceDir: string,
   relativePath: string,
-  content: string
+  content: string,
 ): Promise<FormatResult> {
   // Validate path containment
-  if (isAbsolute(relativePath) || relativePath.includes('..') || relativePath.includes('\0')) {
-    throw new ApiError(400, 'Invalid file path', 'invalid_path');
+  if (isAbsolute(relativePath) || relativePath.includes("..") || relativePath.includes("\0")) {
+    throw new ApiError(400, "Invalid file path", "invalid_path");
   }
 
-  const ext = relativePath.includes('.') ? relativePath.split('.').pop()?.toLowerCase() || '' : '';
+  const ext = relativePath.includes(".") ? relativePath.split(".").pop()?.toLowerCase() || "" : "";
 
   try {
     // 1. JSON Formatter
-    if (ext === 'json') {
+    if (ext === "json") {
       try {
         const parsed = JSON.parse(content);
-        const formatted = JSON.stringify(parsed, null, 2) + '\n';
+        const formatted = JSON.stringify(parsed, null, 2) + "\n";
         return {
           formatted,
           changed: formatted !== content,
-          formatter: 'json-builtin',
+          formatter: "json-builtin",
         };
       } catch (err: any) {
         return {
           formatted: content,
           changed: false,
-          formatter: 'json-builtin',
+          formatter: "json-builtin",
           warning: `JSON parse error during format: ${err.message}`,
         };
       }
     }
 
     // 2. Python Formatter (Black if available, otherwise PEP-8 normalizer)
-    if (ext === 'py') {
-      if (commandExists('black')) {
+    if (ext === "py") {
+      if (commandExists("black")) {
         try {
-          const stdout = await runFormatterProcess('black', ['-q', '-'], content);
+          const stdout = await runFormatterProcess("black", ["-q", "-"], content);
           return {
             formatted: stdout,
             changed: stdout !== content,
-            formatter: 'black',
+            formatter: "black",
           };
         } catch {}
       }
@@ -100,26 +105,26 @@ export async function formatProjectFile(
       // Built-in PEP-8 whitespace and newline normalizer
       const lines = content.split(/\r?\n/);
       const normalizedLines = lines.map((l) => l.trimEnd());
-      while (normalizedLines.length > 0 && normalizedLines[normalizedLines.length - 1] === '') {
+      while (normalizedLines.length > 0 && normalizedLines[normalizedLines.length - 1] === "") {
         normalizedLines.pop();
       }
-      const formatted = normalizedLines.join('\n') + '\n';
+      const formatted = normalizedLines.join("\n") + "\n";
       return {
         formatted,
         changed: formatted !== content,
-        formatter: 'python-pep8-normalizer',
+        formatter: "python-pep8-normalizer",
       };
     }
 
     // 3. C / C++ Formatter (clang-format if available, otherwise C normalizer)
-    if (['c', 'h', 'cpp', 'hpp', 'cc', 'cxx'].includes(ext)) {
-      if (commandExists('clang-format')) {
+    if (["c", "h", "cpp", "hpp", "cc", "cxx"].includes(ext)) {
+      if (commandExists("clang-format")) {
         try {
-          const stdout = await runFormatterProcess('clang-format', ['--style=Google'], content);
+          const stdout = await runFormatterProcess("clang-format", ["--style=Google"], content);
           return {
             formatted: stdout,
             changed: stdout !== content,
-            formatter: 'clang-format',
+            formatter: "clang-format",
           };
         } catch {}
       }
@@ -128,19 +133,23 @@ export async function formatProjectFile(
       return {
         formatted,
         changed: formatted !== content,
-        formatter: 'c-normalizer',
+        formatter: "c-normalizer",
       };
     }
 
     // 4. JavaScript / TypeScript / Web Formatter
-    if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'scss', 'md', 'yaml', 'yml'].includes(ext)) {
-      if (commandExists('prettier')) {
+    if (["js", "jsx", "ts", "tsx", "html", "css", "scss", "md", "yaml", "yml"].includes(ext)) {
+      if (commandExists("prettier")) {
         try {
-          const stdout = await runFormatterProcess('prettier', ['--stdin-filepath', relativePath], content);
+          const stdout = await runFormatterProcess(
+            "prettier",
+            ["--stdin-filepath", relativePath],
+            content,
+          );
           return {
             formatted: stdout,
             changed: stdout !== content,
-            formatter: 'prettier',
+            formatter: "prettier",
           };
         } catch {}
       }
@@ -149,7 +158,7 @@ export async function formatProjectFile(
       return {
         formatted,
         changed: formatted !== content,
-        formatter: 'js-normalizer',
+        formatter: "js-normalizer",
       };
     }
 
@@ -158,14 +167,14 @@ export async function formatProjectFile(
     return {
       formatted,
       changed: formatted !== content,
-      formatter: 'generic-normalizer',
+      formatter: "generic-normalizer",
     };
   } catch (err: any) {
     // Non-destructive: preserve original content on error
     return {
       formatted: content,
       changed: false,
-      formatter: 'fallback',
+      formatter: "fallback",
       warning: `Formatting skipped: ${err.message}`,
     };
   }
@@ -183,9 +192,9 @@ function formatGenericCode(content: string, _defaultIndentSize = 2): string {
   }
 
   // Remove excessive trailing blank lines at end of file
-  while (cleanedLines.length > 0 && cleanedLines[cleanedLines.length - 1] === '') {
+  while (cleanedLines.length > 0 && cleanedLines[cleanedLines.length - 1] === "") {
     cleanedLines.pop();
   }
 
-  return cleanedLines.join('\n') + '\n';
+  return cleanedLines.join("\n") + "\n";
 }

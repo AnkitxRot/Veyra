@@ -33,8 +33,7 @@ export interface LayoutPreferences {
 
 type SetBool = boolean | ((prev: boolean) => boolean);
 
-const clamp = (n: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, Math.round(n)));
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(n)));
 
 export const clampSidebarWidth = (n: number): number =>
   clamp(n, LAYOUT_BOUNDS.sidebarWidth.min, LAYOUT_BOUNDS.sidebarWidth.max);
@@ -69,12 +68,8 @@ export function useLayoutPreferences(
   loaded: LayoutPreferences | null,
   persist: (patch: Partial<LayoutPreferences>) => void | Promise<unknown>,
 ): UseLayoutPreferences {
-  const [sidebarWidth, setSidebarWidthState] = useState<number>(
-    LAYOUT_BOUNDS.sidebarWidth.default,
-  );
-  const [bottomHeight, setBottomHeightState] = useState<number>(
-    LAYOUT_BOUNDS.bottomHeight.default,
-  );
+  const [sidebarWidth, setSidebarWidthState] = useState<number>(LAYOUT_BOUNDS.sidebarWidth.default);
+  const [bottomHeight, setBottomHeightState] = useState<number>(LAYOUT_BOUNDS.bottomHeight.default);
   const [isSidebarHidden, setSidebarHiddenState] = useState(false);
   const [isBottomCollapsed, setBottomCollapsedState] = useState(false);
 

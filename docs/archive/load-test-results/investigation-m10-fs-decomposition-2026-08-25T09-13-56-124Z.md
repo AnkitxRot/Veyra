@@ -5,10 +5,10 @@
 ## Project Size Breakdown (Isolated Tree Listing)
 
 | Project Size | Files | Depth | `tree()` Latency (ms) | `listFiles()` Latency (ms) | Sequential `stat` Operations |
-|---|---|---|---|---|---|
-| Tiny | 5 | 1 | 9.24 ms | 0.25 ms | 5 |
-| Medium | 50 | 3 | 9.16 ms | 0.58 ms | 50 |
-| Large | 300 | 5 | 20.70 ms | 0.98 ms | 300 |
+| ------------ | ----- | ----- | --------------------- | -------------------------- | ---------------------------- |
+| Tiny         | 5     | 1     | 9.24 ms               | 0.25 ms                    | 5                            |
+| Medium       | 50    | 3     | 9.16 ms               | 0.58 ms                    | 50                           |
+| Large        | 300   | 5     | 20.70 ms              | 0.98 ms                    | 300                          |
 
 ## Observations
 

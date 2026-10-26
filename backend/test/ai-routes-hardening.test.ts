@@ -62,19 +62,15 @@ describe("M97 — AI verification routes hardening", () => {
          VALUES ('v1', ?, 1, 'patch_verification', 'deterministic', 'm', 'main.py', 'e', 'passed', 'SECRET-OUT', 'SECRET-ERR')`,
       )
       .run(projectId);
-    const viewer = await api.request(
-      "GET",
-      `/api/projects/${projectId}/ai/verifications`,
-      { token: viewerToken },
-    );
+    const viewer = await api.request("GET", `/api/projects/${projectId}/ai/verifications`, {
+      token: viewerToken,
+    });
     expect(viewer.status).toBe(200);
     expect(viewer.text).not.toContain("SECRET-OUT");
     expect(viewer.text).not.toContain("SECRET-ERR");
-    const owner = await api.request(
-      "GET",
-      `/api/projects/${projectId}/ai/verifications`,
-      { token: ownerToken },
-    );
+    const owner = await api.request("GET", `/api/projects/${projectId}/ai/verifications`, {
+      token: ownerToken,
+    });
     expect(owner.text).toContain("SECRET-OUT");
   });
 });

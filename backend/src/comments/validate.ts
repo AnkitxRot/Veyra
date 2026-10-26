@@ -68,14 +68,10 @@ export interface AnchorPayload {
 export function isAnchorPayload(v: unknown): v is AnchorPayload {
   if (typeof v !== "object" || v === null) return false;
   const a = v as Record<string, unknown>;
-  if (typeof a.relStart !== "string" || a.relStart.length > MAX_ANCHOR_B64)
-    return false;
-  if (typeof a.relEnd !== "string" || a.relEnd.length > MAX_ANCHOR_B64)
-    return false;
+  if (typeof a.relStart !== "string" || a.relStart.length > MAX_ANCHOR_B64) return false;
+  if (typeof a.relEnd !== "string" || a.relEnd.length > MAX_ANCHOR_B64) return false;
   if (typeof a.slice !== "string" || a.slice.length > 256) return false;
-  if (!isAwarenessCoord(a.startLine) || !isAwarenessCoord(a.endLine))
-    return false;
-  if (typeof a.prefixHash !== "string" || !/^[0-9a-f]{16}$/.test(a.prefixHash))
-    return false;
+  if (!isAwarenessCoord(a.startLine) || !isAwarenessCoord(a.endLine)) return false;
+  if (typeof a.prefixHash !== "string" || !/^[0-9a-f]{16}$/.test(a.prefixHash)) return false;
   return true;
 }

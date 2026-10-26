@@ -131,8 +131,6 @@ describe("M73 — CollaborationClient.updateLocalIdentity (self-render, no recon
   it("is inert after dispose", () => {
     const client = new CollaborationClient("p", USER);
     client.dispose();
-    expect(() =>
-      client.updateLocalIdentity({ displayName: "Late" }),
-    ).not.toThrow();
+    expect(() => client.updateLocalIdentity({ displayName: "Late" })).not.toThrow();
   });
 });

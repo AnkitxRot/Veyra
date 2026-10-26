@@ -26,9 +26,7 @@ describe("openAndRevealLocation", () => {
       order.push(`open:${path}`);
     });
     const cap = captureReveal();
-    document.addEventListener("ide-reveal-location", () =>
-      order.push("reveal"),
-    );
+    document.addEventListener("ide-reveal-location", () => order.push("reveal"));
 
     await openAndRevealLocation(openFile, {
       filePath: "src/deep/closed.py",
@@ -67,9 +65,9 @@ describe("openAndRevealLocation", () => {
       throw new Error("no such file");
     });
 
-    await expect(
-      openAndRevealLocation(openFile, { filePath: "gone.py", line: 1 }),
-    ).rejects.toThrow("no such file");
+    await expect(openAndRevealLocation(openFile, { filePath: "gone.py", line: 1 })).rejects.toThrow(
+      "no such file",
+    );
 
     expect(cap.events).toEqual([]);
     cap.dispose();
@@ -87,9 +85,7 @@ describe("openAndRevealLocation", () => {
         ),
     );
     const cap = captureReveal();
-    document.addEventListener("ide-reveal-location", () =>
-      expect(resolved).toBe(true),
-    );
+    document.addEventListener("ide-reveal-location", () => expect(resolved).toBe(true));
 
     await openAndRevealLocation(openFile, { filePath: "slow.py", line: 1 });
     expect(cap.events).toHaveLength(1);

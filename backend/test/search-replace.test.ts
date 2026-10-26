@@ -1,11 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-  mkdirSync,
-  readFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promises as fs } from "node:fs";
@@ -13,11 +7,7 @@ import { replaceProjectContent } from "../src/projects/search.js";
 import { makeTestConfig, startTestApi, type TestApi } from "./helpers.js";
 import type { AppConfig, ConfigOverrides } from "../src/config.js";
 import type { Db } from "../src/db.js";
-import {
-  createProject,
-  workspacePath,
-  addProjectCollaborator,
-} from "../src/projects/service.js";
+import { createProject, workspacePath, addProjectCollaborator } from "../src/projects/service.js";
 import { readProjectFile } from "../src/files/service.js";
 import { listSnapshots, restoreSnapshot } from "../src/projects/snapshots.js";
 import { collaborationManager } from "../src/collab/manager.js";
@@ -51,9 +41,7 @@ describe("Milestone 26 — Workspace-wide Search & Replace: engine", () => {
     expect(res.groups.length).toBe(2);
 
     const aGroup = res.groups.find((g) => g.filePath === "a.txt")!;
-    expect(aGroup.newContent).toBe(
-      "goodbye world\ngoodbye again\ngoodbye caps\n",
-    );
+    expect(aGroup.newContent).toBe("goodbye world\ngoodbye again\ngoodbye caps\n");
     expect(aGroup!.matches[0]!.replacedLineContent).toBe("goodbye world");
 
     // Pure computation — never writes.
@@ -69,9 +57,7 @@ describe("Milestone 26 — Workspace-wide Search & Replace: engine", () => {
     const aGroup = res.groups.find((g) => g.filePath === "a.txt")!;
     // A naive String.replace(regex, "$1 price") with no capture group would
     // silently turn "$1" into "" — this must insert the literal text instead.
-    expect(aGroup.newContent).toBe(
-      "$1 price world\n$1 price again\n$1 price caps\n",
-    );
+    expect(aGroup.newContent).toBe("$1 price world\n$1 price again\n$1 price caps\n");
   });
 
   it("honors capture-group backreferences in regex mode", async () => {
@@ -207,11 +193,7 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
     addProjectCollaborator(db, projectId, viewer.data.user.id, "viewer");
 
     await fs.mkdir(cwd, { recursive: true });
-    await fs.writeFile(
-      join(cwd, "app.py"),
-      "print('hello world')\nprint('hello again')\n",
-      "utf8",
-    );
+    await fs.writeFile(join(cwd, "app.py"), "print('hello world')\nprint('hello again')\n", "utf8");
   });
 
   afterEach(async () => {
@@ -224,63 +206,39 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
   it("rejects unauthenticated, non-collaborator, and viewer-role requests; allows editor and owner", async () => {
     const body = { query: "hello", replacement: "hi" };
 
-    const anon = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      { body },
-    );
+    const anon = await api.request("POST", `/api/projects/${projectId}/search/replace`, { body });
     expect(anon.status).toBe(401);
 
-    const outsiderRes = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: outsiderToken,
-        body,
-      },
-    );
+    const outsiderRes = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: outsiderToken,
+      body,
+    });
     expect(outsiderRes.status).toBe(404); // IDOR-safe: non-member sees "not found", not "forbidden"
 
-    const viewerRes = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: viewerToken,
-        body,
-      },
-    );
+    const viewerRes = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: viewerToken,
+      body,
+    });
     expect(viewerRes.status).toBe(403); // read-only collaborators cannot mutate the workspace
 
-    const editorRes = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: editorToken,
-        body,
-      },
-    );
+    const editorRes = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: editorToken,
+      body,
+    });
     expect(editorRes.status).toBe(200);
 
-    const ownerRes = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: ownerToken,
-        body,
-      },
-    );
+    const ownerRes = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: ownerToken,
+      body,
+    });
     expect(ownerRes.status).toBe(200);
   });
 
   it("validates query and replacement fields", async () => {
-    const missingQuery = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: ownerToken,
-        body: { replacement: "hi" },
-      },
-    );
+    const missingQuery = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: ownerToken,
+      body: { replacement: "hi" },
+    });
     expect(missingQuery.status).toBe(400);
 
     const missingReplacement = await api.request(
@@ -295,14 +253,10 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
   });
 
   it("defaults to a dry run (preview) that never writes to disk", async () => {
-    const res = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: ownerToken,
-        body: { query: "hello", replacement: "hi" },
-      },
-    );
+    const res = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: ownerToken,
+      body: { query: "hello", replacement: "hi" },
+    });
     expect(res.status).toBe(200);
     expect(res.data.applied).toBe(false);
     expect(res.data.totalMatches).toBe(2);
@@ -313,21 +267,15 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
   });
 
   it("applies the replacement to disk only when dryRun: false is explicit, and reports a summary", async () => {
-    const res = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: ownerToken,
-        body: { query: "hello", replacement: "hi", dryRun: false },
-      },
-    );
+    const res = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: ownerToken,
+      body: { query: "hello", replacement: "hi", dryRun: false },
+    });
     expect(res.status).toBe(200);
     expect(res.data.applied).toBe(true);
     expect(res.data.filesChanged).toBe(1);
     expect(res.data.matchesReplaced).toBe(2);
-    expect(res.data.results).toEqual([
-      { filePath: "app.py", status: "replaced", matchCount: 2 },
-    ]);
+    expect(res.data.results).toEqual([{ filePath: "app.py", status: "replaced", matchCount: 2 }]);
 
     const onDisk = await readProjectFile(cwd, "app.py");
     expect(onDisk.content).toBe("print('hi world')\nprint('hi again')\n");
@@ -336,19 +284,15 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
   it("scopes the apply to only the requested files when 'files' is provided", async () => {
     await fs.writeFile(join(cwd, "other.py"), "print('hello there')\n", "utf8");
 
-    const res = await api.request(
-      "POST",
-      `/api/projects/${projectId}/search/replace`,
-      {
-        token: ownerToken,
-        body: {
-          query: "hello",
-          replacement: "hi",
-          dryRun: false,
-          files: ["app.py"],
-        },
+    const res = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+      token: ownerToken,
+      body: {
+        query: "hello",
+        replacement: "hi",
+        dryRun: false,
+        files: ["app.py"],
       },
-    );
+    });
     expect(res.status).toBe(200);
     expect(res.data.filesChanged).toBe(1);
     expect(res.data.results.map((r: any) => r.filePath)).toEqual(["app.py"]);
@@ -363,31 +307,21 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
     await fs.chmod(join(cwd, "app.py"), 0o444);
 
     try {
-      const res = await api.request(
-        "POST",
-        `/api/projects/${projectId}/search/replace`,
-        {
-          token: ownerToken,
-          body: { query: "hello", replacement: "hi", dryRun: false },
-        },
-      );
+      const res = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+        token: ownerToken,
+        body: { query: "hello", replacement: "hi", dryRun: false },
+      });
 
       expect(res.status).toBe(200);
       expect(res.data.applied).toBe(true);
-      const appResult = res.data.results.find(
-        (r: any) => r.filePath === "app.py",
-      );
-      const otherResult = res.data.results.find(
-        (r: any) => r.filePath === "other.py",
-      );
+      const appResult = res.data.results.find((r: any) => r.filePath === "app.py");
+      const otherResult = res.data.results.find((r: any) => r.filePath === "other.py");
       expect(appResult.status).toBe("error");
       expect(otherResult.status).toBe("replaced");
       expect(res.data.filesChanged).toBe(1);
 
       const untouched = await readProjectFile(cwd, "app.py");
-      expect(untouched.content).toBe(
-        "print('hello world')\nprint('hello again')\n",
-      );
+      expect(untouched.content).toBe("print('hello world')\nprint('hello again')\n");
       const changed = await readProjectFile(cwd, "other.py");
       expect(changed.content).toBe("print('hi there')\n");
     } finally {
@@ -408,41 +342,29 @@ describe("Milestone 26 — Workspace-wide Search & Replace: HTTP API", () => {
     expect((room as any).dirtyFiles.has("app.py")).toBe(true);
 
     try {
-      const res = await api.request(
-        "POST",
-        `/api/projects/${projectId}/search/replace`,
-        {
-          token: ownerToken,
-          body: { query: "hello", replacement: "hi", dryRun: false },
-        },
-      );
+      const res = await api.request("POST", `/api/projects/${projectId}/search/replace`, {
+        token: ownerToken,
+        body: { query: "hello", replacement: "hi", dryRun: false },
+      });
 
       expect(res.status).toBe(200);
       expect(res.data.applied).toBe(true);
 
-      const appResult = res.data.results.find(
-        (r: any) => r.filePath === "app.py",
-      );
-      const otherResult = res.data.results.find(
-        (r: any) => r.filePath === "other.py",
-      );
+      const appResult = res.data.results.find((r: any) => r.filePath === "app.py");
+      const otherResult = res.data.results.find((r: any) => r.filePath === "other.py");
       expect(appResult.status).toBe("conflict");
       expect(appResult.reason).toMatch(/collaborator/i);
       expect(otherResult.status).toBe("replaced");
 
       // The conflicted file is not counted as changed and no false "skipped".
       expect(res.data.filesChanged).toBe(1);
-      expect(
-        res.data.results.some((r: any) => r.status === "skipped"),
-      ).toBe(false);
+      expect(res.data.results.some((r: any) => r.status === "skipped")).toBe(false);
 
       // The collaborator's unsaved edit is intact; the other file applied.
       expect(yText.toString()).toBe(
         "print('hello world')\nprint('hello again')\nprint('collab unsaved')\n",
       );
-      expect((await readProjectFile(cwd, "other.py")).content).toBe(
-        "print('hi there')\n",
-      );
+      expect((await readProjectFile(cwd, "other.py")).content).toBe("print('hi there')\n");
     } finally {
       room.dispose();
     }
@@ -483,16 +405,8 @@ describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection
     addProjectCollaborator(db, proj.id, editor.data.user.id, "editor");
 
     await fs.mkdir(cwd, { recursive: true });
-    await fs.writeFile(
-      join(cwd, "app.py"),
-      "print('hello world')\nprint('hello again')\n",
-      "utf8",
-    );
-    await fs.writeFile(
-      join(cwd, "util.py"),
-      "def greet():\n    return 'hello team'\n",
-      "utf8",
-    );
+    await fs.writeFile(join(cwd, "app.py"), "print('hello world')\nprint('hello again')\n", "utf8");
+    await fs.writeFile(join(cwd, "util.py"), "def greet():\n    return 'hello team'\n", "utf8");
 
     const ctx: Ctx = {
       cfg,
@@ -562,17 +476,9 @@ describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection
       },
     });
     expect(res.data.filesChanged).toBe(2);
-    expect((await readProjectFile(c.cwd, "app.py")).content).not.toBe(
-      appBefore,
-    );
+    expect((await readProjectFile(c.cwd, "app.py")).content).not.toBe(appBefore);
 
-    await restoreSnapshot(
-      c.cfg,
-      c.db,
-      c.ownerId,
-      c.projectId,
-      res.data.snapshotId,
-    );
+    await restoreSnapshot(c.cfg, c.db, c.ownerId, c.projectId, res.data.snapshotId);
 
     expect((await readProjectFile(c.cwd, "app.py")).content).toBe(appBefore);
     expect((await readProjectFile(c.cwd, "util.py")).content).toBe(utilBefore);
@@ -727,10 +633,7 @@ describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection
   it("still skips a binary file and still returns partial results on a per-file write failure (with a snapshot taken)", async () => {
     const c = await setup();
     // binary fixture with a NUL byte + a literal 'hello'
-    await fs.writeFile(
-      join(c.cwd, "blob.bin"),
-      Buffer.from("hello\x00\x01\x02world", "binary"),
-    );
+    await fs.writeFile(join(c.cwd, "blob.bin"), Buffer.from("hello\x00\x01\x02world", "binary"));
 
     const res = await c.api.request("POST", replaceUrl(c.projectId), {
       token: c.ownerToken,
@@ -743,10 +646,7 @@ describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection
     });
     expect(res.status).toBe(200);
     // blob.bin never appears as a match group
-    expect(res.data.results.map((r: any) => r.filePath).sort()).toEqual([
-      "app.py",
-      "util.py",
-    ]);
+    expect(res.data.results.map((r: any) => r.filePath).sort()).toEqual(["app.py", "util.py"]);
     expect(typeof res.data.snapshotId).toBe("string");
     // binary byte-for-byte unchanged
     const bin = await fs.readFile(join(c.cwd, "blob.bin"));
@@ -757,10 +657,7 @@ describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection
     const c = await setup();
     // >500 matches (the engine's default cap) in one file forces its scan to
     // truncate, so the engine returns newContent: null for it.
-    const bigBody = Array.from(
-      { length: 600 },
-      (_, i) => `x = 'hello ${i}'`,
-    ).join("\n");
+    const bigBody = Array.from({ length: 600 }, (_, i) => `x = 'hello ${i}'`).join("\n");
     await fs.writeFile(join(c.cwd, "big.py"), bigBody + "\n", "utf8");
 
     const res = await c.api.request("POST", replaceUrl(c.projectId), {
@@ -777,8 +674,6 @@ describe("Milestone 50 — Safe workspace-wide Replace All (snapshot + selection
     const big = res.data.results.find((r: any) => r.filePath === "big.py");
     expect(big.status).toBe("skipped");
     // the oversized/truncated file is left byte-for-byte unchanged
-    expect((await readProjectFile(c.cwd, "big.py")).content).toBe(
-      bigBody + "\n",
-    );
+    expect((await readProjectFile(c.cwd, "big.py")).content).toBe(bigBody + "\n");
   });
 });

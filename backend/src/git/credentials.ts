@@ -42,13 +42,7 @@ export function resolveGitHttpsCredentials(
   projectId: string,
   originUrl: string,
 ): GitHttpsCredentials | null {
-  const token = decryptProjectSecret(
-    db,
-    cfg,
-    projectId,
-    GIT_HTTPS_TOKEN_SECRET,
-    null,
-  );
+  const token = decryptProjectSecret(db, cfg, projectId, GIT_HTTPS_TOKEN_SECRET, null);
   if (token === null || token.length === 0) return null;
   let originHost: string;
   try {
@@ -60,17 +54,8 @@ export function resolveGitHttpsCredentials(
       "credential_host_mismatch",
     );
   }
-  const pinned = decryptProjectSecret(
-    db,
-    cfg,
-    projectId,
-    GIT_HTTPS_HOST_SECRET,
-    null,
-  );
-  if (
-    !pinned ||
-    normalizeHttpsHostname(pinned).toLowerCase() !== originHost.toLowerCase()
-  ) {
+  const pinned = decryptProjectSecret(db, cfg, projectId, GIT_HTTPS_HOST_SECRET, null);
+  if (!pinned || normalizeHttpsHostname(pinned).toLowerCase() !== originHost.toLowerCase()) {
     throw new ApiError(
       409,
       "saved Git credentials belong to a different host; save credentials again for this remote",
@@ -78,8 +63,7 @@ export function resolveGitHttpsCredentials(
     );
   }
   const username =
-    decryptProjectSecret(db, cfg, projectId, GIT_HTTPS_USERNAME_SECRET, null) ||
-    "git";
+    decryptProjectSecret(db, cfg, projectId, GIT_HTTPS_USERNAME_SECRET, null) || "git";
   return { username, token };
 }
 
@@ -128,13 +112,7 @@ export function syncGitCredentialHost(
 ): void {
   if (!hasGitHttpsCredentials(db, projectId)) return;
   const host = httpsRemoteHost(remoteUrl);
-  const pinned = decryptProjectSecret(
-    db,
-    cfg,
-    projectId,
-    GIT_HTTPS_HOST_SECRET,
-    null,
-  );
+  const pinned = decryptProjectSecret(db, cfg, projectId, GIT_HTTPS_HOST_SECRET, null);
   if (pinned && normalizeHttpsHostname(pinned).toLowerCase() !== host.toLowerCase()) {
     deleteGitHttpsCredentials(db, projectId);
     return;
@@ -191,11 +169,7 @@ function upsertOne(
 
 function validateToken(raw: unknown): string {
   if (typeof raw !== "string" || raw.length === 0) {
-    throw new ApiError(
-      400,
-      "credential token is required",
-      "invalid_git_credential",
-    );
+    throw new ApiError(400, "credential token is required", "invalid_git_credential");
   }
   if (raw.includes("\0") || /[\r\n]/.test(raw)) {
     throw new ApiError(400, "invalid credential token", "invalid_git_credential");
@@ -209,26 +183,14 @@ function validateToken(raw: unknown): string {
 function validateUsername(raw: unknown): string {
   if (raw === undefined || raw === null || raw === "") return "git";
   if (typeof raw !== "string") {
-    throw new ApiError(
-      400,
-      "invalid credential username",
-      "invalid_git_credential",
-    );
+    throw new ApiError(400, "invalid credential username", "invalid_git_credential");
   }
   const u = raw.trim();
   if (u.length === 0 || u.length > MAX_USERNAME) {
-    throw new ApiError(
-      400,
-      "invalid credential username",
-      "invalid_git_credential",
-    );
+    throw new ApiError(400, "invalid credential username", "invalid_git_credential");
   }
   if (u.includes("\0") || /[\r\n]/.test(u) || u.includes(":")) {
-    throw new ApiError(
-      400,
-      "invalid credential username",
-      "invalid_git_credential",
-    );
+    throw new ApiError(400, "invalid credential username", "invalid_git_credential");
   }
   return u;
 }

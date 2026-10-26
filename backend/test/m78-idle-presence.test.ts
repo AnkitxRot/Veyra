@@ -29,10 +29,7 @@ function capturingWs() {
 }
 
 /** A real MESSAGE_AWARENESS frame, exactly as a browser client sends it. */
-function buildAwarenessFrame(
-  ca: awarenessProtocol.Awareness,
-  fields: Record<string, unknown>,
-) {
+function buildAwarenessFrame(ca: awarenessProtocol.Awareness, fields: Record<string, unknown>) {
   for (const [k, v] of Object.entries(fields)) ca.setLocalStateField(k, v);
   const update = awarenessProtocol.encodeAwarenessUpdate(ca, [ca.clientID]);
   const enc = encoding.createEncoder();
@@ -58,9 +55,7 @@ function decodeAwareness(buf: Uint8Array) {
 
 /** Every awareness frame `ws` received that carries an entry for `clientId`. */
 function awarenessFramesFor(ws: any, clientId: number) {
-  return ws.sent
-    .map(decodeAwareness)
-    .filter((m: any) => m && m.has(clientId));
+  return ws.sent.map(decodeAwareness).filter((m: any) => m && m.has(clientId));
 }
 
 describe("M78 — idle connected collaborators stay visible to peers", () => {
@@ -88,12 +83,16 @@ describe("M78 — idle connected collaborators stay visible to peers", () => {
   });
 
   async function room2() {
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("alice", "h", "user"); // id 1
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("bob", "h", "user"); // id 2
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "alice",
+      "h",
+      "user",
+    ); // id 1
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "bob",
+      "h",
+      "user",
+    ); // id 2
     const project = await createProject(cfg, db, 1, { name: "IdleRoom" });
     const room = new CollaborationRoom(project.id, cfg, db, vi.fn(), {
       awarenessReconcileMs: SWEEP_MS,
@@ -237,9 +236,7 @@ describe("M78 — idle connected collaborators stay visible to peers", () => {
     );
     vi.advanceTimersByTime(COALESCE_MS + 5);
 
-    expect((room.awareness.getStates().get(aId) as any).activity.type).toBe(
-      "editing",
-    );
+    expect((room.awareness.getStates().get(aId) as any).activity.type).toBe("editing");
     const echoed = awarenessFramesFor(wsB, aId).pop();
     expect(echoed.get(aId).state.activity.type).toBe("editing");
     expect(echoed.get(aId).clock).toBeGreaterThan(serverClock);

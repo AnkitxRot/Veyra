@@ -9,10 +9,7 @@
 
 function encode(msg) {
   const body = Buffer.from(JSON.stringify(msg), "utf8");
-  return Buffer.concat([
-    Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"),
-    body,
-  ]);
+  return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"), body]);
 }
 
 let buf = Buffer.alloc(0);

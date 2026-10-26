@@ -19,15 +19,13 @@ import type { Project } from "../src/types";
 const apiMock = vi.fn();
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
 }));
 
 import Output from "../src/components/Output/Output";
 import { ExecutionSessionProvider } from "../src/hooks/useExecutionSession";
 
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 class FakeWebSocket {
   static CONNECTING = 0;
@@ -127,15 +125,11 @@ describe("M53 — ide-run reaches the execution session regardless of Output mou
     document.dispatchEvent(new Event("ide-run"));
 
     await waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));
-    expect(FakeWebSocket.latest().url).toBe(
-      "ws://test/ws/execute?projectId=proj-1",
-    );
+    expect(FakeWebSocket.latest().url).toBe("ws://test/ws/execute?projectId=proj-1");
   });
 
   it("the run still starts even if <Output> never mounts at all — the session, not Output, owns it", async () => {
-    render(
-      React.createElement(MediatorHarness, { project, mountOutput: false }),
-    );
+    render(React.createElement(MediatorHarness, { project, mountOutput: false }));
 
     document.dispatchEvent(
       new CustomEvent("ide-run-confirmed", {

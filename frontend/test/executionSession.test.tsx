@@ -1,12 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  cleanup,
-  waitFor,
-  act,
-  within,
-  fireEvent,
-} from "@testing-library/react";
+import { render, cleanup, waitFor, act, within, fireEvent } from "@testing-library/react";
 import * as React from "react";
 import type { Project } from "../src/types";
 
@@ -16,24 +9,19 @@ import type { Project } from "../src/types";
 // running program. This suite is the core proof of that guarantee.
 
 const apiMock = vi.fn();
-const getWorkflowMock = vi.fn(
-  async (_projectId?: string): Promise<{ tasks: unknown[] }> => ({ tasks: [] }),
-);
+const getWorkflowMock = vi.fn(async (_projectId?: string): Promise<{ tasks: unknown[] }> => ({
+  tasks: [],
+}));
 vi.mock("../src/api", () => ({
   api: (...args: any[]) => apiMock(...args),
-  getWebSocketUrl: (path: string, projectId: string) =>
-    `ws://test${path}?projectId=${projectId}`,
+  getWebSocketUrl: (path: string, projectId: string) => `ws://test${path}?projectId=${projectId}`,
   getWorkflow: (projectId: string) => getWorkflowMock(projectId),
 }));
 
 import Output from "../src/components/Output/Output";
-import {
-  ExecutionSessionProvider,
-  useExecutionSession,
-} from "../src/hooks/useExecutionSession";
+import { ExecutionSessionProvider, useExecutionSession } from "../src/hooks/useExecutionSession";
 
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 class FakeWebSocket {
   static CONNECTING = 0;
@@ -91,9 +79,7 @@ async function startRun() {
       },
     }),
   );
-  await waitFor(() =>
-    expect(FakeWebSocket.instances.length).toBeGreaterThan(0),
-  );
+  await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
   const ws = FakeWebSocket.latest();
   act(() => ws.simulateOpen());
   return ws;
@@ -119,9 +105,7 @@ describe("M53 — persistent project-scoped execution session", () => {
     const ws = await startRun();
 
     act(() => ws.simulateMessage({ type: "stdout", data: "line-before\n" }));
-    await waitFor(() =>
-      expect(view.container.textContent).toContain("line-before"),
-    );
+    await waitFor(() => expect(view.container.textContent).toContain("line-before"));
 
     // Bottom-tab switch: <Output> unmounts, provider stays.
     view.rerender(<OutputHost show={false} />);
@@ -131,9 +115,7 @@ describe("M53 — persistent project-scoped execution session", () => {
     expect(ws.sent.some((m) => m.includes('"stop"'))).toBe(false);
 
     // More output arrives while Output is not on screen.
-    act(() =>
-      ws.simulateMessage({ type: "stdout", data: "line-while-away\n" }),
-    );
+    act(() => ws.simulateMessage({ type: "stdout", data: "line-while-away\n" }));
 
     // Reopen the Output tab — the full accumulated log is there.
     view.rerender(<OutputHost show={true} />);
@@ -151,9 +133,7 @@ describe("M53 — persistent project-scoped execution session", () => {
     view.rerender(<OutputHost show={true} />);
 
     document.dispatchEvent(new Event("ide-stop"));
-    await waitFor(() =>
-      expect(ws.sent.some((m) => JSON.parse(m).type === "stop")).toBe(true),
-    );
+    await waitFor(() => expect(ws.sent.some((m) => JSON.parse(m).type === "stop")).toBe(true));
   });
 
   it("stdin still works after <Output> was unmounted and remounted", async () => {
@@ -163,29 +143,20 @@ describe("M53 — persistent project-scoped execution session", () => {
     view.rerender(<OutputHost show={false} />);
     view.rerender(<OutputHost show={true} />);
 
-    const form = view.container.querySelector(
-      "form.output-stdin-form",
-    ) as HTMLFormElement;
+    const form = view.container.querySelector("form.output-stdin-form") as HTMLFormElement;
     expect(form).toBeTruthy();
-    const input = within(form).getByPlaceholderText(
-      /standard input/i,
-    ) as HTMLInputElement;
+    const input = within(form).getByPlaceholderText(/standard input/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "hello" } });
     fireEvent.submit(form);
 
     await waitFor(() => {
-      const stdin = ws.sent
-        .map((m) => JSON.parse(m))
-        .find((m) => m.type === "stdin");
+      const stdin = ws.sent.map((m) => JSON.parse(m)).find((m) => m.type === "stdin");
       expect(stdin?.data).toBe("hello\n");
     });
   });
 
   it("a dependency install survives <Output> unmounting and finishes", async () => {
-    let resolveRead: (v: {
-      done: boolean;
-      value?: Uint8Array;
-    }) => void = () => {};
+    let resolveRead: (v: { done: boolean; value?: Uint8Array }) => void = () => {};
     const reader = {
       read: vi.fn(
         () =>
@@ -221,9 +192,7 @@ describe("M53 — persistent project-scoped execution session", () => {
 
     // Back to Output — the streamed line is present, install completed.
     view.rerender(<OutputHost show={true} />);
-    await waitFor(() =>
-      expect(view.container.textContent).toContain("installed pkg"),
-    );
+    await waitFor(() => expect(view.container.textContent).toContain("installed pkg"));
   });
 
   it("changing projectId tears down the old run: old socket closed + run-stopped dispatched once", async () => {
@@ -274,9 +243,7 @@ describe("M53 — persistent project-scoped execution session", () => {
           <span data-testid="logs">{s.logs.length}</span>
           <span data-testid="running">{String(s.isRunning)}</span>
           <span data-testid="results">{s.testResults.length}</span>
-          <span data-testid="tasks">
-            {s.workflowTasks.map((t) => t.id).join(",")}
-          </span>
+          <span data-testid="tasks">{s.workflowTasks.map((t) => t.id).join(",")}</span>
         </div>
       );
     }
@@ -298,9 +265,7 @@ describe("M53 — persistent project-scoped execution session", () => {
         tests: [{ name: "a", status: "fail" }],
       });
     });
-    await waitFor(() =>
-      expect(Number(view.getByTestId("logs").textContent)).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(Number(view.getByTestId("logs").textContent)).toBeGreaterThan(0));
     expect(view.getByTestId("running").textContent).toBe("true");
 
     view.rerender(<Host pid="proj-2" />);
@@ -320,9 +285,7 @@ describe("M53 — persistent project-scoped execution session", () => {
         ],
       });
     });
-    await waitFor(() =>
-      expect(view.getByTestId("tasks").textContent).toBe("npm:test"),
-    );
+    await waitFor(() => expect(view.getByTestId("tasks").textContent).toBe("npm:test"));
   });
 
   it("M48 regression: a run dispatches the `run-started` document event (was `ide-run-started`, never fired)", async () => {
@@ -378,9 +341,7 @@ describe("M53 — persistent project-scoped execution session", () => {
       </ExecutionSessionProvider>,
     );
     fireEvent.click(view.getByText("wf"));
-    await waitFor(() =>
-      expect(FakeWebSocket.instances.length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
     const ws = FakeWebSocket.latest();
     act(() => ws.simulateOpen());
     const start = ws.sent.map((m) => JSON.parse(m)).find((m) => m.type === "start");

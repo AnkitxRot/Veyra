@@ -11,9 +11,7 @@ describe("collabConflict — direct save", () => {
   it("isCollabSaveConflict matches only the collab_external_conflict code", () => {
     expect(isCollabSaveConflict({ code: COLLAB_SAVE_CONFLICT_CODE })).toBe(true);
     expect(
-      isCollabSaveConflict(
-        Object.assign(new Error("x"), { code: "collab_external_conflict" }),
-      ),
+      isCollabSaveConflict(Object.assign(new Error("x"), { code: "collab_external_conflict" })),
     ).toBe(true);
   });
 
@@ -85,10 +83,7 @@ describe("collabConflict — bulk summary", () => {
   });
 
   it("truncates a long list with 'and N more'", () => {
-    const s = bulkConflictSummary(
-      ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"],
-      "Checkout",
-    );
+    const s = bulkConflictSummary(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"], "Checkout");
     expect(s).toContain("a.ts, b.ts, c.ts");
     expect(s).toContain("and 2 more");
     expect(s).toMatch(/5 files/);

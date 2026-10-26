@@ -26,10 +26,7 @@ mkdirSync(RESULTS_DIR, { recursive: true });
 
 function percentile(sortedArr: number[], p: number): number {
   if (sortedArr.length === 0) return 0;
-  const idx = Math.min(
-    sortedArr.length - 1,
-    Math.max(0, Math.floor(sortedArr.length * p)),
-  );
+  const idx = Math.min(sortedArr.length - 1, Math.max(0, Math.floor(sortedArr.length * p)));
   return sortedArr[idx]!;
 }
 
@@ -118,9 +115,7 @@ async function measureConcurrencySweep(
   wallMs: number;
   rejections: number;
 }> {
-  console.log(
-    `\n--- Measuring C=${concurrency} (maxSandboxes=${maxSandboxes}) ---`,
-  );
+  console.log(`\n--- Measuring C=${concurrency} (maxSandboxes=${maxSandboxes}) ---`);
   const server = await bootstrapLoadTestServer({
     authRateLimit: { max: 100_000, windowMs: 60_000 },
     maxSandboxes,
@@ -166,17 +161,14 @@ async function measureConcurrencySweep(
   const promises = users.map(async (u, idx): Promise<RequestDecomposition> => {
     const reqStart = performance.now();
     try {
-      const res = await fetch(
-        `${server.baseUrl}/api/projects/${u.projectId}/run`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${u.token}`,
-          },
-          body: JSON.stringify({ path: "main.py" }),
+      const res = await fetch(`${server.baseUrl}/api/projects/${u.projectId}/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${u.token}`,
         },
-      );
+        body: JSON.stringify({ path: "main.py" }),
+      });
       const totalMs = performance.now() - reqStart;
       const body = (await res.json()) as any;
 
@@ -316,17 +308,14 @@ async function measureSteadyUserImpact(
     const reqStart = performance.now();
 
     try {
-      const res = await fetch(
-        `${server.baseUrl}/api/projects/${u!.projectId}/run`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${u!.token}`,
-          },
-          body: JSON.stringify({ path: "main.py" }),
+      const res = await fetch(`${server.baseUrl}/api/projects/${u!.projectId}/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${u!.token}`,
         },
-      );
+        body: JSON.stringify({ path: "main.py" }),
+      });
       const totalMs = performance.now() - reqStart;
       const body = (await res.json()) as any;
       const serverDurationMs = body.durationMs ?? 0;
@@ -364,14 +353,10 @@ async function measureSteadyUserImpact(
   const wallMs = performance.now() - startWall;
   await server.close();
 
-  const successLatencies = results
-    .filter((r) => r.success)
-    .map((r) => r.totalMs);
+  const successLatencies = results.filter((r) => r.success).map((r) => r.totalMs);
   const p = percentiles(successLatencies);
   const buckets = bucketize(successLatencies);
-  console.log(
-    `  Success: ${results.filter((r) => r.success).length}/${requestCount}`,
-  );
+  console.log(`  Success: ${results.filter((r) => r.success).length}/${requestCount}`);
   console.log(
     `  Total p50=${p.p50.toFixed(1)}ms p95=${p.p95.toFixed(1)}ms p99=${p.p99.toFixed(1)}ms`,
   );
@@ -434,8 +419,7 @@ function simulateSchedulingStrategies(
 
   return {
     currentImmediate: {
-      description:
-        "Current: immediate admission, reject when maxSandboxes reached",
+      description: "Current: immediate admission, reject when maxSandboxes reached",
       analysis: [
         `Under C≤20: all requests admitted, no queuing.`,
         `Under C>20: ${c40Rejections}/${c40Data?.concurrency ?? 40} requests rejected immediately (no wait, clear error).`,
@@ -445,8 +429,7 @@ function simulateSchedulingStrategies(
       ].join("\n"),
     },
     strictFIFO: {
-      description:
-        "FIFO queue: hold excess requests until a slot opens, serve in order",
+      description: "FIFO queue: hold excess requests until a slot opens, serve in order",
       analysis: [
         `Would eliminate immediate rejections at C>20.`,
         `But: adds admission wait to ALL queued requests (at C=40, 20 requests wait for the first batch to complete).`,
@@ -457,8 +440,7 @@ function simulateSchedulingStrategies(
       ].join("\n"),
     },
     shortestJob: {
-      description:
-        "Priority queue: estimate execution cost, run cheapest first",
+      description: "Priority queue: estimate execution cost, run cheapest first",
       analysis: [
         `All cold starts have similar cost (Docker provisioning dominates).`,
         `Cannot estimate job duration before running it.`,
@@ -511,15 +493,9 @@ async function run() {
 
   // Burst traffic: we already have C=20 and C=40 from Phase 1
   // Extract latency distributions
-  const burstC20Latencies = c20.results
-    .filter((r) => r.success)
-    .map((r) => r.totalMs);
-  const burstC40Latencies = c40.results
-    .filter((r) => r.success)
-    .map((r) => r.totalMs);
-  const steadyLatencies = steady.results
-    .filter((r) => r.success)
-    .map((r) => r.totalMs);
+  const burstC20Latencies = c20.results.filter((r) => r.success).map((r) => r.totalMs);
+  const burstC40Latencies = c40.results.filter((r) => r.success).map((r) => r.totalMs);
+  const steadyLatencies = steady.results.filter((r) => r.success).map((r) => r.totalMs);
 
   const burstC20Buckets = bucketize(burstC20Latencies);
   const burstC40Buckets = bucketize(burstC40Latencies);
@@ -609,11 +585,13 @@ async function run() {
 
 | Concurrency | Success | Rejected | Total p50 (ms) | Total p95 (ms) | Total p99 (ms) | Wall (ms) |
 |---|---|---|---|---|---|---|
-${sweepResults.map((s) => {
-  const succ = s.results.filter((r) => r.success);
-  const p = percentiles(succ.map((r) => r.totalMs));
-  return `| **C=${s.concurrency}** | ${succ.length}/${s.concurrency} | ${s.rejections} | ${p.p50.toFixed(1)} | ${p.p95.toFixed(1)} | ${p.p99.toFixed(1)} | ${s.wallMs.toFixed(1)} |`;
-}).join("\n")}
+${sweepResults
+  .map((s) => {
+    const succ = s.results.filter((r) => r.success);
+    const p = percentiles(succ.map((r) => r.totalMs));
+    return `| **C=${s.concurrency}** | ${succ.length}/${s.concurrency} | ${s.rejections} | ${p.p50.toFixed(1)} | ${p.p95.toFixed(1)} | ${p.p99.toFixed(1)} | ${s.wallMs.toFixed(1)} |`;
+  })
+  .join("\n")}
 
 ### Wait Decomposition Analysis
 

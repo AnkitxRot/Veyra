@@ -20,11 +20,7 @@ describe("M61-A mentionText", () => {
 
   it("renders a bare string when there are no mentions", () => {
     const { container } = render(
-      React.createElement(
-        React.Fragment,
-        null,
-        mentionText("just text", new Set()),
-      ),
+      React.createElement(React.Fragment, null, mentionText("just text", new Set())),
     );
     expect(container.textContent).toBe("just text");
     expect(container.querySelectorAll(".mention").length).toBe(0);

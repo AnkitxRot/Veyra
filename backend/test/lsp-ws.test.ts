@@ -7,10 +7,7 @@ import { makeTestConfig } from "./helpers.js";
 import { openDb, type Db } from "../src/db.js";
 import { createApp } from "../src/app.js";
 import { setupWebSocketServer } from "../src/ws/index.js";
-import {
-  languageServers,
-  resetLanguageServersForTests,
-} from "../src/lsp/manager.js";
+import { languageServers, resetLanguageServersForTests } from "../src/lsp/manager.js";
 import type { AppConfig } from "../src/config.js";
 import type { LspSpawnRequest } from "../src/lsp/process.js";
 
@@ -49,9 +46,7 @@ describe("lsp websocket authz", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -168,19 +163,16 @@ describe("lsp websocket authz", () => {
       b.on("error", reject);
     });
     expect(languageServers.sessionCount()).toBe(1);
-    await waitFor(
-      () => languageServers.sessionFor(projectId, "python")?.clientCount === 2,
-    );
+    await waitFor(() => languageServers.sessionFor(projectId, "python")?.clientCount === 2);
     expect(languageServers.sessionFor(projectId, "python")?.clientCount).toBe(2);
     a.close();
     b.close();
   });
 
   it("unknown path stays 404", async () => {
-    const ws = new WebSocket(
-      `ws://127.0.0.1:${port()}/ws/nope?projectId=${projectId}`,
-      { headers: { Cookie: `session_token=${token}` } },
-    );
+    const ws = new WebSocket(`ws://127.0.0.1:${port()}/ws/nope?projectId=${projectId}`, {
+      headers: { Cookie: `session_token=${token}` },
+    });
     const code = await new Promise<number>((resolve) => {
       ws.on("unexpected-response", (_req, res) => {
         resolve(res.statusCode ?? 0);

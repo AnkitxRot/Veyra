@@ -1,11 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import * as React from "react";
-import {
-  monaco,
-  __getLastEditorInstance,
-  __resetMonacoMocks,
-} from "./mocks/monaco";
+import { monaco, __getLastEditorInstance, __resetMonacoMocks } from "./mocks/monaco";
 import type { AttentionEvent } from "../src/collab/attention";
 
 vi.mock("../src/monacoSetup", () => ({ monaco }));
@@ -67,9 +63,7 @@ describe("M58 — Editor attention decorations", () => {
     const d = coll.decorations[0]! as {
       options: { className?: string; overviewRuler?: unknown };
     };
-    expect(
-      d.options.className?.includes("attention") || d.options.overviewRuler,
-    ).toBeTruthy();
+    expect(d.options.className?.includes("attention") || d.options.overviewRuler).toBeTruthy();
   });
 
   it("renders a callout bubble with the message as TEXT (no HTML injection)", () => {
@@ -82,13 +76,9 @@ describe("M58 — Editor attention decorations", () => {
     ]);
     const bubble = document.querySelector(".attention-callout-bubble")!;
     expect(bubble).toBeTruthy();
-    expect(bubble.textContent).toContain(
-      '<img src=x onerror="window.__pwned=1">',
-    );
+    expect(bubble.textContent).toContain('<img src=x onerror="window.__pwned=1">');
     expect(bubble.querySelector("img")).toBeNull();
-    expect(
-      (window as unknown as { __pwned?: number }).__pwned,
-    ).toBeUndefined();
+    expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
   });
 
   it("clears decorations and widgets when the attention list empties", () => {
@@ -120,12 +110,8 @@ describe("M58 — Editor attention decorations", () => {
     const spy = vi.fn();
     const h = (e: Event) => spy((e as CustomEvent).detail);
     document.addEventListener("ide-attention-activate", h);
-    renderEditor([
-      evt({ kind: "callout", id: "c9", file: "src/a.ts", message: "look" }),
-    ]);
-    (
-      document.querySelector(".attention-callout-bubble") as HTMLElement
-    ).click();
+    renderEditor([evt({ kind: "callout", id: "c9", file: "src/a.ts", message: "look" })]);
+    (document.querySelector(".attention-callout-bubble") as HTMLElement).click();
     expect(spy).toHaveBeenCalledWith({ id: "c9" });
     document.removeEventListener("ide-attention-activate", h);
   });
@@ -137,9 +123,7 @@ describe("M58 — Editor attention decorations", () => {
     const hf = (e: Event) => fol((e as CustomEvent).detail);
     document.addEventListener("ide-attention-activate", ha);
     document.addEventListener("ide-attention-follow", hf);
-    renderEditor([
-      evt({ kind: "callout", id: "c10", file: "src/a.ts", message: "x" }),
-    ]);
+    renderEditor([evt({ kind: "callout", id: "c10", file: "src/a.ts", message: "x" })]);
     (
       document.querySelector(
         ".attention-callout-bubble button.attention-callout-follow",
@@ -156,9 +140,7 @@ describe("M58 — Editor attention decorations", () => {
     const h = (e: Event) => spy((e as CustomEvent).detail);
     document.addEventListener("ide-attention-activate", h);
     renderEditor([evt({ kind: "point", id: "p9", file: "src/a.ts" })]);
-    (
-      document.querySelector(".attention-point-chip") as HTMLElement
-    ).click();
+    (document.querySelector(".attention-point-chip") as HTMLElement).click();
     expect(spy).toHaveBeenCalledWith({ id: "p9" });
     document.removeEventListener("ide-attention-activate", h);
   });

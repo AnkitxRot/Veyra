@@ -13,15 +13,7 @@
  *    the path check and the open (Linux: symlinks from the container are
  *    real symlinks on the host).
  */
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -153,9 +145,7 @@ describe.skipIf(!SANDBOX_GIT)("M87 sandbox Git lifecycle", () => {
 
   beforeEach(async () => {
     f = await makeM87Fixture();
-    expect(
-      (await f.api.request("POST", f.g("/init"), { token: f.ownerToken })).status,
-    ).toBe(200);
+    expect((await f.api.request("POST", f.g("/init"), { token: f.ownerToken })).status).toBe(200);
     await f.plantPayload();
   });
 
@@ -166,8 +156,7 @@ describe.skipIf(!SANDBOX_GIT)("M87 sandbox Git lifecycle", () => {
 
   const post = (p: string, body: unknown = {}) =>
     f.api.request("POST", f.g(p), { token: f.editorToken, body });
-  const get = (p: string) =>
-    f.api.request("GET", f.g(p), { token: f.editorToken });
+  const get = (p: string) => f.api.request("GET", f.g(p), { token: f.editorToken });
 
   it("every Git process runs in this project's container as ide", async () => {
     _takeCapturedSandboxGitArgvForTests();
@@ -195,9 +184,7 @@ describe.skipIf(!SANDBOX_GIT)("M87 sandbox Git lifecycle", () => {
     await expect(git.getStatus(f.cfg, f.projectId)).resolves.toMatchObject({
       initialized: false,
     });
-    await expect(git.runGit(f.cfg, f.projectId, ["status"])).rejects.toMatchObject(
-      { status: 404 },
-    );
+    await expect(git.runGit(f.cfg, f.projectId, ["status"])).rejects.toMatchObject({ status: 404 });
     expect(sandboxManager.hasActiveSandbox(f.projectId)).toBe(false);
     expect(existsSync(mirrorDir(f.cfg, f.projectId))).toBe(false);
   });
@@ -206,9 +193,9 @@ describe.skipIf(!SANDBOX_GIT)("M87 sandbox Git lifecycle", () => {
     const other = makeTestConfig();
     try {
       await fs.mkdir(join(other.workspacesDir, f.projectId), { recursive: true });
-      await expect(
-        git.runGit(other, f.projectId, ["status"]),
-      ).rejects.toMatchObject({ status: 404 });
+      await expect(git.runGit(other, f.projectId, ["status"])).rejects.toMatchObject({
+        status: 404,
+      });
     } finally {
       await fs.rm(other.dataDir, { recursive: true, force: true });
     }
@@ -298,12 +285,8 @@ describe.skipIf(!SANDBOX_GIT)("M87 sandbox Git lifecycle", () => {
   });
 
   it("a workspace restore cannot leave a sandbox bound to the old directory", async () => {
-    const { createWorkspaceBackup } = await import(
-      "../src/backup/workspaceBackup.js"
-    );
-    const { restoreWorkspaceBackup } = await import(
-      "../src/backup/workspaceRestore.js"
-    );
+    const { createWorkspaceBackup } = await import("../src/backup/workspaceBackup.js");
+    const { restoreWorkspaceBackup } = await import("../src/backup/workspaceRestore.js");
     await f.sh("echo before > keep.txt");
     const backup = await createWorkspaceBackup(f.cfg, f.db, f.projectId);
     await f.sh("echo after > keep.txt");
@@ -337,9 +320,7 @@ describe.skipIf(!SANDBOX_GIT)("M87 sandbox Git lifecycle", () => {
   it("the transport mirror lives outside the workspace and the container", async () => {
     const m = mirrorDir(f.cfg, f.projectId);
     expect(relative(f.cwd, m).startsWith("..")).toBe(true);
-    const seen = await f.sh(
-      "find / -xdev -name 'git-transport' 2>/dev/null; ls -a /workspace",
-    );
+    const seen = await f.sh("find / -xdev -name 'git-transport' 2>/dev/null; ls -a /workspace");
     expect(seen).not.toContain("git-transport");
   });
 });
@@ -404,12 +385,7 @@ describe.skipIf(!HTTPS)("M87 host transport never trusts the project repository"
     const id = r.data.project.id as string;
     const cwd = join(f.cfg.workspacesDir, id);
     const sh = async (script: string) => {
-      const cid = await sandboxManager.ensureProjectSandbox(
-        id,
-        f.cfg,
-        cwd,
-        f.ownerId,
-      );
+      const cid = await sandboxManager.ensureProjectSandbox(id, f.cfg, cwd, f.ownerId);
       const { stdout } = await execFileAsync(
         "docker",
         ["exec", "-u", "ide", "-w", "/workspace", cid, "sh", "-c", `umask 0; ${script}`],
@@ -417,9 +393,7 @@ describe.skipIf(!HTTPS)("M87 host transport never trusts the project repository"
       );
       return stdout;
     };
-    await sh(
-      `mkdir -p .m87 .git/info && printf '.m87/\\n' >> .git/info/exclude`,
-    );
+    await sh(`mkdir -p .m87 .git/info && printf '.m87/\\n' >> .git/info/exclude`);
     return {
       ...f,
       projectId: id,
@@ -484,9 +458,7 @@ describe.skipIf(!HTTPS)("M87 host transport never trusts the project repository"
     }).trim();
     expect(log).toBe("local");
     // Upstream bookkeeping landed in the project repository.
-    expect(
-      (await p.sh("git rev-parse --abbrev-ref main@{upstream}")).trim(),
-    ).toBe("origin/main");
+    expect((await p.sh("git rev-parse --abbrev-ref main@{upstream}")).trim()).toBe("origin/main");
   });
 
   it("the PAT never enters the sandbox, argv, responses, or audit logs", async () => {
@@ -523,9 +495,7 @@ describe.skipIf(!HTTPS)("M87 host transport never trusts the project repository"
     for (const r of [fetched, pushed, pulled]) {
       expect(r.text).not.toContain(TOKEN);
     }
-    const audit = JSON.stringify(
-      f.db.prepare("SELECT details FROM audit_logs").all(),
-    );
+    const audit = JSON.stringify(f.db.prepare("SELECT details FROM audit_logs").all());
     expect(audit).not.toContain(TOKEN);
     expect(readFileSync(join(p.cwd, ".git", "config"), "utf8")).not.toContain(TOKEN);
   });
@@ -535,8 +505,7 @@ describe.skipIf(!HTTPS)("M87 host transport never trusts the project repository"
     await remote.close();
     const cert = readFileSync(tls!.certPath);
     const key = readFileSync(tls!.keyPath);
-    const pkt = (s: string) =>
-      (s.length + 4).toString(16).padStart(4, "0") + s;
+    const pkt = (s: string) => (s.length + 4).toString(16).padStart(4, "0") + s;
     const evil = createHttpsServer({ cert, key }, (req, res) => {
       const auth = req.headers.authorization ?? "";
       if (!auth.startsWith("Basic ")) {
@@ -548,14 +517,10 @@ describe.skipIf(!HTTPS)("M87 host transport never trusts the project repository"
       res.writeHead(200, {
         "Content-Type": "application/x-git-upload-pack-advertisement",
       });
-      res.end(
-        pkt("# service=git-upload-pack\n") + "0000" + pkt(`ERR leaked ${pass}\n`),
-      );
+      res.end(pkt("# service=git-upload-pack\n") + "0000" + pkt(`ERR leaked ${pass}\n`));
     });
     const port = await new Promise<number>((r) =>
-      evil.listen(0, "127.0.0.1", () =>
-        r((evil.address() as { port: number }).port),
-      ),
+      evil.listen(0, "127.0.0.1", () => r((evil.address() as { port: number }).port)),
     );
     try {
       // Same host (127.0.0.1), so the pinned credentials apply.
@@ -601,7 +566,7 @@ describe.skipIf(!HTTPS)("M87 host transport never trusts the project repository"
     await p.sh(
       "echo corrupt >> README.md && git add -A && git -c user.name=t -c user.email=t@t commit -qm bad " +
         "&& blob=$(git rev-parse HEAD:README.md) " +
-        '&& f=.git/objects/$(echo $blob | cut -c1-2)/$(echo $blob | cut -c3-) ' +
+        "&& f=.git/objects/$(echo $blob | cut -c1-2)/$(echo $blob | cut -c3-) " +
         '&& chmod u+w "$f" && printf "garbage" > "$f"',
     );
     const before = execFileSync("git", ["rev-parse", "main"], {
@@ -653,30 +618,24 @@ describe.skipIf(!LINUX)("M87 confined workspace file I/O", () => {
     it(`[${mode}] refuses reads and writes through a swapped-in directory symlink`, async () => {
       setConfinedPortableCheckForTests(portable);
       symlinkSync(outside, join(root, "evil"));
-      await expect(
-        readConfinedFile(root, join(root, "evil", "secret.txt")),
-      ).rejects.toMatchObject({ code: "invalid_path" });
+      await expect(readConfinedFile(root, join(root, "evil", "secret.txt"))).rejects.toMatchObject({
+        code: "invalid_path",
+      });
       await expect(
         writeConfinedFile(root, join(root, "evil", "secret.txt"), "pwned"),
       ).rejects.toMatchObject({ code: "invalid_path" });
-      expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe(
-        "HOST SECRET\n",
-      );
+      expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe("HOST SECRET\n");
     });
 
     it(`[${mode}] never follows a final symlink out of the workspace`, async () => {
       setConfinedPortableCheckForTests(portable);
       symlinkSync(join(outside, "secret.txt"), join(root, "to-secret"));
       symlinkSync(join(outside, "new.txt"), join(root, "dangling"));
-      await expect(
-        writeConfinedFile(root, join(root, "to-secret"), "pwned"),
-      ).rejects.toMatchObject({ code: "invalid_path" });
-      await expect(
-        writeConfinedFile(root, join(root, "dangling"), "pwned"),
-      ).rejects.toBeTruthy();
-      expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe(
-        "HOST SECRET\n",
+      await expect(writeConfinedFile(root, join(root, "to-secret"), "pwned")).rejects.toMatchObject(
+        { code: "invalid_path" },
       );
+      await expect(writeConfinedFile(root, join(root, "dangling"), "pwned")).rejects.toBeTruthy();
+      expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe("HOST SECRET\n");
       expect(existsSync(join(outside, "new.txt"))).toBe(false);
     });
 
@@ -689,18 +648,16 @@ describe.skipIf(!LINUX)("M87 confined workspace file I/O", () => {
       ).rejects.toMatchObject({ code: "invalid_path" });
       symlinkSync(join(root, "dir", "ok.txt"), join(root, "alias.txt"));
       await writeConfinedFile(root, join(root, "alias.txt"), "via alias\n");
-      expect(
-        (await readConfinedFile(root, join(root, "alias.txt"))).content,
-      ).toBe("via alias\n");
+      expect((await readConfinedFile(root, join(root, "alias.txt"))).content).toBe("via alias\n");
       expect(readFileSync(join(root, ".git", "config"), "utf8")).toBe("[core]\n");
     });
   }
 
   it("a FIFO cannot block a read", async () => {
     execFileSync("mkfifo", [join(root, "pipe")]);
-    await expect(
-      readConfinedFile(root, join(root, "pipe")),
-    ).rejects.toMatchObject({ code: "not_a_file" });
+    await expect(readConfinedFile(root, join(root, "pipe"))).rejects.toMatchObject({
+      code: "not_a_file",
+    });
   });
 
   it("REST write: a directory swapped for a symlink after the path check writes nothing outside", async () => {
@@ -712,12 +669,10 @@ describe.skipIf(!LINUX)("M87 confined workspace file I/O", () => {
       symlinkSync(outside, join(root, "dir"));
       return res;
     });
-    await expect(
-      writeProjectFile(root, "dir/secret.txt", "pwned"),
-    ).rejects.toMatchObject({ code: "invalid_path" });
-    expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe(
-      "HOST SECRET\n",
-    );
+    await expect(writeProjectFile(root, "dir/secret.txt", "pwned")).rejects.toMatchObject({
+      code: "invalid_path",
+    });
+    expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe("HOST SECRET\n");
   });
 
   it("REST read: a directory swapped for a symlink after the path check reads nothing outside", async () => {
@@ -749,9 +704,7 @@ describe.skipIf(!SANDBOX_GIT || !LINUX)("M87 checked-out symlinks stay confined"
 
   beforeEach(async () => {
     f = await makeM87Fixture();
-    expect(
-      (await f.api.request("POST", f.g("/init"), { token: f.ownerToken })).status,
-    ).toBe(200);
+    expect((await f.api.request("POST", f.g("/init"), { token: f.ownerToken })).status).toBe(200);
   });
 
   afterEach(async () => {
@@ -776,15 +729,11 @@ describe.skipIf(!SANDBOX_GIT || !LINUX)("M87 checked-out symlinks stay confined"
     expect(r.status).toBe(200);
     expect(r.data.changedPaths).toContain("leak.txt");
     expect(JSON.stringify(r.data)).not.toContain("HOST-ONLY-SECRET");
-    const text = room.doc.share.has("leak.txt")
-      ? room.doc.getText("leak.txt").toString()
-      : "";
+    const text = room.doc.share.has("leak.txt") ? room.doc.getText("leak.txt").toString() : "";
     expect(text).not.toContain("HOST-ONLY-SECRET");
-    const read = await f.api.request(
-      "GET",
-      `/api/projects/${f.projectId}/file?path=leak.txt`,
-      { token: f.ownerToken },
-    );
+    const read = await f.api.request("GET", `/api/projects/${f.projectId}/file?path=leak.txt`, {
+      token: f.ownerToken,
+    });
     expect(read.status).toBe(400);
     expect(read.text).not.toContain("HOST-ONLY-SECRET");
   });
@@ -877,9 +826,7 @@ describe.skipIf(!LINUX)("M87 confined host reads beyond Git", () => {
   it("project export never archives a host file", async () => {
     const { exportProjectZip } = await import("../src/projects/archive.js");
     const swapped = swapDirOnFirstRead();
-    const r = await exportProjectZip(cfg, api.db, userId, projectId).catch(
-      (e: unknown) => e,
-    );
+    const r = await exportProjectZip(cfg, api.db, userId, projectId).catch((e: unknown) => e);
     expect(swapped()).toBe(true);
     if (!(r instanceof Error)) {
       expect(await zipContains((r as { zipBuffer: Buffer }).zipBuffer, SECRET)).toBe(false);
@@ -887,9 +834,7 @@ describe.skipIf(!LINUX)("M87 confined host reads beyond Git", () => {
   });
 
   it("workspace backup never archives a host file", async () => {
-    const { createWorkspaceBackup } = await import(
-      "../src/backup/workspaceBackup.js"
-    );
+    const { createWorkspaceBackup } = await import("../src/backup/workspaceBackup.js");
     const swapped = swapDirOnFirstRead();
     const backup = await createWorkspaceBackup(cfg, api.db, projectId);
     vi.restoreAllMocks();
@@ -900,17 +845,13 @@ describe.skipIf(!LINUX)("M87 confined host reads beyond Git", () => {
   it("fork never copies a host file into the new project", async () => {
     const { forkProject } = await import("../src/projects/fork.js");
     const swapped = swapDirOnFirstRead();
-    const r = await forkProject(cfg, api.db, userId, projectId).catch(
-      (e: unknown) => e,
-    );
+    const r = await forkProject(cfg, api.db, userId, projectId).catch((e: unknown) => e);
     vi.restoreAllMocks();
     expect(swapped()).toBe(true);
     if (!(r instanceof Error)) {
       const forked = (r as { project: { id: string } }).project.id;
       const copied = join(cfg.workspacesDir, forked, "dir", "secret.txt");
-      expect(
-        existsSync(copied) ? readFileSync(copied, "utf8") : "",
-      ).not.toContain(SECRET);
+      expect(existsSync(copied) ? readFileSync(copied, "utf8") : "").not.toContain(SECRET);
     }
   });
 

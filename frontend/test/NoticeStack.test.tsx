@@ -26,17 +26,12 @@ function makeNotice(over: Partial<Notice> = {}): Notice {
 
 describe("NoticeStack", () => {
   it("renders nothing when the list is empty", () => {
-    const { container } = render(
-      <NoticeStack notices={[]} onDismiss={() => {}} />,
-    );
+    const { container } = render(<NoticeStack notices={[]} onDismiss={() => {}} />);
     expect(container.firstChild).toBeNull();
   });
 
   it("renders one row per notice with its text", () => {
-    const notices = [
-      makeNotice({ text: "alpha" }),
-      makeNotice({ text: "beta" }),
-    ];
+    const notices = [makeNotice({ text: "alpha" }), makeNotice({ text: "beta" })];
     render(<NoticeStack notices={notices} onDismiss={() => {}} />);
     expect(screen.getByText("alpha")).toBeTruthy();
     expect(screen.getByText("beta")).toBeTruthy();
@@ -142,23 +137,16 @@ describe("NoticeStack", () => {
   });
 
   it("renders notices in insertion order (newest last / at the bottom)", () => {
-    const notices = [
-      makeNotice({ text: "older" }),
-      makeNotice({ text: "newer" }),
-    ];
-    const { container } = render(
-      <NoticeStack notices={notices} onDismiss={() => {}} />,
+    const notices = [makeNotice({ text: "older" }), makeNotice({ text: "newer" })];
+    const { container } = render(<NoticeStack notices={notices} onDismiss={() => {}} />);
+    const rows = Array.from(container.querySelectorAll(".notice .notice-text")).map(
+      (el) => el.textContent,
     );
-    const rows = Array.from(
-      container.querySelectorAll(".notice .notice-text"),
-    ).map((el) => el.textContent);
     expect(rows).toEqual(["older", "newer"]);
   });
 
   it("is a labelled region for assistive tech", () => {
-    render(
-      <NoticeStack notices={[makeNotice()]} onDismiss={() => {}} />,
-    );
+    render(<NoticeStack notices={[makeNotice()]} onDismiss={() => {}} />);
     expect(screen.getByRole("region", { name: /notification/i })).toBeTruthy();
   });
 });
@@ -171,23 +159,16 @@ function StackHarness() {
   return (
     <div>
       <button
-        onClick={() =>
-          notify({ kind: "error", text: "save failed", ttl: null, dedupeKey: "sf" })
-        }
+        onClick={() => notify({ kind: "error", text: "save failed", ttl: null, dedupeKey: "sf" })}
       >
         fail
       </button>
       <button
-        onClick={() =>
-          notify({ kind: "success", text: "saved", ttl: 2000, surface: "statusbar" })
-        }
+        onClick={() => notify({ kind: "success", text: "saved", ttl: 2000, surface: "statusbar" })}
       >
         ok
       </button>
-      <NoticeStack
-        notices={notices.filter((n) => n.surface === "stack")}
-        onDismiss={dismiss}
-      />
+      <NoticeStack notices={notices.filter((n) => n.surface === "stack")} onDismiss={dismiss} />
     </div>
   );
 }

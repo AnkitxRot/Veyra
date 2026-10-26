@@ -59,9 +59,7 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -132,10 +130,7 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
 
     const login = page.locator("#auth-username");
     const tree = page.locator('[role="tree"]');
-    await Promise.race([
-      tree.waitFor({ timeout: 60_000 }),
-      login.waitFor({ timeout: 60_000 }),
-    ]);
+    await Promise.race([tree.waitFor({ timeout: 60_000 }), login.waitFor({ timeout: 60_000 })]);
     if (await login.isVisible().catch(() => false)) {
       await login.fill(username);
       await page.locator("#auth-password").fill(password);
@@ -145,20 +140,19 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
     try {
       await tree.waitFor({ timeout: 60_000 });
     } catch (err) {
-      const body = (await page.locator("body").innerText().catch(() => "")).slice(
-        0,
-        800,
-      );
+      const body = (
+        await page
+          .locator("body")
+          .innerText()
+          .catch(() => "")
+      ).slice(0, 800);
       throw new Error(
         `IDE file tree did not appear for ${projectId}. url=${page.url()} body=${body}`,
         { cause: err },
       );
     }
 
-    const fileRow = page
-      .locator('[role="treeitem"]')
-      .filter({ hasText: fileName })
-      .first();
+    const fileRow = page.locator('[role="treeitem"]').filter({ hasText: fileName }).first();
     await fileRow.click();
 
     try {
@@ -168,10 +162,12 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
         { timeout: 60_000 },
       );
     } catch (err) {
-      const body = (await page.locator("body").innerText().catch(() => "")).slice(
-        0,
-        800,
-      );
+      const body = (
+        await page
+          .locator("body")
+          .innerText()
+          .catch(() => "")
+      ).slice(0, 800);
       throw new Error(
         `Monaco models never appeared after opening ${fileName}. url=${page.url()} body=${body}`,
         { cause: err },
@@ -192,9 +188,7 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
         const editor = monaco.editor.getEditors()[0];
         if (editor) editor.setModel(model);
         model.setValue(value);
-        const rel = model.uri.path.startsWith("/")
-          ? model.uri.path.slice(1)
-          : model.uri.path;
+        const rel = model.uri.path.startsWith("/") ? model.uri.path.slice(1) : model.uri.path;
         const CE = (globalThis as any).CustomEvent;
         (globalThis as any).document.dispatchEvent(
           new CE("ide-live-content-change", { detail: { path: rel } }),
@@ -213,26 +207,32 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
     const start = Date.now();
     let last: string[] = [];
     while (Date.now() - start < timeout) {
-      last = await page.evaluate(({ ext }) => {
-        const monaco = (globalThis as any).monaco;
-        const models = monaco.editor.getModels();
-        const model = models.find((m: { uri: { path: string } }) =>
-          m.uri.path.toLowerCase().endsWith(ext),
-        );
-        if (!model) return [];
-        return monaco.editor
-          .getModelMarkers({ resource: model.uri })
-          .map((m: { message: string }) => m.message);
-      }, { ext });
+      last = await page.evaluate(
+        ({ ext }) => {
+          const monaco = (globalThis as any).monaco;
+          const models = monaco.editor.getModels();
+          const model = models.find((m: { uri: { path: string } }) =>
+            m.uri.path.toLowerCase().endsWith(ext),
+          );
+          if (!model) return [];
+          return monaco.editor
+            .getModelMarkers({ resource: model.uri })
+            .map((m: { message: string }) => m.message);
+        },
+        { ext },
+      );
       if (last.some((m) => pred(m))) return;
       await new Promise((r) => setTimeout(r, 100));
     }
-    throw new Error(
-      `timed out waiting for marker on *${ext}: ${last.join("; ")}`,
-    );
+    throw new Error(`timed out waiting for marker on *${ext}: ${last.join("; ")}`);
   }
 
-  async function triggerSuggest(page: import("playwright").Page, ext: string, line: number, column: number) {
+  async function triggerSuggest(
+    page: import("playwright").Page,
+    ext: string,
+    line: number,
+    column: number,
+  ) {
     await page.evaluate(
       ({ ext, line, column }) => {
         const monaco = (globalThis as any).monaco;
@@ -263,82 +263,62 @@ describe.skipIf(!enabled)("lsp browser e2e (real Monaco + real language servers)
     );
   }
 
-  it(
-    "Python: Monaco diagnostics and completion via real pylsp",
-    async () => {
-      const { browser, page } = await openProject(pythonProjectId, "main.py");
-      try {
-        await page.waitForSelector(
-          '[data-testid="lsp-chip-python"] .capability-dot.ready',
-          { timeout: 60_000 },
-        );
-        await setActiveModelValue(page, ".py", "undefined_name\n");
-        await waitForMarker(page, ".py", (m) => /undefined/i.test(m));
+  it("Python: Monaco diagnostics and completion via real pylsp", async () => {
+    const { browser, page } = await openProject(pythonProjectId, "main.py");
+    try {
+      await page.waitForSelector('[data-testid="lsp-chip-python"] .capability-dot.ready', {
+        timeout: 60_000,
+      });
+      await setActiveModelValue(page, ".py", "undefined_name\n");
+      await waitForMarker(page, ".py", (m) => /undefined/i.test(m));
 
-        await setActiveModelValue(
-          page,
-          ".py",
-          "def greet(name: str) -> str:\n    return name\ngre",
-        );
-        await new Promise((r) => setTimeout(r, 400));
-        await triggerSuggest(page, ".py", 3, 4);
+      await setActiveModelValue(page, ".py", "def greet(name: str) -> str:\n    return name\ngre");
+      await new Promise((r) => setTimeout(r, 400));
+      await triggerSuggest(page, ".py", 3, 4);
 
-        await setActiveModelValue(
-          page,
-          ".py",
-          "def greet(name: str) -> str:\n    return name\n",
-        );
-        const start = Date.now();
-        let cleared = false;
-        while (Date.now() - start < 30_000) {
-          const messages: string[] = await page.evaluate(() => {
-            const monaco = (globalThis as any).monaco;
-            const models = monaco.editor.getModels();
-            const py = models.find((m: { uri: { path: string } }) =>
-              m.uri.path.endsWith(".py"),
-            );
-            if (!py) return [];
-            return monaco.editor
-              .getModelMarkers({ resource: py.uri })
-              .map((m: { message: string }) => m.message);
-          });
-          if (!messages.some((m) => /undefined/i.test(m))) {
-            cleared = true;
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 100));
+      await setActiveModelValue(page, ".py", "def greet(name: str) -> str:\n    return name\n");
+      const start = Date.now();
+      let cleared = false;
+      while (Date.now() - start < 30_000) {
+        const messages: string[] = await page.evaluate(() => {
+          const monaco = (globalThis as any).monaco;
+          const models = monaco.editor.getModels();
+          const py = models.find((m: { uri: { path: string } }) => m.uri.path.endsWith(".py"));
+          if (!py) return [];
+          return monaco.editor
+            .getModelMarkers({ resource: py.uri })
+            .map((m: { message: string }) => m.message);
+        });
+        if (!messages.some((m) => /undefined/i.test(m))) {
+          cleared = true;
+          break;
         }
-        expect(cleared).toBe(true);
-      } finally {
-        await browser.close();
+        await new Promise((r) => setTimeout(r, 100));
       }
-    },
-    180_000,
-  );
+      expect(cleared).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 
-  it(
-    "TypeScript: Monaco diagnostics and completion via real typescript-language-server",
-    async () => {
-      const { browser, page } = await openProject(tsProjectId, "main.ts");
-      try {
-        await page.waitForSelector(
-          '[data-testid="lsp-chip-typescript"] .capability-dot.ready',
-          { timeout: 60_000 },
-        );
-        await setActiveModelValue(page, ".ts", 'const n: number = "nope";\n');
-        await waitForMarker(page, ".ts", (m) => m.length > 0);
+  it("TypeScript: Monaco diagnostics and completion via real typescript-language-server", async () => {
+    const { browser, page } = await openProject(tsProjectId, "main.ts");
+    try {
+      await page.waitForSelector('[data-testid="lsp-chip-typescript"] .capability-dot.ready', {
+        timeout: 60_000,
+      });
+      await setActiveModelValue(page, ".ts", 'const n: number = "nope";\n');
+      await waitForMarker(page, ".ts", (m) => m.length > 0);
 
-        await setActiveModelValue(
-          page,
-          ".ts",
-          "export function greet(name: string): string { return name; }\ngre",
-        );
-        await new Promise((r) => setTimeout(r, 400));
-        await triggerSuggest(page, ".ts", 2, 4);
-      } finally {
-        await browser.close();
-      }
-    },
-    180_000,
-  );
+      await setActiveModelValue(
+        page,
+        ".ts",
+        "export function greet(name: string): string { return name; }\ngre",
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      await triggerSuggest(page, ".ts", 2, 4);
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 });

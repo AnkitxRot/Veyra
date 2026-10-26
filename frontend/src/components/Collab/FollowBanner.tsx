@@ -39,9 +39,7 @@ export default function FollowBanner({
   // M62: label = effective display name; the avatar glyph stays
   // username-derived so a rename never churns it.
   const label = displayLabel(followedUser);
-  const fileName = followedUser.activeFile
-    ? followedUser.activeFile.split("/").pop()
-    : null;
+  const fileName = followedUser.activeFile ? followedUser.activeFile.split("/").pop() : null;
   const line = followedUser.cursor?.line;
   const rangeText = followedRange
     ? followedRange.startLine === followedRange.endLine
@@ -56,11 +54,7 @@ export default function FollowBanner({
       className={`follow-banner ${isPaused ? "paused" : "active"}`}
       role="status"
       aria-live="polite"
-      aria-label={
-        isPaused
-          ? `Follow paused for ${label}: ${pauseReason}`
-          : `Following ${label}`
-      }
+      aria-label={isPaused ? `Follow paused for ${label}: ${pauseReason}` : `Following ${label}`}
     >
       <div className="follow-banner-content">
         <div
@@ -96,9 +90,7 @@ export default function FollowBanner({
                 {rangeText}
               </span>
             ) : (
-              <span className="follow-location">
-                Workspace navigation{rangeText}
-              </span>
+              <span className="follow-location">Workspace navigation{rangeText}</span>
             )}
           </div>
         </div>

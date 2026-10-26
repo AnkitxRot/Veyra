@@ -1,10 +1,6 @@
 import type { AppConfig } from "../config.js";
 import { spawnSandboxDebug, type DebugSpawnFn } from "./process.js";
-import {
-  DebugSession,
-  type DebugClientSocket,
-  type DebugSessionLimits,
-} from "./session.js";
+import { DebugSession, type DebugClientSocket, type DebugSessionLimits } from "./session.js";
 
 export interface AttachDebugOpts {
   projectId: string;
@@ -34,9 +30,7 @@ function keyOf(projectId: string, userId: number): string {
 
 function isLive(session: DebugSession): boolean {
   const s = session.currentState;
-  return (
-    s === "starting" || s === "running" || s === "paused" || s === "stopping"
-  );
+  return s === "starting" || s === "running" || s === "paused" || s === "stopping";
 }
 
 import type { Db } from "../db.js";
@@ -151,11 +145,7 @@ export class DebugSessionManager {
     this.liveCount = 0;
   }
 
-  private tryAcquire(
-    projectId: string,
-    userId: number,
-    cfg: AppConfig,
-  ): boolean {
+  private tryAcquire(projectId: string, userId: number, cfg: AppConfig): boolean {
     if (this.liveCount >= cfg.maxDebugSessions) return false;
     let perProject = 0;
     let perUser = 0;
@@ -173,8 +163,7 @@ export class DebugSessionManager {
   private async ensureContainer(opts: AttachDebugOpts): Promise<string | null> {
     try {
       const { sandboxManager } = await import("../execution/sandbox.js");
-      const { isDockerRunningAsync, isRunnerImageAvailableAsync } =
-        await import("../tools.js");
+      const { isDockerRunningAsync, isRunnerImageAvailableAsync } = await import("../tools.js");
       if (!(await isDockerRunningAsync())) return null;
       if (!(await isRunnerImageAvailableAsync())) return null;
       const id = await sandboxManager.ensureProjectSandbox(

@@ -88,8 +88,7 @@ export function getCommand(id: string): ConfigurableCommand | undefined {
 
 // --- chord grammar (mirror of backend `auth/preferences.ts`) ---------------
 
-const CHORD_RE =
-  /^mod\+(alt\+)?(shift\+)?([a-z0-9]|f[1-9]|f1[0-2]|[[\]\\;',./`=-])$/;
+const CHORD_RE = /^mod\+(alt\+)?(shift\+)?([a-z0-9]|f[1-9]|f1[0-2]|[[\]\\;',./`=-])$/;
 
 const BROWSER_RESERVED = new Set<string>([
   "mod+w",
@@ -109,11 +108,7 @@ const BROWSER_RESERVED = new Set<string>([
 
 /** `mod+s`, `mod+p`, `mod+shift+p`, `mod+alt+k` — one canonical form each. */
 export function isValidChord(chord: unknown): chord is string {
-  return (
-    typeof chord === "string" &&
-    CHORD_RE.test(chord) &&
-    !BROWSER_RESERVED.has(chord)
-  );
+  return typeof chord === "string" && CHORD_RE.test(chord) && !BROWSER_RESERVED.has(chord);
 }
 
 // --- event <-> chord ------------------------------------------------------
@@ -166,8 +161,7 @@ type KeyLike = {
  * the caller decides (matching vs. capture).
  */
 export function chordFromEvent(e: KeyLike): string | null {
-  const key =
-    (e.code ? keyFromCode(e.code) : null) ?? keyFromKey(e.key ?? "");
+  const key = (e.code ? keyFromCode(e.code) : null) ?? keyFromKey(e.key ?? "");
   if (!key) return null;
   const mod = IS_MAC ? !!e.metaKey : !!e.ctrlKey;
   if (!mod) return null;
@@ -196,9 +190,7 @@ export function chordToDisplay(chord: string, isMac: boolean): string {
   const mods = parts;
   const keyLabel = key.toUpperCase();
   if (isMac) {
-    const ordered = MAC_MOD_ORDER.filter((m) => mods.includes(m)).map(
-      (m) => MOD_LABEL_MAC[m],
-    );
+    const ordered = MAC_MOD_ORDER.filter((m) => mods.includes(m)).map((m) => MOD_LABEL_MAC[m]);
     return ordered.join("") + keyLabel;
   }
   return [...mods.map((m) => MOD_LABEL_PC[m] ?? m), keyLabel].join("+");
@@ -214,10 +206,7 @@ interface MonacoKeyApi {
 
 /** Canonical chord -> `monaco.KeyMod|KeyCode` bitmask, or `null` if the key is
  *  outside Monaco's `KeyCode` map. */
-export function chordToMonacoKeybinding(
-  chord: string,
-  monaco: MonacoKeyApi,
-): number | null {
+export function chordToMonacoKeybinding(chord: string, monaco: MonacoKeyApi): number | null {
   const parts = chord.split("+");
   const key = parts.pop() ?? "";
   let kb = 0;

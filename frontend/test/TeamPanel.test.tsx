@@ -65,9 +65,7 @@ describe("TeamPanel", () => {
     const onSetIntent = vi.fn();
     render(
       <TeamPanel
-        collaborators={[
-          base({ userId: 1, name: "Me", intent: { text: "old", updatedAt: 0 } }),
-        ]}
+        collaborators={[base({ userId: 1, name: "Me", intent: { text: "old", updatedAt: 0 } })]}
         runStatuses={[]}
         currentUserId={1}
         isDnd={false}
@@ -76,9 +74,7 @@ describe("TeamPanel", () => {
         onSetIntent={onSetIntent}
       />,
     );
-    const input = screen.getByPlaceholderText(
-      /what are you working on/i,
-    ) as HTMLInputElement;
+    const input = screen.getByPlaceholderText(/what are you working on/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "JWT refresh" } });
     fireEvent.blur(input);
     expect(onSetIntent).toHaveBeenCalledWith("JWT refresh");
@@ -246,9 +242,7 @@ describe("TeamPanel", () => {
     expect(note!.textContent).toMatch(/out of date/i);
 
     rerender(<TeamPanel {...props} collabStatus="reconnecting" />);
-    expect(document.querySelector(".team-stale-note")!.textContent).toMatch(
-      /Reconnecting/i,
-    );
+    expect(document.querySelector(".team-stale-note")!.textContent).toMatch(/Reconnecting/i);
   });
 
   it("close button calls onClose", () => {

@@ -1,21 +1,28 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Db } from "../db.js";
-import { encodeLspFrame, isJsonRpcNotification, isJsonRpcRequest, isJsonRpcResponse, LspFrameParser, type JsonRpcMessage } from "./jsonrpc.js";
+import {
+  encodeLspFrame,
+  isJsonRpcNotification,
+  isJsonRpcRequest,
+  isJsonRpcResponse,
+  LspFrameParser,
+  type JsonRpcMessage,
+} from "./jsonrpc.js";
 import type { LspLanguageSpec } from "./languages.js";
 import { resolveCanonicalText, type LspDocumentSource } from "./canonical.js";
-import { CLIENT_REQUESTS, isAllowedClientNotification, isAllowedClientRequest, SERVER_NOTIFICATIONS_FORWARDED, SERVER_REQUESTS_HANDLED } from "./protocol.js";
+import {
+  CLIENT_REQUESTS,
+  isAllowedClientNotification,
+  isAllowedClientRequest,
+  SERVER_NOTIFICATIONS_FORWARDED,
+  SERVER_REQUESTS_HANDLED,
+} from "./protocol.js";
 import { fromWorkspaceUri, rewriteUris, toWorkspaceUri, WORKSPACE_ROOT_URI } from "./uri.js";
 import type { LspSpawnFn } from "./process.js";
 import { recordAuditLog, type AuditEventType } from "../audit.js";
 
 export type LspSessionState =
-  | "starting"
-  | "ready"
-  | "restarting"
-  | "failed"
-  | "unavailable"
-  | "busy"
-  | "stopped";
+  "starting" | "ready" | "restarting" | "failed" | "unavailable" | "busy" | "stopped";
 
 export interface LspClientSocket {
   readyState: number;
@@ -231,14 +238,9 @@ export class LspSession {
     this.touch();
     this.clearIdleTimer();
     this.sendStatus(socket);
-    if (
-      (this.state === "failed" || this.state === "unavailable") &&
-      !this.child
-    ) {
+    if ((this.state === "failed" || this.state === "unavailable") && !this.child) {
       const now = this.now();
-      this.restartAt = this.restartAt.filter(
-        (t) => now - t < this.limits.restartWindowMs,
-      );
+      this.restartAt = this.restartAt.filter((t) => now - t < this.limits.restartWindowMs);
       if (this.restartAt.length < this.limits.maxRestarts) {
         this.restartAt.push(now);
         this.parser.reset();
@@ -377,12 +379,9 @@ export class LspSession {
     if (msg.method === "textDocument/didChange") {
       const td = (msg.params as { textDocument?: { uri?: unknown } })?.textDocument;
       const rel = fromWorkspaceUri(td?.uri);
-      const changes = (msg.params as { contentChanges?: { text?: unknown }[] })
-        ?.contentChanges;
+      const changes = (msg.params as { contentChanges?: { text?: unknown }[] })?.contentChanges;
       const text =
-        Array.isArray(changes) && typeof changes[0]?.text === "string"
-          ? changes[0].text
-          : null;
+        Array.isArray(changes) && typeof changes[0]?.text === "string" ? changes[0].text : null;
       if (!rel || text === null) return;
       if (!tracked.openDocs.has(rel)) return;
       if (text.length > this.limits.messageMaxBytes) return;
@@ -456,10 +455,7 @@ export class LspSession {
       ) {
         this.clearStartupTimer();
         if (msg.error) {
-          this.fail(
-            "failed",
-            msg.error.message || "language server initialize failed",
-          );
+          this.fail("failed", msg.error.message || "language server initialize failed");
           return;
         }
         this.sendServer({ jsonrpc: "2.0", method: "initialized", params: {} });
@@ -473,13 +469,10 @@ export class LspSession {
       this.pending.delete(msg.id);
       const tracked = this.clients.get(pending.client);
       if (tracked) tracked.pendingCount = Math.max(0, tracked.pendingCount - 1);
-      const rewritten = rewriteUris(
-        "result" in msg ? msg.result : msg,
-        (uri) => {
-          const rel = fromWorkspaceUri(uri);
-          return rel === null ? null : toWorkspaceUri(rel)!;
-        },
-      );
+      const rewritten = rewriteUris("result" in msg ? msg.result : msg, (uri) => {
+        const rel = fromWorkspaceUri(uri);
+        return rel === null ? null : toWorkspaceUri(rel)!;
+      });
       if (!rewritten.ok) {
         this.sendTo(pending.client, {
           jsonrpc: "2.0",
@@ -518,9 +511,7 @@ export class LspSession {
     }
   }
 
-  private answerServerRequest(
-    msg: JsonRpcMessage & { method: string; id: string | number },
-  ): void {
+  private answerServerRequest(msg: JsonRpcMessage & { method: string; id: string | number }): void {
     if (!SERVER_REQUESTS_HANDLED.has(msg.method)) {
       this.sendServer({
         jsonrpc: "2.0",
@@ -668,14 +659,9 @@ export class LspSession {
   private onChildExit(): void {
     this.clearStartupTimer();
     const now = this.now();
-    this.restartAt = this.restartAt.filter(
-      (t) => now - t < this.limits.restartWindowMs,
-    );
+    this.restartAt = this.restartAt.filter((t) => now - t < this.limits.restartWindowMs);
     if (this.restartAt.length >= this.limits.maxRestarts) {
-      this.fail(
-        "failed",
-        "language server crashed repeatedly; editor remains usable",
-      );
+      this.fail("failed", "language server crashed repeatedly; editor remains usable");
       return;
     }
     this.restartAt.push(now);
@@ -793,7 +779,5 @@ export class LspSession {
 }
 
 function clientMethodOk(method: string): boolean {
-  return (
-    isAllowedClientNotification(method) || CLIENT_REQUESTS.has(method)
-  );
+  return isAllowedClientNotification(method) || CLIENT_REQUESTS.has(method);
 }

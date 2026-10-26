@@ -172,11 +172,7 @@ describe("M2 Code Intelligence: Workspace Content Search", () => {
   it("terminates the worker when the caller aborts", async () => {
     const ac = new AbortController();
     ac.abort();
-    const res = await searchProjectContent(
-      tempDir,
-      { query: "Hello" },
-      ac.signal,
-    );
+    const res = await searchProjectContent(tempDir, { query: "Hello" }, ac.signal);
     expect(res.truncated).toBe(true);
     expect(res.totalMatches).toBe(0);
   });
@@ -196,8 +192,7 @@ describe("M2 Code Intelligence: Auto-Formatting Engine", () => {
   });
 
   it("formats JSON files with standard 2-space indentation", async () => {
-    const rawJson =
-      '{"name":"CloudeeeIDE","version":1,"features":["terminal","editor"]}';
+    const rawJson = '{"name":"CloudeeeIDE","version":1,"features":["terminal","editor"]}';
     const res = await formatProjectFile(tempDir, "package.json", rawJson);
     expect(res.changed).toBe(true);
     expect(res.formatted).toContain('  "name": "CloudeeeIDE"');
@@ -220,8 +215,7 @@ describe("M2 Code Intelligence: Auto-Formatting Engine", () => {
   });
 
   it("normalizes C/C++ source code whitespace and trailing lines", async () => {
-    const rawC =
-      '#include <stdio.h>   \nint main() {   \n    printf("hi\\n");   \n}   \n\n\n';
+    const rawC = '#include <stdio.h>   \nint main() {   \n    printf("hi\\n");   \n}   \n\n\n';
     const res = await formatProjectFile(tempDir, "main.c", rawC);
     expect(res.changed).toBe(true);
 
@@ -235,15 +229,13 @@ describe("M2 Code Intelligence: Auto-Formatting Engine", () => {
       expect(res.formatted).toContain('printf("hi\\n")');
     } else {
       expect(res.formatter).toBe("c-normalizer");
-      expect(res.formatted).toBe(
-        '#include <stdio.h>\nint main() {\n    printf("hi\\n");\n}\n',
-      );
+      expect(res.formatted).toBe('#include <stdio.h>\nint main() {\n    printf("hi\\n");\n}\n');
     }
   });
 
   it("blocks path traversal attempts on format", async () => {
-    await expect(
-      formatProjectFile(tempDir, "../escape.js", 'console.log("bad");'),
-    ).rejects.toThrow("Invalid file path");
+    await expect(formatProjectFile(tempDir, "../escape.js", 'console.log("bad");')).rejects.toThrow(
+      "Invalid file path",
+    );
   });
 });

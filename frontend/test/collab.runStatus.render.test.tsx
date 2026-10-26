@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  screen,
-  fireEvent,
-  cleanup,
-  act,
-} from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import * as React from "react";
 
 vi.mock("../src/monacoSetup", async () => {
@@ -168,9 +162,7 @@ describe("M54 — run awareness UI surfaces", () => {
         onLogout={() => {}}
         refreshTree={async () => {}}
         collaborators={[bob]}
-        runStatuses={[
-          running({ state: "success", endedAt: Date.now(), exitCode: 0 }),
-        ]}
+        runStatuses={[running({ state: "success", endedAt: Date.now(), exitCode: 0 })]}
         currentUserId={1}
       />,
     );

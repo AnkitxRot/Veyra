@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(
-  join(here, "../src/components/Admin/AdminDashboard.tsx"),
-  "utf-8",
-);
+const src = readFileSync(join(here, "../src/components/Admin/AdminDashboard.tsx"), "utf-8");
 
 /**
  * M76 — AdminDashboard wiring for the canonical M64 notice system.
@@ -21,17 +18,13 @@ const src = readFileSync(
  */
 describe("M76 — AdminDashboard notice wiring", () => {
   it("instantiates the canonical notice hook once and renders one NoticeStack", () => {
-    expect(src).toContain(
-      'import { useNotices } from "../../hooks/useNotices"',
-    );
+    expect(src).toContain('import { useNotices } from "../../hooks/useNotices"');
     expect(src).toContain('import NoticeStack from "../common/NoticeStack"');
     expect(src.match(/useNotices\(\)/g) ?? []).toHaveLength(1);
     expect(src.match(/<NoticeStack/g) ?? []).toHaveLength(1);
     const at = src.indexOf("<NoticeStack");
     const jsx = src.slice(at, at + 200);
-    expect(jsx).toMatch(
-      /notices=\{adminNotices\.filter\(\(n\) => n\.surface === "stack"\)\}/,
-    );
+    expect(jsx).toMatch(/notices=\{adminNotices\.filter\(\(n\) => n\.surface === "stack"\)\}/);
     expect(jsx).toContain("onDismiss={dismissAdminNotice}");
   });
 
@@ -44,9 +37,7 @@ describe("M76 — AdminDashboard notice wiring", () => {
     // inspect-user load failure
     const inspectAt = src.indexOf("Failed to load user details");
     expect(inspectAt).toBeGreaterThan(-1);
-    expect(src.slice(inspectAt - 120, inspectAt)).toContain(
-      'notifyAdmin({\n        kind: "error"',
-    );
+    expect(src.slice(inspectAt - 120, inspectAt)).toContain('notifyAdmin({\n        kind: "error"');
     // sandbox termination failure — and the confirm modal stays open for retry
     const termAt = src.indexOf("Sandbox termination failed");
     expect(termAt).toBeGreaterThan(-1);

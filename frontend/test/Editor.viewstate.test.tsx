@@ -1,11 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 import * as React from "react";
-import {
-  monaco,
-  __getLastEditorInstance,
-  __resetMonacoMocks,
-} from "./mocks/monaco";
+import { monaco, __getLastEditorInstance, __resetMonacoMocks } from "./mocks/monaco";
 vi.mock("../src/monacoSetup", () => ({ monaco }));
 import Editor, { type EditorViewApi } from "../src/components/Editor/Editor";
 

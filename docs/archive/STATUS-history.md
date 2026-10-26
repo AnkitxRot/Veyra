@@ -3970,7 +3970,7 @@ not invoke askpass with the PAT. A non-HTTPS rewrite of origin fails with
   matching `listFiles` / the sidebar.
 - Dirty-gate for Git mutations includes rename `origPath`.
 - Uploads honor M56 `notifyExternalFileMutation` conflicts (`409
-  collab_external_conflict`).
+collab_external_conflict`).
 - CollaborationRoom `dispose()` is idempotent; `addClient` on a disposed
   room closes with 1001; `getOrCreateRoom` drops disposed map entries.
 - M4 import-race tests wait on `fs.rm` entry instead of a fixed 20ms sleep.
@@ -4634,7 +4634,7 @@ the Docker-gated suite (local Windows Docker often skips it):
    in that both are always invoked). Fix: the mock returns a value; the
    test still asserts the real contract (Docker-down ⇒ `missing_toolchain`,
    never a thrown error, runner failure not surfaced) and now also asserts
-   the runner probe *is* dispatched. The false "never reached" claim was
+   the runner probe _is_ dispatched. The false "never reached" claim was
    removed, not the behavioural contract.
 4. **`backend/tsconfig.build.json`** — lacked `allowJs` (only
    `backend/tsconfig.json`, used by `typecheck`, got it when `shared.js`
@@ -4745,6 +4745,7 @@ to the Editor handler, the event shape, the collab follow/jump paths (already
 open-first), or any backend file.
 
 **Tests.**
+
 - `frontend/test/revealLocation.test.ts` (4) — open-before-reveal ordering,
   `matchLength` forwarding, no reveal when the open fails, async-open await.
 - `frontend/test/ProblemsPanel.navigation.test.tsx` (1) — renders the real
@@ -4845,13 +4846,13 @@ class E below).
 `STATUS.md` was last committed at `d203ce9`. Five commits landed after it and
 were undocumented; all are in `HEAD`, each with its own regression tests:
 
-| Commit | Title | Layer | Regression tests | Runtime proof |
-|---|---|---|---|---|
-| `2f738a4` | prevent collab external mutation data loss | backend `collab/manager.ts` + route callers | `backend/test/m4-collab.test.ts` 37–41 | full backend suite green *with* Docker (commit msg: 736/9); re-confirmed this pass (777/9) |
-| `91f6e08` | surface collaboration mutation conflicts | frontend only (`collabConflict.ts` new) | `frontend/test/collabConflict.test.ts`, `ideSaveConflict.test.tsx` | frontend 313/313 this pass |
-| `f7acac4` | restore cloudide workspace sessions | frontend only (`sessionStore.ts` new, `/p/:id` route) | `frontend/test/sessionStore.test.ts`, `sessionRestore.test.tsx` | frontend 313/313 this pass |
-| `8a16363` | auto-detect preview servers | backend `previewProbe.ts` + `GET …/preview/ports`; `Preview.tsx` | `backend/test/previewProbe.test.ts`, `frontend/test/Preview.test.tsx` | commit msg: real-Docker e2e (756/9); re-confirmed this pass (777/9) |
-| `ce2007c` | make new projects runnable by default | backend `templates.ts` + `TemplateModal`/`Sidebar` | `backend/test/templates.test.ts`, `frontend/test/Sidebar.templates.test.tsx`; `templates.exec`/`templates.preview` (Docker-gated) | Docker-gated exec/preview starters pass this pass (Docker available) |
+| Commit    | Title                                      | Layer                                                            | Regression tests                                                                                                                  | Runtime proof                                                                              |
+| --------- | ------------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `2f738a4` | prevent collab external mutation data loss | backend `collab/manager.ts` + route callers                      | `backend/test/m4-collab.test.ts` 37–41                                                                                            | full backend suite green _with_ Docker (commit msg: 736/9); re-confirmed this pass (777/9) |
+| `91f6e08` | surface collaboration mutation conflicts   | frontend only (`collabConflict.ts` new)                          | `frontend/test/collabConflict.test.ts`, `ideSaveConflict.test.tsx`                                                                | frontend 313/313 this pass                                                                 |
+| `f7acac4` | restore cloudide workspace sessions        | frontend only (`sessionStore.ts` new, `/p/:id` route)            | `frontend/test/sessionStore.test.ts`, `sessionRestore.test.tsx`                                                                   | frontend 313/313 this pass                                                                 |
+| `8a16363` | auto-detect preview servers                | backend `previewProbe.ts` + `GET …/preview/ports`; `Preview.tsx` | `backend/test/previewProbe.test.ts`, `frontend/test/Preview.test.tsx`                                                             | commit msg: real-Docker e2e (756/9); re-confirmed this pass (777/9)                        |
+| `ce2007c` | make new projects runnable by default      | backend `templates.ts` + `TemplateModal`/`Sidebar`               | `backend/test/templates.test.ts`, `frontend/test/Sidebar.templates.test.tsx`; `templates.exec`/`templates.preview` (Docker-gated) | Docker-gated exec/preview starters pass this pass (Docker available)                       |
 
 ### Verification status corrected — Docker IS available in this environment
 
@@ -4901,7 +4902,8 @@ Every item below is either verified-open in code or explicitly a decision.
 Nothing here is "pick the highest old number".
 
 **A. READY — bounded, no product/security/architecture decision**
-- *(none).* Every previously-listed ready backend-only gap has shipped:
+
+- _(none)._ Every previously-listed ready backend-only gap has shipped:
   dependency-install UI (M43), missing-dependency detection (M44),
   admin backup/restore UI (M46), encrypted secrets (M47), observability
   dashboard (M49), Replace-All safety (M50), local Git (M51), execution
@@ -4909,14 +4911,16 @@ Nothing here is "pick the highest old number".
   starters (`ce2007c`), collab-conflict surfacing (`91f6e08`).
 
 **B. SECURITY REVIEW REQUIRED**
+
 - Collaborator-visible execution **output** (stdout/stderr) / summon-terminal
-  — M54 deliberately broadcasts run *status only*; run output can contain
+  — M54 deliberately broadcasts run _status only_; run output can contain
   M47 project secrets, so widening the collab broadcast is a
   trust-boundary decision, not a bounded task.
 - Any real external AI provider (also class C) — introduces a
   prompt-injection / project-data-egress boundary that does not exist today.
 
 **C. PRODUCT DECISION REQUIRED**
+
 - Real AI provider behind the existing deterministic verified-patch pipeline
   (`ai/provider.ts` already declares `openai|anthropic` variants but only
   ever returns `DeterministicEngineeringProvider`; no API-key config
@@ -4924,6 +4928,7 @@ Nothing here is "pick the highest old number".
 - Whether collaborator execution-output sharing (B) is even desired.
 
 **D. ARCHITECTURE / DESIGN REQUIRED**
+
 - Native workspace-backup scheduler + "back up all projects now" — no bulk
   endpoint exists (`/workspace-backups/:projectId` is strictly per-project);
   `deploy/README.md` explicitly defers the scheduler as a "distinct concern
@@ -4932,6 +4937,7 @@ Nothing here is "pick the highest old number".
   lifecycle semantics are the deferred design question.
 
 **E. DEFERRED / INTENTIONALLY NOT IMPLEMENTED**
+
 - Audit-log retention/pruning — no growth evidence (item 1).
 - `alert()`-based error surfaces UX-polish pass — non-urgent, spans many
   files, not a correctness/security issue (item 2).
@@ -4940,13 +4946,14 @@ Nothing here is "pick the highest old number".
   unhandled-`stdin`-`error` class **but do not meet the bar**:
   `git/service.ts`'s `opts.input` path has **no caller** (dead code);
   `projects/format.ts`'s `runFormatterProcess` only runs `if
-  (commandExists(black|clang-format|prettier))` and none of those are in
+(commandExists(black|clang-format|prettier))` and none of those are in
   `scripts/setup.sh` or the `docker/Dockerfile.app` runtime image, so it is
   unreachable in a shipped deployment; `projectsecrets/inject.ts` needs a
   Docker-runtime `set -e` shell-exit edge. Left as noted follow-ups, not a
   milestone.
 
 **F. ENVIRONMENT-LIMITED VERIFICATION**
+
 - Browser / live-IDE E2E: the Problems-panel navigation fix, the preview
   auto-detect panel, session restore, and the collab-conflict banner are
   covered by unit/integration tests but were **not** browser-verified this
@@ -5052,13 +5059,14 @@ exist), a new `MESSAGE_CUSTOM` event type, a cross-package shared presence modul
 that the same-file strip shares `role="status"`).
 
 **Verification (2026-08-29, Docker available):**
+
 - Backend Vitest: **804 passed / 0 failed / 9 skipped** (777 baseline + 27 in
   `m57-presence.test.ts`; real Yjs + real `y-protocols/awareness` + real
   `y-protocols/sync`). `collab-awareness-security.test.ts` (23) passes
   **unchanged** — the guard that the G10 extraction preserved M55 behavior.
   Backend `tsc --noEmit` 0 errors; `eslint src/collab/` 0 errors.
 - Frontend Vitest: **366 passed / 0 failed** (313 baseline + 53 new). `tsc
-  --noEmit` 0 errors; `eslint` 0 errors / 19 pre-existing warnings; `vite build`
+--noEmit` 0 errors; `eslint` 0 errors / 19 pre-existing warnings; `vite build`
   exit 0.
 - `git diff --check` clean.
 - **Live two-session behavioral acceptance:** a headless script drove two real
@@ -5086,14 +5094,14 @@ hand-synced per repo convention, each pinned by its own enum test.
 **Next multiplayer milestones (build on M57 presence, not shipped here):**
 collaborator callouts / "come look here" (via the existing `MESSAGE_CUSTOM`
 channel + a server-authoritative builder), a lightweight activity feed, conflict
-*awareness* (nearby-region editing surfaced from presence — not semantic merge),
+_awareness_ (nearby-region editing surfaced from presence — not semantic merge),
 and eventually comments — each is a distinct milestone with its own
 security/product scoping.
 
 ## Milestone 58 — Live Attention, Callouts & Spatial Collaboration
 
-**Objective:** cross the boundary from M57's *"Rahul is working over there"* to
-*"Rahul can get my attention around the exact code he wants me to see."* Three
+**Objective:** cross the boundary from M57's _"Rahul is working over there"_ to
+_"Rahul can get my attention around the exact code he wants me to see."_ Three
 escalating human gestures — **Point** ("👉 look here"), **Callout** ("📣 the
 race is here" + a short message on a range), and targeted **"Come look here"**
 (a dismissible request aimed at one collaborator) — plus **spatial awareness**
@@ -5115,7 +5123,7 @@ open-then-reveal primitive; `throttleLatest`; Monaco `editor.addAction`. **None
 were mutated.** Yjs document state and `y-protocols/awareness` are untouched
 separate layers — no attention code path opens a `Y.Doc` transaction, calls
 `doc.getText`, or writes awareness (verified: the only `this.awareness` reference
-in the attention methods is a *read* of the author's published `user.color`).
+in the attention methods is a _read_ of the author's published `user.color`).
 
 **What M58 added:**
 
@@ -5125,7 +5133,7 @@ in the attention methods is a *read* of the author's published `user.color`).
   `attention_request {targetUserId,file,range,message}`,
   `attention_dismiss {id,acted?}`. Server → clients (rebuilt, authoritative):
   `attention_event {id,kind,author{userId,username,color},file,range,message?,
-  targetUserId?,createdAt,expiresAt}` and `attention_cleared {id,reason}` where
+targetUserId?,createdAt,expiresAt}` and `attention_cleared {id,reason}` where
   `reason ∈ dismissed | expired | acted | author_gone`.
 - **`backend/src/collab/attention.ts` (new, pure domain).** `normalizeRange`
   (rejects — never swaps — reversed / non-finite ranges; a zero-width cursor is
@@ -5157,13 +5165,13 @@ in the attention methods is a *read* of the author's published `user.color`).
   impossible (per-room registry).
 - **`frontend/src/collab/attention.ts` (new) + `AttentionStore`.** Byte-parity
   `normalizeRange` / `rangesOverlap`; `parseAttentionEvent` shape guard; the
-  store renders and *locally* expires point (6 s) and callout (45 s default,
+  store renders and _locally_ expires point (6 s) and callout (45 s default,
   `touchCallout` may extend but **never past the server's 90 s `expiresAt`**);
   requests have no local timer (server-driven only); cleared on
   `resetLocalCollabState()` (explicit disposal — "stale attention does not
   resurrect") and `dispose()`.
 - **`CollaborationClient` senders/receiver.** `sendAttentionPoint/Callout/
-  Request`, `dismissAttentionRequest(id, acted?)` (optimistic local removal +
+Request`, `dismissAttentionRequest(id, acted?)` (optimistic local removal +
   frame); a receive branch for `attention_event` / `attention_cleared` →
   `attentionStore` → `emit("attention_change")`; `attention_rate_limited` →
   `emit` (transient sender-side "too many pending" indication, no persistent
@@ -5202,7 +5210,7 @@ in the attention methods is a *read* of the author's published `user.color`).
 activity history / feed, while-you-were-away, persistent comments / threads /
 chat / reactions / mentions, semantic conflict resolution (M58 preserves the
 distinction: Yjs = CRDT convergence, presence = spatial awareness, and neither
-implies incompatible *intent*), raw terminal / stdout / stderr sharing, AI
+implies incompatible _intent_), raw terminal / stdout / stderr sharing, AI
 collaboration, collaboration analytics, any DB / Git / Yjs / workspace-file
 persistence of attention, a new WebSocket endpoint.
 
@@ -5231,6 +5239,7 @@ updated to the M58 `.spatial-nearby` tier — behaviour is strictly more
 informative).
 
 **Verification (2026-08-30, Docker available):**
+
 - Backend Vitest — **`m58-attention.test.ts`: 70 / 70 passed** (pure-domain +
   real `CollaborationRoom` pipeline: real encoded `MESSAGE_CUSTOM` frames,
   real registry, real `setTimeout` expiry with fake timers, real multi-client
@@ -5271,7 +5280,7 @@ informative).
   request; a different project sees no attention; the transport stays healthy
   through the full lifecycle.
 - **Browser visual verification: NOT_PROVEN.** One Chrome extension is
-  connected, but a faithful two-*authenticated*-session Chrome walkthrough needs
+  connected, but a faithful two-_authenticated_-session Chrome walkthrough needs
   two separate cookie jars / profiles and a full manual UI pass — a marathon not
   run here. The React rendering of the tray, composer, decorations, callout
   bubble (text-only / XSS-safe), the three spatial tiers, the chip badge, and
@@ -5287,7 +5296,7 @@ the existing `try { JSON.parse } catch {}` and every validator returns
 `null`/drop, never throws; `file` clears `sanitizeAwarenessFilePath` (no
 absolute / drive / `..` / C0-DEL); `message` is cleaned + capped and rendered as
 text only (a `<img onerror>` payload appears literally in both the tray and the
-callout bubble — tested); IDs are `crypto` random and only ever *looked up* for
+callout bubble — tested); IDs are `crypto` random and only ever _looked up_ for
 a dismiss whose entry must target the dismisser; targeted requests never reach a
 non-member, an offline user, or another project; the request registry is
 bounded (≤3/author dropping the new one, ≤200/room with oldest-eviction), every
@@ -5305,31 +5314,31 @@ per-event and ≤ 90 s).
 
 **Acceptance matrix:**
 
-| Criterion | Verdict | Evidence |
-|---|---|---|
-| Attention transport | **PROVEN** | `MESSAGE_CUSTOM` reused; 70 backend + 48 frontend tests; 17/17 live two-session |
-| Point | **PROVEN** | room-pipeline + store TTL + Editor decoration tests; live: seen by peer, not echoed, opaque id |
-| Callout | **PROVEN** | cleaned message, 90 s server ceiling, `touchCallout` clamp, text-only bubble; live + tests |
-| Targeted "Come look here" | **PROVEN** | delivery-to-target-only + author echo + registry; live 17/17 |
-| Context navigation | **PROVEN** | all gestures + retrofitted Jump go through `openAndRevealLocation`; open-strictly-before-reveal test |
-| Spatial / nearby awareness | **PROVEN** (component-level) | three-tier memo, `rangesOverlap` matrix (both sides), `Editor.nearby.test.tsx`; live-browser visual not run |
-| Target authorization | **PROVEN** | member-check, self-target drop, dismiss-authz (exists AND target), project isolation; backend + live |
-| Input hardening | **PROVEN** | path / range / message / malformed / oversized / control-char / XSS tests, all fail closed |
-| Rate limiting / bounds | **PROVEN** | `RateLimiter` + registry unit tests, burst-of-50, 4th-request drop, room cap, multi-tab; live cap check |
-| Ephemeral lifecycle | **PROVEN** | point 6 s / callout 45 s (90 s hard) / request 120 s server; fake-timer expiry; no persistence tests |
-| Reconnect / disconnect | **PROVEN** | author_gone, target-leave silent drop, recipient-only snapshot, no stale replay; backend + live |
-| Concurrent Yjs editing | **PROVEN** | `m58-attention.test.ts` convergence guard (real `y-protocols/sync`); collab regression files unchanged |
-| Performance | **PROVEN** | throttled state, timer accounting, no DB/Yjs/awareness writes — source-verified + tests |
-| Regression safety | **PROVEN** | full frontend 414/0; collab backend 215/215; M55/M57 suites unchanged; only 1 flaky non-collab Docker test |
-| Browser behavioral verification | **PROVEN** | 17/17 live cookie-authenticated two-session script against the running server |
-| Browser visual verification | **PARTIAL** (was NOT_PROVEN) | 2026-08-30 real two-session Chrome walkthrough live-verified Point/Callout/"Come look" via the context menu, the AttentionTray toast (correct file/line/author/message), and a clean Dismiss with no leftover state — see "M59 UX validation & stabilization pass" in this doc; collision/positioning under multiple simultaneous callouts not exercised |
+| Criterion                       | Verdict                      | Evidence                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attention transport             | **PROVEN**                   | `MESSAGE_CUSTOM` reused; 70 backend + 48 frontend tests; 17/17 live two-session                                                                                                                                                                                                                                                                          |
+| Point                           | **PROVEN**                   | room-pipeline + store TTL + Editor decoration tests; live: seen by peer, not echoed, opaque id                                                                                                                                                                                                                                                           |
+| Callout                         | **PROVEN**                   | cleaned message, 90 s server ceiling, `touchCallout` clamp, text-only bubble; live + tests                                                                                                                                                                                                                                                               |
+| Targeted "Come look here"       | **PROVEN**                   | delivery-to-target-only + author echo + registry; live 17/17                                                                                                                                                                                                                                                                                             |
+| Context navigation              | **PROVEN**                   | all gestures + retrofitted Jump go through `openAndRevealLocation`; open-strictly-before-reveal test                                                                                                                                                                                                                                                     |
+| Spatial / nearby awareness      | **PROVEN** (component-level) | three-tier memo, `rangesOverlap` matrix (both sides), `Editor.nearby.test.tsx`; live-browser visual not run                                                                                                                                                                                                                                              |
+| Target authorization            | **PROVEN**                   | member-check, self-target drop, dismiss-authz (exists AND target), project isolation; backend + live                                                                                                                                                                                                                                                     |
+| Input hardening                 | **PROVEN**                   | path / range / message / malformed / oversized / control-char / XSS tests, all fail closed                                                                                                                                                                                                                                                               |
+| Rate limiting / bounds          | **PROVEN**                   | `RateLimiter` + registry unit tests, burst-of-50, 4th-request drop, room cap, multi-tab; live cap check                                                                                                                                                                                                                                                  |
+| Ephemeral lifecycle             | **PROVEN**                   | point 6 s / callout 45 s (90 s hard) / request 120 s server; fake-timer expiry; no persistence tests                                                                                                                                                                                                                                                     |
+| Reconnect / disconnect          | **PROVEN**                   | author_gone, target-leave silent drop, recipient-only snapshot, no stale replay; backend + live                                                                                                                                                                                                                                                          |
+| Concurrent Yjs editing          | **PROVEN**                   | `m58-attention.test.ts` convergence guard (real `y-protocols/sync`); collab regression files unchanged                                                                                                                                                                                                                                                   |
+| Performance                     | **PROVEN**                   | throttled state, timer accounting, no DB/Yjs/awareness writes — source-verified + tests                                                                                                                                                                                                                                                                  |
+| Regression safety               | **PROVEN**                   | full frontend 414/0; collab backend 215/215; M55/M57 suites unchanged; only 1 flaky non-collab Docker test                                                                                                                                                                                                                                               |
+| Browser behavioral verification | **PROVEN**                   | 17/17 live cookie-authenticated two-session script against the running server                                                                                                                                                                                                                                                                            |
+| Browser visual verification     | **PARTIAL** (was NOT_PROVEN) | 2026-08-30 real two-session Chrome walkthrough live-verified Point/Callout/"Come look" via the context menu, the AttentionTray toast (correct file/line/author/message), and a clean Dismiss with no leftover state — see "M59 UX validation & stabilization pass" in this doc; collision/positioning under multiple simultaneous callouts not exercised |
 
 **Remaining limitations:** spatial overlap is line/column-range based on the
 last reported selection — it does not track sub-symbol edits; the callout bubble
 is a Monaco content widget positioned above the range (no collision handling for
 stacked callouts on adjacent lines); the two `attention.ts` modules are
 hand-synced per repo convention, each pinned by a constants test; live-browser
-*visual* verification was not performed.
+_visual_ verification was not performed.
 
 **Next multiplayer milestones (build on M58, not shipped here):** M59 —
 Follow + attention integration, shared focus, "come here" workflows (the
@@ -5342,10 +5351,10 @@ deep same-region conflict-awareness UX on top of the three-tier spatial model.
 
 ## Milestone 59 — Collaborative Focus & Context Handoff
 
-**Objective:** cross from M58's *"Rahul can get my attention around the exact
-code"* to *"I can step into Rahul's context, work alongside him, switch my
+**Objective:** cross from M58's _"Rahul can get my attention around the exact
+code"_ to _"I can step into Rahul's context, work alongside him, switch my
 attention to Priya when necessary, and safely return to where I was — without
-losing my place or my work."* An **integration** milestone: it wires M57
+losing my place or my work."_ An **integration** milestone: it wires M57
 presence + M58 attention + M48 Follow + the `openAndRevealLocation` navigation
 primitive into one coherent "shared focus" experience. **Frontend-only** — no
 new transport, no backend change, no new store, no persistence, no Yjs /
@@ -5368,7 +5377,7 @@ empty.
 **What M59 added:**
 
 - **`frontend/src/collab/focus.ts` (pure, no store).** `FocusState`
-  (`idle | viewing | focused | following`) and `FocusContext` — a *derived*
+  (`idle | viewing | focused | following`) and `FocusContext` — a _derived_
   view over the three existing sources of truth. `deriveFocusState`,
   `latestAttentionFrom` (newest event from an author, targeted-at-me or
   broadcast), `buildFocusContext`. `FocusState` is UI-only — never serialized,
@@ -5388,7 +5397,7 @@ empty.
   restore is not safe. No path calls `model.setValue`.
 - **The single `focusOn(userId, { follow })` controller in `IDE.tsx`.** Owns the
   one `followedUserId`, the one `followAnchorRef`, and the one userId-keyed
-  `followAbsenceTimerRef`. Acting on a *different* collaborator ends the current
+  `followAbsenceTimerRef`. Acting on a _different_ collaborator ends the current
   Follow (anchor **preserved**). `follow: true` captures the anchor **once**
   (`followAnchorRef.current == null` guard) then sets the target; `follow: false`
   (Jump / tray "Go there" / callout-point click) navigates without an anchor and
@@ -5460,42 +5469,42 @@ with M59 component-render cases.
 
 **Verification (2026-08-30, Docker available):**
 
-| Check | Status | Evidence |
-|---|---|---|
-| Pure focus/anchor logic | **PROVEN** | `collab.focus.test.ts` 12/12 |
-| Editor model-safe view-state restore | **PROVEN** | `Editor.viewstate.test.tsx` 7/7 (defers on wrong model, restores once when attached, cursor fallback, no model mutation) |
-| Focus controller contract (14 decisions + adversarial review) | **PROVEN** | `collab.focus.follow.test.tsx` 40/40 — one `focusOn`; anchor null-guarded + preserved on switch; Stop discards / Return restores-then-discards via `ide-restore-view-state`; grace never clears synchronously, timer null-guarded + userId re-check + no effect-cleanup clear; teardown + `forbidden` reset; Return never mutates content; nav routes through `openAndRevealLocation`; tray/editor attention→focus wiring; no new transport/store/Yjs |
-| New component-render coverage | **PROVEN** | `collab.follow.test.tsx` +2 (FollowBanner `[Return]` gated on anchor, `Lines A–B`), `AttentionTray.test.tsx` +2 (`[Follow]` → `onFollow(e)`, absent without the prop), `CollaboratorAvatarStack.attention.test.tsx` +2 (popover focus block + `.focus-state-focused`, absent when no range/message), `Editor.attention.test.tsx` +3 (callout-body click → `ide-attention-activate`, Follow button → `ide-attention-follow` not activate, point chip → activate) |
-| M48 / M57 / M58 regression | **PROVEN** | `collab.follow.test.tsx` 9/9, `AttentionTray.test.tsx` 11/11, `CollaboratorAvatarStack*.tsx` 8/8, `Editor.attention.test.tsx` 8/8, `Editor.nearby.test.tsx` 5/5, `IDE.attention.test.tsx` 2/2 |
-| Full frontend suite | **PROVEN** | `npx vitest run` → **484 passed / 0 failed** (52 files) — 482 + 2 `Editor.eol.test.tsx` (re-run in the 2026-08-30 closeout pass) |
-| Frontend typecheck / lint / build | **PROVEN** | `tsc --noEmit` 0 errors; `eslint src/` 0 errors / 19 pre-existing warnings; `vite build` exit 0 (re-run in the closeout pass) |
-| Full backend suite | **PROVEN** | `npx vitest run` → **874 passed / 0 failed / 9 skipped** (62 files) — 832 + the uncommitted `m57-presence` / `m58-attention` / `sandbox-stdin` files; re-run in the closeout pass with Docker up |
-| Backend typecheck | **PROVEN** (was RED) | `tsc --noEmit` exit 0 — the closeout pass found `test/m58-attention.test.ts` had 103 pre-existing `TS2345` errors (its `makeWs()` mock cast `as never as {…}` was not assignable to the `ws` `WebSocket` the room API takes); fixed by casting `as unknown as WebSocket & { sent: Uint8Array[] }` + a `import type { WebSocket } from "ws"`. All 70 M58 tests still pass at runtime |
-| `git diff --check` | **PROVEN** | clean (only LF/CRLF advisory warnings) |
-| Browser behavioural verification | **PROVEN** for A/B/C/D/F/G; ~~**PARTIAL** for E~~ → **PROVEN for E (2026-09-04)** | 2026-08-30 walkthrough covered A/B/C/D/F; the 2026-08-30 closeout pass drove **G** (concurrent-edit convergence) live end-to-end — see "M59 final closeout pass" below. **E** was closed out 2026-09-04 with a real socket-disconnect primitive (`pageB.close()` — a genuine `/ws/collab` close, not a client-state poke) driving both the reconnect-inside-grace (seamless resume) and reconnect-after-grace ("left" notice at ~6.45s, no auto-refollow) transitions — see "M57–M61 live release-gate closure (2026-09-04)". `collab.focus.follow.test.tsx` 40/40 still stands as the deterministic guard |
-| Browser visual verification | **PROVEN** for A/B/C/D/F/G; ~~**PARTIAL** for E~~ → **PROVEN for E (2026-09-04)** | screenshots captured and inspected for A/B/C/D/F (first pass) and for G's converged buffer (closeout pass); E's grace / "left"-notice / no-refollow transitions captured 2026-09-04 (`e-01`…`e-04`) |
+| Check                                                         | Status                                                                            | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure focus/anchor logic                                       | **PROVEN**                                                                        | `collab.focus.test.ts` 12/12                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Editor model-safe view-state restore                          | **PROVEN**                                                                        | `Editor.viewstate.test.tsx` 7/7 (defers on wrong model, restores once when attached, cursor fallback, no model mutation)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Focus controller contract (14 decisions + adversarial review) | **PROVEN**                                                                        | `collab.focus.follow.test.tsx` 40/40 — one `focusOn`; anchor null-guarded + preserved on switch; Stop discards / Return restores-then-discards via `ide-restore-view-state`; grace never clears synchronously, timer null-guarded + userId re-check + no effect-cleanup clear; teardown + `forbidden` reset; Return never mutates content; nav routes through `openAndRevealLocation`; tray/editor attention→focus wiring; no new transport/store/Yjs                                                                                                                                                      |
+| New component-render coverage                                 | **PROVEN**                                                                        | `collab.follow.test.tsx` +2 (FollowBanner `[Return]` gated on anchor, `Lines A–B`), `AttentionTray.test.tsx` +2 (`[Follow]` → `onFollow(e)`, absent without the prop), `CollaboratorAvatarStack.attention.test.tsx` +2 (popover focus block + `.focus-state-focused`, absent when no range/message), `Editor.attention.test.tsx` +3 (callout-body click → `ide-attention-activate`, Follow button → `ide-attention-follow` not activate, point chip → activate)                                                                                                                                            |
+| M48 / M57 / M58 regression                                    | **PROVEN**                                                                        | `collab.follow.test.tsx` 9/9, `AttentionTray.test.tsx` 11/11, `CollaboratorAvatarStack*.tsx` 8/8, `Editor.attention.test.tsx` 8/8, `Editor.nearby.test.tsx` 5/5, `IDE.attention.test.tsx` 2/2                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Full frontend suite                                           | **PROVEN**                                                                        | `npx vitest run` → **484 passed / 0 failed** (52 files) — 482 + 2 `Editor.eol.test.tsx` (re-run in the 2026-08-30 closeout pass)                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Frontend typecheck / lint / build                             | **PROVEN**                                                                        | `tsc --noEmit` 0 errors; `eslint src/` 0 errors / 19 pre-existing warnings; `vite build` exit 0 (re-run in the closeout pass)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Full backend suite                                            | **PROVEN**                                                                        | `npx vitest run` → **874 passed / 0 failed / 9 skipped** (62 files) — 832 + the uncommitted `m57-presence` / `m58-attention` / `sandbox-stdin` files; re-run in the closeout pass with Docker up                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Backend typecheck                                             | **PROVEN** (was RED)                                                              | `tsc --noEmit` exit 0 — the closeout pass found `test/m58-attention.test.ts` had 103 pre-existing `TS2345` errors (its `makeWs()` mock cast `as never as {…}` was not assignable to the `ws` `WebSocket` the room API takes); fixed by casting `as unknown as WebSocket & { sent: Uint8Array[] }` + a `import type { WebSocket } from "ws"`. All 70 M58 tests still pass at runtime                                                                                                                                                                                                                        |
+| `git diff --check`                                            | **PROVEN**                                                                        | clean (only LF/CRLF advisory warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Browser behavioural verification                              | **PROVEN** for A/B/C/D/F/G; ~~**PARTIAL** for E~~ → **PROVEN for E (2026-09-04)** | 2026-08-30 walkthrough covered A/B/C/D/F; the 2026-08-30 closeout pass drove **G** (concurrent-edit convergence) live end-to-end — see "M59 final closeout pass" below. **E** was closed out 2026-09-04 with a real socket-disconnect primitive (`pageB.close()` — a genuine `/ws/collab` close, not a client-state poke) driving both the reconnect-inside-grace (seamless resume) and reconnect-after-grace ("left" notice at ~6.45s, no auto-refollow) transitions — see "M57–M61 live release-gate closure (2026-09-04)". `collab.focus.follow.test.tsx` 40/40 still stands as the deterministic guard |
+| Browser visual verification                                   | **PROVEN** for A/B/C/D/F/G; ~~**PARTIAL** for E~~ → **PROVEN for E (2026-09-04)** | screenshots captured and inspected for A/B/C/D/F (first pass) and for G's converged buffer (closeout pass); E's grace / "left"-notice / no-refollow transitions captured 2026-09-04 (`e-01`…`e-04`)                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 **Acceptance matrix:**
 
-| Criterion | Status | Evidence |
-|---|---|---|
-| Step into a collaborator's context (file + cursor) | **PROVEN** | `handleFollowCollaborator` → `focusOn(follow:true)` + `handleOpenFile`; tracking effect reveals cursor via `openAndRevealLocation` |
-| Exactly one Follow target ever | **PROVEN** | single `followedUserId`; `focusOn` switch branch clears the old target; contract test asserts no `followedUserIds`/multi array |
-| Switch attention to another collaborator, original anchor kept | **PROVEN** | `focusOn` switch branch never touches `followAnchorRef`; `captureAnchor` null-guarded; contract + `collab.focus.test.ts` |
-| Return to exactly where I was | **PROVEN** | `handleReturnToMyLocation` → `handleOpenFile` + `ide-restore-view-state`(saved token); `Editor.viewstate.test.tsx` proves model-safe apply |
-| Never lose unsaved work | **PROVEN** | Return path contains no `setValue`/`applyLiveContent`/`liveApiRef`; follow-tracking pauses on a dirty local file; M50/M56 dirty-buffer suites still green |
-| Deleted anchor file handled gracefully | **PROVEN** | `anchorFilePresent` check → `setReplaceReconcileNotice` toast, no open, no throw (contract test) |
-| ws blip / reconnect does not drop Follow | **PROVEN** | ~6 s userId-keyed grace; seamless-resume clears the pending timer; contract tests |
-| Reconnect after the grace does not auto-refollow | **PROVEN** | `focusOn` is only invoked from explicit gestures/listeners; no `awareness_change → focusOn` path (contract test) |
-| Attention TTL expiry does not disturb Follow | **PROVEN** | tracking effect deps exclude `attention`; Decision 13 contract test |
-| Project switch / session expiry clears everything | **PROVEN** | collab-effect teardown + `forbidden` both call `resetFollowState` (contract test) |
-| No new transport / store / DB / Yjs / awareness write | **PROVEN** | `focus.ts` pure (no React/store); no `MESSAGE_CUSTOM`/`setLocalStateField.*focus` in the M59 diff (contract test) |
-| Concurrent-edit convergence (Scenario G) | **PROVEN** (with a 2026-09-04 caveat + fix) | 2026-08-30 closeout pass — two real authenticated sessions on a fresh 50-line file: independent-region, adjacent-line, same-line, and interleaved-burst edits from both clients all converged **byte-for-byte** — see "M59 final closeout pass" below. **2026-09-04:** re-testing found the convergence was environment-fragile — see the EOL row below and "M57–M61 live release-gate closure (2026-09-04)". After the EOL re-pin fix, a fresh two-browser concurrent same-line edit converged byte-for-byte (identical hash/length, LF-only on both) |
-| EOL / model-initialization correctness | ~~**PROVEN**~~ → **the invariant did NOT hold; re-fixed 2026-09-04** | The 2026-08-30 claim ("`client.ts` / `MonacoBinding` … `setValue` does not re-detect EOL; live both sessions showed `eol:"\n"`") was **wrong**: on 2026-09-04, two same-OS Chrome sessions opening the same file reproducibly ended up **CRLF (first opener) vs LF (second opener)**, and concurrent same-line edits **diverged byte-for-byte**. Root cause: the `new MonacoBinding(...)` ctor seeds the model with `model.setValue(ytext.toString())`, which drops the Editor.tsx create-time LF pin back to the Windows platform default. Fix: `client.ts::completeBind` re-pins `model.setEOL(LF)` after every (re)bind. Regression: `collab-initialization.test.ts` +2 (revert-sensitive). `Editor.eol.test.tsx` 2/2 still green (it never exercised the bind path). See "M57–M61 live release-gate closure (2026-09-04)" |
-| Browser visual walkthrough | **PROVEN** for Follow jump / FollowBanner / auto-track / dirty-buffer pause / dirty-preserving Return / concurrent-edit convergence; ~~**PARTIAL** for the grace-timeout + "left" notice transition~~ → **PROVEN 2026-09-04** (real disconnect, both reconnect branches, no auto-refollow — see "M57–M61 live release-gate closure (2026-09-04)") |
+| Criterion                                                      | Status                                                                                                                                                                                                                                                                                                                                            | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Step into a collaborator's context (file + cursor)             | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | `handleFollowCollaborator` → `focusOn(follow:true)` + `handleOpenFile`; tracking effect reveals cursor via `openAndRevealLocation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Exactly one Follow target ever                                 | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | single `followedUserId`; `focusOn` switch branch clears the old target; contract test asserts no `followedUserIds`/multi array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Switch attention to another collaborator, original anchor kept | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | `focusOn` switch branch never touches `followAnchorRef`; `captureAnchor` null-guarded; contract + `collab.focus.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Return to exactly where I was                                  | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | `handleReturnToMyLocation` → `handleOpenFile` + `ide-restore-view-state`(saved token); `Editor.viewstate.test.tsx` proves model-safe apply                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Never lose unsaved work                                        | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | Return path contains no `setValue`/`applyLiveContent`/`liveApiRef`; follow-tracking pauses on a dirty local file; M50/M56 dirty-buffer suites still green                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Deleted anchor file handled gracefully                         | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | `anchorFilePresent` check → `setReplaceReconcileNotice` toast, no open, no throw (contract test)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ws blip / reconnect does not drop Follow                       | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | ~6 s userId-keyed grace; seamless-resume clears the pending timer; contract tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Reconnect after the grace does not auto-refollow               | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | `focusOn` is only invoked from explicit gestures/listeners; no `awareness_change → focusOn` path (contract test)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Attention TTL expiry does not disturb Follow                   | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | tracking effect deps exclude `attention`; Decision 13 contract test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Project switch / session expiry clears everything              | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | collab-effect teardown + `forbidden` both call `resetFollowState` (contract test)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| No new transport / store / DB / Yjs / awareness write          | **PROVEN**                                                                                                                                                                                                                                                                                                                                        | `focus.ts` pure (no React/store); no `MESSAGE_CUSTOM`/`setLocalStateField.*focus` in the M59 diff (contract test)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Concurrent-edit convergence (Scenario G)                       | **PROVEN** (with a 2026-09-04 caveat + fix)                                                                                                                                                                                                                                                                                                       | 2026-08-30 closeout pass — two real authenticated sessions on a fresh 50-line file: independent-region, adjacent-line, same-line, and interleaved-burst edits from both clients all converged **byte-for-byte** — see "M59 final closeout pass" below. **2026-09-04:** re-testing found the convergence was environment-fragile — see the EOL row below and "M57–M61 live release-gate closure (2026-09-04)". After the EOL re-pin fix, a fresh two-browser concurrent same-line edit converged byte-for-byte (identical hash/length, LF-only on both)                                                                                                                                                                                                                                                                        |
+| EOL / model-initialization correctness                         | ~~**PROVEN**~~ → **the invariant did NOT hold; re-fixed 2026-09-04**                                                                                                                                                                                                                                                                              | The 2026-08-30 claim ("`client.ts` / `MonacoBinding` … `setValue` does not re-detect EOL; live both sessions showed `eol:"\n"`") was **wrong**: on 2026-09-04, two same-OS Chrome sessions opening the same file reproducibly ended up **CRLF (first opener) vs LF (second opener)**, and concurrent same-line edits **diverged byte-for-byte**. Root cause: the `new MonacoBinding(...)` ctor seeds the model with `model.setValue(ytext.toString())`, which drops the Editor.tsx create-time LF pin back to the Windows platform default. Fix: `client.ts::completeBind` re-pins `model.setEOL(LF)` after every (re)bind. Regression: `collab-initialization.test.ts` +2 (revert-sensitive). `Editor.eol.test.tsx` 2/2 still green (it never exercised the bind path). See "M57–M61 live release-gate closure (2026-09-04)" |
+| Browser visual walkthrough                                     | **PROVEN** for Follow jump / FollowBanner / auto-track / dirty-buffer pause / dirty-preserving Return / concurrent-edit convergence; ~~**PARTIAL** for the grace-timeout + "left" notice transition~~ → **PROVEN 2026-09-04** (real disconnect, both reconnect branches, no auto-refollow — see "M57–M61 live release-gate closure (2026-09-04)") |
 
 **Known limitations / M60+ roadmap:** the collaborator-popover focus block shows
-the *latest* callout message only (no history); the "Rahul left" notice is a
+the _latest_ callout message only (no history); the "Rahul left" notice is a
 single fixed-position element (no stacking if two followed users leave in quick
 succession — not reachable today since Follow is single-target); anchor
 `viewState` is a point-in-time Monaco token, so a large external edit to the
@@ -5525,7 +5534,7 @@ untyped-reload content sync, cursor/selection propagation), C (M58 attention —
 Point/Callout/"Come look" via the Monaco right-click menu, AttentionTray
 toast, Follow/Go-there/Dismiss), D (M59 Follow — TeamPanel Follow, FollowBanner
 semantics, auto-track on remote file switch), F (dirty-state protection —
-Follow correctly *paused* rather than navigating over an unsaved buffer, then
+Follow correctly _paused_ rather than navigating over an unsaved buffer, then
 "Return to my location" restored the followed user's file with the dirty
 edit fully intact). E (disconnect grace) and G (concurrent-edit convergence)
 were exercised opportunistically (Follow held correctly through the two-file
@@ -5537,7 +5546,7 @@ grace timer, userId-keyed reconnect, and no-auto-refollow paths deterministicall
 and is not superseded by this pass.
 
 **Defect found (P0 — correctness / data integrity):** two browser sessions
-opened the *same* collaboratively-edited file and ended up with different
+opened the _same_ collaboratively-edited file and ended up with different
 Monaco `EndOfLineSequence` settings (one LF, one CRLF) even though the backend
 only ever reads/writes/seeds raw `"\n"` content
 (`backend/src/files/service.ts`, `backend/src/collab/manager.ts`). Root cause:
@@ -5551,7 +5560,7 @@ arrives via Yjs deltas / `setValue()`, neither of which re-detects EOL). Once
 one client is CRLF, the shared `y-monaco` binding (`frontend/src/collab/client.ts`)
 translates its local Monaco edit deltas into Y.Text character offsets assuming
 2-byte line breaks that do not exist in the actual `\n`-only shared document —
-so a same-line edit from the CRLF client lands at a *different, wrong*
+so a same-line edit from the CRLF client lands at a _different, wrong_
 position on the LF client. Reproduced live twice (once incidentally on
 `fileA.js`, once deliberately on an untouched `fileB.js` before any edit):
 `getModels()` in each tab's console showed `eol: "CRLF"` (Ankit) vs `eol: "LF"`
@@ -5579,6 +5588,7 @@ temporarily reverting the `setEOL()` call and confirming
 `Editor.eol.test.tsx` failed (`expected '\r\n' to be '\n'`) before restoring it.
 
 **Other findings (not fixed — pre-existing, out of scope for this pass):**
+
 - **P2, pre-existing, not M57–59:** at the automation viewport (1249px wide,
   a common laptop width), the toolbar's "pairing-demo" project-name breadcrumb
   and the "Quick Open (Ctrl+P)" button visually overlap into illegible jumbled
@@ -5602,17 +5612,17 @@ context-menu → Callout bubble → AttentionTray toast → Dismiss round-trip w
 clean with no leftover state; TeamPanel "Jump" correctly opened-then-revealed
 the target file/line; Follow's `FollowBanner` answered "who am I following /
 why did I move / is Follow active / where's my return point" in one glance;
-Follow correctly *paused* (not force-navigated) when the follower had a dirty
+Follow correctly _paused_ (not force-navigated) when the follower had a dirty
 buffer, and "Return to my location" restored the followed user's context with
 zero data loss.
 
 **Browser visual verification:** **PROVEN** for Scenarios A, B, C, D, F
 (screenshots captured and inspected live for each); **PARTIAL** for E
-(the grace/reconnect *transition* itself was not captured end-to-end live —
+(the grace/reconnect _transition_ itself was not captured end-to-end live —
 covered instead by the existing `collab.focus.follow.test.tsx` contract
 suite) and G (convergence was proven via the EOL fix's own live re-test, not
-via a dedicated concurrent-typing session). *(G was subsequently driven to a
-full dedicated session — see the closeout pass immediately below.)*
+via a dedicated concurrent-typing session). _(G was subsequently driven to a
+full dedicated session — see the closeout pass immediately below.)_
 
 ## M59 final closeout pass (2026-08-30)
 
@@ -5621,8 +5631,8 @@ A surgical closeout targeting the two remaining acceptance gaps — Scenario E
 a fresh full-verification sweep and a re-audit of the P0 EOL fix. No M56–M59
 design change, no new product feature.
 
-**EOL fix re-audit (Phase 1).** The invariant *shared content → `createModel` →
-EOL pinned to LF → y-monaco binding* holds:
+**EOL fix re-audit (Phase 1).** The invariant _shared content → `createModel` →
+EOL pinned to LF → y-monaco binding_ holds:
 
 - `grep createModel|createTextModel` over `frontend/src` → the only
   collaborative call site is `Editor.tsx`'s model-management effect, and
@@ -5631,7 +5641,7 @@ EOL pinned to LF → y-monaco binding* holds:
   throw-away **diff-preview** models on separate URIs that are never Yjs-bound
   — not part of the shared-document path.
 - `client.ts` never constructs a model; the `MonacoBinding` ctor overwrites the
-  model *content* from the Y.Text but does not touch EOL, and the Phase-7
+  model _content_ from the Y.Text but does not touch EOL, and the Phase-7
   dirty-at-bind `model.setValue(localValue)` likewise does not re-detect EOL.
 - Both new and pre-existing files flow through the same `!model` branch on first
   materialisation, so both get the pin.
@@ -5640,13 +5650,13 @@ EOL pinned to LF → y-monaco binding* holds:
   empty-initial-content race case); restoring it → 2/2 pass. Not broadened into
   a generic EOL refactor — no second bypassing path was found.
 
-*(Process note: an early step in this pass ran `git checkout` on `Editor.tsx`,
+_(Process note: an early step in this pass ran `git checkout` on `Editor.tsx`,
 which discarded the then-unstaged M59 widget wiring + the EOL pin along with it.
 Both were restored verbatim from the file content already captured in-session
 and re-verified: `Editor.attention.test.tsx` 8/8, `Editor.eol.test.tsx` 2/2,
 `Editor.viewstate.test.tsx` 7/7, full frontend 484/0, `tsc` 0, and the
 unstaged `Editor.tsx` diff is byte-identical to its pre-`checkout` shape —
-`96` lines changed, `87` insertions / `9` deletions.)*
+`96` lines changed, `87` insertions / `9` deletions.)_
 
 **Scenario G — live concurrent editing (Phase 3): PROVEN.** Two real
 authenticated sessions (A = `rahul` at `http://localhost:5173`, B = `ankit`,
@@ -5673,11 +5683,11 @@ API) opened in both.
   it.
 
 **Scenario E — live disconnect grace (Phase 2): NOT driven live [this pass];
-contract suite stands.** *(Closed out 2026-09-04 — driven live end-to-end with a
+contract suite stands.** _(Closed out 2026-09-04 — driven live end-to-end with a
 Playwright multi-context harness whose `pageB.close()` is a real `/ws/collab`
 close and whose `ctxB.newPage()` reconnect lands inside the grace; see "M57–M61
 live release-gate closure (2026-09-04)". The blocker below was specific to the
-single-shared-browser MCP tooling used in this 2026-08-30 pass.)* Concrete
+single-shared-browser MCP tooling used in this 2026-08-30 pass.)_ Concrete
 blocker: the shared automation browser carried a
 **ghosted third connection** (a duplicate `ankit` client from an earlier
 detached session — visible as `count 3` / two `ankit` awareness entries with
@@ -5712,16 +5722,16 @@ the assertion helpers, matches the sibling `m57-presence.test.ts` intent). All
 
 **Full verification (2026-08-30 closeout, Docker up):**
 
-| Gate | Result |
-|---|---|
-| Frontend `vitest run` | **484 passed / 0 failed** (52 files) |
-| Frontend `tsc --noEmit` | **0 errors** |
-| Frontend `eslint src/` | **0 errors** / 19 pre-existing warnings |
-| Frontend `vite build` | **exit 0** |
-| Backend `vitest run` | **874 passed / 0 failed / 9 skipped** (62 files) |
-| Backend `tsc --noEmit` | **exit 0** (was 103 errors — fixed, see above) |
-| Backend `eslint` | **0 errors** / 29 pre-existing warnings |
-| `git diff --check` | clean (LF/CRLF advisories only) |
+| Gate                     | Result                                                               |
+| ------------------------ | -------------------------------------------------------------------- |
+| Frontend `vitest run`    | **484 passed / 0 failed** (52 files)                                 |
+| Frontend `tsc --noEmit`  | **0 errors**                                                         |
+| Frontend `eslint src/`   | **0 errors** / 19 pre-existing warnings                              |
+| Frontend `vite build`    | **exit 0**                                                           |
+| Backend `vitest run`     | **874 passed / 0 failed / 9 skipped** (62 files)                     |
+| Backend `tsc --noEmit`   | **exit 0** (was 103 errors — fixed, see above)                       |
+| Backend `eslint`         | **0 errors** / 29 pre-existing warnings                              |
+| `git diff --check`       | clean (LF/CRLF advisories only)                                      |
 | EOL regression red→green | **verified** (`Editor.eol.test.tsx` fails on revert, 2/2 on restore) |
 
 **Files changed this pass:** `backend/test/m58-attention.test.ts` (the
@@ -5738,9 +5748,9 @@ pass (double-open popover + TeamPanel-close scroll offset).
 
 ## Milestone 60 — Change Attribution & Collaboration History
 
-**Objective:** cross from M59's *"I can enter Rahul's context and work beside
-him"* to *"I can see **what** Rahul changed, **what** the team did, and **what
-happened while I was away**"* — without turning CloudIDE into surveillance or
+**Objective:** cross from M59's _"I can enter Rahul's context and work beside
+him"_ to _"I can see **what** Rahul changed, **what** the team did, and **what
+happened while I was away**"_ — without turning CloudIDE into surveillance or
 duplicating Git / Yjs / telemetry. Spec + plan:
 `docs/superpowers/specs/2026-08-31-m60-change-attribution-history-design.md`,
 `docs/superpowers/plans/2026-08-31-m60-change-attribution-history.md`.
@@ -5748,7 +5758,7 @@ duplicating Git / Yjs / telemetry. Spec + plan:
 **Attribution mechanism (the trust boundary).** A **second, isolated**
 `doc.on("afterTransaction")` subscriber in `CollaborationRoom` (kept separate
 from the M6 dirty-tracking listener so its early-returns never interfere) is
-authoritative for *author + file-level change existence*:
+authoritative for _author + file-level change existence_:
 
 ```
 inbound MESSAGE_SYNC (role ≠ viewer) → syncProtocol.readSyncMessage(…, doc, ws)
@@ -5826,7 +5836,7 @@ repeated reconnect never re-surfaces the same events.
 **Frontend.** `ActivityTimeline.tsx` is a **section inside TeamPanel**
 (people + context + **team activity**) — no third multiplayer panel.
 `WhileYouWereAway.tsx` is a compact dismissible reconnect card grouped by
-author (run *failed → passed* collapsed). Every navigable row →
+author (run _failed → passed_ collapsed). Every navigable row →
 `openAndRevealLocation(handleOpenFile, …)` — the canonical open-then-reveal
 primitive, file-only when no exact range, never navigable without a filePath.
 Live `collab_change` events fold into a bounded (~200) in-memory `timeline`
@@ -5856,27 +5866,27 @@ no model-creation path and the `Editor.eol.test.tsx` regression stays green.
 post-acceptance audit of Yjs attribution, reconnect-lineage suppression, burst
 state, historian persistence, timeline duplication, and While-You-Were-Away.
 
-*Reconnect-lineage suppression invariant (re-affirmed):* only an **incremental**
+_Reconnect-lineage suppression invariant (re-affirmed):_ only an **incremental**
 `messageYjsUpdate` is attributable; `m60SuppressAttribution` is armed around
 `readSyncMessage` for every other sync type and **released in a `finally`**, so a
 frame that throws mid-apply cannot leave attribution stuck — which also matters
-because the M60 hook checks the flag *before* its own `external_mutation` /
+because the M60 hook checks the flag _before_ its own `external_mutation` /
 `initial_disk_load` contamination handling, so a stuck flag would silently let a
 bystander write claim an exact range. New regression: `m60-room-attribution` "a
 sync frame that throws mid-apply does not leave attribution suppressed".
 
-*One real defect found + fixed (timeline pagination — silent event loss).*
+_One real defect found + fixed (timeline pagination — silent event loss)._
 `queryTimeline` fetched each source's newest `limit+1` rows **ignoring the
 `before` cursor**, then merge-sorted and filtered. When a single source had more
 than `limit+1` rows newer than the cursor, that source's older rows were never
 fetched on any later page and **disappeared from the timeline entirely** (a
 12-burst / page-size-3 walk dropped 9 events). Fix: push the `(at,id)` cursor
 predicate into all four source queries (`ended_at < ? OR (= ? AND
-('<prefix>'||id) < ?)`), so each returns its newest `limit+1` rows *before the
-cursor in the total order*. Regression: `m60-timeline` "stable pagination when
+('<prefix>'||id) < ?)`), so each returns its newest `limit+1` rows _before the
+cursor in the total order_. Regression: `m60-timeline` "stable pagination when
 one source dominates the newest rows" (walks every event exactly once).
 
-*Everything else audited held.* Multi-file attribution (per-`tr.changed` file,
+_Everything else audited held._ Multi-file attribution (per-`tr.changed` file,
 per-file range stash, no cross-file inheritance); range derivation (exact only
 for a single contiguous folded interval, `NULL` otherwise — never widened);
 burst state machine (idle/max-age/author-switch/file/cap/sweep, no cross-author
@@ -5893,86 +5903,87 @@ Authorization (`requireProjectAccess(…, "viewer")` on every read + FK-scoped
 queries), privacy (`detail` two-key allowlist, safe column lists), and hot-path
 safety (`afterTransaction` → in-memory `recordEdit` only) unchanged.
 
-*Verification:* backend `60/60` M60 + `934 passed / 9 skipped` full suite,
+_Verification:_ backend `60/60` M60 + `934 passed / 9 skipped` full suite,
 `tsc` + `eslint` clean; frontend `511/511`, `tsc` + `eslint` + `vite build`
 clean. **M60 remains CLOSED; M61 not started.**
 
 **Verification (2026-08-31, Docker available):**
 
-| Gate | Result |
-|---|---|
-| M60 backend focused | `m60-{schema,change-attribution,last-seen,historian,room-attribution,timeline,timeline-api,lifecycle}` — **60 passed / 0 failed** (incl. the 2026-08-30 adversarial-audit regressions — see the audit note below) |
-| Backend `tsc --noEmit` | **0 errors** |
-| Backend `eslint` | **0 errors** (M60 files: 0 warnings) |
-| Backend full `vitest run` | **932 passed / 0 failed / 9 skipped** (70 files, Docker up) — a flake found first pass (stale singleton-historian timer writing to a closed test db) fixed by adding `collaborationHistorian.stop()` to `m60-timeline-api` `afterAll`; a real bug found + fixed (below) |
-| `migrations.test.ts` | updated for schema v11 (3 hard-coded `.toBe(10)` / migration-list assertions → `11`) — **5/5** |
-| M60 frontend focused | `collab.change.client` 3, `collab.timeline` 7, `ActivityTimeline` 4, `WhileYouWereAway` 5, `IDE.timeline` 7 — **26 passed / 0 failed** |
-| Frontend full `vitest run` | **511 passed / 0 failed** (57 files; 484 baseline + 27) |
-| Frontend `tsc` / `eslint` / `vite build` | 0 errors / 0 new warnings (19 pre-existing) / build exit 0 |
-| M57 / M58 / M59 regression | `m4-collab` 48, `m57-presence` 27, `m58-attention` 70, `m56-collaboration-safe-mutations` 31, `collab-awareness-security` 23, `m6-collab` 8, frontend `collab.*` / `Editor.eol` / `Editor.viewstate` — all green |
+| Gate                                     | Result                                                                                                                                                                                                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M60 backend focused                      | `m60-{schema,change-attribution,last-seen,historian,room-attribution,timeline,timeline-api,lifecycle}` — **60 passed / 0 failed** (incl. the 2026-08-30 adversarial-audit regressions — see the audit note below)                                                       |
+| Backend `tsc --noEmit`                   | **0 errors**                                                                                                                                                                                                                                                            |
+| Backend `eslint`                         | **0 errors** (M60 files: 0 warnings)                                                                                                                                                                                                                                    |
+| Backend full `vitest run`                | **932 passed / 0 failed / 9 skipped** (70 files, Docker up) — a flake found first pass (stale singleton-historian timer writing to a closed test db) fixed by adding `collaborationHistorian.stop()` to `m60-timeline-api` `afterAll`; a real bug found + fixed (below) |
+| `migrations.test.ts`                     | updated for schema v11 (3 hard-coded `.toBe(10)` / migration-list assertions → `11`) — **5/5**                                                                                                                                                                          |
+| M60 frontend focused                     | `collab.change.client` 3, `collab.timeline` 7, `ActivityTimeline` 4, `WhileYouWereAway` 5, `IDE.timeline` 7 — **26 passed / 0 failed**                                                                                                                                  |
+| Frontend full `vitest run`               | **511 passed / 0 failed** (57 files; 484 baseline + 27)                                                                                                                                                                                                                 |
+| Frontend `tsc` / `eslint` / `vite build` | 0 errors / 0 new warnings (19 pre-existing) / build exit 0                                                                                                                                                                                                              |
+| M57 / M58 / M59 regression               | `m4-collab` 48, `m57-presence` 27, `m58-attention` 70, `m56-collaboration-safe-mutations` 31, `collab-awareness-security` 23, `m6-collab` 8, frontend `collab.*` / `Editor.eol` / `Editor.viewstate` — all green                                                        |
 
 **Acceptance matrix (deterministic + integration; browser pass tracked
 separately below):**
 
-| Criterion | Status | Evidence |
-|---|---|---|
-| Yjs attribution | **PROVEN** | `m60-room-attribution` (real `CollaborationRoom` + fake sockets): authenticated author, viewer edit → no history, `external_mutation` → no event, multi-tab author, `dispose`/`removeClient` close |
-| Author correctness | **PROVEN** | attribution is `clients.get(tr.origin).userId`; string/`null`/unknown origin → skip; reconnect keeps `userId` (`m60-historian` "reconnect does not duplicate") |
-| Range correctness | **PROVEN** | `m60-change-attribution` 12/12 — contiguous exact, non-contiguous/observer-miss/contaminated → NULL, adjacent regions merge |
-| Burst grouping | **PROVEN** | idle/max-age/author/file splits, sweep, cap — pure + historian tests |
-| Historian persistence | **PROVEN** | batched (one `BEGIN` for N closes), `stop()` no loss, `disposeProject`, no duplicates |
-| History bounds | **PROVEN** | open-burst cap, queue-size flush at 100, per-project + time retention |
-| Retention | **PROVEN** | `m60-historian` "time purge + per-project cap"; `m60-lifecycle` cascade on project delete |
-| Timeline union | **PROVEN** | `m60-timeline` 11/11 — 5 sources, safe fields only, project isolation |
-| Pagination | **PROVEN** | stable `(at,id)` cursor; "no entry on two pages, none skipped"; collision determinism; deep-pagination event-loss fixed in the audit below ("stable pagination when one source dominates the newest rows") |
-| Authorization | **PROVEN** | `m60-timeline-api` — non-member 403/404, viewer allowed, revoked denied, cross-project isolation, ack advances last-seen |
-| Privacy | **PROVEN** | `detail` allowlist test; timeline "run events carry only safe fields"; no cursor/selection/keystroke/output source exists |
-| Live collaboration history | **PROVEN** (contract) / **PARTIAL** (browser) | `m60-room-attribution` "broadcasts collab_change"; `collab.change.client` receive-only + forge-proof; browser pass below |
-| While You Were Away | **PROVEN** (contract) / **PARTIAL** (browser) | `m60-timeline-api` ack→[]; `collab.timeline` `groupWhileAway` fail→pass; `WhileYouWereAway.test` dismiss/auto-dismiss once |
-| Context navigation | **PROVEN** | `IDE.timeline` — every nav routes through `openAndRevealLocation`; file-only without range; not navigable without filePath |
-| M57 / M58 / M59 regression | **PROVEN** | full suites green (counts above) |
-| Concurrent editing | **PROVEN** (Yjs) / **PARTIAL** (browser) | Yjs convergence unchanged (M6/M52 suites); browser pass below |
-| Performance | **PROVEN** | `afterTransaction` does zero I/O (source: routes to in-memory `recordEdit`); bounded queue/bursts/history/page/purge; no frontend polling — live push only on burst close |
-| Browser behavioural / visual verification | **PROVEN** for scenarios 1–8, 10 + while-away endpoint; **PARTIAL** for the live while-away *card trigger* | see the M60 browser pass below |
+| Criterion                                 | Status                                                                                                     | Evidence                                                                                                                                                                                                   |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Yjs attribution                           | **PROVEN**                                                                                                 | `m60-room-attribution` (real `CollaborationRoom` + fake sockets): authenticated author, viewer edit → no history, `external_mutation` → no event, multi-tab author, `dispose`/`removeClient` close         |
+| Author correctness                        | **PROVEN**                                                                                                 | attribution is `clients.get(tr.origin).userId`; string/`null`/unknown origin → skip; reconnect keeps `userId` (`m60-historian` "reconnect does not duplicate")                                             |
+| Range correctness                         | **PROVEN**                                                                                                 | `m60-change-attribution` 12/12 — contiguous exact, non-contiguous/observer-miss/contaminated → NULL, adjacent regions merge                                                                                |
+| Burst grouping                            | **PROVEN**                                                                                                 | idle/max-age/author/file splits, sweep, cap — pure + historian tests                                                                                                                                       |
+| Historian persistence                     | **PROVEN**                                                                                                 | batched (one `BEGIN` for N closes), `stop()` no loss, `disposeProject`, no duplicates                                                                                                                      |
+| History bounds                            | **PROVEN**                                                                                                 | open-burst cap, queue-size flush at 100, per-project + time retention                                                                                                                                      |
+| Retention                                 | **PROVEN**                                                                                                 | `m60-historian` "time purge + per-project cap"; `m60-lifecycle` cascade on project delete                                                                                                                  |
+| Timeline union                            | **PROVEN**                                                                                                 | `m60-timeline` 11/11 — 5 sources, safe fields only, project isolation                                                                                                                                      |
+| Pagination                                | **PROVEN**                                                                                                 | stable `(at,id)` cursor; "no entry on two pages, none skipped"; collision determinism; deep-pagination event-loss fixed in the audit below ("stable pagination when one source dominates the newest rows") |
+| Authorization                             | **PROVEN**                                                                                                 | `m60-timeline-api` — non-member 403/404, viewer allowed, revoked denied, cross-project isolation, ack advances last-seen                                                                                   |
+| Privacy                                   | **PROVEN**                                                                                                 | `detail` allowlist test; timeline "run events carry only safe fields"; no cursor/selection/keystroke/output source exists                                                                                  |
+| Live collaboration history                | **PROVEN** (contract) / **PARTIAL** (browser)                                                              | `m60-room-attribution` "broadcasts collab_change"; `collab.change.client` receive-only + forge-proof; browser pass below                                                                                   |
+| While You Were Away                       | **PROVEN** (contract) / **PARTIAL** (browser)                                                              | `m60-timeline-api` ack→[]; `collab.timeline` `groupWhileAway` fail→pass; `WhileYouWereAway.test` dismiss/auto-dismiss once                                                                                 |
+| Context navigation                        | **PROVEN**                                                                                                 | `IDE.timeline` — every nav routes through `openAndRevealLocation`; file-only without range; not navigable without filePath                                                                                 |
+| M57 / M58 / M59 regression                | **PROVEN**                                                                                                 | full suites green (counts above)                                                                                                                                                                           |
+| Concurrent editing                        | **PROVEN** (Yjs) / **PARTIAL** (browser)                                                                   | Yjs convergence unchanged (M6/M52 suites); browser pass below                                                                                                                                              |
+| Performance                               | **PROVEN**                                                                                                 | `afterTransaction` does zero I/O (source: routes to in-memory `recordEdit`); bounded queue/bursts/history/page/purge; no frontend polling — live push only on burst close                                  |
+| Browser behavioural / visual verification | **PROVEN** for scenarios 1–8, 10 + while-away endpoint; **PARTIAL** for the live while-away _card trigger_ | see the M60 browser pass below                                                                                                                                                                             |
 
 **M60 browser pass (2026-08-31, two authenticated Chrome sessions — `ankit`
 @ `127.0.0.1:5173` driven via `javascript_tool`, `rahul` @ `localhost:5173`
 driven via clicks; same ghosted-third-connection / no-controlled-WS-disconnect
 limitations as the M59 closeout):**
 
-| # | Scenario | Result |
-|---|---|---|
-| 1 | Rahul/Ankit edit → meaningful change in Team Activity | **PASS** — `changed lines 5–7 · m60test.js`, exact contiguous range |
-| 2 | Rapid edits group into one burst | **PASS** — 3 edits on lines 5–7 → 1 `edit_burst`, `update_count` folded |
-| 3 | A second author is separately attributed | **PASS** — `rahul changed lines 22–23` and `ankit changed lines 5–7` as two rows, no mixing |
-| 4 | Click a timeline row → correct file/range opens | **PASS** — clicking Rahul's row moved the cursor to **line 22** in `m60test.js` via `openAndRevealLocation` |
-| 5 | M58 callout still live + a safe historical row | **PASS** — DB row `kind:callout … detail:{"messagePreview":…,"targeted":false}` only; timeline shows `left a callout` + preview; live-merged into Ankit's open panel via `collab_change` |
-| 6 | Run → safe high-level run event | **PASS** — `ran … — failed` appeared |
-| 7 | No stdout/stderr in history | **PASS** — timeline JSON contains no `stdout`/`stderr`/`signal`/`console.log`/output |
-| 8 | Callout metadata is not persistent chat | **PASS** — one immutable row, `messagePreview ≤ 120`, no reply/thread |
-| 9 | Leave / rejoin → While You Were Away | **PARTIAL** — the endpoint proven live: with a backdated `collab_last_seen`, `/collab/while-away` returned the right events **grouped by author** (`rahul → changed lines 22–23`), **excluding Ankit's own** events; `ack {upTo}` advanced `since` → a second call returned `[]` (no duplicates). The auto-mounting *card* on a real >3-min disconnect was not driven (no controlled WS-disconnect primitive in the tooling) |
-| 10 | Unauthorized project cannot read the timeline | **PASS** — fresh non-member → **404** on `/collab/timeline` and `/collab/while-away`; collaborator → 200 |
-| — | "Last change: …" line on a TeamPanel row | **PASS** — `Last change: changed lines 22–23 · m60test.js · 3m ago` |
-| — | existing multiplayer editing throughout | **PASS** — Yjs sync of the peer's edits was continuous and correct |
+| #   | Scenario                                              | Result                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Rahul/Ankit edit → meaningful change in Team Activity | **PASS** — `changed lines 5–7 · m60test.js`, exact contiguous range                                                                                                                                                                                                                                                                                                                                                          |
+| 2   | Rapid edits group into one burst                      | **PASS** — 3 edits on lines 5–7 → 1 `edit_burst`, `update_count` folded                                                                                                                                                                                                                                                                                                                                                      |
+| 3   | A second author is separately attributed              | **PASS** — `rahul changed lines 22–23` and `ankit changed lines 5–7` as two rows, no mixing                                                                                                                                                                                                                                                                                                                                  |
+| 4   | Click a timeline row → correct file/range opens       | **PASS** — clicking Rahul's row moved the cursor to **line 22** in `m60test.js` via `openAndRevealLocation`                                                                                                                                                                                                                                                                                                                  |
+| 5   | M58 callout still live + a safe historical row        | **PASS** — DB row `kind:callout … detail:{"messagePreview":…,"targeted":false}` only; timeline shows `left a callout` + preview; live-merged into Ankit's open panel via `collab_change`                                                                                                                                                                                                                                     |
+| 6   | Run → safe high-level run event                       | **PASS** — `ran … — failed` appeared                                                                                                                                                                                                                                                                                                                                                                                         |
+| 7   | No stdout/stderr in history                           | **PASS** — timeline JSON contains no `stdout`/`stderr`/`signal`/`console.log`/output                                                                                                                                                                                                                                                                                                                                         |
+| 8   | Callout metadata is not persistent chat               | **PASS** — one immutable row, `messagePreview ≤ 120`, no reply/thread                                                                                                                                                                                                                                                                                                                                                        |
+| 9   | Leave / rejoin → While You Were Away                  | **PARTIAL** — the endpoint proven live: with a backdated `collab_last_seen`, `/collab/while-away` returned the right events **grouped by author** (`rahul → changed lines 22–23`), **excluding Ankit's own** events; `ack {upTo}` advanced `since` → a second call returned `[]` (no duplicates). The auto-mounting _card_ on a real >3-min disconnect was not driven (no controlled WS-disconnect primitive in the tooling) |
+| 10  | Unauthorized project cannot read the timeline         | **PASS** — fresh non-member → **404** on `/collab/timeline` and `/collab/while-away`; collaborator → 200                                                                                                                                                                                                                                                                                                                     |
+| —   | "Last change: …" line on a TeamPanel row              | **PASS** — `Last change: changed lines 22–23 · m60test.js · 3m ago`                                                                                                                                                                                                                                                                                                                                                          |
+| —   | existing multiplayer editing throughout               | **PASS** — Yjs sync of the peer's edits was continuous and correct                                                                                                                                                                                                                                                                                                                                                           |
 
 Browser-test artifacts (`m60test.js`, seeded history rows, `m60outsider` user)
 were cleaned up afterwards.
 
-**Files (M60):** *new backend* `collab/{changeAttribution,historian,timeline,lastSeen}.ts`
-+ 8 `test/m60-*.ts`; *changed backend* `db.ts` (migration v11 + inline schema),
-`config.ts` (11 knobs + `boundedIntEnv`), `collab/manager.ts` (2nd
-`afterTransaction` hook + `stashRange` + `ensureFileLoaded` observer +
-`broadcastCollabChange` + burst-close hooks + callout capture + last-seen on
-disconnect + `m60SuppressAttribution` around `readSyncMessage`), `app.ts`
-(historian init + broadcaster), `index.ts` (shutdown `stop()`), `ws/index.ts`
-(first-connect last-seen), `projects/{routes,service}.ts`,
-`backup/workspaceRestore.ts`, `test/migrations.test.ts` (v11). *new frontend*
-`collab/timeline.ts`, `components/Collab/{ActivityTimeline,WhileYouWereAway}.tsx`
-+ 5 test files; *changed frontend* `collab/client.ts` (`collab_change` receive +
-reconnect-gap), `types.ts`, `api.ts`, `components/IDE/IDE.tsx` (timeline state +
-listeners + fetch + `lastChangeByUser` + mounts), `components/Collab/TeamPanel.tsx`
-(activity section + last-change line), `styles/collab.css`,
-`test/TeamPanel.test.tsx` (props + header-scope + activity test). **Not committed.**
+**Files (M60):** _new backend_ `collab/{changeAttribution,historian,timeline,lastSeen}.ts`
+
+- 8 `test/m60-*.ts`; _changed backend_ `db.ts` (migration v11 + inline schema),
+  `config.ts` (11 knobs + `boundedIntEnv`), `collab/manager.ts` (2nd
+  `afterTransaction` hook + `stashRange` + `ensureFileLoaded` observer +
+  `broadcastCollabChange` + burst-close hooks + callout capture + last-seen on
+  disconnect + `m60SuppressAttribution` around `readSyncMessage`), `app.ts`
+  (historian init + broadcaster), `index.ts` (shutdown `stop()`), `ws/index.ts`
+  (first-connect last-seen), `projects/{routes,service}.ts`,
+  `backup/workspaceRestore.ts`, `test/migrations.test.ts` (v11). _new frontend_
+  `collab/timeline.ts`, `components/Collab/{ActivityTimeline,WhileYouWereAway}.tsx`
+- 5 test files; _changed frontend_ `collab/client.ts` (`collab_change` receive +
+  reconnect-gap), `types.ts`, `api.ts`, `components/IDE/IDE.tsx` (timeline state +
+  listeners + fetch + `lastChangeByUser` + mounts), `components/Collab/TeamPanel.tsx`
+  (activity section + last-change line), `styles/collab.css`,
+  `test/TeamPanel.test.tsx` (props + header-scope + activity test). **Not committed.**
 
 **Known limitations:** deleted-line counts are best-effort (added-line counts and
 ranges are exact); range enrichment is file-level when the observer misses / is
@@ -6004,8 +6015,8 @@ Persistent, code-anchored discussion on top of the M57–M60 stack. No new
 WebSocket endpoint, no new document-sync mechanism, no second collaborator
 store. Rides existing REST + `MESSAGE_CUSTOM` + a SQLite migration.
 
-**Objective:** cross from M60's *"I can see what happened"* to *"I can discuss
-the exact code, in place, and that discussion persists."*
+**Objective:** cross from M60's _"I can see what happened"_ to _"I can discuss
+the exact code, in place, and that discussion persists."_
 
 - **Persistence + REST (`backend/src/comments/{store,routes,validate,timelineSource}.ts`).**
   Mounted `app.use("/api/projects", requireAuth(db), commentRoutes(cfg, db))`.
@@ -6044,7 +6055,7 @@ the exact code, in place, and that discussion persists."*
   `{threadId, filePath, kind, at}`; the client refetches
   `GET /comments?file=` over the access-gated REST. `sendCommentMentionTo`
   delivers a `comment_mention` (`{threadId, commentId, filePath, line, author,
-  preview≤120, at}`) **only to the mentioned user's own sockets in that room**.
+preview≤120, at}`) **only to the mentioned user's own sockets in that room**.
   `handleMessage`'s `MESSAGE_CUSTOM` branch accepts only `file_open` and
   `attention_*` from a client — `comment_event` / `comment_mention` /
   `profile_event` are never client-authored (`m61-transport.test.ts`).
@@ -6054,7 +6065,7 @@ the exact code, in place, and that discussion persists."*
   the rest of `/collab/timeline`.
 - **Frontend (`frontend/src/comments/{anchor,api,keep,navigation,store}.ts`,
   `components/Comments/{CommentComposer,CommentGutter,CommentThread,CommentsPanel,
-  mentionText}.tsx`, `hooks/useFocusTrap.ts`).** Gutter affordance in
+mentionText}.tsx`, `hooks/useFocusTrap.ts`).** Gutter affordance in
   `Editor.tsx`, unresolved-count badge in `Sidebar.tsx` + a per-tab badge in
   `Editor.tsx`, a Comments bottom-panel in `IDE.tsx`, thread navigation through
   the canonical `openAndRevealLocation`. A comment-commands registry
@@ -6119,20 +6130,20 @@ and `{collab.comment.client,comment.anchor,comment.store,comment.keep,comment.na
 
 ### Verification (2026-09-02, Docker available; refreshed after the m61-lifecycle test was added)
 
-| Area | Status | Evidence |
-|---|---|---|
-| M61-A backend contract | **PROVEN** | `m61-comments` 8, `m61-comment-store` 6, `m61-comment-timeline` 3, `m61-comment-validate` 4, `m61-transport` 4 — plus `m61-lifecycle` 5 — all pass in the full Docker backend run (76 files / 966 passed / 9 Windows-only skips / 0 failed) |
-| M61-A frontend contract | **PROVEN** | `CommentThread` 5, `CommentGutter` 5 (+2 sync-race regressions, 2026-09-02), `CommentThread.overlay` 2 (new, 2026-09-02), `CommentComposer` 3, `CommentsPanel` 2, `mentionText` 2, `Sidebar.commentBadge` 4, `Editor.tabBadge` 4, `collab.comment.client` 4, `comment.anchor` 5, `comment.store` 3, `comment.keep` 5, `comment.navigation` 6, `comment.commands.registry` 3 — all pass in `npm test -w @cloud-ide/frontend` (72 files / 568 passed / 0 failed) |
-| Migration v12 apply (incl. from a pre-v11 DB) | **PROVEN** | `migrations.test.ts` — real v8 DB with data → `openDb()` → schema version 12, rows `[1..12]`, pre-existing data preserved; `m61: v12 creates the comment/settings/profile tables`; `m61: v12 copies pre-existing user_preferences into user_settings.data` |
-| v12 cascade — schema | **PROVEN** | `foreign_key_list(comments)` → `comment_threads` = `CASCADE`; `PRAGMA foreign_keys = ON` in `openDb` |
-| v12 cascade — behavioural (insert thread+comments+reply+mentions+reactions → delete project / user / root comment → exactly the right rows gone, no orphans, other project untouched) | **PROVEN** | `backend/test/m61-lifecycle.test.ts` (5) — real `openDb()` migration path, raw `DELETE FROM projects` / `DELETE FROM users` so the assertions depend entirely on the FK clauses. Revert-sensitivity demonstrated in this pass: reverting `comment_threads.project_id` CASCADE, `resolved_by` SET NULL, or `created_by` CASCADE each makes exactly the corresponding test fail (isolated reverts verified) |
-| user-deletion SET NULL vs CASCADE split | **PROVEN** | `m61-lifecycle.test.ts` — deleting a member who only *resolved* a thread nulls `resolved_by` (SET NULL) and keeps the thread + all comments; deleting the thread creator (`created_by`) / root-comment author (`author_id`) CASCADE-removes the whole thread sub-tree incl. another user's reply, its mentions and reactions |
-| Transport is outbound-only / no body over WS | **PROVEN** | `m61-transport.test.ts` (`comment_event` carries `{threadId,filePath,kind,at}`; `broadcastProfileEvent` carries `{type,userId}`; room-scoped; cross-project no-op); code inspection of `handleMessage` `MESSAGE_CUSTOM` allowlist |
-| REST authorization | **PROVEN** (contract) | every handler calls `requireProjectAccess`; `m61-comments.test.ts` covers viewer/editor/owner gating and the author-or-owner delete rule |
-| No HTML/Markdown injection | **PROVEN** | `sanitizeCommentBody` server-side; no `innerHTML`/`dangerouslySetInnerHTML` in `Comments/` or `comments/`; `mentionText.test.tsx` |
-| Backend / frontend typecheck · lint · build · app image | **PROVEN** | `tsc --noEmit` 0/0; `eslint` 0 errors both; `vite build` exit 0; `docker build -f docker/Dockerfile.app` exit 0 (runs `tsc -p tsconfig.build.json` + `tsc --noEmit && vite build` + `npm ci`) |
-| Live / two-session browser walkthrough | **PROVEN** (2026-09-02, second pass) | Real Chrome (User A, project owner) + two real WS collab peers (Users B/C) on `notes.txt`. UI-proven in the browser: create-from-selection, thread popover, live reply propagation to A with no reload, mention toast for A, resolve/reopen + badge/chip/panel transitions, tombstone + replies retained, full-reload persistence of thread/replies/resolution/tombstone/counts, anchor `exact`/`drifted`/`stale` via the real `resolveAnchor` against the live Y.Doc (stale shows the warning banner + drops the marker + panel "⚠ moved"), XSS-safe literal rendering, tab/tree/panel badges, M60 TEAM ACTIVITY timeline entries. Protocol-proven (WS/REST peers): B/C receive `comment_event`; only the mentioned user receives `comment_mention` (author + unrelated member get none); viewer → 403 on every mutation; non-collaborator → 404 on every comment endpoint; non-member mention ids dropped. Two real UI defects were found and fixed in this pass — see "Browser-pass defects" below. Comment *edit* (PATCH) was not exercised in the browser (unit-covered); the second-identity/authorization items are WS/REST-proven, not driven through a second browser UI. **Superseded 2026-09-04** — the full 15-step M61-A workflow (PATCH edit included) and second-browser authorization were driven end-to-end through two genuinely separate authenticated Chrome contexts; see "M57–M61 live release-gate closure (2026-09-04)" below. |
-| Track B / C / D | **N/A — not implemented** | v12 ships their tables dormant; `broadcastProfileEvent` has no product caller |
+| Area                                                                                                                                                                                  | Status                               | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| M61-A backend contract                                                                                                                                                                | **PROVEN**                           | `m61-comments` 8, `m61-comment-store` 6, `m61-comment-timeline` 3, `m61-comment-validate` 4, `m61-transport` 4 — plus `m61-lifecycle` 5 — all pass in the full Docker backend run (76 files / 966 passed / 9 Windows-only skips / 0 failed)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| M61-A frontend contract                                                                                                                                                               | **PROVEN**                           | `CommentThread` 5, `CommentGutter` 5 (+2 sync-race regressions, 2026-09-02), `CommentThread.overlay` 2 (new, 2026-09-02), `CommentComposer` 3, `CommentsPanel` 2, `mentionText` 2, `Sidebar.commentBadge` 4, `Editor.tabBadge` 4, `collab.comment.client` 4, `comment.anchor` 5, `comment.store` 3, `comment.keep` 5, `comment.navigation` 6, `comment.commands.registry` 3 — all pass in `npm test -w @cloud-ide/frontend` (72 files / 568 passed / 0 failed)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Migration v12 apply (incl. from a pre-v11 DB)                                                                                                                                         | **PROVEN**                           | `migrations.test.ts` — real v8 DB with data → `openDb()` → schema version 12, rows `[1..12]`, pre-existing data preserved; `m61: v12 creates the comment/settings/profile tables`; `m61: v12 copies pre-existing user_preferences into user_settings.data`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| v12 cascade — schema                                                                                                                                                                  | **PROVEN**                           | `foreign_key_list(comments)` → `comment_threads` = `CASCADE`; `PRAGMA foreign_keys = ON` in `openDb`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| v12 cascade — behavioural (insert thread+comments+reply+mentions+reactions → delete project / user / root comment → exactly the right rows gone, no orphans, other project untouched) | **PROVEN**                           | `backend/test/m61-lifecycle.test.ts` (5) — real `openDb()` migration path, raw `DELETE FROM projects` / `DELETE FROM users` so the assertions depend entirely on the FK clauses. Revert-sensitivity demonstrated in this pass: reverting `comment_threads.project_id` CASCADE, `resolved_by` SET NULL, or `created_by` CASCADE each makes exactly the corresponding test fail (isolated reverts verified)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| user-deletion SET NULL vs CASCADE split                                                                                                                                               | **PROVEN**                           | `m61-lifecycle.test.ts` — deleting a member who only _resolved_ a thread nulls `resolved_by` (SET NULL) and keeps the thread + all comments; deleting the thread creator (`created_by`) / root-comment author (`author_id`) CASCADE-removes the whole thread sub-tree incl. another user's reply, its mentions and reactions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Transport is outbound-only / no body over WS                                                                                                                                          | **PROVEN**                           | `m61-transport.test.ts` (`comment_event` carries `{threadId,filePath,kind,at}`; `broadcastProfileEvent` carries `{type,userId}`; room-scoped; cross-project no-op); code inspection of `handleMessage` `MESSAGE_CUSTOM` allowlist                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| REST authorization                                                                                                                                                                    | **PROVEN** (contract)                | every handler calls `requireProjectAccess`; `m61-comments.test.ts` covers viewer/editor/owner gating and the author-or-owner delete rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| No HTML/Markdown injection                                                                                                                                                            | **PROVEN**                           | `sanitizeCommentBody` server-side; no `innerHTML`/`dangerouslySetInnerHTML` in `Comments/` or `comments/`; `mentionText.test.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Backend / frontend typecheck · lint · build · app image                                                                                                                               | **PROVEN**                           | `tsc --noEmit` 0/0; `eslint` 0 errors both; `vite build` exit 0; `docker build -f docker/Dockerfile.app` exit 0 (runs `tsc -p tsconfig.build.json` + `tsc --noEmit && vite build` + `npm ci`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Live / two-session browser walkthrough                                                                                                                                                | **PROVEN** (2026-09-02, second pass) | Real Chrome (User A, project owner) + two real WS collab peers (Users B/C) on `notes.txt`. UI-proven in the browser: create-from-selection, thread popover, live reply propagation to A with no reload, mention toast for A, resolve/reopen + badge/chip/panel transitions, tombstone + replies retained, full-reload persistence of thread/replies/resolution/tombstone/counts, anchor `exact`/`drifted`/`stale` via the real `resolveAnchor` against the live Y.Doc (stale shows the warning banner + drops the marker + panel "⚠ moved"), XSS-safe literal rendering, tab/tree/panel badges, M60 TEAM ACTIVITY timeline entries. Protocol-proven (WS/REST peers): B/C receive `comment_event`; only the mentioned user receives `comment_mention` (author + unrelated member get none); viewer → 403 on every mutation; non-collaborator → 404 on every comment endpoint; non-member mention ids dropped. Two real UI defects were found and fixed in this pass — see "Browser-pass defects" below. Comment _edit_ (PATCH) was not exercised in the browser (unit-covered); the second-identity/authorization items are WS/REST-proven, not driven through a second browser UI. **Superseded 2026-09-04** — the full 15-step M61-A workflow (PATCH edit included) and second-browser authorization were driven end-to-end through two genuinely separate authenticated Chrome contexts; see "M57–M61 live release-gate closure (2026-09-04)" below. |
+| Track B / C / D                                                                                                                                                                       | **N/A — not implemented**            | v12 ships their tables dormant; `broadcastProfileEvent` has no product caller                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ### Browser-pass defects (2026-09-02, found + fixed in `fix(m61): stabilize comment browser interactions`)
 
@@ -6148,7 +6159,7 @@ fixed in the same pass. Both fixes are minimal and revert-sensitive-tested.
    (placement stays entirely on the overlay).
    **Regression test:** `frontend/test/CommentThread.overlay.test.ts` — no `.comment-thread`
    rule may be `position: fixed`; `.comment-thread-overlay` must keep `position: fixed;
-   right: 20px; top: 80px`. Reverting the CSS fails the test.
+right: 20px; top: 80px`. Reverting the CSS fails the test.
 
 2. **CommentGutter resolved anchors before the initial Y.Doc sync** → every
    `RelativePosition` resolved to `null` → a false `stale` that `reportAnchorStatus`
@@ -6204,7 +6215,6 @@ own investigation pass (likely the bundled TS/JS worker in `monacoSetup.ts`).
   anchored region (the `drifted` / `stale` states are the designed fallback,
   not a guarantee of pixel-accurate re-anchoring).
 
-
 ## M57–M61 live release-gate closure (2026-09-04)
 
 A fresh, from-scratch reproduction of the three remaining live/browser release
@@ -6236,17 +6246,14 @@ reload**.
 author (A) and the uninvolved viewer session get nothing.
 9–10. Resolve in A → B's chip clears live + REST `resolvedAt` set → Reopen →
 REST `resolvedAt` cleared.
-11–12. **Edit A's own comment through the real UI path** (row → *Edit* → composer
-*Save*): a `PATCH /comments/:id` fires, REST shows the new body + `editedAt`;
-after a full reload the edited body and the `edited` flag persist.
-13. Anchor states, driven by real Monaco edits: **exact** (fresh, no warning);
-**drifted** (edit *inside* the anchored slice → chip kept, no stale warning,
+11–12. **Edit A's own comment through the real UI path** (row → _Edit_ → composer
+_Save_): a `PATCH /comments/:id` fires, REST shows the new body + `editedAt`;
+after a full reload the edited body and the `edited` flag persist. 13. Anchor states, driven by real Monaco edits: **exact** (fresh, no warning);
+**drifted** (edit _inside_ the anchored slice → chip kept, no stale warning,
 server advisory not `stale`); **stale** (delete the whole anchored region → chip
 removed, `.comment-anchor-warning` + panel `⚠ moved`, advisory persisted
-`stale`).
-14. Delete A's root comment → tombstone (`deletedAt` set, `comment deleted`
-placeholder), the two replies retained.
-15. Reload **both** sessions → thread id, tombstone, reply count and
+`stale`). 14. Delete A's root comment → tombstone (`deletedAt` set, `comment deleted`
+placeholder), the two replies retained. 15. Reload **both** sessions → thread id, tombstone, reply count and
 `anchorStatus` are identical across A and B.
 
 Zero page errors, zero HTTP 4xx/5xx across the whole workflow (after the fix in
@@ -6263,7 +6270,7 @@ editors, a viewer, a non-member), plus a browser-UI check:
   `reportAnchorStatus` POST is refused 403 and a UI reply never lands.
 - **non-member**: every comment endpoint (GET + all mutations) → **404
   `not_found`** (project not disclosed).
-- **author/owner delete policy**: a *different* editor PATCH/DELETE-ing the
+- **author/owner delete policy**: a _different_ editor PATCH/DELETE-ing the
   author's comment → 403; the author deleting their own → 200 (tombstoned); the
   project owner deleting another user's comment → 200.
 
@@ -6275,9 +6282,9 @@ closes the followed peer's `/ws/collab` socket (server `ws 'close'` →
 `ctxB.newPage()` + `goto('/p/<id>')` — a fresh page for the **same** user (same
 session cookie ⇒ same `userId`, new `clientId`), which re-establishes the collab
 socket in ~2.8 s (measured), inside the ~6 s grace. The follower's client follow
-state is never touched directly. *(An earlier attempt with `context.setOffline(true)`
+state is never touched directly. _(An earlier attempt with `context.setOffline(true)`
 was discarded — CDP offline emulation does **not** tear down an established
-WebSocket here, so the peer never actually left. Documented so it is not retried.)*
+WebSocket here, so the peer never actually left. Documented so it is not retried.)_
 
 - **Follow established** (A follows B via the TeamPanel) → `.follow-banner`
   "Following B".
@@ -6289,8 +6296,8 @@ WebSocket here, so the peer never actually left. Documented so it is not retried
   appears at **t ≈ 6.45 s** (two runs: 6458 ms, 6451 ms — consistent with
   `FOLLOW_ABSENCE_GRACE_MS` 6000 + poll latency), no "Following" banner alongside
   it. Reopen B → **no auto-refollow** (the Following banner does not return), B is
-  back as a live collaborator, the TeamPanel offers *Follow B* again (clean state,
-  not stuck *Unfollow*), A's editor is intact. 0 page errors.
+  back as a live collaborator, the TeamPanel offers _Follow B_ again (clean state,
+  not stuck _Unfollow_), A's editor is intact. 0 page errors.
 
 `collab.focus.follow.test.tsx` 40/40 remains the deterministic guard.
 
@@ -6336,21 +6343,21 @@ comments, migrations, the follow state machine, or any backend.
 
 ### Final verification (2026-09-04, Docker up)
 
-| Gate | Result |
-|---|---|
-| Frontend `vitest run` | **575 passed / 0 failed** (73 files) — was 568/72; +`openFiles.test.ts` (5) +`collab-initialization` (2) |
-| Frontend `tsc --noEmit` | **0 errors** |
-| Frontend `eslint .` | **0 errors** (pre-existing warnings only; net −1 on IDE.tsx) |
-| Frontend `vite build` | **exit 0** |
-| Backend `tsc --noEmit` | **0 errors** |
-| Backend `eslint .` | **0 errors** / 29 pre-existing warnings |
-| Backend `CI=true npm test` (Docker) | **966 passed / 0 failed / 9 skipped** (76 files) — unchanged from baseline (changes are frontend-only) |
-| `git diff --check` | clean |
-| Bug 1 regression red→green | verified (`appendOpenFile` dedupe reverted → 2 tests fail) |
-| Bug 2 regression red→green | verified (`completeBind` re-pin reverted → 2 tests fail) |
-| M61-A live (15 steps, 2 browsers) | **PROVEN** — re-run clean after both fixes |
-| Second-session authorization live | **PROVEN** — re-run clean |
-| M59 Scenario E live | **PROVEN** — re-run clean |
+| Gate                                | Result                                                                                                   |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Frontend `vitest run`               | **575 passed / 0 failed** (73 files) — was 568/72; +`openFiles.test.ts` (5) +`collab-initialization` (2) |
+| Frontend `tsc --noEmit`             | **0 errors**                                                                                             |
+| Frontend `eslint .`                 | **0 errors** (pre-existing warnings only; net −1 on IDE.tsx)                                             |
+| Frontend `vite build`               | **exit 0**                                                                                               |
+| Backend `tsc --noEmit`              | **0 errors**                                                                                             |
+| Backend `eslint .`                  | **0 errors** / 29 pre-existing warnings                                                                  |
+| Backend `CI=true npm test` (Docker) | **966 passed / 0 failed / 9 skipped** (76 files) — unchanged from baseline (changes are frontend-only)   |
+| `git diff --check`                  | clean                                                                                                    |
+| Bug 1 regression red→green          | verified (`appendOpenFile` dedupe reverted → 2 tests fail)                                               |
+| Bug 2 regression red→green          | verified (`completeBind` re-pin reverted → 2 tests fail)                                                 |
+| M61-A live (15 steps, 2 browsers)   | **PROVEN** — re-run clean after both fixes                                                               |
+| Second-session authorization live   | **PROVEN** — re-run clean                                                                                |
+| M59 Scenario E live                 | **PROVEN** — re-run clean                                                                                |
 
 **Residual non-blocking notes:** the pre-existing Monaco TS/JS-file renderer hang
 in an automation browser still stands (walkthroughs use `notes.txt`); a viewer
@@ -6358,7 +6365,6 @@ opening a file whose anchors are drifted/stale still emits one console-visible
 403 from `reportAnchorStatus` (the denial is correct — noisy, not a defect); the
 `COMMENT_WRITE_MAX` limiter was raised to 200 for this pass's isolated test
 instance only (env var, no code change).
-
 
 ## Next recommended milestone
 
@@ -6550,15 +6556,15 @@ preserving them as spaces — sanitize first, collapse second.
 
 **Verification gates (2026-09-04):**
 
-| Gate | Evidence |
-|---|---|
-| Backend full suite | `vitest run` → **1039 passed / 9 skipped / 0 failed** (81 files) |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend eslint | 0 errors, 29 pre-existing warnings (none in M62 files) |
-| `git diff --check` | clean (LF/CRLF advisory only) |
-| Targeted M62 + affected presence suites | 123 passed (7 files) |
-| Revert-sensitivity | 9/9 — sanitization, key allowlist, resolver fallback, room-target filter, cache refresh, awareness displayName, username preservation, profile_event hook, roster resolve each break ≥1 test when reverted |
-| New deterministic coverage | `m62-profile-validate` (12), `m62-identity-resolver` (14), `m62-profile-store` (10), `m62-profile-api` (23), `m62-collab-identity` (14) |
+| Gate                                    | Evidence                                                                                                                                                                                                   |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend full suite                      | `vitest run` → **1039 passed / 9 skipped / 0 failed** (81 files)                                                                                                                                           |
+| Backend typecheck                       | `tsc --noEmit` exit 0                                                                                                                                                                                      |
+| Backend eslint                          | 0 errors, 29 pre-existing warnings (none in M62 files)                                                                                                                                                     |
+| `git diff --check`                      | clean (LF/CRLF advisory only)                                                                                                                                                                              |
+| Targeted M62 + affected presence suites | 123 passed (7 files)                                                                                                                                                                                       |
+| Revert-sensitivity                      | 9/9 — sanitization, key allowlist, resolver fallback, room-target filter, cache refresh, awareness displayName, username preservation, profile_event hook, roster resolve each break ≥1 test when reverted |
+| New deterministic coverage              | `m62-profile-validate` (12), `m62-identity-resolver` (14), `m62-profile-store` (10), `m62-profile-api` (23), `m62-collab-identity` (14)                                                                    |
 
 ### M62-4 — Settings → Profile tab
 
@@ -6611,13 +6617,13 @@ renamer's presence label lags until their next heartbeat.
 
 **Verification gates (2026-09-04):**
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` → **616 passed / 0 failed** (77 files) |
-| Frontend build | `tsc --noEmit && vite build` exit 0 |
-| Frontend eslint | 0 errors, 35 warnings (unchanged from baseline — no new warnings) |
-| Backend (untouched) | typecheck exit 0; `m62-profile-api` + `m62-collab-identity` 37/37; full backend suite last green at `7111093` (1039 passed) |
-| `git diff --check` | clean |
+| Gate                       | Evidence                                                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite        | `vitest run` → **616 passed / 0 failed** (77 files)                                                                                       |
+| Frontend build             | `tsc --noEmit && vite build` exit 0                                                                                                       |
+| Frontend eslint            | 0 errors, 35 warnings (unchanged from baseline — no new warnings)                                                                         |
+| Backend (untouched)        | typecheck exit 0; `m62-profile-api` + `m62-collab-identity` 37/37; full backend suite last green at `7111093` (1039 passed)               |
+| `git diff --check`         | clean                                                                                                                                     |
 | New deterministic coverage | `SettingsModal.profile.test.tsx` (18), `identity-consistency.test.tsx` (8), `IDE.profileEvent.test.tsx` (7), `collab.presence.test.ts` +9 |
 
 **Not done:** M62.5 avatar / initial-image upload (`profile_media` activation) is out
@@ -6693,17 +6699,17 @@ returns to zero (or on unmount).
 
 **Verification gates (2026-09-06):**
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` → **657 passed / 0 failed** (82 files); +41 new (collab.connectionState 11, collab.reconnect 10, CollabConnectionBanner 11, IDE.connectionVisibility 5, IDE.beforeUnload 4) |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend build | `tsc --noEmit && vite build` exit 0 |
-| Frontend eslint | `eslint .` → 0 errors / 35 warnings (unchanged from baseline) |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite | `npm test` → **997 passed / 51 skipped / 0 failed** (unchanged — M63 is frontend-only) |
-| `git diff --check` | clean |
-| Docker-dependent (exec/sandbox/preview e2e) | **UNAVAILABLE on this host** (`docker info` fails); the 51 skipped backend tests are not verified-green here — run on Linux CI |
-| Revert-sensitivity | resync entry/exit, syncStep2 detection, pending increment, remote-update exclusion, pending clear-on-resync, grace deferral, reconnect ceiling, retry reset, forbidden no-op, dispose timer clears, beforeunload guard each break ≥1 test when reverted |
+| Gate                                        | Evidence                                                                                                                                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite                         | `vitest run` → **657 passed / 0 failed** (82 files); +41 new (collab.connectionState 11, collab.reconnect 10, CollabConnectionBanner 11, IDE.connectionVisibility 5, IDE.beforeUnload 4)                                                                |
+| Frontend typecheck                          | `tsc --noEmit` exit 0                                                                                                                                                                                                                                   |
+| Frontend build                              | `tsc --noEmit && vite build` exit 0                                                                                                                                                                                                                     |
+| Frontend eslint                             | `eslint .` → 0 errors / 35 warnings (unchanged from baseline)                                                                                                                                                                                           |
+| Backend typecheck                           | `tsc --noEmit` exit 0                                                                                                                                                                                                                                   |
+| Backend full suite                          | `npm test` → **997 passed / 51 skipped / 0 failed** (unchanged — M63 is frontend-only)                                                                                                                                                                  |
+| `git diff --check`                          | clean                                                                                                                                                                                                                                                   |
+| Docker-dependent (exec/sandbox/preview e2e) | **UNAVAILABLE on this host** (`docker info` fails); the 51 skipped backend tests are not verified-green here — run on Linux CI                                                                                                                          |
+| Revert-sensitivity                          | resync entry/exit, syncStep2 detection, pending increment, remote-update exclusion, pending clear-on-resync, grace deferral, reconnect ceiling, retry reset, forbidden no-op, dispose timer clears, beforeunload guard each break ≥1 test when reverted |
 
 **Not done / out of scope (M63):** no offline-edit queue redesign (Yjs already
 handles reconciliation), no persistence of unsynced edits to localStorage, no
@@ -6715,9 +6721,10 @@ beforeunload is deterministically guarded but not yet browser-verified.
 
 **Objective:** one typed, non-blocking notice mechanism in the IDE. Replace the
 six fragmented transient-notice states in `IDE.tsx`, each with its own `useState`
-+ ad-hoc `setTimeout` lifecycle, and remove the two blocking `alert()` calls in
-the save path — without flattening semantically different UI states into one
-visual renderer.
+
+- ad-hoc `setTimeout` lifecycle, and remove the two blocking `alert()` calls in
+  the save path — without flattening semantically different UI states into one
+  visual renderer.
 
 **Scope landed (frontend only — no backend/protocol change):**
 
@@ -6728,7 +6735,7 @@ presentation.
 
 - **Stable ids** — module counter (`notice-<n>`).
 - **Typed model** — `{ kind, text, ttl, surface, dedupeKey?, actions?, onExpire?,
-  role }`. `kind` ∈ success/info/warning/error; `surface` ∈
+role }`. `kind` ∈ success/info/warning/error; `surface` ∈
   `stack | statusbar | editor | headless` (opaque to the hook — the caller
   filters on it). `ttl` omitted / `null` / `0` ⇒ persistent (explicit dismissal
   only).
@@ -6757,15 +6764,15 @@ rendered at `position:fixed; bottom:40px` and overlapped.
 
 ### `IDE.tsx` migration (mechanical, one `useNotices()` instance)
 
-| Was | Now |
-|---|---|
-| `saveToast` (statusbar badge, 2–3s) | `surface:"statusbar"`, `dedupeKey:"save-toast"` — still rendered in the footer badge slot, **not** moved to the stack |
-| `externalMutationNotice` (M56 ping + direct-save conflict, 8s, one slot) | shared `dedupeKey:"ext-mutation"`, 8s TTL — one file-mutation notice at a time, preserved |
-| `alert("Save failed: …")` / `alert("no live content …")` | persistent (`ttl:null`) per-path `dedupeKey:"save-fail:<path>"` error notice, `role:"alert"`, non-blocking; a later successful save of that path clears it |
-| `replaceReconcileNotice` (manual dismiss) | persistent `dedupeKey:"reconcile"`, cleared on project switch |
-| `invalidRouteNotice` (manual dismiss) | persistent `dedupeKey:"invalid-route"` (`kind:error`), cleared by `dismissKey` when a project is picked / the route resolves |
+| Was                                                                                                     | Now                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `saveToast` (statusbar badge, 2–3s)                                                                     | `surface:"statusbar"`, `dedupeKey:"save-toast"` — still rendered in the footer badge slot, **not** moved to the stack                                                                                                                                       |
+| `externalMutationNotice` (M56 ping + direct-save conflict, 8s, one slot)                                | shared `dedupeKey:"ext-mutation"`, 8s TTL — one file-mutation notice at a time, preserved                                                                                                                                                                   |
+| `alert("Save failed: …")` / `alert("no live content …")`                                                | persistent (`ttl:null`) per-path `dedupeKey:"save-fail:<path>"` error notice, `role:"alert"`, non-blocking; a later successful save of that path clears it                                                                                                  |
+| `replaceReconcileNotice` (manual dismiss)                                                               | persistent `dedupeKey:"reconcile"`, cleared on project switch                                                                                                                                                                                               |
+| `invalidRouteNotice` (manual dismiss)                                                                   | persistent `dedupeKey:"invalid-route"` (`kind:error`), cleared by `dismissKey` when a project is picked / the route resolves                                                                                                                                |
 | `followLeftNotice` (editor-local, Return/Stay actions, TTL side-effect, feeds `FollowBanner.hasAnchor`) | `surface:"editor"` entry, `dedupeKey:"follow-left"`, `ttl:FOLLOW_LEFT_NOTICE_MS`; **still rendered in `.ide-editor-area`** with its actions; `onExpire` nulls `followAnchorRef.current` ("Stay here" default); `hasAnchor` reads `hasNotice("follow-left")` |
-| `attnRateNotice` (`number\|null` + 4s timer) | headless — `surface:"headless"`, `dedupeKey:"attn-rate"`, 4s TTL, never rendered; `AttentionTray` unchanged and still owns the visible "Too many pending requests" banner, fed from `hasNotice("attn-rate")` |
+| `attnRateNotice` (`number\|null` + 4s timer)                                                            | headless — `surface:"headless"`, `dedupeKey:"attn-rate"`, 4s TTL, never rendered; `AttentionTray` unchanged and still owns the visible "Too many pending requests" banner, fed from `hasNotice("attn-rate")`                                                |
 
 Removed: `saveToast`, `externalMutationNotice` + `externalMutationTimerRef`,
 `replaceReconcileNotice`, `invalidRouteNotice`, `followLeftNotice` +
@@ -6783,17 +6790,17 @@ Removed: `saveToast`, `externalMutationNotice` + `externalMutationTimerRef`,
 
 **Verification gates (2026-09-06):**
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` → **706 passed / 0 failed** (85 files); +49 new (useNotices 20, NoticeStack 9, ideNotices.wiring 17, ideSaveConflict +2, minus churn) |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend build | `tsc --noEmit && vite build` exit 0 |
-| Frontend eslint | `eslint .` → 0 errors / 35 warnings (unchanged from baseline) |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite | `npm test` → **1039 passed / 9 skipped / 0 failed** (81 files; unchanged — M64 is frontend-only) |
-| `git diff --check` | clean |
-| Docker-dependent (exec/sandbox/preview e2e) | Docker **available** on this host — the Docker-gated backend tests (`python-deps`, `templates.exec`, `m16`, `sandbox`, …) ran and passed; 9 skipped are non-Docker conditional skips |
-| Revert-sensitivity | TTL expiry, explicit dismiss, dedupe-replace, stale-timer no-op, `onExpire`-only-on-expiry, MAX_NOTICES eviction, persistent-not-evicted, unmount cleanup, save-path `alert()` removal, save-fail persistence + per-path dedupe + clear-on-success, ext-mutation single slot, follow-left placement + actions + anchor-null-on-expire, `hasAnchor` derivation, attn-rate headless, SourceControlPanel untouched — each breaks ≥1 test when reverted |
+| Gate                                        | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite                         | `vitest run` → **706 passed / 0 failed** (85 files); +49 new (useNotices 20, NoticeStack 9, ideNotices.wiring 17, ideSaveConflict +2, minus churn)                                                                                                                                                                                                                                                                                                  |
+| Frontend typecheck                          | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Frontend build                              | `tsc --noEmit && vite build` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Frontend eslint                             | `eslint .` → 0 errors / 35 warnings (unchanged from baseline)                                                                                                                                                                                                                                                                                                                                                                                       |
+| Backend typecheck                           | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Backend full suite                          | `npm test` → **1039 passed / 9 skipped / 0 failed** (81 files; unchanged — M64 is frontend-only)                                                                                                                                                                                                                                                                                                                                                    |
+| `git diff --check`                          | clean                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Docker-dependent (exec/sandbox/preview e2e) | Docker **available** on this host — the Docker-gated backend tests (`python-deps`, `templates.exec`, `m16`, `sandbox`, …) ran and passed; 9 skipped are non-Docker conditional skips                                                                                                                                                                                                                                                                |
+| Revert-sensitivity                          | TTL expiry, explicit dismiss, dedupe-replace, stale-timer no-op, `onExpire`-only-on-expiry, MAX_NOTICES eviction, persistent-not-evicted, unmount cleanup, save-path `alert()` removal, save-fail persistence + per-path dedupe + clear-on-success, ext-mutation single slot, follow-left placement + actions + anchor-null-on-expire, `hasAnchor` derivation, attn-rate headless, SourceControlPanel untouched — each breaks ≥1 test when reverted |
 
 **Commit sequence:** `test(ide): specify unified notice lifecycle` →
 `feat(ide): add typed notice queue` → `feat(ide): add shared NoticeStack
@@ -6848,17 +6855,17 @@ A second read-through against source, Docker, and a real browser session.
 
 **Live browser verification (Chrome, single session, dev server + Docker up):**
 
-| Flow | Result |
-|---|---|
-| Save failure → notice, no `alert()` | PASS — `.notice-error` `role="alert"` `aria-live="assertive"` "Save failed: …", `window.alert` recorded 0 calls, page never blocked |
-| Same-path repeat failure | PASS — dedupes to one notice |
-| Distinct-path failures | PASS — two concurrent notices, DOM-rect check: no overlap |
-| Successful save clears the failure | PASS — `save-fail:notes.txt` cleared, `save-fail:other.txt` remained; "Saved notes.txt" in the status-bar badge (not the stack) |
-| Explicit dismiss | PASS — `.notice-dismiss` removes it, stack unmounts when empty |
-| Bounded stack | PASS — 5 persistent → 3 shown + "+2 more" → expand → 5 → "Show less" → 3 |
-| Status-bar transient | PASS — "Saved" / "Format on Save: On" badge, auto-clears after its TTL, never enters the stack |
-| Layering / a11y | notice `z-index` 9000 (below the 9999 modal backdrop — a modal covers it, standard); `role="region" aria-label="Notifications"`; per-kind `role`/`aria-live` confirmed in the live DOM |
-| Reload with a notice visible | PASS — notice gone (React state), app reloads clean, collab reconnects, **no console errors/warnings** across the whole session |
+| Flow                                | Result                                                                                                                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Save failure → notice, no `alert()` | PASS — `.notice-error` `role="alert"` `aria-live="assertive"` "Save failed: …", `window.alert` recorded 0 calls, page never blocked                                                    |
+| Same-path repeat failure            | PASS — dedupes to one notice                                                                                                                                                           |
+| Distinct-path failures              | PASS — two concurrent notices, DOM-rect check: no overlap                                                                                                                              |
+| Successful save clears the failure  | PASS — `save-fail:notes.txt` cleared, `save-fail:other.txt` remained; "Saved notes.txt" in the status-bar badge (not the stack)                                                        |
+| Explicit dismiss                    | PASS — `.notice-dismiss` removes it, stack unmounts when empty                                                                                                                         |
+| Bounded stack                       | PASS — 5 persistent → 3 shown + "+2 more" → expand → 5 → "Show less" → 3                                                                                                               |
+| Status-bar transient                | PASS — "Saved" / "Format on Save: On" badge, auto-clears after its TTL, never enters the stack                                                                                         |
+| Layering / a11y                     | notice `z-index` 9000 (below the 9999 modal backdrop — a modal covers it, standard); `role="region" aria-label="Notifications"`; per-kind `role`/`aria-live` confirmed in the live DOM |
+| Reload with a notice visible        | PASS — notice gone (React state), app reloads clean, collab reconnects, **no console errors/warnings** across the whole session                                                        |
 
 **Verified through Docker:** full backend suite (`npm test`) — 1039 passed / 9
 skipped / 0 failed, 81 files, with the Docker-gated suites (`python-deps`,
@@ -6890,12 +6897,12 @@ an interactive shared terminal. Server-authoritative, ephemeral, bounded.
 
 **Commit range:** `91202ff..820ef26` (4 commits)
 
-| Commit | Purpose |
-|---|---|
-| `d4a4720` feat(collab): add bounded ephemeral shared run output buffer | `CollaborationRoom` run-output ring + broadcast + snapshot + teardown |
+| Commit                                                                  | Purpose                                                                             |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `d4a4720` feat(collab): add bounded ephemeral shared run output buffer  | `CollaborationRoom` run-output ring + broadcast + snapshot + teardown               |
 | `2e701da` feat(run): publish execution output to the collaboration room | `ws/execution.ts` onStdout/onStderr calls `notifyRunOutput`; auth integration tests |
-| `c0219ad` feat(collab): receive shared run output on the client | `CollaborationClient.runOutputs` receive-only transport + seq de-dupe |
-| `820ef26` feat(ide): surface read-only shared run output in the console | `SharedRunOutputPanel` + IDE/Output wiring |
+| `c0219ad` feat(collab): receive shared run output on the client         | `CollaborationClient.runOutputs` receive-only transport + seq de-dupe               |
+| `820ef26` feat(ide): surface read-only shared run output in the console | `SharedRunOutputPanel` + IDE/Output wiring                                          |
 
 **Architecture (server-authoritative, ephemeral — mirrors M54 run status):**
 
@@ -6927,7 +6934,7 @@ runProject onStdout/onStderr (ws/execution.ts, authenticated editor+ socket)
 ```
 
 **256 KB truncation choice — drop OLDEST, mark explicitly.** The shared buffer
-is a bounded *replay tail* for late joiners and reconnecting clients; the newest
+is a bounded _replay tail_ for late joiners and reconnecting clients; the newest
 output (current progress, latest error, exit banner) is the most relevant, which
 matches terminal scrollback / `tail` semantics and M54's "latest state wins,
 linger briefly" treatment. The runner's own `/ws/execute` stream is unaffected —
@@ -6936,8 +6943,8 @@ marker), never silent, and the buffer never grows unbounded.
 
 **Product decision — viewer access (spec was ambiguous: "owner/editor-only
 access" vs "read-only for viewers").** Resolved conservatively: shared run
-*output* goes to **owner + editor room clients only**. Viewers keep M54 run
-*status* (who / what / state) but never receive the output stream. The role gate
+_output_ goes to **owner + editor room clients only**. Viewers keep M54 run
+_status_ (who / what / state) but never receive the output stream. The role gate
 lives in one place (`broadcastRunOutput` recipient filter + the `addClient`
 snapshot guard); including viewers later is a one-predicate change. Rationale:
 "owner/editor-only access" is an explicit hard-requirement bullet, and
@@ -6945,14 +6952,14 @@ under-sharing code-execution output is the safe failure mode.
 
 **Security (server-side, not frontend-role):**
 
-| Guarantee | Enforcement |
-|---|---|
+| Guarantee                                      | Enforcement                                                                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | viewer / non-member cannot run, stdin, or kill | `/ws/execute` upgrade `requireProjectAccess(minRole:"editor")` — unchanged; integration test asserts 403 for viewer + stranger |
-| non-member cannot subscribe to output | `/ws/collab` upgrade `requireProjectAccess(minRole:"viewer")` — stranger 403 |
-| viewer cannot see output | `broadcastRunOutput` / snapshot filter on `CollaboratorClientState.role` |
-| client cannot inject or forge output | inbound `MESSAGE_CUSTOM` allowlist unchanged (no `run_output`); the client has no code path that authors the frame |
-| output cannot accumulate unbounded | 256 KB ring on the server, 256 KB char cap on the client |
-| nothing persisted | in-memory only; the `runs` table is written solely by the existing M54 status path (test asserts 0 rows from the output path) |
+| non-member cannot subscribe to output          | `/ws/collab` upgrade `requireProjectAccess(minRole:"viewer")` — stranger 403                                                   |
+| viewer cannot see output                       | `broadcastRunOutput` / snapshot filter on `CollaboratorClientState.role`                                                       |
+| client cannot inject or forge output           | inbound `MESSAGE_CUSTOM` allowlist unchanged (no `run_output`); the client has no code path that authors the frame             |
+| output cannot accumulate unbounded             | 256 KB ring on the server, 256 KB char cap on the client                                                                       |
+| nothing persisted                              | in-memory only; the `runs` table is written solely by the existing M54 status path (test asserts 0 rows from the output path)  |
 
 **Lifecycle / cleanup:** the output buffer is bound to its M54 `run_status`
 entry. Terminal state -> retained through `RUN_STATUS_LINGER_MS` (late chunks
@@ -6964,21 +6971,21 @@ and the `seq` guard suppresses any duplicated in-flight batch.
 
 **Verification gates (2026-09-06):**
 
-| Gate | Evidence |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` -> **1061 passed / 9 skipped / 0 failed** (83 files, 345 s); Docker-gated suites (`python-deps` 42 s, `templates.exec`, `m16-optimization`, `sandbox`) actually executed. +22 vs. M64 baseline = the M65 backend tests |
-| M65 backend room tests | `m65-shared-run-output.test.ts` — 17: stdout/stderr delivery, owner delivery, viewer exclusion (x2), no-status rejection, coalescing + seq, 256 KB bound + oldest-drop + latch, single-oversized head-truncate, mid-run snapshot, linger retention then drop, stale-sweep drop, `dispose()` timer + buffer clear, disposed-room no-op, no `runs` persistence, manager routing, non-OPEN skip |
-| M65 backend integration | `m65-shared-run-output.integration.test.ts` — 5: viewer -> `/ws/execute` 403, stranger -> `/ws/execute` 403, stranger -> `/ws/collab` 403, editor -> `/ws/execute` 101, owner run streams stdout+stderr to an editor and never to a viewer (viewer still gets `run_status`) |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend full suite | `vitest run` -> **737 passed / 0 failed** (88 files); +19 (collab.runOutput.client 8, SharedRunOutputPanel 6, ideSharedRunOutput.wiring 5) |
-| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint .` -> 0 errors / 35 warnings (baseline unchanged) |
-| `git diff --check` | clean |
+| Gate                             | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backend typecheck                | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Backend full suite (Docker up)   | `vitest run` -> **1061 passed / 9 skipped / 0 failed** (83 files, 345 s); Docker-gated suites (`python-deps` 42 s, `templates.exec`, `m16-optimization`, `sandbox`) actually executed. +22 vs. M64 baseline = the M65 backend tests                                                                                                                                                                                                                                                                                                                                                        |
+| M65 backend room tests           | `m65-shared-run-output.test.ts` — 17: stdout/stderr delivery, owner delivery, viewer exclusion (x2), no-status rejection, coalescing + seq, 256 KB bound + oldest-drop + latch, single-oversized head-truncate, mid-run snapshot, linger retention then drop, stale-sweep drop, `dispose()` timer + buffer clear, disposed-room no-op, no `runs` persistence, manager routing, non-OPEN skip                                                                                                                                                                                               |
+| M65 backend integration          | `m65-shared-run-output.integration.test.ts` — 5: viewer -> `/ws/execute` 403, stranger -> `/ws/execute` 403, stranger -> `/ws/collab` 403, editor -> `/ws/execute` 101, owner run streams stdout+stderr to an editor and never to a viewer (viewer still gets `run_status`)                                                                                                                                                                                                                                                                                                                |
+| Frontend typecheck               | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Frontend full suite              | `vitest run` -> **737 passed / 0 failed** (88 files); +19 (collab.runOutput.client 8, SharedRunOutputPanel 6, ideSharedRunOutput.wiring 5)                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Frontend build                   | `vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Frontend eslint                  | `eslint .` -> 0 errors / 35 warnings (baseline unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `git diff --check`               | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Live browser — TWO real sessions | owner (`m65own_7684`, script-driven `/ws/execute`) + editor (`m61_userA`, real IDE tab). **PASS:** live stdout streaming into `SharedRunOutputPanel` ("running" badge, "m65own_7684 is running main.py", lines 0-5); stderr interleaved; "completed" state (past-tense header, badge); read-only (no stdin form, no stop control — DOM-confirmed); 256 KB truncation with "earlier output truncated" marker + oldest rows dropped (body 261 961 chars <= 262 144, first visible line `row 2312:`); ephemeral teardown — panel gone ~10 s after the run terminal state; zero console errors |
-| Revert-sensitivity | 256 KB trim, oldest-drop, `truncated` latch, no-status rejection, viewer exclusion, snapshot-on-join, linger teardown, `dispose()` clear, client seq de-dupe, client `run_status`-cleared teardown, IDE `run_output_change` wiring each break >=1 test when reverted |
+| Revert-sensitivity               | 256 KB trim, oldest-drop, `truncated` latch, no-status rejection, viewer exclusion, snapshot-on-join, linger teardown, `dispose()` clear, client seq de-dupe, client `run_status`-cleared teardown, IDE `run_output_change` wiring each break >=1 test when reverted                                                                                                                                                                                                                                                                                                                       |
 
-**NOT run in the live browser** (deterministically covered): viewer *exclusion*
+**NOT run in the live browser** (deterministically covered): viewer _exclusion_
 from output (needs a third authenticated session — covered by
 `m65-shared-run-output.test.ts` x2 + the integration test), the
 "unavailable — reconnecting" notice on a forced disconnect, and reconnect
@@ -7004,22 +7011,22 @@ already exists and works.
 
 **Commit range:** `029cc7f..e18e6b4` (2 commits)
 
-| Commit | Purpose |
-|---|---|
-| `acd547c` feat(settings): persist formatOnSave in the typed user preference store | backend `auth/preferences.ts` + migration v13 + tests |
+| Commit                                                                                  | Purpose                                                             |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `acd547c` feat(settings): persist formatOnSave in the typed user preference store       | backend `auth/preferences.ts` + migration v13 + tests               |
 | `e18e6b4` refactor(ide): move format-on-save off localStorage onto the preference store | `types.ts`, `SettingsModal`, `IDE.tsx` + one-time migration + tests |
 
 ### Preference-mechanism inventory (verified against source)
 
-| Mechanism | Holds | Classification | M66 action |
-|---|---|---|---|
-| `user_preferences` table + `auth/preferences.ts` + `GET/PUT /api/auth/preferences` (M22) | 7 editor settings (fontSize, tabSize, wordWrap, minimap, lineNumbers, cursorBlinking, renderWhitespace) | **USER-SCOPED** — typed columns, strict per-field validation, defaults, partial-merge, unknown-key rejection, safe fallback to defaults, single source of truth. Migration path proven (db.ts v8 → v12). | **This is the foundation.** Extended with `formatOnSave`. |
-| `user_settings` table (M61 Track C, "dormant") — `{user_id, version, data JSON, updated_at}`, seeded once from `user_preferences` with `editor.*` keys | nothing (no reader, no writer, no route, no UI) | **USER-SCOPED (intended)** — a generic versioned KV store built for the eventual extensible preference layer. | **Left untouched** — see "Architecture decision deferred". |
-| `localStorage cloudeee_format_on_save` (IDE.tsx) | format-on-save boolean | **USER-SCOPED** — a genuine editor preference that was per-browser instead of per-account. | **Migrated** into `user_preferences.format_on_save`; one-time client migration retires the key. |
-| `localStorage cloudeee_demo_tour_seen` (IDE.tsx) | "has this browser seen the demo tour" | **SESSION-ONLY / per-device** — a first-run flag that is genuinely device-local. | Left as-is (correct). |
-| `utils/recentStore.ts` — `cloudeee_recent_files_<pid>`, `cloudeee_recent_projects` | MRU lists | **TRANSIENT / per-device convenience.** | Left as-is (correct). |
-| `utils/sessionStore.ts` — `cloudeee_session_<pid>` (open tabs, active file, bottom tab), `cloudeee_last_project` | session-restore UI state | **TRANSIENT UI STATE** — explicitly frontend-only; sanitised; never authorization. | Left as-is (correct — "do not persist transient state"). |
-| `IDE.tsx` `useState` — `sidebarWidth` (250), `bottomHeight` (260), `isSidebarHidden`, `isBottomCollapsed` | panel layout | **USER-SCOPED preference, currently NOT persisted at all** (reset every reload). | **Not touched** — persisting it is a new feature, not a migration; deferred to a later customization milestone that can build on the foundation. |
+| Mechanism                                                                                                                                              | Holds                                                                                                   | Classification                                                                                                                                                                                           | M66 action                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `user_preferences` table + `auth/preferences.ts` + `GET/PUT /api/auth/preferences` (M22)                                                               | 7 editor settings (fontSize, tabSize, wordWrap, minimap, lineNumbers, cursorBlinking, renderWhitespace) | **USER-SCOPED** — typed columns, strict per-field validation, defaults, partial-merge, unknown-key rejection, safe fallback to defaults, single source of truth. Migration path proven (db.ts v8 → v12). | **This is the foundation.** Extended with `formatOnSave`.                                                                                        |
+| `user_settings` table (M61 Track C, "dormant") — `{user_id, version, data JSON, updated_at}`, seeded once from `user_preferences` with `editor.*` keys | nothing (no reader, no writer, no route, no UI)                                                         | **USER-SCOPED (intended)** — a generic versioned KV store built for the eventual extensible preference layer.                                                                                            | **Left untouched** — see "Architecture decision deferred".                                                                                       |
+| `localStorage cloudeee_format_on_save` (IDE.tsx)                                                                                                       | format-on-save boolean                                                                                  | **USER-SCOPED** — a genuine editor preference that was per-browser instead of per-account.                                                                                                               | **Migrated** into `user_preferences.format_on_save`; one-time client migration retires the key.                                                  |
+| `localStorage cloudeee_demo_tour_seen` (IDE.tsx)                                                                                                       | "has this browser seen the demo tour"                                                                   | **SESSION-ONLY / per-device** — a first-run flag that is genuinely device-local.                                                                                                                         | Left as-is (correct).                                                                                                                            |
+| `utils/recentStore.ts` — `cloudeee_recent_files_<pid>`, `cloudeee_recent_projects`                                                                     | MRU lists                                                                                               | **TRANSIENT / per-device convenience.**                                                                                                                                                                  | Left as-is (correct).                                                                                                                            |
+| `utils/sessionStore.ts` — `cloudeee_session_<pid>` (open tabs, active file, bottom tab), `cloudeee_last_project`                                       | session-restore UI state                                                                                | **TRANSIENT UI STATE** — explicitly frontend-only; sanitised; never authorization.                                                                                                                       | Left as-is (correct — "do not persist transient state").                                                                                         |
+| `IDE.tsx` `useState` — `sidebarWidth` (250), `bottomHeight` (260), `isSidebarHidden`, `isBottomCollapsed`                                              | panel layout                                                                                            | **USER-SCOPED preference, currently NOT persisted at all** (reset every reload).                                                                                                                         | **Not touched** — persisting it is a new feature, not a migration; deferred to a later customization milestone that can build on the foundation. |
 
 ### What landed
 
@@ -7028,7 +7035,7 @@ already exists and works.
   changes. `ALLOWED_KEYS` + `invalid_format_on_save` validation + the
   SELECT / INSERT / merge paths.
 - **Migration v13** — `ALTER TABLE user_preferences ADD COLUMN format_on_save
-  INTEGER NOT NULL DEFAULT 0`, guarded by a `PRAGMA table_info` existence check
+INTEGER NOT NULL DEFAULT 0`, guarded by a `PRAGMA table_info` existence check
   (idempotent; also added to the inline `openDb` schema for fresh DBs). Existing
   rows → `0` (off). No data touched, no other column altered.
 - **Client one-time migration** (in the preference-load effect): a pre-existing
@@ -7038,7 +7045,7 @@ already exists and works.
   account.
 - Both toggles (command palette `editor.action.toggleFormatOnSave`, status-bar
   `Format: On/Off` item) now persist via `handleUpdatePreferences({ formatOnSave
-  })` (now a stable `useCallback`). SettingsModal gains a matching toggle in the
+})` (now a stable `useCallback`). SettingsModal gains a matching toggle in the
   editor tab.
 
 ### Architecture decision DEFERRED (not executed — flagged for the user)
@@ -7062,18 +7069,18 @@ future explicit customization milestone.
 
 ### Verification gates (2026-09-06)
 
-| Gate | Evidence |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` -> **1067 passed / 9 skipped / 0 failed** (84 files, 345 s); Docker-gated suites executed. +6 vs. the M65 baseline = the M66 backend tests |
-| M66 backend tests | `m66-format-on-save-pref.test.ts` (6) + `preferences.test.ts` (13, test 1 updated) + `migrations.test.ts` (7, v12 -> v13 assertions) |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend full suite | `vitest run` -> **744 passed / 0 failed** (90 files); +7 (SettingsModal.formatOnSave 3, ideFormatOnSave.wiring 4) |
-| Frontend build | `vite build` exit 0 |
-| Frontend eslint | `eslint .` -> 0 errors / 35 warnings (baseline unchanged) |
-| `git diff --check` | clean |
+| Gate                                                                                 | Evidence                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend typecheck                                                                    | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                           |
+| Backend full suite (Docker up)                                                       | `vitest run` -> **1067 passed / 9 skipped / 0 failed** (84 files, 345 s); Docker-gated suites executed. +6 vs. the M65 baseline = the M66 backend tests                                                                                                                                         |
+| M66 backend tests                                                                    | `m66-format-on-save-pref.test.ts` (6) + `preferences.test.ts` (13, test 1 updated) + `migrations.test.ts` (7, v12 -> v13 assertions)                                                                                                                                                            |
+| Frontend typecheck                                                                   | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                           |
+| Frontend full suite                                                                  | `vitest run` -> **744 passed / 0 failed** (90 files); +7 (SettingsModal.formatOnSave 3, ideFormatOnSave.wiring 4)                                                                                                                                                                               |
+| Frontend build                                                                       | `vite build` exit 0                                                                                                                                                                                                                                                                             |
+| Frontend eslint                                                                      | `eslint .` -> 0 errors / 35 warnings (baseline unchanged)                                                                                                                                                                                                                                       |
+| `git diff --check`                                                                   | clean                                                                                                                                                                                                                                                                                           |
 | Live browser (single session — this IS a user-scoped setting, no second user needed) | **PASS:** one-time migration (`localStorage cloudeee_format_on_save="true"` -> after reload, server `formatOnSave:true` + the key removed); status-bar toggle -> `PUT /api/auth/preferences` persists (server `true` -> `false`); reload -> value restored from the server; zero console errors |
-| Revert-sensitivity | validation, default, column, merge, migration guard, client one-time migration, both toggle paths, useCallback stability each break >=1 test when reverted |
+| Revert-sensitivity                                                                   | validation, default, column, merge, migration guard, client one-time migration, both toggle paths, useCallback stability each break >=1 test when reverted                                                                                                                                      |
 
 **Not done / out of scope (M66):** the `user_preferences` vs `user_settings`
 consolidation (flagged above), panel-layout persistence, theme / keybinding
@@ -7121,12 +7128,12 @@ devices.
 
 **Persisted (4 new typed `user_preferences` fields):**
 
-| Field | Type | Server bounds | Default | Was |
-|---|---|---|---|---|
-| `sidebarWidth` | integer px | `[180, 500]` | `250` | `IDE.tsx` `useState(250)`, never persisted |
-| `bottomHeight` | integer px | `[120, 600]` | `260` | `IDE.tsx` `useState(260)`, never persisted |
-| `sidebarHidden` | boolean | — | `false` | `IDE.tsx` `useState(false)`, never persisted |
-| `bottomCollapsed` | boolean | — | `false` | `IDE.tsx` `useState(false)`, never persisted |
+| Field             | Type       | Server bounds | Default | Was                                          |
+| ----------------- | ---------- | ------------- | ------- | -------------------------------------------- |
+| `sidebarWidth`    | integer px | `[180, 500]`  | `250`   | `IDE.tsx` `useState(250)`, never persisted   |
+| `bottomHeight`    | integer px | `[120, 600]`  | `260`   | `IDE.tsx` `useState(260)`, never persisted   |
+| `sidebarHidden`   | boolean    | —             | `false` | `IDE.tsx` `useState(false)`, never persisted |
+| `bottomCollapsed` | boolean    | —             | `false` | `IDE.tsx` `useState(false)`, never persisted |
 
 Bounds are lifted verbatim from the existing drag-resize clamps in `IDE.tsx`
 (`Math.max(180, Math.min(clientX, 500))` for the sidebar,
@@ -7141,8 +7148,8 @@ The milestone brief listed "active bottom tab" as a fifth value. Repository
 evidence shows the IDE already treats it as **project-specific**: it is stored
 per-project in `localStorage cloudeee_session_<pid>` via `sessionStore.ts`
 (session restore: open tabs + active file + bottom tab, keyed by project id),
-and `sessionStore.ts`'s own type documents it as *"which bottom panel was
-selected, or null for the default"*. The M66 inventory classified that store as
+and `sessionStore.ts`'s own type documents it as _"which bottom panel was
+selected, or null for the default"_. The M66 inventory classified that store as
 transient per-device UI state, correctly left alone. Promoting the bottom tab to
 a user-global preference would contradict that existing per-project semantic and
 the brief's own rule ("use USER-GLOBAL persistence unless repository evidence
@@ -7166,11 +7173,11 @@ the bottom-tab scope change described above.
 **Commit range:** `f2ccbf4..381d8a3` (4 commits; `f2ccbf4` is the shared
 architecture-decision doc above)
 
-| Commit | Purpose |
-|---|---|
-| `389ccba` feat(settings): add typed layout preference schema | `auth/preferences.ts` — 4 typed fields + `LAYOUT_BOUNDS` + per-field validation (`invalid_sidebar_width` / `invalid_bottom_height` / `invalid_sidebar_hidden` / `invalid_bottom_collapsed`) + merge + SELECT/INSERT; `db.ts` migration v14 (`PRAGMA table_info` guard, idempotent) + inline schema; backend tests |
-| `9a8cff5` feat(ide): persist sidebar and bottom panel layout | `frontend/src/hooks/useLayoutPreferences.ts` (new) + `types.ts` (`UserPreferences` + 4 fields, `EDITOR_PREFERENCE_KEYS`) + `IDE.tsx` wiring + `SettingsModal.tsx` (`pickEditorPrefs` payload filter) + hook tests |
-| `381d8a3` test(ide): harden layout persistence regression coverage | `ideLayoutPersistence.wiring.test.tsx` + `SettingsModal.layout.test.tsx` |
+| Commit                                                             | Purpose                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `389ccba` feat(settings): add typed layout preference schema       | `auth/preferences.ts` — 4 typed fields + `LAYOUT_BOUNDS` + per-field validation (`invalid_sidebar_width` / `invalid_bottom_height` / `invalid_sidebar_hidden` / `invalid_bottom_collapsed`) + merge + SELECT/INSERT; `db.ts` migration v14 (`PRAGMA table_info` guard, idempotent) + inline schema; backend tests |
+| `9a8cff5` feat(ide): persist sidebar and bottom panel layout       | `frontend/src/hooks/useLayoutPreferences.ts` (new) + `types.ts` (`UserPreferences` + 4 fields, `EDITOR_PREFERENCE_KEYS`) + `IDE.tsx` wiring + `SettingsModal.tsx` (`pickEditorPrefs` payload filter) + hook tests                                                                                                 |
+| `381d8a3` test(ide): harden layout persistence regression coverage | `ideLayoutPersistence.wiring.test.tsx` + `SettingsModal.layout.test.tsx`                                                                                                                                                                                                                                          |
 
 - **`useLayoutPreferences(loaded, persist)`** owns the four values' local state
   plus the persistence policy. Widths update locally on every drag mousemove
@@ -7195,18 +7202,18 @@ architecture-decision doc above)
 
 ### Verification gates (2026-09-06)
 
-| Gate | Evidence |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` → **1080 passed / 9 skipped / 0 failed** (85 files, 349 s); Docker-gated suites (`templates.exec`, `python-deps`, `m16-optimization`, `sandbox`) executed. +13 vs. the M66 baseline (1067) = the 13 M67 backend tests |
-| M67 backend tests | `m67-layout-preferences.test.ts` (13: defaults, persisted layout, valid update, out-of-range width/height → 400, non-boolean toggle → 400, boundary values, partial merge, unknown key, domain round-trip, fresh-db columns, v14 migration idempotent + defaults existing rows, audit log) + `preferences.test.ts` (test 1 key list) + `migrations.test.ts` (v13 → v14 assertions) |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend full suite | `vitest run` → **765 passed / 0 failed** (93 files); +21 (`useLayoutPreferences` 14, `ideLayoutPersistence.wiring` 4, `SettingsModal.layout` 3) |
-| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint src` → **0 errors / 27 warnings** (baseline unchanged — the new hook-returned setters were added to the five affected IDE.tsx dependency arrays) |
-| `git diff --check` | clean |
-| Live browser (single session — user-scoped setting, no second user needed; `m61_userA` on `m65-browser-demo`) | **PASS:** drag sidebar 250 → 372 → `PUT` persists → reload restores 372; drag bottom panel → 350 → persists → reload restores (inline `height` style honoured; the empty-state "No Open Files" placeholder cosmetically caps the *rendered* height via a pre-existing flex `min-content` on `.ide-editor-area`, unrelated to persistence — the stored value round-trips exactly); Ctrl+B hide sidebar + Ctrl+J collapse panel → both persist (`sidebarHidden:true` / `bottomCollapsed:true`) → reload restores both collapsed; toggle back → persists `false`; bottom-tab change → `user_preferences` has **no** `bottomTab` key, `cloudeee_session_<pid>.bottomTab` = `"problems"`, reload restores the tab per-project; navigate to another project and back → sidebar 372 / bottom 350 unchanged (user-global, no project-switch reset); out-of-range `PUT {sidebarWidth:9999}` → `400 invalid_sidebar_width`; **zero console errors/warnings** across the whole session (only vite HMR + React DevTools notices). Test account's layout reset to defaults afterwards. |
-| Revert-sensitivity | server validation (×4 codes), defaults, columns, merge, v14 guard, hook hydration-once, drag-end single persist, mousemove-no-persist, optimistic toggle, change-only persist, pre-hydration no-write, clamp+round, `pickEditorPrefs` filter each break ≥1 test when reverted |
+| Gate                                                                                                          | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend typecheck                                                                                             | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Backend full suite (Docker up)                                                                                | `vitest run` → **1080 passed / 9 skipped / 0 failed** (85 files, 349 s); Docker-gated suites (`templates.exec`, `python-deps`, `m16-optimization`, `sandbox`) executed. +13 vs. the M66 baseline (1067) = the 13 M67 backend tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| M67 backend tests                                                                                             | `m67-layout-preferences.test.ts` (13: defaults, persisted layout, valid update, out-of-range width/height → 400, non-boolean toggle → 400, boundary values, partial merge, unknown key, domain round-trip, fresh-db columns, v14 migration idempotent + defaults existing rows, audit log) + `preferences.test.ts` (test 1 key list) + `migrations.test.ts` (v13 → v14 assertions)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Frontend typecheck                                                                                            | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Frontend full suite                                                                                           | `vitest run` → **765 passed / 0 failed** (93 files); +21 (`useLayoutPreferences` 14, `ideLayoutPersistence.wiring` 4, `SettingsModal.layout` 3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Frontend build                                                                                                | `vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Frontend eslint                                                                                               | `eslint src` → **0 errors / 27 warnings** (baseline unchanged — the new hook-returned setters were added to the five affected IDE.tsx dependency arrays)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `git diff --check`                                                                                            | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Live browser (single session — user-scoped setting, no second user needed; `m61_userA` on `m65-browser-demo`) | **PASS:** drag sidebar 250 → 372 → `PUT` persists → reload restores 372; drag bottom panel → 350 → persists → reload restores (inline `height` style honoured; the empty-state "No Open Files" placeholder cosmetically caps the _rendered_ height via a pre-existing flex `min-content` on `.ide-editor-area`, unrelated to persistence — the stored value round-trips exactly); Ctrl+B hide sidebar + Ctrl+J collapse panel → both persist (`sidebarHidden:true` / `bottomCollapsed:true`) → reload restores both collapsed; toggle back → persists `false`; bottom-tab change → `user_preferences` has **no** `bottomTab` key, `cloudeee_session_<pid>.bottomTab` = `"problems"`, reload restores the tab per-project; navigate to another project and back → sidebar 372 / bottom 350 unchanged (user-global, no project-switch reset); out-of-range `PUT {sidebarWidth:9999}` → `400 invalid_sidebar_width`; **zero console errors/warnings** across the whole session (only vite HMR + React DevTools notices). Test account's layout reset to defaults afterwards. |
+| Revert-sensitivity                                                                                            | server validation (×4 codes), defaults, columns, merge, v14 guard, hook hydration-once, drag-end single persist, mousemove-no-persist, optimistic toggle, change-only persist, pre-hydration no-write, clamp+round, `pickEditorPrefs` filter each break ≥1 test when reverted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Not done / out of scope (M67)
 
@@ -7217,7 +7224,6 @@ to the bottom-tab's per-project `sessionStore` mechanism; no `user_settings`
 activation or retirement (still deferred — see the cleanup item above); no
 fix for the pre-existing empty-state flex `min-content` clamp on the rendered
 bottom-panel height (cosmetic, persistence-independent, predates M67).
-
 
 ## M68 — project/workspace load reliability & error recovery
 
@@ -7230,21 +7236,21 @@ project/workspace load surface.
 ### Exact scope
 
 Seven load paths in `IDE.tsx` that previously swallowed their failures (or,
-for the role fetch, failed *open*):
+for the role fetch, failed _open_):
 
-| Path | Before | After |
-|---|---|---|
-| Project access role (`GET /api/projects/:id`) | swallowed `.catch(() => {})` inside the collab effect; `projectRole` defaulted to `"owner"` — a failed/slow lookup rendered owner UI (editable editor, Secrets button, owner commands) | extracted to `useProjectRole`, **fails closed** to `viewer` (read-only) until a response explicitly says otherwise; stale responses for a previous project id discarded; `retry()` inert while in flight; persistent retryable notice while errored |
-| File tree (`GET /api/projects/:id/tree`) | `catch {}`; empty `tree` rendered as "Workspace is empty" + Add File — a failed load looked identical to an empty project | `loading / ready / error` status; Sidebar shows a compact loading state, a retryable inline error, or the genuine empty state only after a real empty load; persistent retryable notice; in-flight guard so a doubled Retry is one request |
-| Project list (`GET /api/projects`) | trailing `catch {}` — a transport failure left a blank IDE with no projects and no explanation | persistent retryable notice; an already-loaded list is preserved across a failed refresh |
-| Collaborator roster (`GET /api/projects/:id/collaborators`) | `.catch(() => {})` | last-known roster kept; retryable notice ("names may be out of date") |
-| While-you-were-away summary (`GET .../collab/while-away`) | `.catch(() => {})` | retryable notice; **M63 reconnect semantics and the `COLLAB_AWAY_THRESHOLD_MS` gate unchanged** — only the summary-fetch feedback changed |
-| Timeline initial page (`GET .../collab/timeline`) | `.catch(() => setTimelineLoaded(false))` — re-armed the effect and refetched in a **tight loop** against a down server | holds (`timelineLoaded` stays true), shows a retryable notice; Retry flips the flag once |
-| Timeline "load more" | `.catch(() => {})` | transient notice; the visible "Load more" control is the retry |
+| Path                                                        | Before                                                                                                                                                                                 | After                                                                                                                                                                                                                                               |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project access role (`GET /api/projects/:id`)               | swallowed `.catch(() => {})` inside the collab effect; `projectRole` defaulted to `"owner"` — a failed/slow lookup rendered owner UI (editable editor, Secrets button, owner commands) | extracted to `useProjectRole`, **fails closed** to `viewer` (read-only) until a response explicitly says otherwise; stale responses for a previous project id discarded; `retry()` inert while in flight; persistent retryable notice while errored |
+| File tree (`GET /api/projects/:id/tree`)                    | `catch {}`; empty `tree` rendered as "Workspace is empty" + Add File — a failed load looked identical to an empty project                                                              | `loading / ready / error` status; Sidebar shows a compact loading state, a retryable inline error, or the genuine empty state only after a real empty load; persistent retryable notice; in-flight guard so a doubled Retry is one request          |
+| Project list (`GET /api/projects`)                          | trailing `catch {}` — a transport failure left a blank IDE with no projects and no explanation                                                                                         | persistent retryable notice; an already-loaded list is preserved across a failed refresh                                                                                                                                                            |
+| Collaborator roster (`GET /api/projects/:id/collaborators`) | `.catch(() => {})`                                                                                                                                                                     | last-known roster kept; retryable notice ("names may be out of date")                                                                                                                                                                               |
+| While-you-were-away summary (`GET .../collab/while-away`)   | `.catch(() => {})`                                                                                                                                                                     | retryable notice; **M63 reconnect semantics and the `COLLAB_AWAY_THRESHOLD_MS` gate unchanged** — only the summary-fetch feedback changed                                                                                                           |
+| Timeline initial page (`GET .../collab/timeline`)           | `.catch(() => setTimelineLoaded(false))` — re-armed the effect and refetched in a **tight loop** against a down server                                                                 | holds (`timelineLoaded` stays true), shows a retryable notice; Retry flips the flag once                                                                                                                                                            |
+| Timeline "load more"                                        | `.catch(() => {})`                                                                                                                                                                     | transient notice; the visible "Load more" control is the retry                                                                                                                                                                                      |
 
 Plus: the collab lifecycle effect now resets `tree` / `treeStatus` on a
 project switch (it already reset open tabs, notices, git state) — a failed
-tree load for the newly-opened project no longer renders the *previous*
+tree load for the newly-opened project no longer renders the _previous_
 project's files.
 
 All notices route through the existing **M64 `useNotices` / `NoticeStack`**
@@ -7265,15 +7271,15 @@ confirms access.
 
 **Commit range:** `8a06398..HEAD` (7 commits + this doc)
 
-| Commit | Purpose |
-|---|---|
-| `b7b60de` feat(ide): fail closed on project role fetch errors | `frontend/src/hooks/useProjectRole.ts` (new) + `IDE.tsx` wiring + `useProjectRole.test.tsx` (10) + `ideLoadRecovery.wiring.test.tsx` role block |
-| `a961463` feat(ide): surface file tree loading and retryable failures | `IDE.tsx` `treeStatus` + notice; `Sidebar.tsx` / `FileTree` loading / error / retry states; `Sidebar.treeLoadState.test.tsx` (5) + wiring guards |
-| `0d9172b` feat(ide): surface project list load failures | `IDE.tsx` `loadProjects` notice + retry ref + wiring guards |
-| `076a388` feat(ide): surface roster, timeline, and while-away load failures | `IDE.tsx` roster / while-away / timeline-initial / timeline-more notices + retries; `IDE.profileEvent.test.tsx` window widened; wiring guards |
-| `de297c6` test(ide): harden load/retry regression coverage | `ideLoadRecovery.mediation.test.tsx` (real `useNotices` + `NoticeStack` + mocked api) + an in-flight guard on `loadTree` |
-| `606c07f` fix(ide): clear the file tree on project switch | `IDE.tsx` `setTree([])` / `setTreeStatus("loading")` in the per-project reset block + wiring guard (found during browser verification) |
-| `HEAD` fix(ide): key the tree-load guard by project id | the `loadTree` in-flight guard became `treeLoadingPidRef` + a `treeLoadGenRef` generation check — a same-project doubled Retry is still one request, but a project switch mid-flight now supersedes the stale fetch instead of blocking the new one; +1 mediation test |
+| Commit                                                                      | Purpose                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `b7b60de` feat(ide): fail closed on project role fetch errors               | `frontend/src/hooks/useProjectRole.ts` (new) + `IDE.tsx` wiring + `useProjectRole.test.tsx` (10) + `ideLoadRecovery.wiring.test.tsx` role block                                                                                                                        |
+| `a961463` feat(ide): surface file tree loading and retryable failures       | `IDE.tsx` `treeStatus` + notice; `Sidebar.tsx` / `FileTree` loading / error / retry states; `Sidebar.treeLoadState.test.tsx` (5) + wiring guards                                                                                                                       |
+| `0d9172b` feat(ide): surface project list load failures                     | `IDE.tsx` `loadProjects` notice + retry ref + wiring guards                                                                                                                                                                                                            |
+| `076a388` feat(ide): surface roster, timeline, and while-away load failures | `IDE.tsx` roster / while-away / timeline-initial / timeline-more notices + retries; `IDE.profileEvent.test.tsx` window widened; wiring guards                                                                                                                          |
+| `de297c6` test(ide): harden load/retry regression coverage                  | `ideLoadRecovery.mediation.test.tsx` (real `useNotices` + `NoticeStack` + mocked api) + an in-flight guard on `loadTree`                                                                                                                                               |
+| `606c07f` fix(ide): clear the file tree on project switch                   | `IDE.tsx` `setTree([])` / `setTreeStatus("loading")` in the per-project reset block + wiring guard (found during browser verification)                                                                                                                                 |
+| `HEAD` fix(ide): key the tree-load guard by project id                      | the `loadTree` in-flight guard became `treeLoadingPidRef` + a `treeLoadGenRef` generation check — a same-project doubled Retry is still one request, but a project switch mid-flight now supersedes the stale fetch instead of blocking the new one; +1 mediation test |
 
 New surfaces: `useProjectRole` hook; `Sidebar` `treeStatus` / `onRetryTree`
 props; `FileTree` `status` / `onRetry` props with `data-testid="file-tree-loading"`
@@ -7281,13 +7287,13 @@ props; `FileTree` `status` / `onRetry` props with `data-testid="file-tree-loadin
 
 ### Tests
 
-| Suite | Coverage |
-|---|---|
-| `useProjectRole.test.tsx` (10) | null project → no fetch / viewer; viewer+loading in flight; server role on success; **failure → viewer + error**; **failure never yields owner/editor**; role-less body → viewer; retry refetches → real role; **triple retry while in flight → 1 request**; stale response after id change discarded; id change → resets to viewer+loading |
-| `Sidebar.treeLoadState.test.tsx` (5) | loading state (not empty state) during first load; retryable error state (`onRetryTree` fired once); genuine empty state after a real empty load; already-loaded tree kept on a failed refresh; already-loaded tree kept during a background refresh |
-| `ideLoadRecovery.mediation.test.tsx` (4) | real-render: failed load → retryable error notice; **one Retry click → exactly one more request + error cleared**; rapid double Retry → no overlapping requests; a project switch mid-flight discards the previous project's tree |
-| `ideLoadRecovery.wiring.test.tsx` (20) | role: from `useProjectRole` not a local `"owner"` default, no in-effect role fetch, persistent alert notice keyed on `roleStatus === "error"` with `retryProjectRole`, cleared on non-error, read-only/owner UI keys off the fail-closed role; tree: lifecycle status, persistent retryable notice, cleared on success, Sidebar wiring, no loading-flash on background refresh, same-project Retry deduped + generation check supersedes on switch, `setTree([])`/`setTreeStatus` on switch; projects/roster/whileaway/timeline notice keys, retries, success-clears, and the M63 threshold gate intact; the immediate `.catch(() => setTimelineLoaded(false))` retry loop is gone |
-| Adjusted | `ideNotices.wiring.test.tsx` + `IDE.profileEvent.test.tsx` — source-slice windows widened for the enlarged reset block / roster fn body (assertions unchanged) |
+| Suite                                    | Coverage                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useProjectRole.test.tsx` (10)           | null project → no fetch / viewer; viewer+loading in flight; server role on success; **failure → viewer + error**; **failure never yields owner/editor**; role-less body → viewer; retry refetches → real role; **triple retry while in flight → 1 request**; stale response after id change discarded; id change → resets to viewer+loading                                                                                                                                                                                                                                                                                                                                        |
+| `Sidebar.treeLoadState.test.tsx` (5)     | loading state (not empty state) during first load; retryable error state (`onRetryTree` fired once); genuine empty state after a real empty load; already-loaded tree kept on a failed refresh; already-loaded tree kept during a background refresh                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ideLoadRecovery.mediation.test.tsx` (4) | real-render: failed load → retryable error notice; **one Retry click → exactly one more request + error cleared**; rapid double Retry → no overlapping requests; a project switch mid-flight discards the previous project's tree                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `ideLoadRecovery.wiring.test.tsx` (20)   | role: from `useProjectRole` not a local `"owner"` default, no in-effect role fetch, persistent alert notice keyed on `roleStatus === "error"` with `retryProjectRole`, cleared on non-error, read-only/owner UI keys off the fail-closed role; tree: lifecycle status, persistent retryable notice, cleared on success, Sidebar wiring, no loading-flash on background refresh, same-project Retry deduped + generation check supersedes on switch, `setTree([])`/`setTreeStatus` on switch; projects/roster/whileaway/timeline notice keys, retries, success-clears, and the M63 threshold gate intact; the immediate `.catch(() => setTimelineLoaded(false))` retry loop is gone |
+| Adjusted                                 | `ideNotices.wiring.test.tsx` + `IDE.profileEvent.test.tsx` — source-slice windows widened for the enlarged reset block / roster fn body (assertions unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 Revert-sensitivity: the fail-closed `viewer` default, the role stale-
 generation guard, the role in-flight guard, the tree same-project dedupe +
@@ -7298,16 +7304,16 @@ reverted.
 
 ### Verification gates (2026-09-06)
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` -> **804 passed / 0 failed** (97 files); +39 vs. M67 (765) = `useProjectRole` 10, `Sidebar.treeLoadState` 5, `ideLoadRecovery.mediation` 4, `ideLoadRecovery.wiring` 20 |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged) |
-| Backend typecheck | `tsc --noEmit` exit 0 (no backend files touched) |
-| Backend full suite (Docker up) | `vitest run` -> **1079 passed / 9 skipped / 1 failed** (85 files, 395 s); Docker-gated suites executed. The 1 failure is `m4-collab.test.ts` #33 (`file_open` -> `file_ready` DISK-seeding race, `expected '' to be 'DISK'`) — a **known-flaky M52 timing test under full-suite load**: it passed 48/48 in isolation immediately after, and a full-suite run 10 min earlier on the same tree passed it (exit 0, 1080/1080). M68 is frontend-only (zero backend files changed). |
-| `git diff --check` | clean |
-| Working tree | clean |
+| Gate                                                                                                                                                   | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite                                                                                                                                    | `vitest run` -> **804 passed / 0 failed** (97 files); +39 vs. M67 (765) = `useProjectRole` 10, `Sidebar.treeLoadState` 5, `ideLoadRecovery.mediation` 4, `ideLoadRecovery.wiring` 20                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Frontend typecheck                                                                                                                                     | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Frontend build                                                                                                                                         | `vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Frontend eslint                                                                                                                                        | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Backend typecheck                                                                                                                                      | `tsc --noEmit` exit 0 (no backend files touched)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Backend full suite (Docker up)                                                                                                                         | `vitest run` -> **1079 passed / 9 skipped / 1 failed** (85 files, 395 s); Docker-gated suites executed. The 1 failure is `m4-collab.test.ts` #33 (`file_open` -> `file_ready` DISK-seeding race, `expected '' to be 'DISK'`) — a **known-flaky M52 timing test under full-suite load**: it passed 48/48 in isolation immediately after, and a full-suite run 10 min earlier on the same tree passed it (exit 0, 1080/1080). M68 is frontend-only (zero backend files changed).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `git diff --check`                                                                                                                                     | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Working tree                                                                                                                                           | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Live browser (`m61_userA`; `m65-browser-demo` = non-owner, `M61Verify` = owner; `fetch` shim to inject 503s on `GET /api/projects/:id` and `.../tree`) | **PASS:** (A) initial + every post-retry project load renders the correct project's tree; (B/C) role 503 on switch -> persistent "Couldn't confirm your access level... read-only mode" notice + **Secrets button hidden** + editor read-only; tree 503 on switch -> inline `file-tree-error` ("Couldn't load the file tree." + Retry) **and** a stack notice, `tree` empty (no stale previous-project files); (D/E) role Retry -> 1 role request -> notice cleared -> real role restored (Secrets reappears on `M61Verify`); tree Retry -> 1 tree request -> files load -> both error surfaces clear; (F) an in-page `error` / `unhandledrejection` / `console.error` / `console.warn` collector caught **zero** entries across the full role+tree fail/recover cycle (the injected 503s are handled by `api()`'s throw, not surfaced as uncaught errors); (G) role failure **never** produced owner/editor UI — Secrets stayed hidden, role stayed `viewer` for the whole error window; (H) switching projects with an active error dropped the stale notice (`clearNotices()`) and cleared the stale tree; (I) triple-clicking the tree Retry while still failing produced **1** request (in-flight guard); role Retry produced **1** request per click |
 
 ### Not done / out of scope (M68)
@@ -7337,16 +7343,16 @@ M68 diff.
 
 **Test:** `33. file_open triggers a \`file_ready\` custom frame back to the
 requesting client once the file is loaded from disk`. Failure signature:
-`expected '' to be 'DISK'` — `room.doc.getText("notes.txt")` is still empty
+`expected '' to be 'DISK'`—`room.doc.getText("notes.txt")` is still empty
 when the assertion runs.
 
 **Reproducibility (this pass, HEAD `c231edb`, Docker up):**
 
-| Harness | Runs | Fails |
-|---|---|---|
-| `-t "33. file_open"` isolated | 25 | 0 |
-| whole `m4-collab.test.ts` file isolated | 15 | 0 |
-| full backend suite (`vitest run`, 85 files) | 5 | 0 |
+| Harness                                     | Runs | Fails |
+| ------------------------------------------- | ---- | ----- |
+| `-t "33. file_open"` isolated               | 25   | 0     |
+| whole `m4-collab.test.ts` file isolated     | 15   | 0     |
+| full backend suite (`vitest run`, 85 files) | 5    | 0     |
 
 Plus the original M68-closeout run: 1 failure in 1 full-suite run, and a
 second full-suite run on the same tree ~10 min earlier passed 1080/1080.
@@ -7386,11 +7392,11 @@ Exercised with a `fetch` shim injecting `503`s and a fiber-walked
 `CollaborationClient` handle to fire `reconnected_after_gap`. Account
 `m61_userA`; `m65-browser-demo` / `M61Verify`.
 
-| Path | Result |
-|---|---|
-| **Roster** (`GET .../collaborators` 503 on project open) | notice "Couldn't refresh collaborator names — some may be out of date." + Retry; exactly 1 request (no storm); file tree + editor unaffected; Retry → 1 request → notice clears; notice dropped on project switch; console clean |
-| **Timeline** (`GET .../collab/timeline` 503 on Team-panel open) | notice "Couldn't load team activity." + Retry; **1 request over a 6 s observation window — the old `.catch(() => setTimelineLoaded(false))` retry storm is gone**; Retry → 1 request → notice clears; dropped on switch; console clean |
-| **While-away** (`reconnected_after_gap` with `offlineMs` 200 000 → `GET .../collab/while-away` 503) | notice "Couldn't load what changed while you were away." + Retry; M63 threshold gate unchanged; Retry → 1 request → notice clears; dropped on switch; console clean |
+| Path                                                                                                | Result                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Roster** (`GET .../collaborators` 503 on project open)                                            | notice "Couldn't refresh collaborator names — some may be out of date." + Retry; exactly 1 request (no storm); file tree + editor unaffected; Retry → 1 request → notice clears; notice dropped on project switch; console clean       |
+| **Timeline** (`GET .../collab/timeline` 503 on Team-panel open)                                     | notice "Couldn't load team activity." + Retry; **1 request over a 6 s observation window — the old `.catch(() => setTimelineLoaded(false))` retry storm is gone**; Retry → 1 request → notice clears; dropped on switch; console clean |
+| **While-away** (`reconnected_after_gap` with `offlineMs` 200 000 → `GET .../collab/while-away` 503) | notice "Couldn't load what changed while you were away." + Retry; M63 threshold gate unchanged; Retry → 1 request → notice clears; dropped on switch; console clean                                                                    |
 
 #### 3. Adversarial review of the M68 diff — one real defect found & fixed
 
@@ -7424,7 +7430,7 @@ blocked that).
   role-error window.
 - **Role notice vs `clearNotices()` ordering:** the role-notice effect is
   declared before the collab lifecycle effect, and `roleStatus` only reaches
-  `"error"` a render *after* the switch-time `clearNotices()` — the notice is
+  `"error"` a render _after_ the switch-time `clearNotices()` — the notice is
   always created after the clear, never leaked. `dismissNoticeKey` on every
   non-error transition is a no-op when the key is absent (no re-render).
 - **Stale async → previous project:** tree (generation + `setTree([])` on
@@ -7461,14 +7467,14 @@ Vite dev server.** A fresh load of `/p/<M61Verify-id>` opens
 
 #### Verification (release-hardening pass, 2026-09-06)
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` → **808 passed / 0 failed** (98 files); +4 vs. the M68 closeout (804) = `ideTimelineStale` 2 + 2 wiring guards |
-| Frontend typecheck / build / eslint | `tsc --noEmit` exit 0; `vite build` exit 0 (Monaco chunk warning only); `eslint src` → 0 errors / 27 warnings (baseline) |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | 5 consecutive `vitest run` → **5 × 1080 passed / 9 skipped / 0 failed**; `m4-collab` #33 did not reproduce (see §1) |
-| `git diff --check` / working tree | clean |
-| Live browser | roster / timeline / while-away failure + retry + no-leak + clean console (§2); stale-timeline P2 reproduced then fixed & re-verified (§3); role fail-closed + Secrets-hidden re-confirmed; dev-only deep-link substitution characterised (§4) |
+| Gate                                | Evidence                                                                                                                                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite                 | `vitest run` → **808 passed / 0 failed** (98 files); +4 vs. the M68 closeout (804) = `ideTimelineStale` 2 + 2 wiring guards                                                                                                                   |
+| Frontend typecheck / build / eslint | `tsc --noEmit` exit 0; `vite build` exit 0 (Monaco chunk warning only); `eslint src` → 0 errors / 27 warnings (baseline)                                                                                                                      |
+| Backend typecheck                   | `tsc --noEmit` exit 0                                                                                                                                                                                                                         |
+| Backend full suite (Docker up)      | 5 consecutive `vitest run` → **5 × 1080 passed / 9 skipped / 0 failed**; `m4-collab` #33 did not reproduce (see §1)                                                                                                                           |
+| `git diff --check` / working tree   | clean                                                                                                                                                                                                                                         |
+| Live browser                        | roster / timeline / while-away failure + retry + no-leak + clean console (§2); stale-timeline P2 reproduced then fixed & re-verified (§3); role fail-closed + Secrets-hidden re-confirmed; dev-only deep-link substitution characterised (§4) |
 
 **Commit added:** `9cd60eb` fix(ide): drop stale collaboration fetches after
 a project switch.
@@ -7562,7 +7568,7 @@ backdrop. Five new tokens carry these (`--input-bg`, `--input-bg-hover`,
 `--input-bg-focus`, `--surface-recessed`, `--modal-backdrop`), **dark values
 verbatim** so dark stays pixel-identical, light overridden in the
 `[data-theme="light"]` block. The additive `rgba(255,255,255,…)` glass
-*highlights* (specular sheen, hover glints, hairline dividers) are left
+_highlights_ (specular sheen, hover glints, hairline dividers) are left
 alone — cosmetic, invisible-but-harmless on light, and rewriting them would
 be the broad CSS cleanup this milestone excludes.
 
@@ -7570,15 +7576,15 @@ be the broad CSS cleanup this milestone excludes.
 
 **Commit range:** `d567062..HEAD` (7 commits + this doc)
 
-| Commit | Purpose |
-|---|---|
-| `6ee5b80` feat(settings): add typed theme preference | `auth/preferences.ts` (typed field + `invalid_theme` + merge + SELECT/INSERT); `db.ts` v15 migration + inline schema; `m69-theme-preference.test.ts` (10); `migrations` / `preferences` / `m67-layout` test assertions bumped to v15 |
-| `102ad48` feat(ide): resolve appearance and theme Monaco in place | `hooks/useAppearance.ts` (new) + `useAppearance.test.tsx` (11); `types.ts` (`theme` + `EDITOR_PREFERENCE_KEYS`); `IDE.tsx` wiring; `Editor.tsx` create-theme + live `setTheme` effect; `mocks/monaco.ts` (`setTheme` / create-count); `Editor.theme.test.tsx` (5); `ideAppearance.wiring.test.tsx` |
-| `84700f5` feat(ide): add the light theme palette | `tokens.css` `[data-theme="light"]` block + scrollbar token + reduced-transparency light variant + pre-hydration `color-scheme` hint; `index.css` scrollbar tokens; `lightTheme.tokens.test.ts` (7) |
-| `44eb160` feat(terminal): synchronize terminal theme in place | `Terminal/terminalThemes.ts` (new); `Terminal.tsx` prop + ref + live theme effect; `Terminal.theme.test.tsx` (4) |
-| `ed40258` feat(settings): add theme selector | `SettingsModal.tsx` Theme select; `SettingsModal.theme.test.tsx` (5) |
-| `8271d28` test(ide): harden theme lifecycle coverage | `ideThemeLifecycle.test.tsx` (7 — real hook + real Editor integration) + a layout-independence wiring guard |
-| `e7ab719` feat(ide): tokenise hardcoded panel surfaces for the light theme | 5 tokens in `tokens.css`; `glass.css` / `output.css` / `toolbar.css` / `admin.css` + `ProblemsPanel` / `ResourcesView` / `Preview` / `ProjectSharingModal` / `ProjectSecretsModal` inline styles -> `var(--…)`; `lightTheme.tokens.test.ts` +2 |
+| Commit                                                                     | Purpose                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `6ee5b80` feat(settings): add typed theme preference                       | `auth/preferences.ts` (typed field + `invalid_theme` + merge + SELECT/INSERT); `db.ts` v15 migration + inline schema; `m69-theme-preference.test.ts` (10); `migrations` / `preferences` / `m67-layout` test assertions bumped to v15                                                               |
+| `102ad48` feat(ide): resolve appearance and theme Monaco in place          | `hooks/useAppearance.ts` (new) + `useAppearance.test.tsx` (11); `types.ts` (`theme` + `EDITOR_PREFERENCE_KEYS`); `IDE.tsx` wiring; `Editor.tsx` create-theme + live `setTheme` effect; `mocks/monaco.ts` (`setTheme` / create-count); `Editor.theme.test.tsx` (5); `ideAppearance.wiring.test.tsx` |
+| `84700f5` feat(ide): add the light theme palette                           | `tokens.css` `[data-theme="light"]` block + scrollbar token + reduced-transparency light variant + pre-hydration `color-scheme` hint; `index.css` scrollbar tokens; `lightTheme.tokens.test.ts` (7)                                                                                                |
+| `44eb160` feat(terminal): synchronize terminal theme in place              | `Terminal/terminalThemes.ts` (new); `Terminal.tsx` prop + ref + live theme effect; `Terminal.theme.test.tsx` (4)                                                                                                                                                                                   |
+| `ed40258` feat(settings): add theme selector                               | `SettingsModal.tsx` Theme select; `SettingsModal.theme.test.tsx` (5)                                                                                                                                                                                                                               |
+| `8271d28` test(ide): harden theme lifecycle coverage                       | `ideThemeLifecycle.test.tsx` (7 — real hook + real Editor integration) + a layout-independence wiring guard                                                                                                                                                                                        |
+| `e7ab719` feat(ide): tokenise hardcoded panel surfaces for the light theme | 5 tokens in `tokens.css`; `glass.css` / `output.css` / `toolbar.css` / `admin.css` + `ProblemsPanel` / `ResourcesView` / `Preview` / `ProjectSharingModal` / `ProjectSecretsModal` inline styles -> `var(--…)`; `lightTheme.tokens.test.ts` +2                                                     |
 
 New surfaces: `useAppearance` hook; `TERMINAL_THEMES`; `Editor` /
 `Terminal` `resolvedTheme` prop; SettingsModal Theme control; 5 form/surface
@@ -7586,15 +7592,15 @@ tokens + the light palette block. No new dependency. One migration (v15).
 
 ### Tests
 
-| Suite | Coverage |
-|---|---|
-| `m69-theme-preference.test.ts` (10) | default `"system"`; every valid value round-trips; `invalid_theme` for `"Dark"`/`"auto"`/`""`/number/bool/null; persisted survives GET; partial PUT keeps theme + editor + layout keys; unknown key (`themeMode`…) still `invalid_preference_key`; domain fn round-trip; fresh-db column; **v15 migration** adds `theme` to a pre-v15 db, idempotent, defaults existing rows to `"system"`; audit log |
-| `useAppearance.test.tsx` (11) | `resolveTheme` all 6 combos; explicit dark/light stamps `data-theme` + `color-scheme`; system resolves to dark / light per OS; live `prefers-color-scheme` change followed in system mode; **ignored** under explicit dark and explicit light; listener registered **only** in system mode (0 in explicit, exactly 1 in system, no dup across toggles); removed on unmount; no throw when `matchMedia` is absent |
-| `Editor.theme.test.tsx` (5) | create with `vs` / `vs-dark` from the prop; a theme change calls `setTheme` with **create count 1** (same instance, same model); back-and-forth -> `["vs","vs-dark"]`; saved view state restorable across a switch |
-| `Terminal.theme.test.tsx` (4) | opens with dark / light palette; a theme change updates `xterm.options.theme` with **no new xterm, no new socket**; a project change still recreates (guard is theme-only) |
-| `SettingsModal.theme.test.tsx` (5) | control reflects the current preference; offers System/Dark/Light; a change is in the Save payload; Reset Defaults -> `"system"`; payload still omits the layout keys |
-| `ideThemeLifecycle.test.tsx` (7) | real `useAppearance` -> real `<Editor>`: hydrates `data-theme` immediately; explicit change **and** live `prefers-color-scheme` change both re-theme Monaco with instance/model/view-state intact (create count 1); explicit ignores the OS; one listener in system mode, dropped on unmount and on becoming explicit; a theme change leaves an unrelated preference untouched |
-| `lightTheme.tokens.test.ts` (7) | light block keyed off `[data-theme="light"]`; **every theme-variant `:root` colour token** redefined for light; scrollbar tokenised + overridden; `color-scheme` switches; reduced-transparency light variant; the 5 form/surface tokens present in both blocks; no core surface CSS still uses a raw dark `rgba()` background |
+| Suite                               | Coverage                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `m69-theme-preference.test.ts` (10) | default `"system"`; every valid value round-trips; `invalid_theme` for `"Dark"`/`"auto"`/`""`/number/bool/null; persisted survives GET; partial PUT keeps theme + editor + layout keys; unknown key (`themeMode`…) still `invalid_preference_key`; domain fn round-trip; fresh-db column; **v15 migration** adds `theme` to a pre-v15 db, idempotent, defaults existing rows to `"system"`; audit log                                               |
+| `useAppearance.test.tsx` (11)       | `resolveTheme` all 6 combos; explicit dark/light stamps `data-theme` + `color-scheme`; system resolves to dark / light per OS; live `prefers-color-scheme` change followed in system mode; **ignored** under explicit dark and explicit light; listener registered **only** in system mode (0 in explicit, exactly 1 in system, no dup across toggles); removed on unmount; no throw when `matchMedia` is absent                                    |
+| `Editor.theme.test.tsx` (5)         | create with `vs` / `vs-dark` from the prop; a theme change calls `setTheme` with **create count 1** (same instance, same model); back-and-forth -> `["vs","vs-dark"]`; saved view state restorable across a switch                                                                                                                                                                                                                                  |
+| `Terminal.theme.test.tsx` (4)       | opens with dark / light palette; a theme change updates `xterm.options.theme` with **no new xterm, no new socket**; a project change still recreates (guard is theme-only)                                                                                                                                                                                                                                                                          |
+| `SettingsModal.theme.test.tsx` (5)  | control reflects the current preference; offers System/Dark/Light; a change is in the Save payload; Reset Defaults -> `"system"`; payload still omits the layout keys                                                                                                                                                                                                                                                                               |
+| `ideThemeLifecycle.test.tsx` (7)    | real `useAppearance` -> real `<Editor>`: hydrates `data-theme` immediately; explicit change **and** live `prefers-color-scheme` change both re-theme Monaco with instance/model/view-state intact (create count 1); explicit ignores the OS; one listener in system mode, dropped on unmount and on becoming explicit; a theme change leaves an unrelated preference untouched                                                                      |
+| `lightTheme.tokens.test.ts` (7)     | light block keyed off `[data-theme="light"]`; **every theme-variant `:root` colour token** redefined for light; scrollbar tokenised + overridden; `color-scheme` switches; reduced-transparency light variant; the 5 form/surface tokens present in both blocks; no core surface CSS still uses a raw dark `rgba()` background                                                                                                                      |
 | `ideAppearance.wiring.test.tsx` (8) | one `useAppearance(preferences.theme)`; `resolvedTheme` threaded to Editor + Terminal; typed preference + `EDITOR_PREFERENCE_KEYS`; Editor themes Monaco from the prop with no hardcoded `vs-dark` and a `[resolvedTheme]` effect that never calls `create`; Terminal themes xterm from the prop with `initTerminal` still keyed on project; `useLayoutPreferences` (M67) untouched; the settings select is bound + saves through `pickEditorPrefs` |
 
 Adjusted (schema bump v14 -> v15): `migrations.test.ts`, `preferences.test.ts`
@@ -7606,20 +7612,21 @@ Revert-sensitivity: the `invalid_theme` validation, the v15 migration, the
 `data-theme` stamp, the Monaco `setTheme` effect + non-hardcoded create
 theme, the xterm in-place theme effect + project-only `initTerminal` key,
 the settings select binding, and every token-coverage assertion each break
->=1 test when reverted.
+
+> =1 test when reverted.
 
 ### Verification gates (2026-09-06)
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` -> **854 passed / 0 failed** (105 files); +42 vs. M68 hardening (854 total incl. adjusted-count files) |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `TERMINAL_THEMES` lives in its own module so `Terminal.tsx` keeps a clean react-refresh lint) |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` -> **1090 passed / 9 skipped / 0 failed** (86 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +10 vs. M68 (1080) = the 10 M69 backend tests. Backend byte-identical `8271d28..HEAD`, so this run is the final state. |
-| `git diff --check` | clean |
-| Working tree | clean |
+| Gate                                                                                                                                               | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite                                                                                                                                | `vitest run` -> **854 passed / 0 failed** (105 files); +42 vs. M68 hardening (854 total incl. adjusted-count files)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Frontend typecheck                                                                                                                                 | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Frontend build                                                                                                                                     | `vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Frontend eslint                                                                                                                                    | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `TERMINAL_THEMES` lives in its own module so `Terminal.tsx` keeps a clean react-refresh lint)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Backend typecheck                                                                                                                                  | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Backend full suite (Docker up)                                                                                                                     | `vitest run` -> **1090 passed / 9 skipped / 0 failed** (86 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +10 vs. M68 (1080) = the 10 M69 backend tests. Backend byte-identical `8271d28..HEAD`, so this run is the final state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `git diff --check`                                                                                                                                 | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Working tree                                                                                                                                       | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Live browser (`m61_userA`; `m65-browser-demo`; a controllable `matchMedia` fake for the OS-change scenarios, real Settings UI for everything else) | **PASS, all 17:** (1) start System, OS dark -> `data-theme="dark"`; (2-3) `matchMedia` "change" -> IDE follows to light and back, Monaco re-themes, exactly 1 listener; (4-5) select Dark -> OS change **ignored**, listener removed (0); (6) select Light -> `data-theme="light"`; (7) Monaco `vs` light, syntax legible; (8) sidebar light; (9) bottom panel + Problems panel light (after the tokenisation commit); (10) Settings modal + Theme control light; (11) notice text legible on light; (12) open Terminal -> `xterm.options.theme.background === "#eff1f5"`, foreground `#4c4f69`, **session stays connected**; (13-14) switch theme with `main.py` open -> **same editor instance, same model `$model3`, cursor `{3,9}` preserved, content length unchanged, create count 1**; (15) switch projects -> theme preference persists (user-global); (16) full reload -> persisted theme re-applied from the server; (17) **zero console errors/warnings** across the whole session. Resource safety: **0 WebSockets created** during any theme switch — no collaboration or terminal reconnect. Test account reset to `theme:"system"` afterwards. |
 
 ### Not done / out of scope (M69)
@@ -7631,7 +7638,7 @@ the settings select binding, and every token-coverage assertion each break
 - A one-frame dark flash is possible before React mounts and `useAppearance`
   stamps `data-theme` (the preference is server-side, not in localStorage —
   same pre-hydration window as M67's layout). A `@media
-  (prefers-color-scheme: light)` `color-scheme` hint softens it for
+(prefers-color-scheme: light)` `color-scheme` hint softens it for
   system-mode light-OS users.
 - The additive `rgba(255,255,255,…)` glass **highlights** (~45 of them) are
   left at their white values — cosmetic sheen, invisible on light. Not a
@@ -7659,13 +7666,13 @@ semantics.
 The five commands `useKeyboardShortcuts` dispatches — the exact
 `CommandRegistry` IDs (no second registry):
 
-| Command ID | Title | Default (canonical) | Text-input policy | Monaco | Browser |
-|---|---|---|---|---|---|
-| `workbench.action.showCommands` | Command Palette | `mod+shift+p` | global | Monaco's F1 palette is in-editor only; the window capture listener wins | — |
-| `workbench.action.quickOpen` | Quick Open File | `mod+p` | global | — | Ctrl+P print — intercepted (always-suppressed) |
-| `workbench.action.saveFile` | Save Active File | `mod+s` | global | Monaco save action, re-registered from the resolved chord (below) | Ctrl+S save-page — intercepted (always-suppressed) |
-| `workbench.action.toggleSidebar` | Toggle Sidebar | `mod+b` | **skipped in INPUT/TEXTAREA/contentEditable** (Ctrl+B = bold) | — | — |
-| `workbench.action.toggleBottomPanel` | Toggle Bottom Console Drawer | `mod+j` | global | — | Firefox Ctrl+J downloads (not Chrome) |
+| Command ID                           | Title                        | Default (canonical) | Text-input policy                                             | Monaco                                                                  | Browser                                            |
+| ------------------------------------ | ---------------------------- | ------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------- |
+| `workbench.action.showCommands`      | Command Palette              | `mod+shift+p`       | global                                                        | Monaco's F1 palette is in-editor only; the window capture listener wins | —                                                  |
+| `workbench.action.quickOpen`         | Quick Open File              | `mod+p`             | global                                                        | —                                                                       | Ctrl+P print — intercepted (always-suppressed)     |
+| `workbench.action.saveFile`          | Save Active File             | `mod+s`             | global                                                        | Monaco save action, re-registered from the resolved chord (below)       | Ctrl+S save-page — intercepted (always-suppressed) |
+| `workbench.action.toggleSidebar`     | Toggle Sidebar               | `mod+b`             | **skipped in INPUT/TEXTAREA/contentEditable** (Ctrl+B = bold) | —                                                                       | —                                                  |
+| `workbench.action.toggleBottomPanel` | Toggle Bottom Console Drawer | `mod+j`             | global                                                        | —                                                                       | Firefox Ctrl+J downloads (not Chrome)              |
 
 `mod` = the platform primary modifier (Cmd on macOS, Ctrl elsewhere) — the
 convention `useKeyboardShortcuts` has always used. **Not configurable
@@ -7753,13 +7760,13 @@ event bus — `save` keeps its `ide-save` CustomEvent.
 
 **Commit range:** `7b08064..HEAD` (5 commits + this doc)
 
-| Commit | Purpose |
-|---|---|
-| `5fd0e93` feat(settings): add typed keymap preference | `auth/preferences.ts` (`keymap` field + `CONFIGURABLE_COMMAND_IDS` + `DEFAULT_KEYMAP` + `isValidChord` + `invalid_keymap`/`invalid_command_id`/`invalid_shortcut`/`duplicate_shortcut` + JSON column); `db.ts` v16; `m70-keybindings.test.ts` (15); schema-version bumps in `migrations` / `preferences` / `m67` / `m69` tests |
-| `41d5844` feat(ide): centralize resolved keymap handling | `src/keymap/keymap.ts` (new); `useKeyboardShortcuts` rewritten to keymap dispatch (ref-read, bound to `enabled`, always-suppress, text-input skip); `IDE.tsx` memoised `resolveKeymap` + hook + Editor `saveChord` + palette labels; `Editor.tsx` hardcoded `addCommand(Ctrl+S)` → disposable `addAction` from the resolved chord; `types.ts`; `mocks/monaco.ts`; `keymap.test.ts` (15) + `useKeyboardShortcuts.test.ts` (+6) + `Editor.saveTruthfulness.test.tsx` (updated + 1) + `ideKeybindings.wiring.test.tsx` (5) |
-| `ab7f2a7` feat(settings): add the keybindings settings UI | `SettingsModal.tsx` Keybindings tab — rows, capture field (`data-keybinding-capture`), inline conflict/invalid messages, Apply gating, reset one/all; `SettingsModal.keybindings.test.tsx` (9) |
-| `e1908cc` test(ide): harden keyboard lifecycle coverage | `ideKeybindingLifecycle.test.tsx` (5) — hydration, re-resolve without listener stacking, copy/paste/undo untouched, plain typing, single-listener |
-| `32712aa` fix(settings): keep the active tab when a save re-issues preferences | split the modal's per-open reset off `[isOpen, preferences]` so an in-modal save (keybinding Apply/Reset, and already the M69 theme select) no longer bounces to the Editor tab; +1 regression test |
+| Commit                                                                         | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `5fd0e93` feat(settings): add typed keymap preference                          | `auth/preferences.ts` (`keymap` field + `CONFIGURABLE_COMMAND_IDS` + `DEFAULT_KEYMAP` + `isValidChord` + `invalid_keymap`/`invalid_command_id`/`invalid_shortcut`/`duplicate_shortcut` + JSON column); `db.ts` v16; `m70-keybindings.test.ts` (15); schema-version bumps in `migrations` / `preferences` / `m67` / `m69` tests                                                                                                                                                                                          |
+| `41d5844` feat(ide): centralize resolved keymap handling                       | `src/keymap/keymap.ts` (new); `useKeyboardShortcuts` rewritten to keymap dispatch (ref-read, bound to `enabled`, always-suppress, text-input skip); `IDE.tsx` memoised `resolveKeymap` + hook + Editor `saveChord` + palette labels; `Editor.tsx` hardcoded `addCommand(Ctrl+S)` → disposable `addAction` from the resolved chord; `types.ts`; `mocks/monaco.ts`; `keymap.test.ts` (15) + `useKeyboardShortcuts.test.ts` (+6) + `Editor.saveTruthfulness.test.tsx` (updated + 1) + `ideKeybindings.wiring.test.tsx` (5) |
+| `ab7f2a7` feat(settings): add the keybindings settings UI                      | `SettingsModal.tsx` Keybindings tab — rows, capture field (`data-keybinding-capture`), inline conflict/invalid messages, Apply gating, reset one/all; `SettingsModal.keybindings.test.tsx` (9)                                                                                                                                                                                                                                                                                                                          |
+| `e1908cc` test(ide): harden keyboard lifecycle coverage                        | `ideKeybindingLifecycle.test.tsx` (5) — hydration, re-resolve without listener stacking, copy/paste/undo untouched, plain typing, single-listener                                                                                                                                                                                                                                                                                                                                                                       |
+| `32712aa` fix(settings): keep the active tab when a save re-issues preferences | split the modal's per-open reset off `[isOpen, preferences]` so an in-modal save (keybinding Apply/Reset, and already the M69 theme select) no longer bounces to the Editor tab; +1 regression test                                                                                                                                                                                                                                                                                                                     |
 
 New surfaces: `src/keymap/keymap.ts`; `Editor` `saveChord` prop;
 `useKeyboardShortcuts` 3rd arg (`resolvedKeymap`, default = empty); the
@@ -7768,15 +7775,15 @@ migration (v16).
 
 ### Deterministic test results
 
-| Suite | n | Coverage |
-|---|---|---|
-| `m70-keybindings.test.ts` (backend) | 15 | default `{}`; the configurable set + default chords; valid override round-trip; whole-map replace + other prefs untouched; `invalid_command_id`; `invalid_shortcut` (bare / shift-only / reserved / uppercase / raw-ctrl / no-key / empty); `duplicate_shortcut` (onto a default, two overrides) + swap allowed; reset to `{}`; `invalid_preference_key` + `invalid_keymap`; theme/fontSize/layout intact; domain round-trip; **v16 migration** idempotent + defaults existing rows; audit log |
-| `keymap.test.ts` | 15 | the five commands + `skipInTextInput`; `isValidChord` accept / reject / reserved; `chordFromEvent` canonical order, layout-stable, key fallback, null cases; `chordToDisplay` both platforms; `resolveKeymap` (byCommand + byChord + unknown-id ignore); `findConflict` (owner / free / self / swap); `chordToMonacoKeybinding` |
-| `useKeyboardShortcuts.test.ts` | 11 | M1 save path unchanged (5) + M70: remapped fires / default no longer / always-suppress on unbound `mod+s`&`mod+p` / toggle-sidebar text-input skip vs. elsewhere / save+quick-open not skipped in inputs / no re-register across keymap changes / removed on unmount |
-| `SettingsModal.keybindings.test.tsx` | 10 | lists all commands with current shortcut / reflects an override / capture-show-Apply-only-saves / invalid rejected + Apply disabled / conflict named + Apply disabled / reset-one / reset-all / `data-keybinding-capture` present / editor payload omits keymap / tab persists after a save |
-| `ideKeybindingLifecycle.test.tsx` | 5 | persisted override hydrates + default freed / re-resolve without listener stacking / Ctrl+C/V/X/Z/Y/A never preventDefaulted or dispatched / plain typing never triggers a command / one window listener across re-renders, removed on unmount |
-| `ideKeybindings.wiring.test.tsx` | 5 | one `resolveKeymap` fed to the one dispatcher / palette labels from the keymap / hook dispatches by lookup not hardcoded checks / Editor disposable save action / `keymap` typed + out of `EDITOR_PREFERENCE_KEYS` |
-| `Editor.saveTruthfulness.test.tsx` | 5 | the in-editor save action dispatches live content (not stale props); re-registers with a new keybinding on a chord change, no leak; + the 3 pre-existing `getLiveContent` / read-only guards |
+| Suite                                | n   | Coverage                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------ | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `m70-keybindings.test.ts` (backend)  | 15  | default `{}`; the configurable set + default chords; valid override round-trip; whole-map replace + other prefs untouched; `invalid_command_id`; `invalid_shortcut` (bare / shift-only / reserved / uppercase / raw-ctrl / no-key / empty); `duplicate_shortcut` (onto a default, two overrides) + swap allowed; reset to `{}`; `invalid_preference_key` + `invalid_keymap`; theme/fontSize/layout intact; domain round-trip; **v16 migration** idempotent + defaults existing rows; audit log |
+| `keymap.test.ts`                     | 15  | the five commands + `skipInTextInput`; `isValidChord` accept / reject / reserved; `chordFromEvent` canonical order, layout-stable, key fallback, null cases; `chordToDisplay` both platforms; `resolveKeymap` (byCommand + byChord + unknown-id ignore); `findConflict` (owner / free / self / swap); `chordToMonacoKeybinding`                                                                                                                                                                |
+| `useKeyboardShortcuts.test.ts`       | 11  | M1 save path unchanged (5) + M70: remapped fires / default no longer / always-suppress on unbound `mod+s`&`mod+p` / toggle-sidebar text-input skip vs. elsewhere / save+quick-open not skipped in inputs / no re-register across keymap changes / removed on unmount                                                                                                                                                                                                                           |
+| `SettingsModal.keybindings.test.tsx` | 10  | lists all commands with current shortcut / reflects an override / capture-show-Apply-only-saves / invalid rejected + Apply disabled / conflict named + Apply disabled / reset-one / reset-all / `data-keybinding-capture` present / editor payload omits keymap / tab persists after a save                                                                                                                                                                                                    |
+| `ideKeybindingLifecycle.test.tsx`    | 5   | persisted override hydrates + default freed / re-resolve without listener stacking / Ctrl+C/V/X/Z/Y/A never preventDefaulted or dispatched / plain typing never triggers a command / one window listener across re-renders, removed on unmount                                                                                                                                                                                                                                                 |
+| `ideKeybindings.wiring.test.tsx`     | 5   | one `resolveKeymap` fed to the one dispatcher / palette labels from the keymap / hook dispatches by lookup not hardcoded checks / Editor disposable save action / `keymap` typed + out of `EDITOR_PREFERENCE_KEYS`                                                                                                                                                                                                                                                                             |
+| `Editor.saveTruthfulness.test.tsx`   | 5   | the in-editor save action dispatches live content (not stale props); re-registers with a new keybinding on a chord change, no leak; + the 3 pre-existing `getLiveContent` / read-only guards                                                                                                                                                                                                                                                                                                   |
 
 Adjusted for the v16 schema bump (assertion values only, no behaviour
 change): `migrations.test.ts`, `preferences.test.ts` (exact-defaults object),
@@ -7792,16 +7799,16 @@ reset flow, and the tab-persistence split each break >=1 test when reverted.
 
 ### Verification gates (2026-09-06)
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` -> **896 passed / 0 failed** (109 files); +42 vs. M69 |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk warning only) |
-| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `IS_MAC` moved to `src/keymap/` and re-exported, so no new import churn) |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` -> **1105 passed / 9 skipped / 0 failed** (87 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +15 vs. M69 (1090) = the 15 M70 backend tests. Backend byte-identical `e1908cc..HEAD`, so this run is the final state. |
-| `git diff --check` | clean |
-| Working tree | clean |
+| Gate                                                                                                                                                   | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite                                                                                                                                    | `vitest run` -> **896 passed / 0 failed** (109 files); +42 vs. M69                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Frontend typecheck                                                                                                                                     | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Frontend build                                                                                                                                         | `vite build` exit 0 (pre-existing Monaco chunk warning only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Frontend eslint                                                                                                                                        | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged — `IS_MAC` moved to `src/keymap/` and re-exported, so no new import churn)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Backend typecheck                                                                                                                                      | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Backend full suite (Docker up)                                                                                                                         | `vitest run` -> **1105 passed / 9 skipped / 0 failed** (87 files); Docker-gated suites executed; `m4-collab` #33 did not reproduce. +15 vs. M69 (1090) = the 15 M70 backend tests. Backend byte-identical `e1908cc..HEAD`, so this run is the final state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `git diff --check`                                                                                                                                     | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Working tree                                                                                                                                           | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Live Chrome (`m61_userA`; `m65-browser-demo` / `M61Verify`; real OS keystrokes via the automation `key` action for capture/dispatch, real Settings UI) | **PASS, A–P:** (A) Settings -> Keybindings opens; (B) all five commands show their current defaults (Ctrl+Shift+P / Ctrl+P / Ctrl+S / Ctrl+B / Ctrl+J), Reset disabled at default; (C) Edit Save, press **Ctrl+Alt+S**, "Ctrl+Alt+S" shown, Apply -> `PUT` persists `{saveFile: mod+alt+s}`, **0 WebSockets** created; (D) Ctrl+Alt+S in the IDE fires one `ide-save`; (E) **Ctrl+S no longer saves** — `preventDefault`ed (no browser dialog), 0 `ide-save` even with the editor focused (Monaco action moved); (F) full reload -> Ctrl+Alt+S still saves, keymap persisted; (G) press **Ctrl+B** while remapping Command Palette -> inline `Ctrl+B is already bound to "Toggle Sidebar"`, **Apply disabled**, and the sidebar did **not** toggle (capture guard); Ctrl+W -> "not usable" + Apply disabled; (H/I) Reset the Save row -> server `{}`, UI back to `Ctrl+S`; (J) two overrides then **Reset all** -> server `{}`, every row back to default, **stayed on the Keybindings tab**; (K) capture while the field is focused never triggers the captured command; (L) pressing s/p/b/j with no modifier in a text field -> no command, sidebar unchanged; (M) Monaco edit / undo / redo / select-all all work normally; (N) `theme` still `system`, `sidebarWidth` still 250 — M69/M67 prefs intact; (O) **zero console errors/warnings** across the whole session; (P) set an override, switch M61Verify <-> m65-browser-demo -> keymap unchanged (user-global). Test account reset to `keymap:{}` afterwards. |
 
 ### Not done / out of scope (M70)
@@ -7843,22 +7850,22 @@ before/after on the same machine in the same run.
 
 Four baseline suites (committed at `0bac3c7`):
 
-| Suite | What it drives | Result |
-|---|---|---|
-| `baseline.collab` | collaborator-awareness cursor churn (remote keystroke) against the real `<Sidebar>` / `<Toolbar>` / `<Editor>`, fed `throttleLatest(setCollaborators, 200)` exactly as `IDE.tsx` wires it | see table below |
-| `baseline.execution` | 500 stdout frames through `useExecutionSession` + `<Output>` | 500 frames -> **~20 commits** (1 per animation frame — rAF batching already works); the **only** context consumer is `<Output>` |
-| `baseline.tree` | mount + one unrelated-parent-re-render per tree size | see table below |
-| `baseline.awareness` | `getOnlineCollaborators` projection + Sidebar map derivation, 20 000 iterations | **0.0001-0.006 ms/change** — 4-6 orders of magnitude below the render cost |
+| Suite                | What it drives                                                                                                                                                                            | Result                                                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline.collab`    | collaborator-awareness cursor churn (remote keystroke) against the real `<Sidebar>` / `<Toolbar>` / `<Editor>`, fed `throttleLatest(setCollaborators, 200)` exactly as `IDE.tsx` wires it | see table below                                                                                                                 |
+| `baseline.execution` | 500 stdout frames through `useExecutionSession` + `<Output>`                                                                                                                              | 500 frames -> **~20 commits** (1 per animation frame — rAF batching already works); the **only** context consumer is `<Output>` |
+| `baseline.tree`      | mount + one unrelated-parent-re-render per tree size                                                                                                                                      | see table below                                                                                                                 |
+| `baseline.awareness` | `getOnlineCollaborators` projection + Sidebar map derivation, 20 000 iterations                                                                                                           | **0.0001-0.006 ms/change** — 4-6 orders of magnitude below the render cost                                                      |
 
 **BASELINE A — collaborator cursor-churn** (20 throttled ticks, 5 repeats;
 median React work over the whole 20-tick window):
 
 | tree files | rendered `<li>` | Sidebar commits | Sidebar React ms /20 ticks | Toolbar ms | Editor ms |
-|---|---|---|---|---|---|
-| 100 | 110 | 20 | 101 | 7.4 | 6.7 |
-| 500 | 522 | 20 | 450 | 8.6 | 7.7 |
-| 1000 | 1032 | 20 | 983 | 10.6 | 10.0 |
-| 2000 | 2044 | 20 | 1812 | 9.4 | 7.2 |
+| ---------- | --------------- | --------------- | -------------------------- | ---------- | --------- |
+| 100        | 110             | 20              | 101                        | 7.4        | 6.7       |
+| 500        | 522             | 20              | 450                        | 8.6        | 7.7       |
+| 1000       | 1032            | 20              | 983                        | 10.6       | 10.0      |
+| 2000       | 2044            | 20              | 1812                       | 9.4        | 7.2       |
 
 Per throttled tick (realistic max 5/s during collaboration): Sidebar
 **~5 ms (100 files) to ~90 ms (2000 files)** of React reconciliation, purely
@@ -7867,11 +7874,11 @@ for a remote collaborator cursor moving. Toolbar/Editor ~0.4-0.5 ms/tick.
 **BASELINE C — workspace tree** (5 repeats):
 
 | tree files | mount React ms | one unrelated re-render React ms |
-|---|---|---|
-| 100 | 52 | 11 |
-| 500 | 154 | 36 |
-| 1000 | 242 | 74 |
-| 2000 | 437 | 108 |
+| ---------- | -------------- | -------------------------------- |
+| 100        | 52             | 11                               |
+| 500        | 154            | 36                               |
+| 1000       | 242            | 74                               |
+| 2000       | 437            | 108                              |
 
 Every unrelated IDE re-render (the `setStats` poll every 2.5 s; any state
 change) cost the file tree **11 ms (100 files) to 108 ms (2000 files)** of
@@ -7879,16 +7886,16 @@ React work.
 
 ### Classification
 
-| Candidate | Verdict | Evidence |
-|---|---|---|
-| Sidebar/FileTree re-render on collaborator cursor-churn | **PROVEN HOT** | BASELINE A: 20 commits / 20 ticks, 5-90 ms React work per throttled tick, linear in tree size |
-| Sidebar/FileTree re-render on the `setStats` poll (every 2.5 s) + any IDE state change | **PROVEN HOT** | BASELINE C: 11-108 ms React work per unrelated re-render |
-| Toolbar re-render on collaborator churn | NOT A BOTTLENECK | ~0.5 ms/tick |
-| Editor React-side re-render on collaborator churn | NOT A BOTTLENECK | ~0.5 ms/tick (Monaco is imperative; the React reconciliation is cheap) |
-| `useExecutionSession` context — a controls-only consumer re-rendering per log batch | **NOT A BOTTLENECK / suspicion disproved** | BASELINE B: no controls-only consumer exists in the codebase (grep — `<Output>` is the sole `useExecutionSession()` caller; Toolbar mirrors run state via `document` events). The log path is already rAF-batched. A context split would be a speculative refactor with no measured beneficiary — **not done**. |
-| `getOnlineCollaborators` / Sidebar map derivation cost | NOT A BOTTLENECK | BASELINE D: sub-microsecond; the cost is 100 % FileTree DOM reconciliation |
-| Diagnostic markers | NOT MEASURED (classified by frequency) | `setDiagnostics` fires only on `ide-execution-result` (run completion) — not a tick hot path |
-| Workspace-tree virtualization | MEASURABLE BUT NOT JUSTIFIED | After the fix below, the tree no longer reconciles on any hot path. Remaining tree cost is mount-time (437 ms @ 2000 files, once per project open) and genuine-change-time (branch checkout, file create/delete, AI patch) — all user-action-gated and infrequent. Virtualization of a collapsible nested tree with reveal/context-menu/collaborator-indicator behavior is a new dependency (CLAUDE.md bars arbitrary deps; no virtualization dep present) + significant complexity for a cost that is no longer on a hot path. **Not done.** |
+| Candidate                                                                              | Verdict                                    | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sidebar/FileTree re-render on collaborator cursor-churn                                | **PROVEN HOT**                             | BASELINE A: 20 commits / 20 ticks, 5-90 ms React work per throttled tick, linear in tree size                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Sidebar/FileTree re-render on the `setStats` poll (every 2.5 s) + any IDE state change | **PROVEN HOT**                             | BASELINE C: 11-108 ms React work per unrelated re-render                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Toolbar re-render on collaborator churn                                                | NOT A BOTTLENECK                           | ~0.5 ms/tick                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Editor React-side re-render on collaborator churn                                      | NOT A BOTTLENECK                           | ~0.5 ms/tick (Monaco is imperative; the React reconciliation is cheap)                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `useExecutionSession` context — a controls-only consumer re-rendering per log batch    | **NOT A BOTTLENECK / suspicion disproved** | BASELINE B: no controls-only consumer exists in the codebase (grep — `<Output>` is the sole `useExecutionSession()` caller; Toolbar mirrors run state via `document` events). The log path is already rAF-batched. A context split would be a speculative refactor with no measured beneficiary — **not done**.                                                                                                                                                                                                                               |
+| `getOnlineCollaborators` / Sidebar map derivation cost                                 | NOT A BOTTLENECK                           | BASELINE D: sub-microsecond; the cost is 100 % FileTree DOM reconciliation                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Diagnostic markers                                                                     | NOT MEASURED (classified by frequency)     | `setDiagnostics` fires only on `ide-execution-result` (run completion) — not a tick hot path                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Workspace-tree virtualization                                                          | MEASURABLE BUT NOT JUSTIFIED               | After the fix below, the tree no longer reconciles on any hot path. Remaining tree cost is mount-time (437 ms @ 2000 files, once per project open) and genuine-change-time (branch checkout, file create/delete, AI patch) — all user-action-gated and infrequent. Virtualization of a collapsible nested tree with reveal/context-menu/collaborator-indicator behavior is a new dependency (CLAUDE.md bars arbitrary deps; no virtualization dep present) + significant complexity for a cost that is no longer on a hot path. **Not done.** |
 
 ### The one optimization that landed
 
@@ -7919,9 +7926,9 @@ Same BASELINE-A workload, NAIVE (pre-M71 wiring) vs STABILIZED (shipped),
 8 throttled cursor-churn ticks, real memoized `<Sidebar>`:
 
 | tree files | NAIVE Sidebar commits | NAIVE React ms | STABILIZED commits | STABILIZED React ms |
-|---|---|---|---|---|
-| 100 | 8 | ~83 | **0** | **0** |
-| 2000 | 8 | ~1216 | **0** | **0** |
+| ---------- | --------------------- | -------------- | ------------------ | ------------------- |
+| 100        | 8                     | ~83            | **0**              | **0**               |
+| 2000       | 8                     | ~1216          | **0**              | **0**               |
 
 Cursor-only collaborator churn: **8 wasted Sidebar re-renders -> 0**;
 **~83 ms (100 files) / ~1216 ms (2000 files) of React work -> 0 ms.**
@@ -7962,7 +7969,7 @@ teardown, `useNotices` timer map, `Toolbar` 5 effects, `Sidebar` FileTree
 document-click listener) is correctly balanced. **No leak finding** —
 lifecycle evidence does not support one. M71 introduces **zero** new
 listeners / timers / observers / subscriptions: `useStableCollaborators` is
-pure (`useRef` only, holds one array reference that is *replaced*, never
+pure (`useRef` only, holds one array reference that is _replaced_, never
 accumulated); the three new `useCallback`s hold no resources.
 
 ### Memory — NOT_PROVEN
@@ -7978,18 +7985,18 @@ subscription.
 
 ### Verification gates (2026-09-06)
 
-| Gate | Evidence |
-|---|---|
-| Frontend full suite | `vitest run` -> **906 passed / 0 failed** (115 files) on 6 of 7 runs; includes the M71 perf suites (6 files, 10 tests). One run during peak machine contention (backend Docker suite running concurrently) failed one test once; it did not reproduce in 6 further clean runs and the M71 perf suites passed 10/10 in isolation 4x. |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend build | `vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint .` -> **0 errors** (warnings only, baseline style) |
-| `git diff --check` | clean |
-| Working tree | clean |
-| Backend changes | **production source: none** — `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`. The only `backend/` change is a one-line test-infra timeout (`backend/test/python-deps.test.ts`, `96c5426`). |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | **GREEN — 3 consecutive `vitest run` → `1105 passed / 9 skipped / 0 failed` each** (87 files, 363 / 376 / 384 s). Docker-gated suites executed every run: `sandbox`, `exec` (13.6 s), `git` (17.8 s), `templates.exec` (11.5 s), `m11`/`m12`/`m13`/`m16-optimization`, `python-deps`. `test/python-deps.test.ts` executes in **45.0 / 47.3 / 49.4 s** and no longer times out — its per-test timeout was raised `60000 → 120000` in `96c5426` (test-infra only; see below). `test/git.test.ts` runs its whole file in ~17 s uncontended across all 3 runs — its single earlier full-suite 60 s timeout was pure contention, not fixed-timeout fragility, so it was left unchanged. **Backend production source byte-identical to the M70 baseline:** `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`; the only `backend/` change in M71 is the one-line `python-deps` timeout + its comment (`backend/test/python-deps.test.ts`, +8/−1). No assertion weakened, no test skipped, no global Vitest timeout touched. |
-| Live Chrome (`m61_userA`, project `m65-browser-demo`, real Chrome) | **PASS:** app loads with **zero console errors/warnings** across three page loads (only vite HMR + the React DevTools info line); file tree renders; file open / tab-switch / tree-selection all work; **theme switch to Light applies to both the editor and the sidebar** — the memoized `<Sidebar>` does not block the CSS re-theme — and the choice persists across reload; the `/api/.../stats` poll still fires every 2.5 s (all `200`) — behavior unchanged; no error network responses; no WebSocket reconnect storm. Account restored to `theme: system` afterwards. (During this pass the in-IDE terminal showed "Terminal Session Ended" from a transient Docker-networking fault — `network ide-net-... not found` — which later recovered; not caused by and not in scope for M71.) |
+| Gate                                                               | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend full suite                                                | `vitest run` -> **906 passed / 0 failed** (115 files) on 6 of 7 runs; includes the M71 perf suites (6 files, 10 tests). One run during peak machine contention (backend Docker suite running concurrently) failed one test once; it did not reproduce in 6 further clean runs and the M71 perf suites passed 10/10 in isolation 4x.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Frontend typecheck                                                 | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Frontend build                                                     | `vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Frontend eslint                                                    | `eslint .` -> **0 errors** (warnings only, baseline style)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `git diff --check`                                                 | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Working tree                                                       | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Backend changes                                                    | **production source: none** — `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`. The only `backend/` change is a one-line test-infra timeout (`backend/test/python-deps.test.ts`, `96c5426`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Backend typecheck                                                  | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Backend full suite (Docker up)                                     | **GREEN — 3 consecutive `vitest run` → `1105 passed / 9 skipped / 0 failed` each** (87 files, 363 / 376 / 384 s). Docker-gated suites executed every run: `sandbox`, `exec` (13.6 s), `git` (17.8 s), `templates.exec` (11.5 s), `m11`/`m12`/`m13`/`m16-optimization`, `python-deps`. `test/python-deps.test.ts` executes in **45.0 / 47.3 / 49.4 s** and no longer times out — its per-test timeout was raised `60000 → 120000` in `96c5426` (test-infra only; see below). `test/git.test.ts` runs its whole file in ~17 s uncontended across all 3 runs — its single earlier full-suite 60 s timeout was pure contention, not fixed-timeout fragility, so it was left unchanged. **Backend production source byte-identical to the M70 baseline:** `git rev-parse 443ae81:backend/src` == `git rev-parse HEAD:backend/src` == `a261a8cbf708695a894c3caf8c27819dde52ff4f`; the only `backend/` change in M71 is the one-line `python-deps` timeout + its comment (`backend/test/python-deps.test.ts`, +8/−1). No assertion weakened, no test skipped, no global Vitest timeout touched. |
+| Live Chrome (`m61_userA`, project `m65-browser-demo`, real Chrome) | **PASS:** app loads with **zero console errors/warnings** across three page loads (only vite HMR + the React DevTools info line); file tree renders; file open / tab-switch / tree-selection all work; **theme switch to Light applies to both the editor and the sidebar** — the memoized `<Sidebar>` does not block the CSS re-theme — and the choice persists across reload; the `/api/.../stats` poll still fires every 2.5 s (all `200`) — behavior unchanged; no error network responses; no WebSocket reconnect storm. Account restored to `theme: system` afterwards. (During this pass the in-IDE terminal showed "Terminal Session Ended" from a transient Docker-networking fault — `network ide-net-... not found` — which later recovered; not caused by and not in scope for M71.)                                                                                                                                                                                                                                                                                         |
 
 ### Final review
 
@@ -8000,7 +8007,7 @@ subscription.
 2. **Which earlier suspicions were false?** (a) The `useExecutionSession`
    "controls-only consumers re-render per log batch" concern — there is no
    controls-only consumer, and the log path is already rAF-batched.
-   (b) Awareness *computation* cost — sub-microsecond, irrelevant.
+   (b) Awareness _computation_ cost — sub-microsecond, irrelevant.
    (c) Toolbar/Editor collaborator-churn cost — negligible (~0.5 ms/tick).
 3. **Which hotspots were proven?** The file-tree `<Sidebar>` reconciling on
    (a) every throttled collaborator-awareness tick and (b) every `setStats`
@@ -8020,9 +8027,9 @@ subscription.
    editor + theme + stats-poll behavior all intact, no WS reconnect.
 8. **Docker verification repeated?** Yes. After Docker networking recovered,
    the full suite ran **3 consecutive times with Docker up → `1105 passed /
-   9 skipped / 0 failed` every run**, Docker-gated suites executing each time.
+9 skipped / 0 failed` every run**, Docker-gated suites executing each time.
    The one prior failure (`test/python-deps.test.ts`, a real PyPI `pip
-   install` that had drifted from ~42–46 s at M65/M67 to ~45–67 s) was
+install` that had drifted from ~42–46 s at M65/M67 to ~45–67 s) was
    resolved by raising **only that test's** per-test timeout `60000 → 120000`
    (`96c5426`, test-infra, no assertion/skip/global change); it now runs
    45.0–49.4 s. `test/git.test.ts`'s single earlier 60 s timeout was pure
@@ -8046,7 +8053,7 @@ subscription.
 
 - No `useExecutionSession` context split (BASELINE B disproved the need).
 - No workspace-tree virtualization (no hot-path cost remains; new dependency
-  + complexity not justified).
+  - complexity not justified).
 - No `React.memo` on Toolbar / Editor / Output / collaboration panels
   (measured negligible; the HARD RULE forbids optimizing non-bottlenecks).
 - No `useCallback`/`useMemo` sprinkling beyond the four Sidebar handler
@@ -8085,7 +8092,7 @@ and was **left unchanged** — no genuine fixed-timeout fragility.
 ## M72 — profile + avatar + identity UX
 
 **Objective:** make user identity a first-class, polished part of the IDE — a
-user customises display name / pronouns / bio (shipped in M62) *and* an
+user customises display name / pronouns / bio (shipped in M62) _and_ an
 avatar, and that identity renders consistently across the collaboration and
 profile surfaces.
 
@@ -8114,16 +8121,16 @@ profile surfaces.
 
 ### Backend
 
-| Module | What it does |
-|---|---|
-| `profile/image.ts` | Zero-dependency magic-byte validator. Declared `Content-Type` ignored; only bytes decide PNG / JPEG / WebP and the reported dimensions. SVG / XML / HTML hard-rejected. Trailing-garbage past a 16-byte tolerance rejected (polyglot defence). Byte and pixel-dimension bounds caller-supplied. |
-| `profile/media.ts` | One live avatar per user at `<dataDir>/profile-media/<userId>/<uuid>.<ext>` — path built only from the numeric id + a server UUID. File written first; media row + profile pointer + version bump + old-row delete commit as one transaction; a DB failure rolls back and unlinks the new file, leaving any previous avatar intact. `canViewAvatar` = self OR platform admin OR shares-a-project (revoking the share removes visibility). `assertInsideUserDir` guards write and read. |
-| `profile/store.ts` | `getProfile` now derives `avatarVersion` (0 when unset, else `user_profiles.version`); `getAvatarVersion` exposes the same integer to the collaboration layer. Never the media id, never a path. |
-| `auth/routes.ts` | `POST` / `DELETE` / `GET /api/auth/profile/avatar` (self; POST demo-locked + per-user rate-limited, one multipart file) and `GET /api/auth/profile/:id/avatar` (gated by `canViewAvatar`). Reads serve the stored-row MIME (never the client's) with `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, max-age=300`. A non-viewer — and a non-numeric id — get 404, not 403 (existence not disclosed). Upload/delete fan out the existing `profile_event` and write a content-free `PROFILE_MEDIA_*` audit row. |
-| `config.ts` | Five bounded knobs: `profileMediaAvatar{MaxBytes=512 KiB, MaxDim=1024, MinDim=32}`, `profileMediaUpload{Max=5, WindowMs=60000}`. |
-| `collab/presence.ts` + `collab/manager.ts` | `AwarenessClientIdentity.avatarVersion`; a per-room `avatarVersionByUser` cache with the exact lifecycle of `displayNameByUser` (populated in `addClient`, refreshed on `profile_event`, pruned on last-client-leave, cleared on dispose); emitted as `user.avatarVersion`. Forged incoming value discarded (frame rebuilt from scratch). Awareness hot path still does zero profile DB reads. |
-| `projects/service.ts` | `listProjectCollaborators` (and the REST roster) returns `avatarVersion` per collaborator — what lets comment author rows, which read the roster not live presence, show avatars. |
-| `admin/routes.ts` + `auth/demoGc.ts` | Both user-deletion paths now call `removeUserMediaDir` after the row is gone (best-effort, never blocks deletion) — the FK cascade drops the DB rows, this wipes the on-disk directory. |
+| Module                                     | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profile/image.ts`                         | Zero-dependency magic-byte validator. Declared `Content-Type` ignored; only bytes decide PNG / JPEG / WebP and the reported dimensions. SVG / XML / HTML hard-rejected. Trailing-garbage past a 16-byte tolerance rejected (polyglot defence). Byte and pixel-dimension bounds caller-supplied.                                                                                                                                                                                                                                                                                                                  |
+| `profile/media.ts`                         | One live avatar per user at `<dataDir>/profile-media/<userId>/<uuid>.<ext>` — path built only from the numeric id + a server UUID. File written first; media row + profile pointer + version bump + old-row delete commit as one transaction; a DB failure rolls back and unlinks the new file, leaving any previous avatar intact. `canViewAvatar` = self OR platform admin OR shares-a-project (revoking the share removes visibility). `assertInsideUserDir` guards write and read.                                                                                                                           |
+| `profile/store.ts`                         | `getProfile` now derives `avatarVersion` (0 when unset, else `user_profiles.version`); `getAvatarVersion` exposes the same integer to the collaboration layer. Never the media id, never a path.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `auth/routes.ts`                           | `POST` / `DELETE` / `GET /api/auth/profile/avatar` (self; POST demo-locked + per-user rate-limited, one multipart file) and `GET /api/auth/profile/:id/avatar` (gated by `canViewAvatar`). Reads serve the stored-row MIME (never the client's) with `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, max-age=300`. A non-viewer — and a non-numeric id — get 404, not 403 (existence not disclosed). Upload/delete fan out the existing `profile_event` and write a content-free `PROFILE_MEDIA_*` audit row. |
+| `config.ts`                                | Five bounded knobs: `profileMediaAvatar{MaxBytes=512 KiB, MaxDim=1024, MinDim=32}`, `profileMediaUpload{Max=5, WindowMs=60000}`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `collab/presence.ts` + `collab/manager.ts` | `AwarenessClientIdentity.avatarVersion`; a per-room `avatarVersionByUser` cache with the exact lifecycle of `displayNameByUser` (populated in `addClient`, refreshed on `profile_event`, pruned on last-client-leave, cleared on dispose); emitted as `user.avatarVersion`. Forged incoming value discarded (frame rebuilt from scratch). Awareness hot path still does zero profile DB reads.                                                                                                                                                                                                                   |
+| `projects/service.ts`                      | `listProjectCollaborators` (and the REST roster) returns `avatarVersion` per collaborator — what lets comment author rows, which read the roster not live presence, show avatars.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `admin/routes.ts` + `auth/demoGc.ts`       | Both user-deletion paths now call `removeUserMediaDir` after the row is gone (best-effort, never blocks deletion) — the FK cascade drops the DB rows, this wipes the on-disk directory.                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 **Security posture (each proven by a deterministic test):** forged MIME then
 bytes win; SVG/HTML/leading-whitespace polyglot rejected; truncated
@@ -8164,18 +8171,18 @@ dependency (`node:zlib` is stdlib, test-only).
 
 ### Verification (2026-09-07)
 
-| Gate | Evidence |
-|---|---|
-| Backend full suite | `vitest run` then 1164 passed / 9 skipped / 0 failed (92 files); Docker-gated suites (exec, sandbox, templates, preview-probe, python-deps) executed |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend eslint | 0 errors (pre-existing warnings only; none in M72 files) |
-| Frontend full suite | `vitest run` then 928 passed / 0 failed (117 files) |
-| Frontend build | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint src` then 0 errors / 27 warnings (baseline unchanged) |
-| `git diff --check` | clean |
-| New deterministic coverage | `m72-profile-image` (18), `m72-profile-media` (15), `m72-profile-avatar-api` (17), `m72-collab-avatar` (7), `m72-user-deletion-media` (2), `UserAvatar` (6), `ProfileCard` (6), `SettingsModal.profile` +9, `identity-consistency` +1, `collab.presence` +1; plus `imageFixture.ts` zero-dep image synthesizers |
-| Revert-sensitivity | every changed boundary breaks at least one test on revert (magic-byte detect, trailing-garbage guard, txn rollback+unlink, `canViewAvatar` share scope + revoke, `assertInsideUserDir` on read, 404-not-403, `avatarVersion` in awareness + forged-value discard + cache prune, roster `avatarVersion`, `removeUserMediaDir` in both delete paths, `UserAvatar` image/initials + `onError`, `ProfileCard` conditional pronouns/bio + text-only bio, Settings client guards + demo-lock + version adoption) |
-| Live Chrome | Real upload through `POST /api/auth/profile/avatar` then `{avatarVersion, mime image/png, width 80, height 80}`, no path leak; preview `<img>` loads (`naturalWidth 80`); persists across reload (`?v=3`); Remove then initials "M6", button reverts to Upload; broken-image `error` event then initials fallback live; no filesystem path in the DOM; profile edit triggers exactly one coalesced `/collaborators` refetch on `profile_event`, no WS reconnect; no error boundary, app healthy |
+| Gate                       | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend full suite         | `vitest run` then 1164 passed / 9 skipped / 0 failed (92 files); Docker-gated suites (exec, sandbox, templates, preview-probe, python-deps) executed                                                                                                                                                                                                                                                                                                                                                       |
+| Backend typecheck          | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Backend eslint             | 0 errors (pre-existing warnings only; none in M72 files)                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Frontend full suite        | `vitest run` then 928 passed / 0 failed (117 files)                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Frontend build             | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Frontend eslint            | `eslint src` then 0 errors / 27 warnings (baseline unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `git diff --check`         | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| New deterministic coverage | `m72-profile-image` (18), `m72-profile-media` (15), `m72-profile-avatar-api` (17), `m72-collab-avatar` (7), `m72-user-deletion-media` (2), `UserAvatar` (6), `ProfileCard` (6), `SettingsModal.profile` +9, `identity-consistency` +1, `collab.presence` +1; plus `imageFixture.ts` zero-dep image synthesizers                                                                                                                                                                                            |
+| Revert-sensitivity         | every changed boundary breaks at least one test on revert (magic-byte detect, trailing-garbage guard, txn rollback+unlink, `canViewAvatar` share scope + revoke, `assertInsideUserDir` on read, 404-not-403, `avatarVersion` in awareness + forged-value discard + cache prune, roster `avatarVersion`, `removeUserMediaDir` in both delete paths, `UserAvatar` image/initials + `onError`, `ProfileCard` conditional pronouns/bio + text-only bio, Settings client guards + demo-lock + version adoption) |
+| Live Chrome                | Real upload through `POST /api/auth/profile/avatar` then `{avatarVersion, mime image/png, width 80, height 80}`, no path leak; preview `<img>` loads (`naturalWidth 80`); persists across reload (`?v=3`); Remove then initials "M6", button reverts to Upload; broken-image `error` event then initials fallback live; no filesystem path in the DOM; profile edit triggers exactly one coalesced `/collaborators` refetch on `profile_event`, no WS reconnect; no error boundary, app healthy            |
 
 ### Not done / out of scope (M72) — PARTIAL and deferred
 
@@ -8219,7 +8226,6 @@ authenticated multi-session browser slice is PARTIAL, covered by deterministic
 integration and identity-consistency coverage as noted above. No backend
 production code outside the profile/collab/admin identity path was touched.
 
-
 ## M73 - seamless multiplayer / presence UX
 
 **Objective:** make multiplayer feel native - one coherent mental model where a
@@ -8232,7 +8238,7 @@ type, no authorization change, no new dependency, no migration.
 
 - **Connection state:** one owner, `CollaborationClient.status`
   (`connecting | connected | reconnecting | resynchronizing | disconnected |
-  forbidden`, M63). Already sufficient - M73 added no enum. The M63
+forbidden`, M63). Already sufficient - M73 added no enum. The M63
   editor-region `CollabConnectionBanner` and the toolbar sync badge both read
   it, so they cannot contradict.
 - **Identity:** `userId` + `username` stable keys; `displayName` (M62) +
@@ -8253,45 +8259,45 @@ type, no authorization change, no new dependency, no migration.
 
 ### Findings and what M73 changed
 
-| # | Finding (audit) | Fix |
-|---|---|---|
-| P2-B | Activity timeline + While-You-Were-Away rendered `actor.username` as bare text - the two surfaces M72 explicitly deferred | both take an `actorIdentity` map (userId -> {displayName, avatarVersion}); render `UserAvatar` + `displayLabel`, username fallback, kind-icon kept for null-actor rows |
-| P1-C | The avatar-stack quick popover re-implemented the identity block instead of reusing `ProfileCard` (M73's stated consolidation objective) | popover now renders `<ProfileCard>` (avatar + label + @handle + pronouns + presence chip); role chip + Follow/Jump stay as chrome |
-| - | `ProfileCard` needed pronouns for collaborators, but pronouns were not propagated | `pronouns` now rides the same per-room identity cache + awareness `user` frame as displayName/avatarVersion - same lifecycle, forged value discarded, awareness hot path still no DB read. bio deliberately NOT propagated |
-| P1-E | `handleReturnToMyLocation` is async; starting a new follow during its `await handleOpenFile` let the resolved continuation navigate off the new target | `collab/followGeneration.ts` - a monotonic token bumped on every follow boundary; the async return re-checks after the await, the absence timer bails when superseded, and a stale "follow-left" notice's onExpire / "Stay here" cannot clear a newer session's anchor |
+| #    | Finding (audit)                                                                                                                                                               | Fix                                                                                                                                                                                                                                                                                |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P2-B | Activity timeline + While-You-Were-Away rendered `actor.username` as bare text - the two surfaces M72 explicitly deferred                                                     | both take an `actorIdentity` map (userId -> {displayName, avatarVersion}); render `UserAvatar` + `displayLabel`, username fallback, kind-icon kept for null-actor rows                                                                                                             |
+| P1-C | The avatar-stack quick popover re-implemented the identity block instead of reusing `ProfileCard` (M73's stated consolidation objective)                                      | popover now renders `<ProfileCard>` (avatar + label + @handle + pronouns + presence chip); role chip + Follow/Jump stay as chrome                                                                                                                                                  |
+| -    | `ProfileCard` needed pronouns for collaborators, but pronouns were not propagated                                                                                             | `pronouns` now rides the same per-room identity cache + awareness `user` frame as displayName/avatarVersion - same lifecycle, forged value discarded, awareness hot path still no DB read. bio deliberately NOT propagated                                                         |
+| P1-E | `handleReturnToMyLocation` is async; starting a new follow during its `await handleOpenFile` let the resolved continuation navigate off the new target                        | `collab/followGeneration.ts` - a monotonic token bumped on every follow boundary; the async return re-checks after the await, the absence timer bails when superseded, and a stale "follow-left" notice's onExpire / "Stay here" cannot clear a newer session's anchor             |
 | P2-D | a client only ever seeded its own awareness `user` with the stable identity - its own "You" row / self avatar never showed displayName/avatar and never reflected a self edit | `CollaborationClient.updateLocalIdentity({displayName, avatarVersion, pronouns})` folds presentation identity into the local `user` field (self-render only, no reconnect, no new socket, survives lineage reset); IDE.tsx calls it on client create and on a self `profile_event` |
-| P2-A | during reconnecting/disconnected the avatar stack showed a last-known roster with live-looking dots; TeamPanel had no connection cue at all | `collab/connectionPresentation.ts` (`collaborationIsLive`, `rosterStalenessNote`) - the one roster-staleness copy owner; the stack dims its row + speaks the caveat in its group aria-label, TeamPanel renders a `role="status"` note; reads the same canonical status |
-| P3-H | avatar-stack activity text said "Editing foo.ts" for an idle/away collaborator | gate on availability after the server-run check (matches TeamPanel) |
-| P2-I | M65 shared run output named the owner with the bare `run_status.username`, no avatar | optional `actorIdentity` threaded from IDE.tsx through Output; `UserAvatar` + `displayLabel`, username fallback |
+| P2-A | during reconnecting/disconnected the avatar stack showed a last-known roster with live-looking dots; TeamPanel had no connection cue at all                                   | `collab/connectionPresentation.ts` (`collaborationIsLive`, `rosterStalenessNote`) - the one roster-staleness copy owner; the stack dims its row + speaks the caveat in its group aria-label, TeamPanel renders a `role="status"` note; reads the same canonical status             |
+| P3-H | avatar-stack activity text said "Editing foo.ts" for an idle/away collaborator                                                                                                | gate on availability after the server-run check (matches TeamPanel)                                                                                                                                                                                                                |
+| P2-I | M65 shared run output named the owner with the bare `run_status.username`, no avatar                                                                                          | optional `actorIdentity` threaded from IDE.tsx through Output; `UserAvatar` + `displayLabel`, username fallback                                                                                                                                                                    |
 
 ### Commits (`master`..`HEAD`, 8)
 
-| hash | message | tests |
-|---|---|---|
-| `6d0546b` | feat(collab): propagate collaborator pronouns through presence identity | `m73-collab-pronouns` (6), `sanitizeStoredPronouns` matrix (3), FE `collab.presence` parse (+1) |
-| `3407ea3` | feat(collab): reuse ProfileCard for collaborator identity in the avatar stack | `CollaboratorAvatarStack.profileCard` (5); identity-consistency unchanged |
-| `98459f5` | fix(collab): generation-token the follow lifecycle against target races | `collab.followGeneration` (4); `collab.focus.follow` source-contract (+6, windows widened) |
-| `90d4941` | feat(collab): re-stamp local awareness identity on a self profile change | `collab.selfIdentity` (7); `IDE.profileEvent` source-contract (+1, revised) |
-| `f54a6ef` | feat(collab): surface connection staleness on the roster surfaces | `collab.connectionPresentation` (3); avatar-stack dim (+1); TeamPanel note (+1) |
-| `6346248` | feat(collab): render identity on the activity timeline and while-you-were-away | `ActivityTimeline` (+3), `WhileYouWereAway` (+2) |
-| `1a238db` | fix(collab): gate avatar-stack activity text on availability | `CollaboratorAvatarStack` (+2) |
-| `d71f909` | feat(collab): unify shared run output identity with UserAvatar | `SharedRunOutputPanel` (+2) |
+| hash      | message                                                                        | tests                                                                                           |
+| --------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `6d0546b` | feat(collab): propagate collaborator pronouns through presence identity        | `m73-collab-pronouns` (6), `sanitizeStoredPronouns` matrix (3), FE `collab.presence` parse (+1) |
+| `3407ea3` | feat(collab): reuse ProfileCard for collaborator identity in the avatar stack  | `CollaboratorAvatarStack.profileCard` (5); identity-consistency unchanged                       |
+| `98459f5` | fix(collab): generation-token the follow lifecycle against target races        | `collab.followGeneration` (4); `collab.focus.follow` source-contract (+6, windows widened)      |
+| `90d4941` | feat(collab): re-stamp local awareness identity on a self profile change       | `collab.selfIdentity` (7); `IDE.profileEvent` source-contract (+1, revised)                     |
+| `f54a6ef` | feat(collab): surface connection staleness on the roster surfaces              | `collab.connectionPresentation` (3); avatar-stack dim (+1); TeamPanel note (+1)                 |
+| `6346248` | feat(collab): render identity on the activity timeline and while-you-were-away | `ActivityTimeline` (+3), `WhileYouWereAway` (+2)                                                |
+| `1a238db` | fix(collab): gate avatar-stack activity text on availability                   | `CollaboratorAvatarStack` (+2)                                                                  |
+| `d71f909` | feat(collab): unify shared run output identity with UserAvatar                 | `SharedRunOutputPanel` (+2)                                                                     |
 
 32 files, +1297 / -116.
 
 ### Verification (2026-09-07)
 
-| Gate | Evidence |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` -> **1173 passed / 9 skipped / 0 failed** (93 files, 398s); Docker-gated suites executed (`templates.exec` 11.3s, `m16-optimization`, `exec`, `sandbox`, `python-deps`, `git`). +9 vs M72 (1164) = the M73 pronoun tests |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend full suite | `vitest run` -> **965 passed / 0 failed** (121 files). +37 vs M72 (928). Includes the M71 perf suites (10/10) |
-| Frontend build | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged) |
-| Backend eslint | 0 errors |
-| `git diff --check` | clean |
-| Revert-sensitivity | every changed boundary breaks >=1 test on revert: pronoun awareness emit + forged-value discard + no-DB-read + reconnect repopulate; `ProfileCard` reuse (.profile-card present, pronouns shown/omitted, presence tone); follow generation token bump sites + post-await recheck ordering + stale-notice anchor guard; `updateLocalIdentity` fold/clear/no-op/no-new-socket/survives-reset; roster staleness note per status; timeline/while-away actor avatar + username fallback; idle -> "Idle" not "Editing"; shared-run-output owner avatar |
+| Gate                           | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backend typecheck              | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Backend full suite (Docker up) | `vitest run` -> **1173 passed / 9 skipped / 0 failed** (93 files, 398s); Docker-gated suites executed (`templates.exec` 11.3s, `m16-optimization`, `exec`, `sandbox`, `python-deps`, `git`). +9 vs M72 (1164) = the M73 pronoun tests                                                                                                                                                                                                                                                                                                            |
+| Frontend typecheck             | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Frontend full suite            | `vitest run` -> **965 passed / 0 failed** (121 files). +37 vs M72 (928). Includes the M71 perf suites (10/10)                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Frontend build                 | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Frontend eslint                | `eslint src` -> **0 errors / 27 warnings** (baseline unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Backend eslint                 | 0 errors                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `git diff --check`             | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Revert-sensitivity             | every changed boundary breaks >=1 test on revert: pronoun awareness emit + forged-value discard + no-DB-read + reconnect repopulate; `ProfileCard` reuse (.profile-card present, pronouns shown/omitted, presence tone); follow generation token bump sites + post-await recheck ordering + stale-notice anchor guard; `updateLocalIdentity` fold/clear/no-op/no-new-socket/survives-reset; roster staleness note per status; timeline/while-away actor avatar + username fallback; idle -> "Idle" not "Editing"; shared-run-output owner avatar |
 
 ### Live two-session browser verification (2026-09-07, release pass)
 
@@ -8303,6 +8309,7 @@ endpoint, was the earlier "demo 404"); a fresh `vite --port 5175` from
 pass. No application code, auth, or config was changed.
 
 **Sessions.**
+
 - **Session A** = `m61_userA` (real pre-existing test account, id 15, has an
   uploaded avatar), driven live in the browser on :5175.
 - **Session B / C** = ephemeral `/api/auth/demo` users (`evaluator_88826a` id
@@ -8318,43 +8325,43 @@ pass. No application code, auth, or config was changed.
 
 **Matrix (live unless marked).**
 
-| # | Scenario | Result | Evidence |
-|---|---|---|---|
-| A | Both users in same project | PASS | A + B in room "CloudShowcase" (B demo project, A added editor) |
-| B | Collaborator appears | PASS | count chip "2", avatar-stack "EV", TeamPanel row |
-| C | Correct avatar | PASS | B/C demo -> initials "EV" on `getUserColor(26)` peach (no avatar); A self row -> `/api/auth/profile/avatar?v=N` image |
-| D | Correct display name | PASS | B/C -> username fallback (no displayName, correct); A -> "Ada Lovelace" propagated to B/C awareness |
-| E | Correct pronouns | PASS | A set "she/her" then "she/they" -> B/C received `user.pronouns` live; demo B/C cannot set (shown correctly absent) |
-| F | Collaborator profile card / popover | PASS | `.collab-popover .profile-card` present (ProfileCard reused); label + @handle rule + presence chip `profile-card__presence--online` + role chip + Follow |
-| G | Session A profile edit | PASS | `PUT /api/auth/profile` 200 via real Settings UI |
-| H | A local surfaces update | PASS | self-row `<img ?v=4>` then `?v=5` immediately after save; sync badge stayed "Synced" |
-| I | B receives via existing propagation | PASS | B/C awareness for A: displayName + avatarVersion + pronouns updated **in place, same clientID** |
-| J | No WS reconnect from profile change | PASS | `window.WebSocket` instrumented -> **0** new sockets across two profile edits; A clientID unchanged, no resync |
-| K-M | idle / away / active-again | PASS | B `status=idle` -> stack aria "...idle. Idle.", TeamPanel "Idle" not "editing"; back online -> "Editing" restored |
+| #   | Scenario                                                 | Result       | Evidence                                                                                                                                                                                                                        |
+| --- | -------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A   | Both users in same project                               | PASS         | A + B in room "CloudShowcase" (B demo project, A added editor)                                                                                                                                                                  |
+| B   | Collaborator appears                                     | PASS         | count chip "2", avatar-stack "EV", TeamPanel row                                                                                                                                                                                |
+| C   | Correct avatar                                           | PASS         | B/C demo -> initials "EV" on `getUserColor(26)` peach (no avatar); A self row -> `/api/auth/profile/avatar?v=N` image                                                                                                           |
+| D   | Correct display name                                     | PASS         | B/C -> username fallback (no displayName, correct); A -> "Ada Lovelace" propagated to B/C awareness                                                                                                                             |
+| E   | Correct pronouns                                         | PASS         | A set "she/her" then "she/they" -> B/C received `user.pronouns` live; demo B/C cannot set (shown correctly absent)                                                                                                              |
+| F   | Collaborator profile card / popover                      | PASS         | `.collab-popover .profile-card` present (ProfileCard reused); label + @handle rule + presence chip `profile-card__presence--online` + role chip + Follow                                                                        |
+| G   | Session A profile edit                                   | PASS         | `PUT /api/auth/profile` 200 via real Settings UI                                                                                                                                                                                |
+| H   | A local surfaces update                                  | PASS         | self-row `<img ?v=4>` then `?v=5` immediately after save; sync badge stayed "Synced"                                                                                                                                            |
+| I   | B receives via existing propagation                      | PASS         | B/C awareness for A: displayName + avatarVersion + pronouns updated **in place, same clientID**                                                                                                                                 |
+| J   | No WS reconnect from profile change                      | PASS         | `window.WebSocket` instrumented -> **0** new sockets across two profile edits; A clientID unchanged, no resync                                                                                                                  |
+| K-M | idle / away / active-again                               | PASS         | B `status=idle` -> stack aria "...idle. Idle.", TeamPanel "Idle" not "editing"; back online -> "Editing" restored                                                                                                               |
 | N-Q | A disconnect / reconnecting / resynchronizing / restored | PARTIAL-live | observed the initial connect transient ("Disconnected -- trying to reconnect..." -> "Synced"); a forced drop of only A socket was not possible without disrupting the pass -- covered by M63 tests + `IDE.connectionVisibility` |
-| R-S | B changes file, A sees truthful activity | PASS | stack aria "Editing 1_welcome.py L12"; TeamPanel "Editing / 1_welcome.py L12 / Jump" |
-| T | Idle collaborator not shown editing | PASS | see K-M -- M73 gate on availability |
-| U | Disconnect clears stale live state | PASS | B off -> count 1, TeamPanel row gone, no stale dot |
-| V | Reconnect rebuilds state | PASS | B/C reconnect within grace -> single row, correct file/cursor, no dup |
-| W | A follows B | PASS | FollowBanner "Following evaluator_88826a / 1_welcome.py Line 12 / Return / Stop"; button -> "Unfollow" |
-| X-Y | B changes file, follower tracks | PASS | banner + A editor navigated 1_welcome.py -> 2_benchmark.c L25 |
-| Z | B disconnects | PASS | count 1, banner gone |
-| AA | Follow-left notice | PASS | editor-region "evaluator_88826a left / Return to your location / Stay here", anchor preserved |
-| AB | Return | PARTIAL-live | notice + both actions rendered and the anchor-restore path verified; the explicit click kept racing the 8 s TTL vs MCP latency -- deterministic-covered (`collab.focus.follow`) |
-| AC | Stay / expiry | PASS | notice auto-expired ("Stay" default) -> follow + anchor fully cleared, no residue |
-| AD | Follow another collaborator while old follow-left exists | PASS | A followed C while "B left" notice live -> **B notice vanished**, FollowBanner cleanly became "Following evaluator_8fa39c", no navigation to B obsolete file |
-| AE | Stale notice / timer cannot affect new target | PASS | after the switch, past B original TTL: "B left" never reappeared, C follow + anchor intact, C file-change then tracked (M73 generation token) |
-| AF | Reconnect while following | PASS | C disconnect+reconnect within grace -> follow survived, tracked C new cursor (L8->L20), count 2, one row |
-| AG | Project switch while following | PASS | A -> "m65-browser-demo" while following C -> FollowBanner cleared, **no follow-left / stale notice leaked**, count 1 |
-| AH | No stale follow/anchor leak | PASS | see AG; switching back showed clean 2-collaborator state |
-| AI | Shared run output identity | PASS | C ran `main.py` via real `/ws/execute` -> A Output console `.shared-run-output` "running / EV / evaluator_8fa39c is running" + live stdout (UserAvatar + displayLabel, username fallback) |
-| AJ | No duplicate run/identity after reconnect | PASS | observer reconnected mid-run -> 1 executionId, 1 snapshot + continued frames, 63 bytes (not doubled), "success" once |
-| AK | No duplicate collaborator rows | PASS | steady state always one row/avatar per user across every reconnect / switch (one transient "3" during a switch tick, self-healed) |
-| AL | No contradictory presence indicators | PASS | sync badge, stale-note absence, count chip, TeamPanel agreed at every step |
-| AM | Zero / one / many states coherent | PASS | fresh room = count 1, clean "No Open Files"; 2 collaborators clean; 10+ not exercised (NOT_AVAILABLE) |
-| AN | Clean console | PASS | fresh full load with collaboration active -> only Vite HMR + React DevTools info; no error/warning across the pass |
-| AO | No unexpected WebSocket / session recreation | PASS | instrumented `window.WebSocket` -> 0 spurious sockets from profile / presence / follow ops |
-| AP | No unauthorized identity/activity visibility | PASS | unrelated demo user -> `/ws/collab` upgrade **403**, `/collaborators` and `/project` **404** (existence not disclosed) |
+| R-S | B changes file, A sees truthful activity                 | PASS         | stack aria "Editing 1_welcome.py L12"; TeamPanel "Editing / 1_welcome.py L12 / Jump"                                                                                                                                            |
+| T   | Idle collaborator not shown editing                      | PASS         | see K-M -- M73 gate on availability                                                                                                                                                                                             |
+| U   | Disconnect clears stale live state                       | PASS         | B off -> count 1, TeamPanel row gone, no stale dot                                                                                                                                                                              |
+| V   | Reconnect rebuilds state                                 | PASS         | B/C reconnect within grace -> single row, correct file/cursor, no dup                                                                                                                                                           |
+| W   | A follows B                                              | PASS         | FollowBanner "Following evaluator_88826a / 1_welcome.py Line 12 / Return / Stop"; button -> "Unfollow"                                                                                                                          |
+| X-Y | B changes file, follower tracks                          | PASS         | banner + A editor navigated 1_welcome.py -> 2_benchmark.c L25                                                                                                                                                                   |
+| Z   | B disconnects                                            | PASS         | count 1, banner gone                                                                                                                                                                                                            |
+| AA  | Follow-left notice                                       | PASS         | editor-region "evaluator_88826a left / Return to your location / Stay here", anchor preserved                                                                                                                                   |
+| AB  | Return                                                   | PARTIAL-live | notice + both actions rendered and the anchor-restore path verified; the explicit click kept racing the 8 s TTL vs MCP latency -- deterministic-covered (`collab.focus.follow`)                                                 |
+| AC  | Stay / expiry                                            | PASS         | notice auto-expired ("Stay" default) -> follow + anchor fully cleared, no residue                                                                                                                                               |
+| AD  | Follow another collaborator while old follow-left exists | PASS         | A followed C while "B left" notice live -> **B notice vanished**, FollowBanner cleanly became "Following evaluator_8fa39c", no navigation to B obsolete file                                                                    |
+| AE  | Stale notice / timer cannot affect new target            | PASS         | after the switch, past B original TTL: "B left" never reappeared, C follow + anchor intact, C file-change then tracked (M73 generation token)                                                                                   |
+| AF  | Reconnect while following                                | PASS         | C disconnect+reconnect within grace -> follow survived, tracked C new cursor (L8->L20), count 2, one row                                                                                                                        |
+| AG  | Project switch while following                           | PASS         | A -> "m65-browser-demo" while following C -> FollowBanner cleared, **no follow-left / stale notice leaked**, count 1                                                                                                            |
+| AH  | No stale follow/anchor leak                              | PASS         | see AG; switching back showed clean 2-collaborator state                                                                                                                                                                        |
+| AI  | Shared run output identity                               | PASS         | C ran `main.py` via real `/ws/execute` -> A Output console `.shared-run-output` "running / EV / evaluator_8fa39c is running" + live stdout (UserAvatar + displayLabel, username fallback)                                       |
+| AJ  | No duplicate run/identity after reconnect                | PASS         | observer reconnected mid-run -> 1 executionId, 1 snapshot + continued frames, 63 bytes (not doubled), "success" once                                                                                                            |
+| AK  | No duplicate collaborator rows                           | PASS         | steady state always one row/avatar per user across every reconnect / switch (one transient "3" during a switch tick, self-healed)                                                                                               |
+| AL  | No contradictory presence indicators                     | PASS         | sync badge, stale-note absence, count chip, TeamPanel agreed at every step                                                                                                                                                      |
+| AM  | Zero / one / many states coherent                        | PASS         | fresh room = count 1, clean "No Open Files"; 2 collaborators clean; 10+ not exercised (NOT_AVAILABLE)                                                                                                                           |
+| AN  | Clean console                                            | PASS         | fresh full load with collaboration active -> only Vite HMR + React DevTools info; no error/warning across the pass                                                                                                              |
+| AO  | No unexpected WebSocket / session recreation             | PASS         | instrumented `window.WebSocket` -> 0 spurious sockets from profile / presence / follow ops                                                                                                                                      |
+| AP  | No unauthorized identity/activity visibility             | PASS         | unrelated demo user -> `/ws/collab` upgrade **403**, `/collaborators` and `/project` **404** (existence not disclosed)                                                                                                          |
 
 **Resource / lifecycle (Phase 5, live).** `window.WebSocket` instrumented: **0**
 new sockets from any profile change / awareness churn / follow / target-switch.
@@ -8377,7 +8384,6 @@ StrictMode / HMR / project-switch churn). Left for a separate backend pass.
 **Pre-existing, not M73 (observed, out of scope):** (1) Vite :5173 dead `/api`
 proxy; (2) Toolbar quick-open hint text visually overlaps the project name
 (no `Toolbar.tsx` change in M73).
-
 
 ### Not done / out of scope (M73)
 
@@ -8416,7 +8422,6 @@ M73 is **merged** — PR #10 (`e54c8d0`). M74 (awareness-table reconciliation +
 collaboration-aware sandbox lifecycle) followed; the SUSPECTED P3 above is
 addressed there.
 
-
 ## M74 — awareness-table reconciliation + collaboration-aware sandbox lifecycle
 
 Shipped in 8 commits (`e54c8d0..8d13262`, all on `master`); this section was
@@ -8427,7 +8432,7 @@ landed code.
 
 **Problem (the SUSPECTED P3 from M73).** A collaboration room's
 `awareness.getStates()` is keyed by Yjs clientID. `removeClient()` only
-withdrew the leaver's *own* tracked `awarenessClientIds`. A socket that dies
+withdrew the leaver's _own_ tracked `awarenessClientIds`. A socket that dies
 **without a `close` event** (heartbeat-reaper race, dev StrictMode /
 project-switch churn) never runs `removeClient()` at all, so its `{user}`
 entry lingered as an orphan — M73's live pass observed a heavily-churned room
@@ -8436,6 +8441,7 @@ at `getStates().size === 4` with only 2 real users (1 = the y-protocols
 no participant; the other = a genuine orphan).
 
 **Fix (commits `03eb66f`, `7812f95`, `f42429e`).**
+
 - `reconcileAwarenessAgainstLiveSockets()` — drops every awareness entry not
   backed by a `readyState === 1` socket (`doc.clientID` baseline excepted).
   Called from `removeClient()` on **every** client leave, so one clean
@@ -8450,6 +8456,7 @@ no participant; the other = a genuine orphan).
   case where **no** client ever leaves cleanly (whole-room connection storm).
 
 **Invariants (verified):**
+
 - After any client leave, `getStates()` contains only entries backed by a
   live socket, plus the single `doc.clientID` `{}` baseline.
 - The `doc.clientID` `{}` baseline is expected, permanent per room, ignored by
@@ -8468,12 +8475,12 @@ no participant; the other = a genuine orphan).
 `{ liveClients, distinctUsers }`, counting only `readyState === 1` sockets).
 `reapIdleSandboxes(idleTimeoutMs, roomEmptyGraceMs, now?)`:
 
-| Room state | Container lifetime |
-|---|---|
-| `liveClients > 0` | kept warm regardless of `lastUsed`; sets `roomEverOccupied`, clears `roomEmptyAt` |
-| emptied after being occupied | eligible `roomEmptyGraceMs` (`SANDBOX_ROOM_EMPTY_GRACE_MS`, default 120 s) after the reaper first observes it empty — **and** no run/terminal activity in that window — i.e. *before* the full 30 min idle timeout |
-| never observed occupied (terminal-only, or no provider) | unchanged pre-M74 rule: reaped at `idleTimeoutMs` only |
-| provider throws | falls back to the pre-M74 idle rule |
+| Room state                                              | Container lifetime                                                                                                                                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `liveClients > 0`                                       | kept warm regardless of `lastUsed`; sets `roomEverOccupied`, clears `roomEmptyAt`                                                                                                                                  |
+| emptied after being occupied                            | eligible `roomEmptyGraceMs` (`SANDBOX_ROOM_EMPTY_GRACE_MS`, default 120 s) after the reaper first observes it empty — **and** no run/terminal activity in that window — i.e. _before_ the full 30 min idle timeout |
+| never observed occupied (terminal-only, or no provider) | unchanged pre-M74 rule: reaped at `idleTimeoutMs` only                                                                                                                                                             |
+| provider throws                                         | falls back to the pre-M74 idle rule                                                                                                                                                                                |
 
 `roomOccupancy()` returns `{0,0}` (not `undefined`) for a room that has
 already been disposed, so a container outlives its room by at most one grace
@@ -8482,6 +8489,7 @@ window, never by the full idle timeout. `sandboxRun()` calls
 just-watched run doesn't read as "idle since the run began".
 
 **Invariants (verified):**
+
 - Rejoin during the grace window clears `roomEmptyAt` → container stays warm;
   a fresh full grace applies only after it re-empties.
 - A dead (`readyState !== 1`) socket does not count as an occupant, so it
@@ -8509,13 +8517,13 @@ computed from `projectContainers` + the occupancy provider, surfaced through
 
 ### Verification (M76, 2026-09-07)
 
-| Gate | Evidence |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` → **1198 passed / 9 skipped / 0 failed** (98 files); M74 Docker-gated suites (`m74-sandbox-occupancy` 8, `m74-collab-scale` sandbox slice, `m74-observability-occupancy` 3) executed |
-| M74 deterministic coverage | `m74-awareness-reconcile` (5: on-leave sweep, join-snapshot exclusion, periodic guard, **+ M76: 25-cycle no-accumulation, reconnect single-entry**); `m74-room-occupancy` (workspace/manager occupancy accessor); `m74-collab-scale` (2 pure at 12 collaborators: on-removal sweep, periodic guard); `m74-sandbox-occupancy` (8: warm-while-occupied, grace retain, grace reap, **+ M76: rejoin-resets-grace**, no-provider rule, provider-never-occupied rule, dead-socket, run-completion touch); `m41-dispose-guards` (8, unchanged — disposed room never re-arms a timer / flushes stale state) |
-| Revert-sensitivity | remove the `reconcileAwarenessAgainstLiveSockets()` call in `removeClient()` → orphan-drop + cycle tests fail; remove `info.roomEmptyAt = null` on re-occupancy → rejoin-resets-grace test fails (container reaped at the original deadline) |
-| `git diff --check` | clean |
+| Gate                           | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend typecheck              | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Backend full suite (Docker up) | `vitest run` → **1198 passed / 9 skipped / 0 failed** (98 files); M74 Docker-gated suites (`m74-sandbox-occupancy` 8, `m74-collab-scale` sandbox slice, `m74-observability-occupancy` 3) executed                                                                                                                                                                                                                                                                                                                                                                                                   |
+| M74 deterministic coverage     | `m74-awareness-reconcile` (5: on-leave sweep, join-snapshot exclusion, periodic guard, **+ M76: 25-cycle no-accumulation, reconnect single-entry**); `m74-room-occupancy` (workspace/manager occupancy accessor); `m74-collab-scale` (2 pure at 12 collaborators: on-removal sweep, periodic guard); `m74-sandbox-occupancy` (8: warm-while-occupied, grace retain, grace reap, **+ M76: rejoin-resets-grace**, no-provider rule, provider-never-occupied rule, dead-socket, run-completion touch); `m41-dispose-guards` (8, unchanged — disposed room never re-arms a timer / flushes stale state) |
+| Revert-sensitivity             | remove the `reconcileAwarenessAgainstLiveSockets()` call in `removeClient()` → orphan-drop + cycle tests fail; remove `info.roomEmptyAt = null` on re-occupancy → rejoin-resets-grace test fails (container reaped at the original deadline)                                                                                                                                                                                                                                                                                                                                                        |
+| `git diff --check`             | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Acceptance (M74, as re-verified in M76)
 
@@ -8530,8 +8538,8 @@ dispose/empty; observability reports container sharing.
 **NOT independently re-verified in a live browser this pass** — the M73 live
 two-session harness already exercised the awareness churn that motivated
 M74-A; a fresh forced-mid-session-drop browser run was not done (deterministic
-+ real-Yjs-runtime headless coverage stands in, per the repo convention).
 
+- real-Yjs-runtime headless coverage stands in, per the repo convention).
 
 ## M75 — line-ending hygiene + finish the alert() → notice migration
 
@@ -8576,6 +8584,7 @@ eviction / cleanup) stays entirely in `useNotices`. `CustomEvent.detail` is a
 same-realm reference, so `actions[].onClick` / `onExpire` callbacks survive.
 
 Migrated call sites:
+
 - `Sidebar.tsx` (8): project create / fork / upload / export / import-new /
   workspace-replace (success + failure) / file new-folder-rename-delete.
   The import-**success** toast was dropped, not migrated — opening the new
@@ -8595,18 +8604,18 @@ gates, a distinct migration).
 
 ### Verification (2026-09-07)
 
-| Gate | Evidence |
-|---|---|
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Frontend full suite | `vitest run` → **971 passed / 0 failed** (122 files). Was 965 / **1 failed** (the CRLF `ideKeybindings.wiring` failure) pre-M75 |
-| Frontend build | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only) |
-| Frontend eslint | `eslint .` → **0 errors / 44 warnings**, byte-identical before/after (`git stash` A/B); no new warning in any changed file |
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite | `vitest run` (Docker up) → **1195 passed / 9 skipped / 0 failed** (98 files); re-run on the final LF worktree |
-| `git diff --check` | clean |
+| Gate                       | Evidence                                                                                                                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend typecheck         | `tsc --noEmit` exit 0                                                                                                                                                                                      |
+| Frontend full suite        | `vitest run` → **971 passed / 0 failed** (122 files). Was 965 / **1 failed** (the CRLF `ideKeybindings.wiring` failure) pre-M75                                                                            |
+| Frontend build             | `tsc --noEmit && vite build` exit 0 (pre-existing Monaco chunk-size warning only)                                                                                                                          |
+| Frontend eslint            | `eslint .` → **0 errors / 44 warnings**, byte-identical before/after (`git stash` A/B); no new warning in any changed file                                                                                 |
+| Backend typecheck          | `tsc --noEmit` exit 0                                                                                                                                                                                      |
+| Backend full suite         | `vitest run` (Docker up) → **1195 passed / 9 skipped / 0 failed** (98 files); re-run on the final LF worktree                                                                                              |
+| `git diff --check`         | clean                                                                                                                                                                                                      |
 | New deterministic coverage | `notices.util.test.ts` (4 — verbatim `detail`, callback-by-reference, `emitErrorNotice` shape, no-listener no-op); `ideNotices.wiring.test.tsx` +2 (bridge listener wiring, open-file failure is a notice) |
-| Updated coverage | `Sidebar.fork` / `Sidebar.templates` failure paths now assert on the captured `ide-notice` event instead of a `window.alert` spy; wiring `alert()` count 5 → 4 |
-| Revert-sensitivity | drop the `IDE.tsx` listener → `notices.util` + wiring bridge tests fail; restore any `alert()` → the migrated-path test fails; remove `.gitattributes` + re-CRLF → `ideKeybindings.wiring` fails |
+| Updated coverage           | `Sidebar.fork` / `Sidebar.templates` failure paths now assert on the captured `ide-notice` event instead of a `window.alert` spy; wiring `alert()` count 5 → 4                                             |
+| Revert-sensitivity         | drop the `IDE.tsx` listener → `notices.util` + wiring bridge tests fail; restore any `alert()` → the migrated-path test fails; remove `.gitattributes` + re-CRLF → `ideKeybindings.wiring` fails           |
 
 ### Acceptance
 
@@ -8620,7 +8629,6 @@ eslint, `diff --check`) green; changed lines are revert-sensitive.
 STATUS write-up (code landed, section never written). — **all three actioned
 in M76 below.**
 
-
 ## M76 — M74 closeout, awareness re-verification, admin notice migration
 
 Follow-on cleanup pass on top of the (still uncommitted) M75 diff. No AI work,
@@ -8631,7 +8639,7 @@ no redesign.
 Added the **M74 section above** (was entirely missing). The re-verification
 traced room create → join → leave → empty → grace → rejoin/reap → container
 cleanup, and the awareness table through the same lifecycle, against the
-*current* code — not the prior report. Two deterministic gaps were closed:
+_current_ code — not the prior report. Two deterministic gaps were closed:
 
 - `m74-awareness-reconcile.test.ts` +2: **25 join/silent-death/clean-leave
   cycles** leave the table at exactly the `doc.clientID` baseline every
@@ -8694,33 +8702,32 @@ worktrees under `.claude/worktrees/` (Aug, gitignored) — a clean
 
 ### Verification (2026-09-07)
 
-| Gate | Result |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` → **1198 passed / 9 skipped / 0 failed** (98 files) |
-| Frontend full suite | `vitest run` → **974 passed / 0 failed** (123 files) |
-| Frontend build | `tsc --noEmit && vite build` exit 0 (Monaco chunk-size warning only) |
-| ESLint (`eslint .` both packages) | 0 errors; warning count unchanged vs baseline |
-| `git diff --check` | clean |
-| New coverage | `AdminDashboard.notices.wiring.test.tsx` (3); `m74-awareness-reconcile` +2; `m74-sandbox-occupancy` +1 |
-| Revert-sensitivity | restore either admin `alert()` → wiring test's `not.toContain("alert(")` fails; the two M74 reverts above each fail their new test |
+| Gate                              | Result                                                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Backend typecheck                 | `tsc --noEmit` exit 0                                                                                                              |
+| Frontend typecheck                | `tsc --noEmit` exit 0                                                                                                              |
+| Backend full suite (Docker up)    | `vitest run` → **1198 passed / 9 skipped / 0 failed** (98 files)                                                                   |
+| Frontend full suite               | `vitest run` → **974 passed / 0 failed** (123 files)                                                                               |
+| Frontend build                    | `tsc --noEmit && vite build` exit 0 (Monaco chunk-size warning only)                                                               |
+| ESLint (`eslint .` both packages) | 0 errors; warning count unchanged vs baseline                                                                                      |
+| `git diff --check`                | clean                                                                                                                              |
+| New coverage                      | `AdminDashboard.notices.wiring.test.tsx` (3); `m74-awareness-reconcile` +2; `m74-sandbox-occupancy` +1                             |
+| Revert-sensitivity                | restore either admin `alert()` → wiring test's `not.toContain("alert(")` fails; the two M74 reverts above each fail their new test |
 
 ### Acceptance (M76 critical criteria)
 
-| Criterion | Status |
-|---|---|
-| M74 behavior independently verified | **PROVEN** (trace + deterministic suites re-run on current tree) |
-| M74 STATUS entry documents shipped behavior | **PROVEN** (section above, behavior-not-aspiration) |
-| Awareness issue fixed with regression coverage OR disproven | **PROVEN** — was real, fixed in M74-A, re-confirmed + 2 new regression tests |
-| Applicable AdminDashboard alerts migrated | **PROVEN** (2/2 → notices; wiring test) |
-| Applicable destructive confirms migrated without regression | **PROVEN (vacuous)** — no `window.confirm()` in AdminDashboard; existing modal confirmations already correct and untouched |
-| No duplicate notice system introduced | **PROVEN** — a second *instance* of `useNotices`/`NoticeStack`, same module |
-| No lifecycle/resource regression | **PROVEN** (review §4; full suites green) |
-| All final gates pass | **PROVEN** |
-| `git diff --check` clean | **PROVEN** |
-| Browser/runtime correctness | **PARTIAL** — not re-verified in Chrome this pass; static + real-runtime-headless + unit coverage only. **Closed in M77 below.** |
-
+| Criterion                                                   | Status                                                                                                                           |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| M74 behavior independently verified                         | **PROVEN** (trace + deterministic suites re-run on current tree)                                                                 |
+| M74 STATUS entry documents shipped behavior                 | **PROVEN** (section above, behavior-not-aspiration)                                                                              |
+| Awareness issue fixed with regression coverage OR disproven | **PROVEN** — was real, fixed in M74-A, re-confirmed + 2 new regression tests                                                     |
+| Applicable AdminDashboard alerts migrated                   | **PROVEN** (2/2 → notices; wiring test)                                                                                          |
+| Applicable destructive confirms migrated without regression | **PROVEN (vacuous)** — no `window.confirm()` in AdminDashboard; existing modal confirmations already correct and untouched       |
+| No duplicate notice system introduced                       | **PROVEN** — a second _instance_ of `useNotices`/`NoticeStack`, same module                                                      |
+| No lifecycle/resource regression                            | **PROVEN** (review §4; full suites green)                                                                                        |
+| All final gates pass                                        | **PROVEN**                                                                                                                       |
+| `git diff --check` clean                                    | **PROVEN**                                                                                                                       |
+| Browser/runtime correctness                                 | **PARTIAL** — not re-verified in Chrome this pass; static + real-runtime-headless + unit coverage only. **Closed in M77 below.** |
 
 ## M77 — live browser / runtime verification pass (closes the M76 PARTIAL)
 
@@ -8747,23 +8754,23 @@ found and documented (not fixed — see §Findings).
 
 ### Two-session collaboration — results
 
-| Scenario | Result | Evidence |
-|---|---|---|
-| A joins, B joins, both appear | **PROVEN** | A's count chip → "2 collaborators", TeamPanel "TEAM (2)" listing `bob_m77 editor`; B's session symmetric. Server room awareness = `alice_m77` + `bob_m77` + one `{}` (server `doc.clientID` baseline). |
-| Correct identity | **PROVEN** | server-forced `user.name` = username, `role` = share role (`owner`/`editor`); a client-set display string is discarded server-side. |
-| Graceful leave clears presence | **PROVEN** | B closes tab → within one reconcile A shows "1 collaborator" / "No other collaborators", server awareness back to `alice_m77` + `{}` only, zero orphans. |
-| Abrupt disconnect (no close frame) clears stale presence | **PROVEN** | headless B `_socket.destroy()` (no close frame) → A's roster drops B within ~15–30 s (y-protocols 30 s `outdatedTime` and/or the M74 heartbeat→`removeClient`→reconcile path, whichever fires first); A stayed "Synced" throughout. |
-| Reconnect → exactly one entry | **PROVEN** | across repeated join / silent-death / reconnect cycles the server awareness table always returned to exactly the real peers + the single `{}` baseline — **no duplicate, no orphan accumulation** (confirmed with the debug instrumentation: `orphans=[]` on every reconcile; a reconnecting client briefly holds two sockets, one with empty `awarenessClientIds`, and the live entry is never lost). |
-| M74 reconcile correctness | **PROVEN** | debug trace over the whole session: `reconcileAwarenessAgainstLiveSockets` computed `orphans` accurately every call, **never** removed a live-socket entry, never touched the `doc.clientID` baseline. The dead-socket removal path is what the deterministic `wsA.readyState=3` tests already cover. |
+| Scenario                                                 | Result     | Evidence                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A joins, B joins, both appear                            | **PROVEN** | A's count chip → "2 collaborators", TeamPanel "TEAM (2)" listing `bob_m77 editor`; B's session symmetric. Server room awareness = `alice_m77` + `bob_m77` + one `{}` (server `doc.clientID` baseline).                                                                                                                                                                                                 |
+| Correct identity                                         | **PROVEN** | server-forced `user.name` = username, `role` = share role (`owner`/`editor`); a client-set display string is discarded server-side.                                                                                                                                                                                                                                                                    |
+| Graceful leave clears presence                           | **PROVEN** | B closes tab → within one reconcile A shows "1 collaborator" / "No other collaborators", server awareness back to `alice_m77` + `{}` only, zero orphans.                                                                                                                                                                                                                                               |
+| Abrupt disconnect (no close frame) clears stale presence | **PROVEN** | headless B `_socket.destroy()` (no close frame) → A's roster drops B within ~15–30 s (y-protocols 30 s `outdatedTime` and/or the M74 heartbeat→`removeClient`→reconcile path, whichever fires first); A stayed "Synced" throughout.                                                                                                                                                                    |
+| Reconnect → exactly one entry                            | **PROVEN** | across repeated join / silent-death / reconnect cycles the server awareness table always returned to exactly the real peers + the single `{}` baseline — **no duplicate, no orphan accumulation** (confirmed with the debug instrumentation: `orphans=[]` on every reconcile; a reconnecting client briefly holds two sockets, one with empty `awarenessClientIds`, and the live entry is never lost). |
+| M74 reconcile correctness                                | **PROVEN** | debug trace over the whole session: `reconcileAwarenessAgainstLiveSockets` computed `orphans` accurately every call, **never** removed a live-socket entry, never touched the `doc.clientID` baseline. The dead-socket removal path is what the deterministic `wsA.readyState=3` tests already cover.                                                                                                  |
 
 ### Sandbox lifecycle — results
 
-| Scenario | Result | Evidence |
-|---|---|---|
-| Container stays warm while room occupied | **PROVEN** | with `SANDBOX_IDLE_TIMEOUT_MS=10000`, alice's real browser collab session kept the container alive through **9+ reaper passes / 45 s** (would be reaped at ~10–15 s without the occupancy warm-keep). `/api/admin/observability` → `provisionedContainerRoomOccupancy.totalLiveClients: 1` tracked the real socket. |
-| Empty room → reaped after the grace, before the idle timeout | **PROVEN** | with `idle=120 s`, `grace=15 s`: headless peer leaves → container survives t+4/t+9/t+14, **reaped between t+14 and t+18** — the 15 s grace firing, not the 120 s idle rule (`now − lastUsed ≈ 105 s < 120 s` at reap). |
-| Rejoin during the grace prevents cleanup | **PROVEN** | alice leaves, headless peer rejoins ~5 s later (inside the 15 s grace) → `roomEmptyAt` cleared → container **survived 60 s+** of reaper passes; only reaped after the peer finally left and a fresh full grace elapsed. |
-| Observability occupancy fields reflect reality | **PROVEN** | `containers`, `provisionedContainerRoomOccupancy.{totalLiveClients,totalDistinctUsers}` matched the live socket count at every step. |
+| Scenario                                                     | Result     | Evidence                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Container stays warm while room occupied                     | **PROVEN** | with `SANDBOX_IDLE_TIMEOUT_MS=10000`, alice's real browser collab session kept the container alive through **9+ reaper passes / 45 s** (would be reaped at ~10–15 s without the occupancy warm-keep). `/api/admin/observability` → `provisionedContainerRoomOccupancy.totalLiveClients: 1` tracked the real socket. |
+| Empty room → reaped after the grace, before the idle timeout | **PROVEN** | with `idle=120 s`, `grace=15 s`: headless peer leaves → container survives t+4/t+9/t+14, **reaped between t+14 and t+18** — the 15 s grace firing, not the 120 s idle rule (`now − lastUsed ≈ 105 s < 120 s` at reap).                                                                                              |
+| Rejoin during the grace prevents cleanup                     | **PROVEN** | alice leaves, headless peer rejoins ~5 s later (inside the 15 s grace) → `roomEmptyAt` cleared → container **survived 60 s+** of reaper passes; only reaped after the peer finally left and a fresh full grace elapsed.                                                                                             |
+| Observability occupancy fields reflect reality               | **PROVEN** | `containers`, `provisionedContainerRoomOccupancy.{totalLiveClients,totalDistinctUsers}` matched the live socket count at every step.                                                                                                                                                                                |
 
 ### Admin notice (M76) — results
 
@@ -8771,14 +8778,14 @@ Real `/admin` route as `e2eadmin`. Failure injected by making one `fetch`
 reject (`TypeError: Failed to fetch`) — a realistic transient-backend / network
 failure the catch path must handle.
 
-| Check | Result |
-|---|---|
-| No native `alert()` dialog | **PROVEN** — `window.alert` spy never called; page stayed responsive (JS ran after) for both `handleInspectUser` and `handleTerminateConfirm` failures. |
-| Rendered via the existing NoticeStack | **PROVEN** — `.notice-stack[role="region"]` › `.notice.notice-error`, `role="alert"`, `aria-live="assertive"`, left border `rgb(243,139,168)` (the error accent). |
-| Correct text | **PROVEN** — "Failed to load user details: …" / "Sandbox termination failed: …" (M76 wording). |
-| Visible long enough, not prematurely cleared | **PROVEN** — on screen ~4–5 s then auto-dismissed (ttl 6000); the admin route has no project-switch `clearNotices`, so it is never wiped early. |
+| Check                                              | Result                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No native `alert()` dialog                         | **PROVEN** — `window.alert` spy never called; page stayed responsive (JS ran after) for both `handleInspectUser` and `handleTerminateConfirm` failures.                                                                                                                                    |
+| Rendered via the existing NoticeStack              | **PROVEN** — `.notice-stack[role="region"]` › `.notice.notice-error`, `role="alert"`, `aria-live="assertive"`, left border `rgb(243,139,168)` (the error accent).                                                                                                                          |
+| Correct text                                       | **PROVEN** — "Failed to load user details: …" / "Sandbox termination failed: …" (M76 wording).                                                                                                                                                                                             |
+| Visible long enough, not prematurely cleared       | **PROVEN** — on screen ~4–5 s then auto-dismissed (ttl 6000); the admin route has no project-switch `clearNotices`, so it is never wiped early.                                                                                                                                            |
 | Failing destructive op retains modal/loading state | **PROVEN** — the terminate confirm modal **stayed open** on failure, the confirm button reset from "Terminating…" (not stuck, not left disabled) → retry possible; a retry then succeeded (container gone, `actionMessage` success badge shown — the untouched pre-existing success path). |
-| No duplicate notice | **PROVEN** — exactly one `.notice` per failing action. |
+| No duplicate notice                                | **PROVEN** — exactly one `.notice` per failing action.                                                                                                                                                                                                                                     |
 
 ### Findings
 
@@ -8786,10 +8793,10 @@ failure the catch path must handle.
 presence times out for peers after ~30 s.** The server's per-room
 `new awarenessProtocol.Awareness(this.doc)` uses the y-protocols default
 `outdatedTime = 30000`; its internal `_checkInterval` removes any non-local
-client entry not *updated* within 30 s and broadcasts the removal. The
+client entry not _updated_ within 30 s and broadcasts the removal. The
 frontend `CollaborationClient` only emits awareness on real user interaction
 (mousemove / keydown / cursor / file-open / status change) — **an idle-but-
-connected tab emits nothing**, so after ~30 s every *other* participant's
+connected tab emits nothing**, so after ~30 s every _other_ participant's
 roster / count / avatar-stack drops that user, and there is no client-side
 recovery (the REST `/collaborators` fetch feeds only the comment-author
 roster, not live presence) until that user interacts again or reconnects.
@@ -8798,7 +8805,7 @@ the other within ~30–45 s while its own socket stays connected and "Synced".
 This is orthogonal to M74 (M74's reconcile only removes dead-socket orphans;
 verified never removing live entries). It predates the collab feature's
 current form — no historical `outdatedTime` handling in `git log`. The M62/M73
-notes already acknowledge idle-presence *lag*; "disappears entirely" is worse.
+notes already acknowledge idle-presence _lag_; "disappears entirely" is worse.
 Recommended fix (its own bounded task): a low-frequency client keepalive
 (`setLocalStateField("lastActive", Date.now())` every ~20 s while connected,
 cleared on dispose — must NOT reset the idle/away state machine), OR bump the
@@ -8823,23 +8830,22 @@ clean; `git diff` byte-identical to end-of-M76 plus this STATUS section.
 
 ### Acceptance (M77)
 
-| Criterion | Status |
-|---|---|
-| Real two-session presence behaviour verified | **PROVEN** (two cookie-jar-isolated browser sessions) |
-| Abrupt / stale awareness cleanup verified | **PROVEN** (headless no-close-frame drop → peer roster clears) |
-| Reconnect produces a single presence entry | **PROVEN** (repeated cycles, `orphans=[]`, no duplicate) |
-| Sandbox stays warm while occupied | **PROVEN** (survived 45 s vs a 10 s idle timeout; occupancy provider live) |
-| Rejoin during grace prevents premature cleanup | **PROVEN** (survived 60 s+ after an in-grace rejoin) |
-| Empty-room cleanup observed | **PROVEN** (reaped at the 15 s grace, not the 120 s idle rule) |
-| Real AdminDashboard error → notice, not alert | **PROVEN** (both failure paths; NoticeStack, `role=alert`, no `alert()`) |
-| No duplicate notice | **PROVEN** (one per action) |
-| No regression introduced | **PROVEN** (no production code changed) |
-| M76 live-browser PARTIAL | **CLOSED** |
+| Criterion                                      | Status                                                                     |
+| ---------------------------------------------- | -------------------------------------------------------------------------- |
+| Real two-session presence behaviour verified   | **PROVEN** (two cookie-jar-isolated browser sessions)                      |
+| Abrupt / stale awareness cleanup verified      | **PROVEN** (headless no-close-frame drop → peer roster clears)             |
+| Reconnect produces a single presence entry     | **PROVEN** (repeated cycles, `orphans=[]`, no duplicate)                   |
+| Sandbox stays warm while occupied              | **PROVEN** (survived 45 s vs a 10 s idle timeout; occupancy provider live) |
+| Rejoin during grace prevents premature cleanup | **PROVEN** (survived 60 s+ after an in-grace rejoin)                       |
+| Empty-room cleanup observed                    | **PROVEN** (reaped at the 15 s grace, not the 120 s idle rule)             |
+| Real AdminDashboard error → notice, not alert  | **PROVEN** (both failure paths; NoticeStack, `role=alert`, no `alert()`)   |
+| No duplicate notice                            | **PROVEN** (one per action)                                                |
+| No regression introduced                       | **PROVEN** (no production code changed)                                    |
+| M76 live-browser PARTIAL                       | **CLOSED**                                                                 |
 
 One pre-existing P2 (idle-collaborator awareness timeout) is now documented
 with a repro and a recommended fix — tracked as the top item for a follow-on
 bounded task. — **fixed in M78 below.**
-
 
 ## M78 — idle connected collaborators stay visible to peers
 
@@ -8891,7 +8897,7 @@ interval** (active clients' own frames already keep `meta` fresh — skipped):
    `lastUpdated = now`) so this room's `Awareness._checkInterval` never emits
    a `timeout` removal for a live socket; and
 2. re-broadcast the entry's **current stored state, unchanged** to every
-   *other* live socket, so that peer's `Awareness` likewise refreshes
+   _other_ live socket, so that peer's `Awareness` likewise refreshes
    `meta.lastUpdated` and never times the collaborator out.
 
 The payload is the state already in `this.awareness` — `status` / `activity`
@@ -8916,11 +8922,11 @@ immediately (no "frozen for N seconds" catch-up).
 
 ### Timeout / cadence values
 
-| | value |
-|---|---|
-| y-protocols `outdatedTimeout` (unchanged) | 30 000 ms |
-| its `_checkInterval` granularity | 3 000 ms |
-| M78 keepalive cadence (reuses M74 sweep) | 15 000 ms |
+|                                                       | value                                 |
+| ----------------------------------------------------- | ------------------------------------- |
+| y-protocols `outdatedTimeout` (unchanged)             | 30 000 ms                             |
+| its `_checkInterval` granularity                      | 3 000 ms                              |
+| M78 keepalive cadence (reuses M74 sweep)              | 15 000 ms                             |
 | "quiet for a sweep" gate before a client is refreshed | `now - meta.lastUpdated >= 15 000 ms` |
 
 ### Deterministic reproduction & coverage — `backend/test/m78-idle-presence.test.ts` (8)
@@ -8960,17 +8966,17 @@ a headless client on the exact wire protocol whose `background` command
 freezes **all** awareness emission (its own 15 s renewal included) — a
 throttled hidden tab.
 
-| # | Check | Result |
-|---|---|---|
-| 1 | B joins A's project | **PROVEN** — A chip "2 collaborators", TeamPanel "TEAM (2)" `bob_m78 EDITOR` |
-| 2 | B backgrounded + idle **~80 s** (then again ~62 s) — past the old 30 s window | **PROVEN** — A still shows B the whole time; server room awareness kept `bob_m78`, its clock incrementing ~1 / sweep |
-| 3 | B shown **Idle / Viewing**, not Active | **PROVEN** — TeamPanel `Viewing`, relative time growing ("1m ago"), never flipped |
-| 4 | B foregrounds + edits → **Active again** | **PROVEN** — server `activity: editing`, clock jumped 12 → 17 (**stale-clock frame accepted** — monotonic fix), A shows "✏️ Editing / main.py" |
-| 5 | B closes tab → A removes B | **PROVEN** — A "1 collaborator", "No other collaborators here right now", server room = A only |
-| 6 | B reconnects → **exactly one** B | **PROVEN** — one row, new clientID, old (`124249917`) gone |
-| 7 | keepalive causes **no reconnect / no new socket** | **PROVEN** — `window.WebSocket` instrumented on A → **0** creations across the whole sequence |
-| 8 | not a flood | **PROVEN** — a peer of a fully-idle 2-collaborator room: **10 awareness frames/min, ~1.7 KB/min** (≈ one coalesced frame per collaborator per 15 s sweep) |
-| 9 | app healthy | **PROVEN** — no error boundary; a real idle browser tab (A, idle 5 min) also stayed present |
+| #   | Check                                                                         | Result                                                                                                                                                    |
+| --- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | B joins A's project                                                           | **PROVEN** — A chip "2 collaborators", TeamPanel "TEAM (2)" `bob_m78 EDITOR`                                                                              |
+| 2   | B backgrounded + idle **~80 s** (then again ~62 s) — past the old 30 s window | **PROVEN** — A still shows B the whole time; server room awareness kept `bob_m78`, its clock incrementing ~1 / sweep                                      |
+| 3   | B shown **Idle / Viewing**, not Active                                        | **PROVEN** — TeamPanel `Viewing`, relative time growing ("1m ago"), never flipped                                                                         |
+| 4   | B foregrounds + edits → **Active again**                                      | **PROVEN** — server `activity: editing`, clock jumped 12 → 17 (**stale-clock frame accepted** — monotonic fix), A shows "✏️ Editing / main.py"            |
+| 5   | B closes tab → A removes B                                                    | **PROVEN** — A "1 collaborator", "No other collaborators here right now", server room = A only                                                            |
+| 6   | B reconnects → **exactly one** B                                              | **PROVEN** — one row, new clientID, old (`124249917`) gone                                                                                                |
+| 7   | keepalive causes **no reconnect / no new socket**                             | **PROVEN** — `window.WebSocket` instrumented on A → **0** creations across the whole sequence                                                             |
+| 8   | not a flood                                                                   | **PROVEN** — a peer of a fully-idle 2-collaborator room: **10 awareness frames/min, ~1.7 KB/min** (≈ one coalesced frame per collaborator per 15 s sweep) |
+| 9   | app healthy                                                                   | **PROVEN** — no error boundary; a real idle browser tab (A, idle 5 min) also stayed present                                                               |
 
 **Commit-pass re-verification (2026-09-08, on the committed branch
 `feat/m75-m78-notices-idle-presence`):** the same isolated stack + a
@@ -8994,18 +9000,18 @@ addresses. Test users `m78own_1623916` / `m78clb_1626106`, project
 collab socket + a per-frame message classifier (message-type byte) + React
 fiber reads of the rendered `collaborators` array.
 
-| # | Scenario | Result |
-|---|---|---|
-| 1 | B joins A's project | **PROVEN** — both tabs: avatar chip "2", `TEAM (2)`, roles `OWNER` / `EDITOR`, `collab-status-badge synced` |
-| 2 | B connected + hidden + idle **112 s** (past the old 30 s window) | **PROVEN** — A kept showing B the whole time; A's collab socket stayed `readyState 1`; **0** new sockets on A; B's roster row went `Viewing` → `Idle`, never `Active`/`Editing` |
-| 2t | keepalive cadence / volume on A (peer of one idle collaborator) | **PROVEN** — 62 awareness frames over 380 s ≈ **9.8 frames/min**, **~2.5 KB/min**; frame timestamps cluster in ~15 s pairs (one coalesced entry per collaborator per M74 sweep); 0 sync frames. Same order as the historical ~10 frames/min · ~1.7 KB/min — no regression. |
-| 3 | B foregrounds + edits `main.py` | **PROVEN** — A's entry for B flips to `activity: "editing"`, `activeFile: "main.py"`, title "Editing main.py"; still exactly one B entry; B's stale (background-throttled) awareness clock accepted — the edit propagated |
-| 4 | B closes its tab | **PROVEN** — within one reconcile A's roster dropped B (count `1`, only A's own entry left, B gone from every surface) |
-| 5 | B reconnects (new tab, new `clientID`) | **PROVEN** — A shows **exactly one** B (`clientId 2140178667`), old `clientId 1819151144` gone, `count 2`; A did not reconnect (0 new sockets) |
-| 6 | M74 reconciliation intact | **PROVEN** — live entries never wrongly removed; the server `doc.clientID` `{}` baseline never surfaced as a collaborator (`readPresenceState` drops stateless entries); a transient duplicate (see below) was reconciled away automatically |
-| 7 | single realistic page reload of A | **PROVEN** — a peer saw exactly one A entry with A's new `clientID` by t+64 s; old entry gone |
+| #   | Scenario                                                         | Result                                                                                                                                                                                                                                                                     |
+| --- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | B joins A's project                                              | **PROVEN** — both tabs: avatar chip "2", `TEAM (2)`, roles `OWNER` / `EDITOR`, `collab-status-badge synced`                                                                                                                                                                |
+| 2   | B connected + hidden + idle **112 s** (past the old 30 s window) | **PROVEN** — A kept showing B the whole time; A's collab socket stayed `readyState 1`; **0** new sockets on A; B's roster row went `Viewing` → `Idle`, never `Active`/`Editing`                                                                                            |
+| 2t  | keepalive cadence / volume on A (peer of one idle collaborator)  | **PROVEN** — 62 awareness frames over 380 s ≈ **9.8 frames/min**, **~2.5 KB/min**; frame timestamps cluster in ~15 s pairs (one coalesced entry per collaborator per M74 sweep); 0 sync frames. Same order as the historical ~10 frames/min · ~1.7 KB/min — no regression. |
+| 3   | B foregrounds + edits `main.py`                                  | **PROVEN** — A's entry for B flips to `activity: "editing"`, `activeFile: "main.py"`, title "Editing main.py"; still exactly one B entry; B's stale (background-throttled) awareness clock accepted — the edit propagated                                                  |
+| 4   | B closes its tab                                                 | **PROVEN** — within one reconcile A's roster dropped B (count `1`, only A's own entry left, B gone from every surface)                                                                                                                                                     |
+| 5   | B reconnects (new tab, new `clientID`)                           | **PROVEN** — A shows **exactly one** B (`clientId 2140178667`), old `clientId 1819151144` gone, `count 2`; A did not reconnect (0 new sockets)                                                                                                                             |
+| 6   | M74 reconciliation intact                                        | **PROVEN** — live entries never wrongly removed; the server `doc.clientID` `{}` baseline never surfaced as a collaborator (`readPresenceState` drops stateless entries); a transient duplicate (see below) was reconciled away automatically                               |
+| 7   | single realistic page reload of A                                | **PROVEN** — a peer saw exactly one A entry with A's new `clientID` by t+64 s; old entry gone                                                                                                                                                                              |
 
-### Known limitation — transient over-count after an *abrupt* reconnect
+### Known limitation — transient over-count after an _abrupt_ reconnect
 
 Observed during setup when tab A was reloaded **4+ times in ~2 min** through
 the Vite dev proxy: a peer's **avatar-stack count badge** briefly showed `3`
@@ -9025,9 +9031,9 @@ stale row stays visible on peers until the backend socket is actually reaped
   the `CollaboratorAvatarStack` count badge (`collaborators.length`,
   un-deduped) transiently over-counts.
 - **Does not touch disconnect / idle / reconnect semantics** — tests 2/4/5
-  above all pass; a *clean* disconnect reconciles immediately, a *single*
+  above all pass; a _clean_ disconnect reconciles immediately, a _single_
   realistic reload was clean by t+64 s.
-- Net effect of M78: the transient-duplicate window after an *abrupt*
+- Net effect of M78: the transient-duplicate window after an _abrupt_
   reconnect widens from ~30 s (y-protocols timeout) to ≤ the heartbeat-reaper
   interval (≤ 60 s in prod). Pre-existing class (M74 already had reconnect
   transients), bounded, cosmetic. **Classified P3.** No code change here — a
@@ -9037,15 +9043,15 @@ stale row stays visible on peers until the backend socket is actually reaped
 ### Scaling
 
 Per sweep, per quiet collaborator: one `meta` bump (O(1)) + one
-`encodeAwarenessUpdate` entry (~40–180 B) sent to each *other* live socket.
+`encodeAwarenessUpdate` entry (~40–180 B) sent to each _other_ live socket.
 Total is O(N) per peer, O(N²) for a **fully-idle** room:
 
 | room (all idle) | bytes / 15 s sweep, total | steady rate, total |
-|---|---|---|
-| 2 | ~0.24 KB | ~16 B/s |
-| 5 | ~2.4 KB | ~160 B/s |
-| 10 | ~10.8 KB | ~720 B/s |
-| 20 | ~45.6 KB | ~3 KB/s |
+| --------------- | ------------------------- | ------------------ |
+| 2               | ~0.24 KB                  | ~16 B/s            |
+| 5               | ~2.4 KB                   | ~160 B/s           |
+| 10              | ~10.8 KB                  | ~720 B/s           |
+| 20              | ~45.6 KB                  | ~3 KB/s            |
 
 The `now - meta.lastUpdated >= 15 000 ms` gate skips every collaborator who
 is actively sending, so a busy room's keepalive traffic is near zero — the
@@ -9057,42 +9063,42 @@ adds no new scaling class. Not a P1/P2 problem for realistic IDE room sizes
 
 ### Verification
 
-| Gate | Result |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
-| Backend full suite (Docker up) | `vitest run` → **1206 passed / 9 skipped / 0 failed** (99 files); one earlier run had a `python-deps` flake (real-PyPI pip-in-Docker under load), green on the clean committed-branch re-run |
-| Collab regression (targeted) | `m4-collab` (48), `m6-collab-coalesce-backpressure` (8), `m41-dispose-guards` (8), `m57-presence` (27), `m62-collab-identity` (14), `m73-collab-pronouns` (6), `m74-awareness-reconcile` (5), `m74-collab-scale` (3), `collab-awareness-security` (23) — **142/142** |
-| Frontend collab (targeted) | `collab.awareness` / `collab.presence` / `collab.reconnect` / `collab.selfIdentity` / `collab.connectionState` / `identity-consistency` / `CollaboratorAvatarStack` — **95/95** |
-| Frontend full suite | `vitest run` → **974 passed / 0 failed** (123 files; M71 perf baseline unchanged — the keepalive adds zero frontend renders) |
-| Frontend build | `tsc --noEmit && vite build` exit 0 (Monaco chunk-size warning only) |
-| Backend eslint | `eslint .` → 0 errors / 29 warnings (baseline) |
-| `git diff --check` | clean |
+| Gate                                             | Result                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend typecheck                                | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                     |
+| Frontend typecheck                               | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                     |
+| Backend full suite (Docker up)                   | `vitest run` → **1206 passed / 9 skipped / 0 failed** (99 files); one earlier run had a `python-deps` flake (real-PyPI pip-in-Docker under load), green on the clean committed-branch re-run                                                                                              |
+| Collab regression (targeted)                     | `m4-collab` (48), `m6-collab-coalesce-backpressure` (8), `m41-dispose-guards` (8), `m57-presence` (27), `m62-collab-identity` (14), `m73-collab-pronouns` (6), `m74-awareness-reconcile` (5), `m74-collab-scale` (3), `collab-awareness-security` (23) — **142/142**                      |
+| Frontend collab (targeted)                       | `collab.awareness` / `collab.presence` / `collab.reconnect` / `collab.selfIdentity` / `collab.connectionState` / `identity-consistency` / `CollaboratorAvatarStack` — **95/95**                                                                                                           |
+| Frontend full suite                              | `vitest run` → **974 passed / 0 failed** (123 files; M71 perf baseline unchanged — the keepalive adds zero frontend renders)                                                                                                                                                              |
+| Frontend build                                   | `tsc --noEmit && vite build` exit 0 (Monaco chunk-size warning only)                                                                                                                                                                                                                      |
+| Backend eslint                                   | `eslint .` → 0 errors / 29 warnings (baseline)                                                                                                                                                                                                                                            |
+| `git diff --check`                               | clean                                                                                                                                                                                                                                                                                     |
 | Pre-merge re-confirm (2026-09-08, tip `8f45de3`) | backend + frontend `tsc --noEmit` exit 0, `git diff --check` clean, working tree clean; full backend Docker suite (1206/9/0), frontend suite (974/0), `vite build`, `eslint` re-run green earlier the same day on this unchanged tree — not re-run for ceremony per the release checklist |
 
 ### Acceptance (M78)
 
-| Criterion | Status |
-|---|---|
-| Idle-but-connected collaborator stays visible past the old 30 s window | **PROVEN** (deterministic REPRO + live ~80 s) |
-| Idle/away stays semantically distinct from liveness; idle not shown active | **PROVEN** (payload unchanged; live TeamPanel `Viewing`, not `Editing`) |
-| Genuine disconnect still removes the collaborator | **PROVEN** (deterministic + live close) |
-| Reconnect → exactly one entry | **PROVEN** (deterministic + live, old clientID gone) |
-| No duplicate socket / timer / subscription | **PROVEN** (reuses the M74 timer; live `WebSocket` count 0) |
-| M74 awareness reconciliation still correct | **PROVEN** (m74 suites green; deterministic test 8) |
-| Deterministic regression coverage | **PROVEN** (`m78-idle-presence.test.ts`, 8, revert-sensitive) |
-| Docker-backed verification green | **PROVEN** (1206 pass / 0 fail on the committed branch) |
-| Scaling acceptable | **PROVEN** — O(N) per peer, O(N²) idle-room total; ≤ 3 KB/s total at N=20; near-zero in a busy room (quiet-gate); no new scaling class |
-| Live two-session Chrome verification | **PROVEN** — headless wire-client run (2026-09-07) **and** fresh real-Chrome two-tab run on the branch tip (2026-09-08): idle 112 s past the 30 s window, Idle-not-Active, clean disconnect removes, reconnect → one entry, 0 new sockets |
-| Resource / traffic impact measured | **PROVEN** — ~1.7 KB/min per peer (2026-09-07 headless); ~2.5 KB/min · ~9.8 frames/min per peer (2026-09-08 real Chrome, one idle collaborator) — same order, no regression |
-| Transient over-count after an *abrupt* reconnect | **KNOWN LIMITATION (P3)** — avatar-stack count badge can briefly over-count a reconnecting user until the ≤60 s heartbeat reaper; self-heals; `TeamPanel` unaffected; disconnect/idle/reconnect semantics unaffected |
+| Criterion                                                                  | Status                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Idle-but-connected collaborator stays visible past the old 30 s window     | **PROVEN** (deterministic REPRO + live ~80 s)                                                                                                                                                                                             |
+| Idle/away stays semantically distinct from liveness; idle not shown active | **PROVEN** (payload unchanged; live TeamPanel `Viewing`, not `Editing`)                                                                                                                                                                   |
+| Genuine disconnect still removes the collaborator                          | **PROVEN** (deterministic + live close)                                                                                                                                                                                                   |
+| Reconnect → exactly one entry                                              | **PROVEN** (deterministic + live, old clientID gone)                                                                                                                                                                                      |
+| No duplicate socket / timer / subscription                                 | **PROVEN** (reuses the M74 timer; live `WebSocket` count 0)                                                                                                                                                                               |
+| M74 awareness reconciliation still correct                                 | **PROVEN** (m74 suites green; deterministic test 8)                                                                                                                                                                                       |
+| Deterministic regression coverage                                          | **PROVEN** (`m78-idle-presence.test.ts`, 8, revert-sensitive)                                                                                                                                                                             |
+| Docker-backed verification green                                           | **PROVEN** (1206 pass / 0 fail on the committed branch)                                                                                                                                                                                   |
+| Scaling acceptable                                                         | **PROVEN** — O(N) per peer, O(N²) idle-room total; ≤ 3 KB/s total at N=20; near-zero in a busy room (quiet-gate); no new scaling class                                                                                                    |
+| Live two-session Chrome verification                                       | **PROVEN** — headless wire-client run (2026-09-07) **and** fresh real-Chrome two-tab run on the branch tip (2026-09-08): idle 112 s past the 30 s window, Idle-not-Active, clean disconnect removes, reconnect → one entry, 0 new sockets |
+| Resource / traffic impact measured                                         | **PROVEN** — ~1.7 KB/min per peer (2026-09-07 headless); ~2.5 KB/min · ~9.8 frames/min per peer (2026-09-08 real Chrome, one idle collaborator) — same order, no regression                                                               |
+| Transient over-count after an _abrupt_ reconnect                           | **KNOWN LIMITATION (P3)** — avatar-stack count badge can briefly over-count a reconnecting user until the ≤60 s heartbeat reaper; self-heals; `TeamPanel` unaffected; disconnect/idle/reconnect semantics unaffected                      |
 
 ### Remaining risk / notes
 
 - The keepalive re-broadcasts even to a **backpressured** peer only if
   `sendAwarenessBroadcast`'s watermark check passes; a peer backpressured for
   > 30 s could still locally time a collaborator out until M6 catch-up. Edge
-  case, pre-existing exposure, not worsened.
+  > case, pre-existing exposure, not worsened.
 - `awarenessReconcileMs` remains constructor-only (not env-configurable) —
   deliberately not adding an ops knob (scope).
 - A collaborator's **awareness clock** now grows ~1 / 15 s while idle
@@ -9104,7 +9110,6 @@ adds no new scaling class. Not a P1/P2 problem for realistic IDE room sizes
   Not merge-blocking; no fix applied (out of scope, would be a frontend
   `userId` de-dupe on the avatar-stack count).
 
-
 ## M74–M78 history reconstruction (2026-09-08)
 
 M74–M77 and M78 accumulated as one uncommitted working tree (M74's production
@@ -9114,21 +9119,20 @@ STATUS text only). Partitioned onto branch
 green, bisectable commits — every file traced to its milestone, no
 cross-milestone overlap, no forced splits, no red intermediate states:
 
-| # | commit | milestone | files |
-|---|---|---|---|
-| 1 | `chore(repo): enforce LF line endings via .gitattributes` | M75 | `.gitattributes` |
-| 2 | `feat(collab): route Sidebar/Output/IDE failures through the M64 notice system` | M75 | `utils/notices.ts`, `IDE.tsx`, `Sidebar.tsx`, `Output.tsx` + 4 test files (coupled — the modified `Sidebar.fork`/`Sidebar.templates` tests must land with the feat) |
-| 3 | `feat(admin): route AdminDashboard failures through its own M64 notice instance` | M76 | `Admin/AdminDashboard.tsx` |
-| 4 | `test(admin): lock AdminDashboard notice wiring` | M76 | `AdminDashboard.notices.wiring.test.tsx` |
-| 5 | `test(collab): M76 regression — awareness cycle churn + sandbox rejoin-grace` | M76 | `m74-awareness-reconcile.test.ts`, `m74-sandbox-occupancy.test.ts` (pure additions extending M74's suites) |
-| 6 | `feat(collab): keep idle connected collaborators visible to peers` | M78 | `collab/manager.ts` |
-| 7 | `test(collab): lock idle-presence keepalive + disconnect/reconnect semantics` | M78 | `m78-idle-presence.test.ts` |
-| 8 | this STATUS entry | M74 retro-doc + M75–M78 | `STATUS.md` |
+| #   | commit                                                                           | milestone               | files                                                                                                                                                               |
+| --- | -------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `chore(repo): enforce LF line endings via .gitattributes`                        | M75                     | `.gitattributes`                                                                                                                                                    |
+| 2   | `feat(collab): route Sidebar/Output/IDE failures through the M64 notice system`  | M75                     | `utils/notices.ts`, `IDE.tsx`, `Sidebar.tsx`, `Output.tsx` + 4 test files (coupled — the modified `Sidebar.fork`/`Sidebar.templates` tests must land with the feat) |
+| 3   | `feat(admin): route AdminDashboard failures through its own M64 notice instance` | M76                     | `Admin/AdminDashboard.tsx`                                                                                                                                          |
+| 4   | `test(admin): lock AdminDashboard notice wiring`                                 | M76                     | `AdminDashboard.notices.wiring.test.tsx`                                                                                                                            |
+| 5   | `test(collab): M76 regression — awareness cycle churn + sandbox rejoin-grace`    | M76                     | `m74-awareness-reconcile.test.ts`, `m74-sandbox-occupancy.test.ts` (pure additions extending M74's suites)                                                          |
+| 6   | `feat(collab): keep idle connected collaborators visible to peers`               | M78                     | `collab/manager.ts`                                                                                                                                                 |
+| 7   | `test(collab): lock idle-presence keepalive + disconnect/reconnect semantics`    | M78                     | `m78-idle-presence.test.ts`                                                                                                                                         |
+| 8   | this STATUS entry                                                                | M74 retro-doc + M75–M78 | `STATUS.md`                                                                                                                                                         |
 
 Not pushed, not merged. Full verification (both typechecks, backend 1206/0
 with Docker, frontend 974/0, build, eslint, `diff --check`, live M78
 two-session re-check) green on the branch tip.
-
 
 ## M79 — terminal session reliability & persistence
 
@@ -9145,7 +9149,7 @@ connection resilience:
    (`terminal.test.ts` even asserted `ws.emit("close") ⇒ ptyProcess.kill()`).
 4. ∴ switching bottom-panel tabs killed the user's shell and any running
    process (dev server, build, REPL). `IDE.tsx:356` falsely claimed
-   *"Terminal, which update … xterm in place (never remount)"*.
+   _"Terminal, which update … xterm in place (never remount)"_.
 5. No client auto-reconnect — `ws.onclose` printed `[Terminal Session Ended]`
    and stopped; recovery was a manual button.
 6. Any reconnect built a fresh `XTerm` + fresh `docker exec bash` — scrollback,
@@ -9181,7 +9185,7 @@ hook teardown — never on a socket reconnect or a visibility change.
 `(userId, projectId, terminalId)` triple:
 
 - `create / attach / detach / reap / reapProject / reapUser / reapUserProject /
-  countForUser / disposeAll / describe`
+countForUser / disposeAll / describe`
 - a socket close/error now **detaches** (arms the grace timer) instead of
   killing the PTY; `ws/terminal.ts` re-attaches a reconnecting socket to the
   live PTY, replaying only `seq > lastSeq` from a bounded ring
@@ -9261,18 +9265,18 @@ project teardown / role loss release it exactly once.
 
 ### Deterministic verification (release-gate pass, clean environment)
 
-| Gate | Result |
-|---|---|
-| Backend typecheck | `tsc --noEmit` exit 0 |
-| Frontend typecheck | `tsc --noEmit` exit 0 |
+| Gate                           | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend typecheck              | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Frontend typecheck             | `tsc --noEmit` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Backend full suite (Docker up) | **1244 passed / 9 skipped / 0 failed** — run twice, green both times. `python-deps.test.ts` passes at ~44–47 s (its per-test timeout is 120 s since `96c5426`); the earlier failure was a Docker Desktop crash on the degraded host, not the repo — `pip install six==1.17.0` in a 512 MB runner completes in ~15 s manually. The 9 skips are the standard root-user / cgroup / platform conditional skips (api 2, sandbox 2, backup 2, workspace-backup 1, fork 2). |
-| M79 backend tests | `m79-terminal-sessions` 26/26, `m79-terminal-security` 6/6, `m79-terminal-teardown` 5/5, `m79-terminal-races` 3/3 (post-M79 hardening), `terminal.test` 10/10 (updated for close⇒detach), `ws.test` 6/6, `sandbox.test` 24, `secrets.test` 42/42 (M47 unchanged) |
-| Frontend full suite | `vitest run` → **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged (~13.5 s) |
-| M79 frontend tests | `terminalSession.persistence` 3, `.reconnect` 9, `.buffer` 3, `.lifecycle` 5, `.mount` 4, `Terminal.theme` 4, `ideTerminalHost.wiring` 3, `ideAppearance.wiring` 7 |
-| Frontend build | `tsc --noEmit && vite build` exit 0 |
-| Frontend eslint | `eslint .` → 0 errors / 43 warnings (one *fewer* than the M78 baseline) |
-| Backend eslint | `eslint .` → 0 errors / 29 warnings (baseline) |
-| `git diff --check` | clean · working tree clean |
+| M79 backend tests              | `m79-terminal-sessions` 26/26, `m79-terminal-security` 6/6, `m79-terminal-teardown` 5/5, `m79-terminal-races` 3/3 (post-M79 hardening), `terminal.test` 10/10 (updated for close⇒detach), `ws.test` 6/6, `sandbox.test` 24, `secrets.test` 42/42 (M47 unchanged)                                                                                                                                                                                                     |
+| Frontend full suite            | `vitest run` → **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged (~13.5 s)                                                                                                                                                                                                                                                                                                                                                                         |
+| M79 frontend tests             | `terminalSession.persistence` 3, `.reconnect` 9, `.buffer` 3, `.lifecycle` 5, `.mount` 4, `Terminal.theme` 4, `ideTerminalHost.wiring` 3, `ideAppearance.wiring` 7                                                                                                                                                                                                                                                                                                   |
+| Frontend build                 | `tsc --noEmit && vite build` exit 0                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Frontend eslint                | `eslint .` → 0 errors / 43 warnings (one _fewer_ than the M78 baseline)                                                                                                                                                                                                                                                                                                                                                                                              |
+| Backend eslint                 | `eslint .` → 0 errors / 29 warnings (baseline)                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `git diff --check`             | clean · working tree clean                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 Backend test matrix B1–B28 covered across `m79-terminal-sessions.test.ts`
 (B1–B26 + dedupe/idempotency/isolation/`reapedReason`),
@@ -9292,31 +9296,31 @@ reach xterm — via the terminal's own `WebSocket.send({type:"data"})` path
 (exactly what `term.onData` does), plus `docker top` / `docker exec` as the
 authoritative server-side view.
 
-| Scenario | Result |
-|---|---|
-| Terminal connects → real `docker exec bash`; server frames carry a monotonic `seq` | **PASS** — direct raw-WS probe: `WS OPEN`, `{type:"data", seq:1/2/3}` |
-| **A — panel switch** (Output→Problems→Preview→Git→Resources→Terminal) | **PASS** — a running `python3 -m http.server` survived: `docker top` showed the same `bash` + `python` pids, scrollback intact, **0 new WebSocket, 0 new `docker exec`** |
-| **B — drawer collapse / reopen** | **PASS** (clean re-run after `25627f4`) — collapsed 12 s with a `while … echo tick` loop running; on reopen the XTerm re-rendered and re-**fitted** (168 px in a 180 px host), the 57-line scrollback (`scroll-1..25`, markers) was intact, `bash 22312` + its loop `22320` unchanged, **no new `docker exec`, one WebSocket** |
-| **C — socket drop → reattach** | **PASS** — killed Vite ~18 s. Client `reconnecting → connected` on restart; **same PTY** (`bash 22312`), ticks produced while disconnected (`tick-154..172`) **replayed exactly once** (zero duplicates, monotonic), scrollback continuous (min 31 → max 205), one new WebSocket object |
-| **D — grace expiry → ended** | **PASS** (after `92ca48c`) — socket dead > 90 s + client `reconnect_exhausted`; server reaped the session; on Retry the client got `{type:"ended", reason:"grace_expired"}` → state `ended`, toolbar *"Session ended · reason: grace_expired · Start new terminal"*, buffer preserved (…`dtick-97` + the ended marker), **no silent fresh shell**. "Start new terminal" → new `terminalId`, working fresh shell (`FRESH_SHELL_OK_49`). P3: the xterm viewport isn't auto-scrolled to the ended marker (it's in the buffer). |
-| **E — project isolation** | **PASS** — A terminal (`d3127c07`, container `f9b4fb68dcd2`, `A-tick` loop) vs B terminal (`cb382baa`, container `63bc7e0093ba`): different terminalId, different container, `jobs` empty in B, no A output/process in B, B's empty workspace |
-| **F — container teardown** | **PASS** — `DELETE /api/projects/:B` (→ `performStop` → `reapProject`): client got `{type:"ended", reason:"container_stopped"}`; **B's container + network fully gone**, no orphan `docker exec` (the `docker rm -f` backstop) |
-| **G — role loss** | **PASS** — headless collaborator terminal on A; owner `DELETE /collaborators/41`: the collaborator's WS received `{type:"ended", reason:"authorization_revoked"}` and closed; a reattach attempt → **HTTP 403** at the `/ws/terminal` upgrade |
-| **H — rapid churn** | **PASS** — 8× (collapse/expand + Output/Terminal toggle) = 32 UI ops: `bash` count **unchanged at 2** (live shell + loop), **one WebSocket**, the `h-` loop kept streaming (verified in a screenshot) |
-| **I — long lifecycle** | **PASS** — one session run ~8 min through A + H + a client-side `ws.close()` flap: `reconnecting → connected`, **same PTY** (`bash 23775`/`23782`), `I_REATTACH_OK` echoed, loop continuous (`h-246`), **0 orphans** the whole run |
+| Scenario                                                                           | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Terminal connects → real `docker exec bash`; server frames carry a monotonic `seq` | **PASS** — direct raw-WS probe: `WS OPEN`, `{type:"data", seq:1/2/3}`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **A — panel switch** (Output→Problems→Preview→Git→Resources→Terminal)              | **PASS** — a running `python3 -m http.server` survived: `docker top` showed the same `bash` + `python` pids, scrollback intact, **0 new WebSocket, 0 new `docker exec`**                                                                                                                                                                                                                                                                                                                                                    |
+| **B — drawer collapse / reopen**                                                   | **PASS** (clean re-run after `25627f4`) — collapsed 12 s with a `while … echo tick` loop running; on reopen the XTerm re-rendered and re-**fitted** (168 px in a 180 px host), the 57-line scrollback (`scroll-1..25`, markers) was intact, `bash 22312` + its loop `22320` unchanged, **no new `docker exec`, one WebSocket**                                                                                                                                                                                              |
+| **C — socket drop → reattach**                                                     | **PASS** — killed Vite ~18 s. Client `reconnecting → connected` on restart; **same PTY** (`bash 22312`), ticks produced while disconnected (`tick-154..172`) **replayed exactly once** (zero duplicates, monotonic), scrollback continuous (min 31 → max 205), one new WebSocket object                                                                                                                                                                                                                                     |
+| **D — grace expiry → ended**                                                       | **PASS** (after `92ca48c`) — socket dead > 90 s + client `reconnect_exhausted`; server reaped the session; on Retry the client got `{type:"ended", reason:"grace_expired"}` → state `ended`, toolbar _"Session ended · reason: grace_expired · Start new terminal"_, buffer preserved (…`dtick-97` + the ended marker), **no silent fresh shell**. "Start new terminal" → new `terminalId`, working fresh shell (`FRESH_SHELL_OK_49`). P3: the xterm viewport isn't auto-scrolled to the ended marker (it's in the buffer). |
+| **E — project isolation**                                                          | **PASS** — A terminal (`d3127c07`, container `f9b4fb68dcd2`, `A-tick` loop) vs B terminal (`cb382baa`, container `63bc7e0093ba`): different terminalId, different container, `jobs` empty in B, no A output/process in B, B's empty workspace                                                                                                                                                                                                                                                                               |
+| **F — container teardown**                                                         | **PASS** — `DELETE /api/projects/:B` (→ `performStop` → `reapProject`): client got `{type:"ended", reason:"container_stopped"}`; **B's container + network fully gone**, no orphan `docker exec` (the `docker rm -f` backstop)                                                                                                                                                                                                                                                                                              |
+| **G — role loss**                                                                  | **PASS** — headless collaborator terminal on A; owner `DELETE /collaborators/41`: the collaborator's WS received `{type:"ended", reason:"authorization_revoked"}` and closed; a reattach attempt → **HTTP 403** at the `/ws/terminal` upgrade                                                                                                                                                                                                                                                                               |
+| **H — rapid churn**                                                                | **PASS** — 8× (collapse/expand + Output/Terminal toggle) = 32 UI ops: `bash` count **unchanged at 2** (live shell + loop), **one WebSocket**, the `h-` loop kept streaming (verified in a screenshot)                                                                                                                                                                                                                                                                                                                       |
+| **I — long lifecycle**                                                             | **PASS** — one session run ~8 min through A + H + a client-side `ws.close()` flap: `reconnecting → connected`, **same PTY** (`bash 23775`/`23782`), `I_REATTACH_OK` echoed, loop continuous (`h-246`), **0 orphans** the whole run                                                                                                                                                                                                                                                                                          |
 
 ### Resource / PTY measurements (live)
 
-| Signal | Observed |
-|---|---|
-| WebSocket created by a bottom-tab switch | **0** (A, H) |
-| `docker exec` created by a bottom-tab switch / collapse | **0** (A, B, H) |
-| Reconnect after a drop | exactly **one** new WebSocket; **same** PTY pid (C, I) |
-| Grace expiry | session removed from the registry, gate slot released, `{type:"ended"}` on the next reconnect (D) |
-| Container / project / role teardown | session reaped, `{type:"ended"}` with the right reason, no orphan after `docker rm -f` (F, G) |
-| Rapid churn (32 ops) | 0 extra PTYs, 0 extra sockets, gate stays at 1 (H) |
-| Ring buffer | bounded 256 KB (deterministic) |
-| Reconnect policy | bounded 6 attempts → `reconnect_exhausted` (deterministic + live D) |
+| Signal                                                  | Observed                                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| WebSocket created by a bottom-tab switch                | **0** (A, H)                                                                                      |
+| `docker exec` created by a bottom-tab switch / collapse | **0** (A, B, H)                                                                                   |
+| Reconnect after a drop                                  | exactly **one** new WebSocket; **same** PTY pid (C, I)                                            |
+| Grace expiry                                            | session removed from the registry, gate slot released, `{type:"ended"}` on the next reconnect (D) |
+| Container / project / role teardown                     | session reaped, `{type:"ended"}` with the right reason, no orphan after `docker rm -f` (F, G)     |
+| Rapid churn (32 ops)                                    | 0 extra PTYs, 0 extra sockets, gate stays at 1 (H)                                                |
+| Ring buffer                                             | bounded 256 KB (deterministic)                                                                    |
+| Reconnect policy                                        | bounded 6 attempts → `reconnect_exhausted` (deterministic + live D)                               |
 
 **Windows-dev `pty.kill()` limitation (P3, not a logic regression).** On this
 Windows host, `entry.pty.kill()` at grace expiry kills the node-pty wrapper
@@ -9336,29 +9340,29 @@ non-restarting production backend.
 
 ### Acceptance (M79)
 
-| Criterion | Status |
-|---|---|
-| Terminal survives bottom-panel tab switching | **PROVEN** (live A, H + deterministic) |
-| Terminal survives drawer collapse / reopen | **PROVEN** (live B, clean re-run) |
-| Running PTY/process survives panel switching | **PROVEN** (live A, B, H — `docker top`) |
-| XTerm instance + scrollback survive panel switching / collapse | **PROVEN** (live B — 57-line buffer intact, re-fitted) |
-| Socket drop → bounded reconnect → reattach to the same PTY, replay once/in order | **PROVEN** (live C — same pid, `tick-154..172` replayed once, monotonic; + deterministic B1–B3) |
-| Backgrounded-tab heartbeat loss does not kill a still-live terminal inside grace | **PROVEN** (deterministic — detach holds the PTY for the grace; live C reattached after ~18 s dead) |
-| Grace expiry → honest `ended`; new shell requires explicit action | **PROVEN** (live D — `{type:"ended", grace_expired}`, no silent shell, explicit "Start new terminal"; + `92ca48c` + tests) |
-| Detach/reattach race safe (RACE #1) | **PROVEN** (deterministic B5) |
-| Attach/PTY-death race safe (RACE #2) | **PROVEN** (deterministic B6) |
-| No duplicate socket or PTY; single-writer | **PROVEN** (live A/C/H/I — `bash` count and WS count never grew; + deterministic B17–B19) |
-| `terminalGate` counts detached / reattached correctly | **PROVEN** (deterministic B10–B12; live — cap enforced, grace frees, churn stays at 1) |
-| Ring ≤ 256 KB | **PROVEN** (deterministic B13–B15) |
-| Sandbox teardown always reaps terminal sessions | **PROVEN** (live F; deterministic B7–B9, B28; `performStop` chokepoint) |
-| Role loss reaps the session and blocks reattach | **PROVEN** (live G — `{type:"ended", authorization_revoked}` + HTTP 403; deterministic B9/B27) |
-| Editor authorization intact on reattach; cross-user / cross-project attach impossible | **PROVEN** (live E, G; deterministic B20–B22, B27) |
-| M47 secrets stay in the existing trust boundary | **PROVEN** (deterministic B26; `secrets.test.ts` 42/42 unchanged) |
-| Backend Docker suite green | **PROVEN** — 1244 / 9 skipped / 0 failed, twice; `python-deps` passes |
-| Frontend suite / typecheck / build / eslint green | **PROVEN** (1001/0, build ok, 0 eslint errors) |
-| Live Chrome B–I | **PROVEN** — all pass (see table) |
-| No orphan `docker exec` after teardown | **PROVEN** for every teardown path (`docker rm -f` backstop, Scenario F). Individual grace `pty.kill()` on Windows dev leaves a container-bounded `bash` — P3, see above. |
-| M71 performance not regressed | **PROVEN** (perf baseline test unchanged) |
+| Criterion                                                                             | Status                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Terminal survives bottom-panel tab switching                                          | **PROVEN** (live A, H + deterministic)                                                                                                                                    |
+| Terminal survives drawer collapse / reopen                                            | **PROVEN** (live B, clean re-run)                                                                                                                                         |
+| Running PTY/process survives panel switching                                          | **PROVEN** (live A, B, H — `docker top`)                                                                                                                                  |
+| XTerm instance + scrollback survive panel switching / collapse                        | **PROVEN** (live B — 57-line buffer intact, re-fitted)                                                                                                                    |
+| Socket drop → bounded reconnect → reattach to the same PTY, replay once/in order      | **PROVEN** (live C — same pid, `tick-154..172` replayed once, monotonic; + deterministic B1–B3)                                                                           |
+| Backgrounded-tab heartbeat loss does not kill a still-live terminal inside grace      | **PROVEN** (deterministic — detach holds the PTY for the grace; live C reattached after ~18 s dead)                                                                       |
+| Grace expiry → honest `ended`; new shell requires explicit action                     | **PROVEN** (live D — `{type:"ended", grace_expired}`, no silent shell, explicit "Start new terminal"; + `92ca48c` + tests)                                                |
+| Detach/reattach race safe (RACE #1)                                                   | **PROVEN** (deterministic B5)                                                                                                                                             |
+| Attach/PTY-death race safe (RACE #2)                                                  | **PROVEN** (deterministic B6)                                                                                                                                             |
+| No duplicate socket or PTY; single-writer                                             | **PROVEN** (live A/C/H/I — `bash` count and WS count never grew; + deterministic B17–B19)                                                                                 |
+| `terminalGate` counts detached / reattached correctly                                 | **PROVEN** (deterministic B10–B12; live — cap enforced, grace frees, churn stays at 1)                                                                                    |
+| Ring ≤ 256 KB                                                                         | **PROVEN** (deterministic B13–B15)                                                                                                                                        |
+| Sandbox teardown always reaps terminal sessions                                       | **PROVEN** (live F; deterministic B7–B9, B28; `performStop` chokepoint)                                                                                                   |
+| Role loss reaps the session and blocks reattach                                       | **PROVEN** (live G — `{type:"ended", authorization_revoked}` + HTTP 403; deterministic B9/B27)                                                                            |
+| Editor authorization intact on reattach; cross-user / cross-project attach impossible | **PROVEN** (live E, G; deterministic B20–B22, B27)                                                                                                                        |
+| M47 secrets stay in the existing trust boundary                                       | **PROVEN** (deterministic B26; `secrets.test.ts` 42/42 unchanged)                                                                                                         |
+| Backend Docker suite green                                                            | **PROVEN** — 1244 / 9 skipped / 0 failed, twice; `python-deps` passes                                                                                                     |
+| Frontend suite / typecheck / build / eslint green                                     | **PROVEN** (1001/0, build ok, 0 eslint errors)                                                                                                                            |
+| Live Chrome B–I                                                                       | **PROVEN** — all pass (see table)                                                                                                                                         |
+| No orphan `docker exec` after teardown                                                | **PROVEN** for every teardown path (`docker rm -f` backstop, Scenario F). Individual grace `pty.kill()` on Windows dev leaves a container-bounded `bash` — P3, see above. |
+| M71 performance not regressed                                                         | **PROVEN** (perf baseline test unchanged)                                                                                                                                 |
 
 ### Known limitations / non-goals
 
@@ -9381,25 +9385,25 @@ non-restarting production backend.
 
 ### Commit sequence (branch `feat/m79-terminal-session-persistence`, off `master` @ `79563d2`)
 
-| # | commit | scope |
-|---|---|---|
-| 1 | `test(terminal): reproduce PTY/session loss on bottom-panel navigation` | RED spec (2 FE test files) |
-| 2 | `feat(terminal): project-lifetime terminal session host + useTerminalSession` | `useTerminalSession.tsx`, `terminalSessionState.ts`, `Terminal.tsx`, `IDE.tsx`, `api.ts` + theme-wiring test |
-| 3 | `test(terminal): lock the bounded reconnect state machine` | `terminalSession.reconnect.test.tsx` (9) |
-| 4 | `feat(terminal): preserve xterm buffer + exactly-once replay on reconnect` | seq-guard in the hook + `terminalSession.buffer.test.tsx` |
-| 5 | `feat(execution): add TerminalSessionRegistry (detached PTY + bounded ring)` | `terminalSessions.ts` + `m79-terminal-sessions.test.ts` |
-| 6 | `feat(ws): reattach /ws/terminal connections to live PTYs` | `ws/terminal.ts`, `ws/index.ts`, `config.ts` (`terminalDetachGraceMs`), `terminal.test.ts` |
-| 7 | `feat(sandbox): reap detached terminal sessions on teardown and role loss` | `sandbox.ts` (`performStop` / `cleanupAllSandboxes` hooks), `projects/routes.ts` (collaborator DELETE/PATCH), `m79-terminal-teardown.test.ts` |
-| 8 | `test(terminal): harden lifecycle and security boundaries` | `m79-terminal-security.test.ts` + `terminalSession.lifecycle.test.tsx` |
-| 9 | `fix(execution): use a printable terminal session-key separator` | NUL → `\|` in the registry key (was a "binary" blob to git) |
-| 10 | `fix(terminal): re-fit the XTerm via a ResizeObserver after the panel un-hides` | live-Chrome fix — the observer was never attached |
-| 11 | `fix(terminal): open + re-fit the xterm from a container ResizeObserver` | live-Chrome fix — observe-first, `xterm.open()` guarded against a 0×0 host |
-| 12 | `fix(terminal): poll for the host box before opening the XTerm` | **release-hardening** — the terminal connected but never rendered on first open (rAF fired before layout; a `display:none→flex` ancestor change doesn't fire the host's ResizeObserver). Bounded rAF poll + regression test `terminalSession.mount.test.tsx`. |
-| 13 | `fix(ws): report \`ended\` when a reaped terminal is reconnected mid-stream` | **release-hardening** — Scenario D: a reconnect with `lastSeq > 0` to a reaped session was silently spawning a fresh shell (which the client's seq-guard then froze). Now replies `{type:"ended", reason}`; `reapedReason()` tombstone accessor + tests. |
-| 14 | `docs(status): M79 release-hardening — live Chrome B–I proven, gates clean` | `docs(status)` |
-| 15 | `fix(terminal): scope socket detach so a displaced socket can't detach its successor` | **post-M79 hardening (RACE D)** — `attach`'s single-writer close of a stale `liveWs` triggered that socket's `wireSocketToSession` close handler, which called `terminalSessions.detach` **by key alone** and detached the freshly-reattached session: output froze and a 90 s grace timer would then reap the live shell. Reachable from a half-open-socket reconnect **and** from the manual "Reconnect Terminal" button while connected. `detach` gains an optional `expectedWs`; the closure passes its own `ws`. Regression: `m79-terminal-races.test.ts` (RACE D + genuine-drop control). |
-| 16 | `fix(terminal): release the gate slot when PTY spawn or session create fails` | **post-M79 hardening (resource leak)** — a synchronous `pty.spawn` throw (Windows ConPTY init failure — seen in this env, missing docker CLI, ENOMEM) or a lost `create` race threw past the `releasePermit` / secrets-cleanup wiring, leaking the per-user `terminalGate` slot **and** the staged secrets file for the process lifetime (after `maxTerminalsPerUser` failures the user can never open a terminal). Both are now wrapped: release the slot, clean the secrets file, kill any spawned PTY, report + close. The previously-ignored `attach` result in the fresh path is now honored too. Regression: `m79-terminal-races.test.ts` (spawn-throw releases the slot). |
-| 17 | this STATUS entry | `docs(status)` |
+| #   | commit                                                                                | scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `test(terminal): reproduce PTY/session loss on bottom-panel navigation`               | RED spec (2 FE test files)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 2   | `feat(terminal): project-lifetime terminal session host + useTerminalSession`         | `useTerminalSession.tsx`, `terminalSessionState.ts`, `Terminal.tsx`, `IDE.tsx`, `api.ts` + theme-wiring test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 3   | `test(terminal): lock the bounded reconnect state machine`                            | `terminalSession.reconnect.test.tsx` (9)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 4   | `feat(terminal): preserve xterm buffer + exactly-once replay on reconnect`            | seq-guard in the hook + `terminalSession.buffer.test.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 5   | `feat(execution): add TerminalSessionRegistry (detached PTY + bounded ring)`          | `terminalSessions.ts` + `m79-terminal-sessions.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 6   | `feat(ws): reattach /ws/terminal connections to live PTYs`                            | `ws/terminal.ts`, `ws/index.ts`, `config.ts` (`terminalDetachGraceMs`), `terminal.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 7   | `feat(sandbox): reap detached terminal sessions on teardown and role loss`            | `sandbox.ts` (`performStop` / `cleanupAllSandboxes` hooks), `projects/routes.ts` (collaborator DELETE/PATCH), `m79-terminal-teardown.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 8   | `test(terminal): harden lifecycle and security boundaries`                            | `m79-terminal-security.test.ts` + `terminalSession.lifecycle.test.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 9   | `fix(execution): use a printable terminal session-key separator`                      | NUL → `\|` in the registry key (was a "binary" blob to git)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 10  | `fix(terminal): re-fit the XTerm via a ResizeObserver after the panel un-hides`       | live-Chrome fix — the observer was never attached                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 11  | `fix(terminal): open + re-fit the xterm from a container ResizeObserver`              | live-Chrome fix — observe-first, `xterm.open()` guarded against a 0×0 host                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 12  | `fix(terminal): poll for the host box before opening the XTerm`                       | **release-hardening** — the terminal connected but never rendered on first open (rAF fired before layout; a `display:none→flex` ancestor change doesn't fire the host's ResizeObserver). Bounded rAF poll + regression test `terminalSession.mount.test.tsx`.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 13  | `fix(ws): report \`ended\` when a reaped terminal is reconnected mid-stream`          | **release-hardening** — Scenario D: a reconnect with `lastSeq > 0` to a reaped session was silently spawning a fresh shell (which the client's seq-guard then froze). Now replies `{type:"ended", reason}`; `reapedReason()` tombstone accessor + tests.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 14  | `docs(status): M79 release-hardening — live Chrome B–I proven, gates clean`           | `docs(status)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 15  | `fix(terminal): scope socket detach so a displaced socket can't detach its successor` | **post-M79 hardening (RACE D)** — `attach`'s single-writer close of a stale `liveWs` triggered that socket's `wireSocketToSession` close handler, which called `terminalSessions.detach` **by key alone** and detached the freshly-reattached session: output froze and a 90 s grace timer would then reap the live shell. Reachable from a half-open-socket reconnect **and** from the manual "Reconnect Terminal" button while connected. `detach` gains an optional `expectedWs`; the closure passes its own `ws`. Regression: `m79-terminal-races.test.ts` (RACE D + genuine-drop control).                                                                                  |
+| 16  | `fix(terminal): release the gate slot when PTY spawn or session create fails`         | **post-M79 hardening (resource leak)** — a synchronous `pty.spawn` throw (Windows ConPTY init failure — seen in this env, missing docker CLI, ENOMEM) or a lost `create` race threw past the `releasePermit` / secrets-cleanup wiring, leaking the per-user `terminalGate` slot **and** the staged secrets file for the process lifetime (after `maxTerminalsPerUser` failures the user can never open a terminal). Both are now wrapped: release the slot, clean the secrets file, kill any spawned PTY, report + close. The previously-ignored `attach` result in the fresh path is now honored too. Regression: `m79-terminal-races.test.ts` (spawn-throw releases the slot). |
+| 17  | this STATUS entry                                                                     | `docs(status)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 Not pushed, not merged. M80 (HTTPS remotes) was implemented later — see the Milestone 80 section above. This M79 note is historical and is not rewritten beyond that pointer.
 
@@ -9414,36 +9418,36 @@ smallest safe fix → deterministic regression test → targeted + full suites.
 
 1. **RACE D — displaced socket detaches its successor.** Deterministic repro
    in `m79-terminal-races.test.ts`; the displaced socket's late `close` ran
-   the key-only `detach` against the session the *new* socket owns. Fix
+   the key-only `detach` against the session the _new_ socket owns. Fix
    scopes `detach` to the caller's socket. The genuine-drop path (socket
    still bound, `expectedWs` matches or is omitted) is unchanged and
    covered by a control test + the pre-existing `terminal.test.ts` /
    `m79-terminal-teardown.test.ts` reap tests.
 2. **`pty.spawn` / `create` failure leaked the gate slot + secrets file.**
-   `terminal.test.ts` already covered the *sandbox*-creation failure path;
+   `terminal.test.ts` already covered the _sandbox_-creation failure path;
    the `pty.spawn` throw and the `create` race were the gap. Fix mirrors the
    existing `releasePermit()` pattern.
 
 **Investigated, classified, NOT changed:**
 
-| Observation | Verdict |
-|---|---|
+| Observation                                                                                                                          | Verdict                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Frontend `scheduleMount` starts one rAF poll loop per call — N concurrent `scheduleMount` calls drain the 120-frame budget N× faster | **P3, not fixed.** Still hard-bounded (budget caps every loop; each loop only ever reschedules itself, 1→1); the host `ResizeObserver` re-arms the budget to 120 on every resize during a panel transition, so premature give-up is not reproducible. A single-loop guard is a possible cleanup, not a demonstrated defect — deferred to avoid a speculative refactor. |
-| FRESH-path `attach()` return value was ignored | Was safe (a brand-new PTY cannot `onExit` synchronously in the same tick as `create`), but now honored as part of commit 16 since that region was already being touched. |
-| `create()` does not clear a stale same-key tombstone | Harmless — `tombstone()` deletes-then-sets on the next reap, and `reapedReason` is only consulted when no live session exists. No change. |
-| Ring `since(lastSeq > entry.seq)` → empty replay → client seq-guard freeze | Unreachable in current code: the client's `lastSeq` only advances from received frames (≤ server `seq` on any same-session reattach), and `92ca48c` already routes `lastSeq > 0` + no-session to `{type:"ended"}`. No change. |
-| URL-navigation to a project while another project's terminal is active resolves back to the active project | Pre-existing SPA routing quirk, **not amplified by M79** (M79 does not touch routing; the hook keys everything on `projectId` and tears down cleanly on change). Already documented under "Known limitations". |
-| Windows-dev `pty.kill()` does not reach the container-side `bash` | Pre-existing P3, unchanged — same `pty.kill()` the pre-M79 code used; bounded by container lifetime; `performStop` → `docker rm -f` is the proven backstop (live Scenario F). |
+| FRESH-path `attach()` return value was ignored                                                                                       | Was safe (a brand-new PTY cannot `onExit` synchronously in the same tick as `create`), but now honored as part of commit 16 since that region was already being touched.                                                                                                                                                                                               |
+| `create()` does not clear a stale same-key tombstone                                                                                 | Harmless — `tombstone()` deletes-then-sets on the next reap, and `reapedReason` is only consulted when no live session exists. No change.                                                                                                                                                                                                                              |
+| Ring `since(lastSeq > entry.seq)` → empty replay → client seq-guard freeze                                                           | Unreachable in current code: the client's `lastSeq` only advances from received frames (≤ server `seq` on any same-session reattach), and `92ca48c` already routes `lastSeq > 0` + no-session to `{type:"ended"}`. No change.                                                                                                                                          |
+| URL-navigation to a project while another project's terminal is active resolves back to the active project                           | Pre-existing SPA routing quirk, **not amplified by M79** (M79 does not touch routing; the hook keys everything on `projectId` and tears down cleanly on change). Already documented under "Known limitations".                                                                                                                                                         |
+| Windows-dev `pty.kill()` does not reach the container-side `bash`                                                                    | Pre-existing P3, unchanged — same `pty.kill()` the pre-M79 code used; bounded by container lifetime; `performStop` → `docker rm -f` is the proven backstop (live Scenario F).                                                                                                                                                                                          |
 
 **Verification (final HEAD, clean environment, Docker up):**
 
-| Gate | Result |
-|---|---|
-| Backend full suite | **1247 passed / 9 skipped / 0 failed** (103 files; +3 from `m79-terminal-races.test.ts`); `python-deps` passes ~44 s |
-| Backend typecheck / eslint | `tsc --noEmit` exit 0 · eslint 0 errors / 29 warnings (baseline) |
-| Frontend full suite | **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged |
-| Frontend build / eslint | `tsc --noEmit && vite build` exit 0 · eslint 0 errors |
-| `git diff --check` | clean |
+| Gate                       | Result                                                                                                               |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Backend full suite         | **1247 passed / 9 skipped / 0 failed** (103 files; +3 from `m79-terminal-races.test.ts`); `python-deps` passes ~44 s |
+| Backend typecheck / eslint | `tsc --noEmit` exit 0 · eslint 0 errors / 29 warnings (baseline)                                                     |
+| Frontend full suite        | **1001 passed / 0 failed** (129 files); M71 perf baseline unchanged                                                  |
+| Frontend build / eslint    | `tsc --noEmit && vite build` exit 0 · eslint 0 errors                                                                |
+| `git diff --check`         | clean                                                                                                                |
 
 RACE D and the spawn/create leak are timing/failure paths that cannot be
 triggered on demand in a browser; they are proven at the deterministic
@@ -9573,7 +9577,6 @@ real servers.
 **Deferred:** rename, workspace-wide refactor, Java LSP, C/C++ LSP,
 debugger, profiler, notebooks, AI coding assistant, AI agents.
 
-
 **Verification (2026-09-13, outer repo `D:/cloudide`):**
 
 - Backend lint: 0 errors / 0 warnings
@@ -9615,10 +9618,10 @@ cannot name an executable, adapter binary, container ID, cwd, or env.
 **Adapters (pinned in `docker/Dockerfile.runner`, never downloaded at
 session time):**
 
-| Runtime | Package | License | Wrapper |
-| --- | --- | --- | --- |
-| Python | `debugpy==1.8.21` in `/opt/debug/python` | MIT | `veyra-debugpy` |
-| Node / TypeScript | `js-debug-dap-v1.117.0.tar.gz` | MIT | `veyra-js-debug` → stdio↔TCP bridge |
+| Runtime           | Package                                  | License | Wrapper                             |
+| ----------------- | ---------------------------------------- | ------- | ----------------------------------- |
+| Python            | `debugpy==1.8.21` in `/opt/debug/python` | MIT     | `veyra-debugpy`                     |
+| Node / TypeScript | `js-debug-dap-v1.117.0.tar.gz`           | MIT     | `veyra-js-debug` → stdio↔TCP bridge |
 
 TypeScript is precompiled inside the sandbox by `veyra-js-debug` (`tsc`
 emit under `/workspace/.cloudide-build-debug/<pid>`, source maps rewritten
@@ -9688,7 +9691,7 @@ expression/watch evaluation, user-provided adapters, TSX/JSX debug.
 `veyra-js-debug` accepts vscode-js-debug's reverse `startDebugging`
 request inside the sandbox by opening a second localhost DAP connection
 to the same `dapDebugServer` — the backend still sees one stdio session.
-After the child session owns the debuggee, parent *events* are dropped
+After the child session owns the debuggee, parent _events_ are dropped
 so a stale parent `continued` cannot overwrite a real child pause
 (the Node browser "stays Running" race).
 
@@ -9718,10 +9721,10 @@ as `npm run <validated-name>`.
 
 **Discovery (explicit adapters).**
 
-| Origin | Included | Excluded |
-| --- | --- | --- |
+| Origin                 | Included                                                                            | Excluded                                   |
+| ---------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------ |
 | `package.json` scripts | `test`, `build`, `test:*`, `build:*` matching `^[A-Za-z0-9][A-Za-z0-9:._/-]{0,63}$` | `start`, `pretest`, `dev`, arbitrary names |
-| pytest | `pytest.ini`, `conftest.py`, `[tool.pytest`, `pytest` in requirements, `test_*.py` | invented runners |
+| pytest                 | `pytest.ini`, `conftest.py`, `[tool.pytest`, `pytest` in requirements, `test_*.py`  | invented runners                           |
 
 **Security.** Same sandbox as Run. No project secrets injected (same as
 install). No host execution. Paths use `normalizeRelPath` +
@@ -9838,7 +9841,7 @@ persistence debounce last wrote. No new subsystem, no AI.
 **Proven problem.** Collaboration is always on: every keystroke lands in the
 server `Y.Doc` and reaches disk only after the 2s debounce (10s max). All of
 the consumers above read the workspace from disk. Run and Debug POSTed the
-invoking user's *dirty tabs* first; Test/Build and Git stage did nothing, and
+invoking user's _dirty tabs_ first; Test/Build and Git stage did nothing, and
 nobody covered a collaborator's last-second edits. Docker-backed tests were
 RED on `main`: Run of a room-only file failed with
 `python3: can't open file '/workspace/fresh.py'`, and a test task ran the old
@@ -9937,7 +9940,7 @@ per-file (instead of project-wide) refusal.
 - `python-deps.test.ts` failed three isolated runs mid-session at the 60s pip watchdog **with `main`'s backend source as well** (environmental 9p/pip latency on this workstation, as noted in M84); it passed in the final full run.
 - Each commit on the branch type-checks and passes its own tests in isolation.
 - `git diff --check`: clean.
-- **CI history for this branch (PR #12), reported in full:** `c13db87` failed `workflow-browser › stops a hanging task` — a real Stop race, fixed below. `a90fada` failed `debug-browser › TypeScript` at the *page load* step (file tree not visible in 60s) and `9c351ec` failed `workflow-browser › …runs build` twice (build never reported `Exited (0)`); neither reproduced locally (full suite and the browser files repeatedly), and a re-run of `main@434afa4` on the same runners passed, so the failures could not be pinned on either side with the evidence available. Diagnostics were added to the workflow e2e (page errors, console errors, `/ws/execute` frames, UI state on timeout) and the final head is **green on two consecutive CI runs**. Note for the next milestone: heavy browser E2E on the 2-vCPU CI runner is the least stable part of the suite — if it recurs, the new diagnostics will show whether a `start` frame was ever sent.
+- **CI history for this branch (PR #12), reported in full:** `c13db87` failed `workflow-browser › stops a hanging task` — a real Stop race, fixed below. `a90fada` failed `debug-browser › TypeScript` at the _page load_ step (file tree not visible in 60s) and `9c351ec` failed `workflow-browser › …runs build` twice (build never reported `Exited (0)`); neither reproduced locally (full suite and the browser files repeatedly), and a re-run of `main@434afa4` on the same runners passed, so the failures could not be pinned on either side with the evidence available. Diagnostics were added to the workflow e2e (page errors, console errors, `/ws/execute` frames, UI state on timeout) and the final head is **green on two consecutive CI runs**. Note for the next milestone: heavy browser E2E on the 2-vCPU CI runner is the least stable part of the suite — if it recurs, the new diagnostics will show whether a `start` frame was ever sent.
 - **First CI run (PR #12, `c13db87`) failed** `workflow-browser › stops a hanging task` (Stop clicked right as Test Explorer showed Running; the task ran to its timeout). Root cause (pre-existing, timing-dependent on CI runners): the client dropped a stop sent while the execution socket was still connecting, and the server cancelled a not-yet-spawned process only on disconnect. Fixed in `fix(execution): honor Stop pressed before the process starts` with deterministic tests on both sides (RED before the fix); browser journeys re-run 3× locally, frontend **1067 passed**.
 - **Final verification on the branch head `ea585dc`:** backend **1493 passed / 9 skipped / 0 failed** (135 files), frontend **1067 passed** (145 files), Playwright 10/10, lint/typecheck/build clean, `git diff --check` clean.
 
@@ -9946,18 +9949,19 @@ per-file (instead of project-wide) refusal.
 Full detail for M89–M91 is in `docs/reports/`. Test counts are as reported in
 the commit messages and reports, not re-run for this summary.
 
-| # | Milestone | Commit | Summary |
-| --- | --- | --- | --- |
-| M87 | Project Git in the sandbox | `e635004` | Project Git execution moved from the host into the project sandbox. |
-| M88 | Terminal reload persistence | `83b0c9b` | Terminal session survives same-tab remount/reload. |
-| M89 | Read-your-writes test repair | `6f24154` | `testWriteHook` + confined-write mock migration fixing M4/M56 suites. 3 M86 server-integration tests need Docker (fail on Docker-less Windows). Report: `docs/reports/M89_REPORT.md`. |
-| M90 | Post-M89 audit | — | Baseline verification and milestone definition. Report: `docs/reports/m90-report.md`. |
-| M91 | Deterministic idle-disposal retry | `639908c` | `VirtualClock`-driven retry lifecycle; 9 tests. Reports: `docs/reports/M91_FINAL_REPORT.md`, `m91-report.md`. |
-| M92 | Audit event coverage | `bfacd66` | Audit events across auth, collab, execution, sandbox, terminals, Git, projects. Discovery found the originally proposed M92 (snapshot restore) already existed (M20/M31/M32). Report: `docs/reports/M92_DISCOVERY_REPORT.md`. |
-| M93 | Audit failure monitoring | `58eed79` | Failure counter with categories, `GET /api/admin/audit-integrity`, admin WS `audit_integrity` telemetry, retention GC (startup/periodic/shutdown). Reported 1545 backend + 1067 frontend passing. |
-| M94 | LSP and DAP audit trail | `b9eb7b6` | `LSP_SESSION_*` and `DEBUG_SESSION_{STARTED,FAILED,TIMEOUT,STOPPED}` events; fail-soft; 16 new tests (PR #18). |
+| #   | Milestone                         | Commit    | Summary                                                                                                                                                                                                                       |
+| --- | --------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M87 | Project Git in the sandbox        | `e635004` | Project Git execution moved from the host into the project sandbox.                                                                                                                                                           |
+| M88 | Terminal reload persistence       | `83b0c9b` | Terminal session survives same-tab remount/reload.                                                                                                                                                                            |
+| M89 | Read-your-writes test repair      | `6f24154` | `testWriteHook` + confined-write mock migration fixing M4/M56 suites. 3 M86 server-integration tests need Docker (fail on Docker-less Windows). Report: `docs/reports/M89_REPORT.md`.                                         |
+| M90 | Post-M89 audit                    | —         | Baseline verification and milestone definition. Report: `docs/reports/m90-report.md`.                                                                                                                                         |
+| M91 | Deterministic idle-disposal retry | `639908c` | `VirtualClock`-driven retry lifecycle; 9 tests. Reports: `docs/reports/M91_FINAL_REPORT.md`, `m91-report.md`.                                                                                                                 |
+| M92 | Audit event coverage              | `bfacd66` | Audit events across auth, collab, execution, sandbox, terminals, Git, projects. Discovery found the originally proposed M92 (snapshot restore) already existed (M20/M31/M32). Report: `docs/reports/M92_DISCOVERY_REPORT.md`. |
+| M93 | Audit failure monitoring          | `58eed79` | Failure counter with categories, `GET /api/admin/audit-integrity`, admin WS `audit_integrity` telemetry, retention GC (startup/periodic/shutdown). Reported 1545 backend + 1067 frontend passing.                             |
+| M94 | LSP and DAP audit trail           | `b9eb7b6` | `LSP_SESSION_*` and `DEBUG_SESSION_{STARTED,FAILED,TIMEOUT,STOPPED}` events; fail-soft; 16 new tests (PR #18).                                                                                                                |
 
 ### Known gaps after M94
+
 - README/STATUS were stale at M85/M86 until this update.
 - Duplicate M92/M93 commits in history (`affe895`/`bfacd66`, `52f3c60`/`58eed79`).
 - Docker-dependent tests cannot run on Docker-less Windows; CI is the gate.

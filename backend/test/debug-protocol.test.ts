@@ -11,9 +11,7 @@ import { PYTHON_DEBUG, NODE_DEBUG, getDebugLanguage } from "../src/debug/languag
 describe("debug path mapping", () => {
   it("maps /workspace paths and file URIs", () => {
     expect(fromWorkspaceLocation("/workspace/main.py")).toBe("main.py");
-    expect(fromWorkspaceLocation("file:///workspace/pkg/mod.py")).toBe(
-      "pkg/mod.py",
-    );
+    expect(fromWorkspaceLocation("file:///workspace/pkg/mod.py")).toBe("pkg/mod.py");
     expect(toWorkspaceFsPath("src/index.ts")).toBe("/workspace/src/index.ts");
   });
 
@@ -36,12 +34,8 @@ describe("debug path mapping", () => {
   });
 
   it("rejects Node internals and generated debug emit", () => {
-    expect(
-      fromWorkspaceLocation("<node_internals>/internal/modules/cjs/loader"),
-    ).toBeNull();
-    expect(
-      fromWorkspaceLocation("/workspace/.cloudide-build-debug/1/src/main.js"),
-    ).toBeNull();
+    expect(fromWorkspaceLocation("<node_internals>/internal/modules/cjs/loader")).toBeNull();
+    expect(fromWorkspaceLocation("/workspace/.cloudide-build-debug/1/src/main.js")).toBeNull();
     expect(fromWorkspaceLocation("src/main.ts")).toBe("src/main.ts");
   });
 });
@@ -55,18 +49,10 @@ describe("debug launch validation", () => {
   });
 
   it("rejects executable / language mismatches / escapes", () => {
-    expect(parseLaunch({ language: "python", entryFile: "../x.py" }).ok).toBe(
-      false,
-    );
-    expect(parseLaunch({ language: "python", entryFile: "/bin/sh" }).ok).toBe(
-      false,
-    );
-    expect(parseLaunch({ language: "python", entryFile: "main.js" }).ok).toBe(
-      false,
-    );
-    expect(parseLaunch({ language: "java", entryFile: "Main.java" }).ok).toBe(
-      false,
-    );
+    expect(parseLaunch({ language: "python", entryFile: "../x.py" }).ok).toBe(false);
+    expect(parseLaunch({ language: "python", entryFile: "/bin/sh" }).ok).toBe(false);
+    expect(parseLaunch({ language: "python", entryFile: "main.js" }).ok).toBe(false);
+    expect(parseLaunch({ language: "java", entryFile: "Main.java" }).ok).toBe(false);
     expect(getDebugLanguage("/bin/sh")).toBeNull();
     expect(getDebugLanguage("PYTHON")).toBeNull();
   });
@@ -75,15 +61,9 @@ describe("debug launch validation", () => {
     expect(parseArgs(["ok", "also ok"])).toEqual(["ok", "also ok"]);
     expect(parseArgs(["a\0b"])).toBeNull();
     expect(parseArgs("not-array")).toBeNull();
-    expect(
-      parseSetBreakpoints({ path: "../x.py", lines: [1] }).ok,
-    ).toBe(false);
-    expect(
-      parseSetBreakpoints({ path: "main.py", lines: [0] }).ok,
-    ).toBe(false);
-    expect(
-      parseSetBreakpoints({ path: "main.py", lines: [3, 3, 5] }).ok,
-    ).toBe(true);
+    expect(parseSetBreakpoints({ path: "../x.py", lines: [1] }).ok).toBe(false);
+    expect(parseSetBreakpoints({ path: "main.py", lines: [0] }).ok).toBe(false);
+    expect(parseSetBreakpoints({ path: "main.py", lines: [3, 3, 5] }).ok).toBe(true);
   });
 });
 
@@ -105,12 +85,12 @@ describe("debug spawn argv", () => {
   });
 
   it("rejects illegal container ids", () => {
-    expect(() =>
-      sandboxDebugArgv({ spec: PYTHON_DEBUG, containerId: "../../x" }),
-    ).toThrow(/invalid_container_id/);
-    expect(() =>
-      sandboxDebugArgv({ spec: PYTHON_DEBUG, containerId: "a; rm -rf /" }),
-    ).toThrow(/invalid_container_id/);
+    expect(() => sandboxDebugArgv({ spec: PYTHON_DEBUG, containerId: "../../x" })).toThrow(
+      /invalid_container_id/,
+    );
+    expect(() => sandboxDebugArgv({ spec: PYTHON_DEBUG, containerId: "a; rm -rf /" })).toThrow(
+      /invalid_container_id/,
+    );
   });
 
   it("does not inherit backend secrets into the docker CLI env", () => {

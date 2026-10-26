@@ -53,11 +53,7 @@ export default function CollaboratorImpactNotice({
         {impacts.map((i) => {
           const fileName = i.path.split("/").pop() || i.path;
           const stateLabel =
-            i.dirty === true
-              ? "unsaved changes"
-              : i.editing
-                ? "editing"
-                : "viewing";
+            i.dirty === true ? "unsaved changes" : i.editing ? "editing" : "viewing";
           return (
             <li
               key={`${i.userId}:${i.path}`}
@@ -65,11 +61,7 @@ export default function CollaboratorImpactNotice({
             >
               <span
                 className="collab-impact-avatar"
-                style={
-                  i.color
-                    ? { background: i.color, borderColor: i.color }
-                    : undefined
-                }
+                style={i.color ? { background: i.color, borderColor: i.color } : undefined}
                 aria-hidden="true"
               >
                 {initialsOf(i.username)}
@@ -79,11 +71,7 @@ export default function CollaboratorImpactNotice({
               <span className="collab-impact-file" title={i.path}>
                 {fileName}
               </span>
-              <span
-                className={`collab-impact-state${
-                  i.dirty === true ? " unsaved" : ""
-                }`}
-              >
+              <span className={`collab-impact-state${i.dirty === true ? " unsaved" : ""}`}>
                 {stateLabel}
               </span>
             </li>

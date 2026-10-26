@@ -128,9 +128,7 @@ export default function SourceControlPanel({
   const [credToken, setCredToken] = useState("");
   const [divergence, setDivergence] = useState<string | null>(null);
   const [pullDirty, setPullDirty] = useState<string[] | null>(null);
-  const [pullCollab, setPullCollab] = useState<CollaboratorImpact[] | null>(
-    null,
-  );
+  const [pullCollab, setPullCollab] = useState<CollaboratorImpact[] | null>(null);
 
   // Project-switch isolation: a stale in-flight refresh must never paint
   // another project's repository state.
@@ -169,9 +167,7 @@ export default function SourceControlPanel({
       if (st.remote?.url) setRemoteUrl(st.remote.url);
       if (st.initialized) {
         const [log, br] = await Promise.all([
-          api<{ commits: GitCommit[] }>(
-            `/api/projects/${projectId}/git/log?limit=50`,
-          ),
+          api<{ commits: GitCommit[] }>(`/api/projects/${projectId}/git/log?limit=50`),
           api<{ current: string | null; branches: GitBranch[] }>(
             `/api/projects/${projectId}/git/branches`,
           ),
@@ -229,8 +225,7 @@ export default function SourceControlPanel({
         );
         if (gen === genRef.current) setFileDiff(fd);
       } catch (err: any) {
-        if (gen === genRef.current)
-          setError(err?.message || "Failed to load diff");
+        if (gen === genRef.current) setError(err?.message || "Failed to load diff");
       } finally {
         if (gen === genRef.current) setDiffLoading(false);
       }
@@ -247,10 +242,7 @@ export default function SourceControlPanel({
         await fn();
         await refreshAll();
       } catch (err: any) {
-        if (
-          err?.code === "branch_diverged" ||
-          err?.code === "non_fast_forward"
-        ) {
+        if (err?.code === "branch_diverged" || err?.code === "non_fast_forward") {
           setDivergence(err.message);
         }
         setError(err?.message || "Git operation failed");
@@ -300,10 +292,10 @@ export default function SourceControlPanel({
     mutate(async () => {
       const msg = commitMessage.trim();
       if (!msg) return;
-      const res = await api<{ shortHash: string }>(
-        `/api/projects/${projectId}/git/commit`,
-        { method: "POST", body: JSON.stringify({ message: msg }) },
-      );
+      const res = await api<{ shortHash: string }>(`/api/projects/${projectId}/git/commit`, {
+        method: "POST",
+        body: JSON.stringify({ message: msg }),
+      });
       setCommitMessage("");
       setSelected(null);
       setFileDiff(null);
@@ -344,15 +336,10 @@ export default function SourceControlPanel({
           setConflict({ branch: name, blockingPaths: data.blockingPaths });
           return;
         }
-        if (
-          res.status === 409 &&
-          data?.error?.code === "collaborator_dirty_conflict"
-        ) {
+        if (res.status === 409 && data?.error?.code === "collaborator_dirty_conflict") {
           setCollabConflict({
             branch: name,
-            impacts: Array.isArray(data.collaboratorImpacts)
-              ? data.collaboratorImpacts
-              : [],
+            impacts: Array.isArray(data.collaboratorImpacts) ? data.collaboratorImpacts : [],
           });
           return;
         }
@@ -385,12 +372,9 @@ export default function SourceControlPanel({
 
   const deleteBranch = (name: string) =>
     mutate(async () => {
-      await api(
-        `/api/projects/${projectId}/git/branches/${encodeURIComponent(name)}`,
-        {
-          method: "DELETE",
-        },
-      );
+      await api(`/api/projects/${projectId}/git/branches/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      });
       setDeleteTarget(null);
       flashToast(`Branch "${name}" deleted`);
     });
@@ -435,10 +419,9 @@ export default function SourceControlPanel({
   const doPush = () =>
     mutate(async () => {
       setDivergence(null);
-      const res = await api<{ branch: string }>(
-        `/api/projects/${projectId}/git/push`,
-        { method: "POST" },
-      );
+      const res = await api<{ branch: string }>(`/api/projects/${projectId}/git/push`, {
+        method: "POST",
+      });
       flashToast(`Pushed ${res.branch}`);
     });
 
@@ -466,21 +449,13 @@ export default function SourceControlPanel({
         setPullDirty(data.blockingPaths);
         return;
       }
-      if (
-        res.status === 409 &&
-        data?.error?.code === "collaborator_dirty_conflict"
-      ) {
-        setPullCollab(
-          Array.isArray(data.collaboratorImpacts)
-            ? data.collaboratorImpacts
-            : [],
-        );
+      if (res.status === 409 && data?.error?.code === "collaborator_dirty_conflict") {
+        setPullCollab(Array.isArray(data.collaboratorImpacts) ? data.collaboratorImpacts : []);
         return;
       }
       if (res.status === 409 && data?.error?.code === "branch_diverged") {
         setDivergence(
-          data?.error?.message ||
-            "Local and remote have diverged. Pull is fast-forward only.",
+          data?.error?.message || "Local and remote have diverged. Pull is fast-forward only.",
         );
         return;
       }
@@ -500,10 +475,7 @@ export default function SourceControlPanel({
         "Pull",
       );
       flashToast(
-        conflictNote ??
-          (data.alreadyUpToDate
-            ? "Already up to date"
-            : `Pulled ${data.branch}`),
+        conflictNote ?? (data.alreadyUpToDate ? "Already up to date" : `Pulled ${data.branch}`),
       );
       await refreshAll();
     } catch (err: any) {
@@ -517,10 +489,7 @@ export default function SourceControlPanel({
 
   if (!project) {
     return (
-      <div
-        className="panel-content"
-        style={{ padding: 16, color: "var(--fg-muted)" }}
-      >
+      <div className="panel-content" style={{ padding: 16, color: "var(--fg-muted)" }}>
         No project open.
       </div>
     );
@@ -572,8 +541,7 @@ export default function SourceControlPanel({
           title="Refresh"
           aria-label="Refresh Source Control"
         >
-          <IconRefresh size={11} className={loading ? "spinning" : ""} />{" "}
-          Refresh
+          <IconRefresh size={11} className={loading ? "spinning" : ""} /> Refresh
         </button>
       </div>
 
@@ -670,8 +638,7 @@ export default function SourceControlPanel({
                   <strong>Cannot switch to "{conflict.branch}"</strong>
                 </div>
                 <div style={{ marginTop: 4, color: "var(--fg-muted)" }}>
-                  Commit or discard uncommitted changes to:{" "}
-                  {conflict.blockingPaths.join(", ")}
+                  Commit or discard uncommitted changes to: {conflict.blockingPaths.join(", ")}
                 </div>
                 <button
                   type="button"
@@ -699,8 +666,7 @@ export default function SourceControlPanel({
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <IconAlertTriangle size={12} color="#fab387" />
                   <strong>
-                    Another collaborator has unsaved changes on "
-                    {collabConflict.branch}"
+                    Another collaborator has unsaved changes on "{collabConflict.branch}"
                   </strong>
                 </div>
                 <CollaboratorImpactNotice
@@ -746,8 +712,7 @@ export default function SourceControlPanel({
                   <strong>Branches have diverged</strong>
                 </div>
                 <div style={{ marginTop: 4, color: "var(--fg-muted)" }}>
-                  {divergence} Fast-forward pull/push refused — no merge or
-                  rebase is performed.
+                  {divergence} Fast-forward pull/push refused — no merge or rebase is performed.
                 </div>
                 <button
                   type="button"
@@ -777,8 +742,7 @@ export default function SourceControlPanel({
                   <strong>Cannot pull</strong>
                 </div>
                 <div style={{ marginTop: 4, color: "var(--fg-muted)" }}>
-                  Commit or discard uncommitted changes to:{" "}
-                  {pullDirty.join(", ")}
+                  Commit or discard uncommitted changes to: {pullDirty.join(", ")}
                 </div>
                 <button
                   type="button"
@@ -806,8 +770,7 @@ export default function SourceControlPanel({
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <IconAlertTriangle size={12} color="#fab387" />
                   <strong>
-                    Another collaborator has unsaved changes this pull would
-                    overwrite
+                    Another collaborator has unsaved changes this pull would overwrite
                   </strong>
                 </div>
                 <CollaboratorImpactNotice
@@ -855,13 +818,9 @@ export default function SourceControlPanel({
                     "No HTTPS remote configured."
                   )}
                   {status.credentialsConfigured ? (
-                    <span style={{ marginLeft: 8, color: "#a6e3a1" }}>
-                      credentials saved
-                    </span>
+                    <span style={{ marginLeft: 8, color: "#a6e3a1" }}>credentials saved</span>
                   ) : (
-                    <span style={{ marginLeft: 8, color: "var(--fg-muted)" }}>
-                      no credentials
-                    </span>
+                    <span style={{ marginLeft: 8, color: "var(--fg-muted)" }}>no credentials</span>
                   )}
                 </div>
                 {canWrite && (
@@ -1009,9 +968,7 @@ export default function SourceControlPanel({
                   <FileRow
                     key={`u-${e.path}`}
                     entry={e}
-                    active={
-                      selected?.path === e.path && selected?.staged === false
-                    }
+                    active={selected?.path === e.path && selected?.staged === false}
                     onSelect={() => loadFileDiff(e.path, false)}
                     onAction={canWrite ? () => stageOne(e.path) : undefined}
                     actionLabel="Stage"
@@ -1038,9 +995,7 @@ export default function SourceControlPanel({
                   <FileRow
                     key={`s-${e.path}`}
                     entry={e}
-                    active={
-                      selected?.path === e.path && selected?.staged === true
-                    }
+                    active={selected?.path === e.path && selected?.staged === true}
                     onSelect={() => loadFileDiff(e.path, true)}
                     onAction={canWrite ? () => unstageOne(e.path) : undefined}
                     actionLabel="Unstage"
@@ -1147,11 +1102,7 @@ export default function SourceControlPanel({
                   <button
                     type="button"
                     className="glass-btn glass-btn-primary"
-                    disabled={
-                      busy ||
-                      !commitMessage.trim() ||
-                      status.staged.length === 0
-                    }
+                    disabled={busy || !commitMessage.trim() || status.staged.length === 0}
                     onClick={doCommit}
                     style={{ fontSize: 12 }}
                   >
@@ -1186,9 +1137,7 @@ export default function SourceControlPanel({
                       }}
                     >
                       <div style={{ display: "flex", gap: 8 }}>
-                        <code style={{ color: "var(--accent)" }}>
-                          {c.shortHash}
-                        </code>
+                        <code style={{ color: "var(--accent)" }}>{c.shortHash}</code>
                         <span
                           style={{
                             overflow: "hidden",
@@ -1253,9 +1202,7 @@ export default function SourceControlPanel({
                     <span
                       style={{
                         flex: 1,
-                        color: b.current
-                          ? "var(--fg-primary)"
-                          : "var(--fg-secondary)",
+                        color: b.current ? "var(--fg-primary)" : "var(--fg-secondary)",
                         fontWeight: b.current ? 600 : 400,
                       }}
                     >
@@ -1305,8 +1252,7 @@ export default function SourceControlPanel({
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (newBranchName.trim())
-                        createBranch(newBranchName.trim());
+                      if (newBranchName.trim()) createBranch(newBranchName.trim());
                     }}
                     style={{ display: "flex", gap: 5, marginTop: 6 }}
                   >
@@ -1376,9 +1322,7 @@ export default function SourceControlPanel({
 
 function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontSize: 11, color: "var(--fg-muted)", padding: "4px 2px" }}>
-      {children}
-    </div>
+    <div style={{ fontSize: 11, color: "var(--fg-muted)", padding: "4px 2px" }}>{children}</div>
   );
 }
 
@@ -1406,10 +1350,7 @@ function Section({
         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4 }}>
           {title.toUpperCase()}
         </span>
-        <span
-          className="glass-badge glass-badge-info"
-          style={{ fontSize: 9, padding: "0 5px" }}
-        >
+        <span className="glass-badge glass-badge-info" style={{ fontSize: 9, padding: "0 5px" }}>
           {count}
         </span>
         {action && (
@@ -1465,10 +1406,7 @@ function CollapsibleSection({
         {open ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}
         {title.toUpperCase()}
         {typeof count === "number" && (
-          <span
-            className="glass-badge glass-badge-info"
-            style={{ fontSize: 9, padding: "0 5px" }}
-          >
+          <span className="glass-badge glass-badge-info" style={{ fontSize: 9, padding: "0 5px" }}>
             {count}
           </span>
         )}
@@ -1534,9 +1472,7 @@ function FileRow({
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
         }}
-        title={
-          entry.origPath ? `${entry.origPath} → ${entry.path}` : entry.path
-        }
+        title={entry.origPath ? `${entry.origPath} → ${entry.path}` : entry.path}
       >
         {entry.path}
       </button>
@@ -1556,13 +1492,7 @@ function FileRow({
   );
 }
 
-function DiffView({
-  diff,
-  loading,
-}: {
-  diff: GitFileDiff | null;
-  loading: boolean;
-}) {
+function DiffView({ diff, loading }: { diff: GitFileDiff | null; loading: boolean }) {
   if (loading) {
     return <Empty>Loading diff…</Empty>;
   }

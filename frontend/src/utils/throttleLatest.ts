@@ -11,10 +11,7 @@ export interface ThrottledFn<T> {
  * Trailing-edge only: the first call in a burst also waits the full
  * window before firing, so bursts never trigger `fn` synchronously.
  */
-export function throttleLatest<T>(
-  fn: (value: T) => void,
-  waitMs: number,
-): ThrottledFn<T> {
+export function throttleLatest<T>(fn: (value: T) => void, waitMs: number): ThrottledFn<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pending: T | undefined;
   let hasPending = false;
@@ -67,10 +64,7 @@ export interface ThrottledPaths {
  * Close / project-switch callers must `flush()` so the last keystroke is
  * not lost.
  */
-export function throttleDirtyPaths(
-  fn: (path: string) => void,
-  waitMs: number,
-): ThrottledPaths {
+export function throttleDirtyPaths(fn: (path: string) => void, waitMs: number): ThrottledPaths {
   const pending = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | null = null;
 

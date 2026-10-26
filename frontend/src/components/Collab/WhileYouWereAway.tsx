@@ -61,51 +61,51 @@ export default function WhileYouWereAway({
           displayName: id?.displayName ?? null,
         });
         return (
-        <div className="while-away-group" key={g.userId ?? g.username}>
-          <div className="while-away-author">
-            {g.userId != null ? (
-              <UserAvatar
-                userId={g.userId}
-                username={g.username}
-                avatarVersion={id?.avatarVersion}
-                size={16}
-                className="while-away-avatar"
-              />
-            ) : (
-              <span
-                className="while-away-dot"
-                style={{ background: colorForUser?.(g.userId) ?? "#89b4fa" }}
-                aria-hidden="true"
-              />
-            )}
-            {authorName}
+          <div className="while-away-group" key={g.userId ?? g.username}>
+            <div className="while-away-author">
+              {g.userId != null ? (
+                <UserAvatar
+                  userId={g.userId}
+                  username={g.username}
+                  avatarVersion={id?.avatarVersion}
+                  size={16}
+                  className="while-away-avatar"
+                />
+              ) : (
+                <span
+                  className="while-away-dot"
+                  style={{ background: colorForUser?.(g.userId) ?? "#89b4fa" }}
+                  aria-hidden="true"
+                />
+              )}
+              {authorName}
+            </div>
+            {g.lines.map((line, i) => {
+              const ev = g.events[i];
+              const navigable = !!ev && ev.navigable && !!ev.filePath;
+              return (
+                <div
+                  key={`${g.userId}-${i}`}
+                  className={`while-away-line${navigable ? " navigable" : ""}`}
+                  {...(navigable
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        onClick: () => onNavigate(ev),
+                        onKeyDown: (e: React.KeyboardEvent) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onNavigate(ev);
+                          }
+                        },
+                      }
+                    : {})}
+                >
+                  {line}
+                </div>
+              );
+            })}
           </div>
-          {g.lines.map((line, i) => {
-            const ev = g.events[i];
-            const navigable = !!ev && ev.navigable && !!ev.filePath;
-            return (
-              <div
-                key={`${g.userId}-${i}`}
-                className={`while-away-line${navigable ? " navigable" : ""}`}
-                {...(navigable
-                  ? {
-                      role: "button",
-                      tabIndex: 0,
-                      onClick: () => onNavigate(ev),
-                      onKeyDown: (e: React.KeyboardEvent) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          onNavigate(ev);
-                        }
-                      },
-                    }
-                  : {})}
-              >
-                {line}
-              </div>
-            );
-          })}
-        </div>
         );
       })}
     </div>

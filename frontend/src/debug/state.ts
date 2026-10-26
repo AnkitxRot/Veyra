@@ -15,13 +15,8 @@ export function shouldApplyStatus(
     return false;
   }
   if (
-    (current === "terminated" ||
-      current === "failed" ||
-      current === "unavailable") &&
-    (next === "starting" ||
-      next === "running" ||
-      next === "paused" ||
-      next === "stopping")
+    (current === "terminated" || current === "failed" || current === "unavailable") &&
+    (next === "starting" || next === "running" || next === "paused" || next === "stopping")
   ) {
     return false;
   }
@@ -29,10 +24,7 @@ export function shouldApplyStatus(
 }
 
 /** Adapter `continued` is ignored while paused unless the user asked to resume. */
-export function shouldApplyContinued(
-  current: DebugSessionState,
-  expectContinue: boolean,
-): boolean {
+export function shouldApplyContinued(current: DebugSessionState, expectContinue: boolean): boolean {
   if (
     current === "terminated" ||
     current === "failed" ||

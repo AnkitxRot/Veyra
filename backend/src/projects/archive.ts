@@ -13,11 +13,7 @@ import {
 } from "./service.js";
 import { listFiles, invalidateTreeCache } from "../files/service.js";
 import { readConfinedBytes } from "../files/confined.js";
-import {
-  createZipArchive,
-  extractZipArchive,
-  type ZipFileEntry,
-} from "./zip.js";
+import { createZipArchive, extractZipArchive, type ZipFileEntry } from "./zip.js";
 import { withProjectSnapshotLock } from "./snapshots.js";
 import { collaborationManager } from "../collab/manager.js";
 import { sandboxManager } from "../execution/sandbox.js";
@@ -130,9 +126,7 @@ export async function importProjectZip(
       // collaborative edits before the dispose below destroys the Y.Doc.
       // Runs before any filesystem mutation, so aborting here on a failed
       // flush leaves the workspace untouched and the room alive.
-      const flushResult = await collaborationManager.flushRoomBeforeDestruction(
-        project.id,
-      );
+      const flushResult = await collaborationManager.flushRoomBeforeDestruction(project.id);
       if (!flushResult.flushed && !options.force) {
         throw new ApiError(
           409,
@@ -230,15 +224,10 @@ export async function importNewProjectZip(
   meta: { name?: string; language?: string } = {},
 ): Promise<{ project: any; fileCount: number }> {
   // Check user project quota
-  const row = db
-    .prepare("SELECT count(*) as c FROM projects WHERE owner_id = ?")
-    .get(userId) as { c: number } | undefined;
+  const row = db.prepare("SELECT count(*) as c FROM projects WHERE owner_id = ?").get(userId) as
+    { c: number } | undefined;
   if ((row?.c ?? 0) >= cfg.projectQuota) {
-    throw new ApiError(
-      403,
-      `project limit of ${cfg.projectQuota} reached`,
-      "quota_exceeded",
-    );
+    throw new ApiError(403, `project limit of ${cfg.projectQuota} reached`, "quota_exceeded");
   }
 
   const projectName =

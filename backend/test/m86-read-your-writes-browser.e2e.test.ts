@@ -72,9 +72,7 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -137,10 +135,7 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
     return browser;
   }
 
-  async function openIde(
-    browser: Awaited<ReturnType<typeof launch>>,
-    projectId: string,
-  ) {
+  async function openIde(browser: Awaited<ReturnType<typeof launch>>, projectId: string) {
     const context = await browser.newContext();
     await context.addCookies([
       {
@@ -157,16 +152,11 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
     page.on("websocket", (ws) => {
       if (!ws.url().includes("/ws/execute")) return;
       ws.on("framesent", (f) => execFrames.push(`> ${String(f.payload).slice(0, 300)}`));
-      ws.on("framereceived", (f) =>
-        execFrames.push(`< ${String(f.payload).slice(0, 300)}`),
-      );
+      ws.on("framereceived", (f) => execFrames.push(`< ${String(f.payload).slice(0, 300)}`));
       ws.on("close", () => execFrames.push("closed"));
     });
     await page.goto(`${base}/p/${projectId}`, { waitUntil: "load" });
-    await page
-      .locator(".file-tree-container ul.file-tree")
-      .first()
-      .waitFor({ timeout: 60_000 });
+    await page.locator(".file-tree-container ul.file-tree").first().waitFor({ timeout: 60_000 });
     return { page, pageErrors };
   }
 
@@ -174,9 +164,7 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
 
   async function openTests(page: Page) {
     await page.click('[data-testid="tests-tab"]');
-    await page
-      .locator('[data-testid="workflow-task-npm:test"]')
-      .waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid="workflow-task-npm:test"]').waitFor({ timeout: 15_000 });
   }
 
   /** Click Run all and wait for a finished run's per-test statuses. */
@@ -187,9 +175,8 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
     await page.click('[data-testid="workflow-run-all"]');
     await page.waitForFunction(
       () =>
-        (globalThis as any).document.querySelector(
-          '[data-testid="workflow-status"]',
-        )?.textContent === "Running",
+        (globalThis as any).document.querySelector('[data-testid="workflow-status"]')
+          ?.textContent === "Running",
       null,
       { timeout: 15_000 },
     );
@@ -197,8 +184,7 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
       await page.waitForFunction(
         () => {
           const d = (globalThis as any).document;
-          const status = d.querySelector('[data-testid="workflow-status"]')
-            ?.textContent;
+          const status = d.querySelector('[data-testid="workflow-status"]')?.textContent;
           return (
             status !== "Running" &&
             d.querySelectorAll('[data-testid="workflow-result"]').length >= 2
@@ -213,9 +199,10 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
         return {
           status: d.querySelector('[data-testid="workflow-status"]')?.textContent,
           results: d.querySelectorAll('[data-testid="workflow-result"]').length,
-          panel: String(
-            d.querySelector('[data-testid="test-explorer"]')?.innerText ?? "",
-          ).slice(0, 800),
+          panel: String(d.querySelector('[data-testid="test-explorer"]')?.innerText ?? "").slice(
+            0,
+            800,
+          ),
         };
       });
       throw new Error(
@@ -224,18 +211,13 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
     }
     return page.evaluate(() =>
       Array.from(
-        (globalThis as any).document.querySelectorAll(
-          '[data-testid="workflow-result"]',
-        ),
+        (globalThis as any).document.querySelectorAll('[data-testid="workflow-result"]'),
       ).map((el: any) => String(el.getAttribute("data-status"))),
     );
   }
 
   function roomText(projectId: string): string {
-    return (
-      collaborationManager.getRoom(projectId)?.doc.getText(TEST_PATH).toString() ??
-      ""
-    );
+    return collaborationManager.getRoom(projectId)?.doc.getText(TEST_PATH).toString() ?? "";
   }
 
   /** Open the test file through its failure location and apply the fix as a
@@ -252,9 +234,7 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
           const monaco = (globalThis as any).monaco;
           const model = monaco?.editor.getEditors?.()[0]?.getModel();
           return (
-            !!model &&
-            String(model.uri.path).endsWith(path) &&
-            model.getValue().includes(broken)
+            !!model && String(model.uri.path).endsWith(path) && model.getValue().includes(broken)
           );
         },
         { path: TEST_PATH, broken: BROKEN },
@@ -302,7 +282,10 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
       const after = await runAll(page);
 
       expect(after.length).toBeGreaterThanOrEqual(2);
-      expect(after.every((s) => s === "passed"), JSON.stringify(after)).toBe(true);
+      expect(
+        after.every((s) => s === "passed"),
+        JSON.stringify(after),
+      ).toBe(true);
       expect(diskContent(projectId)).toContain(FIXED);
       expect(pageErrors).toEqual([]);
     } finally {
@@ -324,8 +307,9 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
       // read-your-writes barrier.
       const room = collaborationManager.getRoom(projectId);
       expect(room).toBeTruthy();
-      (room as unknown as { scheduleDebouncedPersistence: () => void }).scheduleDebouncedPersistence =
-        () => {};
+      (
+        room as unknown as { scheduleDebouncedPersistence: () => void }
+      ).scheduleDebouncedPersistence = () => {};
 
       // The editor tab produces a failure location to open, then fixes it.
       const before = await runAll(editor.page);
@@ -340,7 +324,10 @@ describe.skipIf(!enabled)("M86 Test Explorer runs what the editor shows (browser
       const after = await runAll(runner.page);
 
       expect(after.length).toBeGreaterThanOrEqual(2);
-      expect(after.every((s) => s === "passed"), JSON.stringify(after)).toBe(true);
+      expect(
+        after.every((s) => s === "passed"),
+        JSON.stringify(after),
+      ).toBe(true);
       expect(runner.pageErrors).toEqual([]);
       expect(editor.pageErrors).toEqual([]);
     } finally {

@@ -4,8 +4,7 @@ import * as React from "react";
 import CommandPaletteModal from "../src/components/common/CommandPaletteModal";
 import type { Command } from "../src/utils/commands";
 
-Element.prototype.scrollIntoView =
-  Element.prototype.scrollIntoView || (() => {});
+Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || (() => {});
 
 afterEach(cleanup);
 
@@ -18,15 +17,13 @@ const commands: Command[] = [
   },
 ];
 
-const fileIndex = [
-  { path: "src/a.ts", filename: "a.ts", extension: "ts", directory: "src" },
-];
+const fileIndex = [{ path: "src/a.ts", filename: "a.ts", extension: "ts", directory: "src" }];
 
 describe("CommandPalette symbols mode", () => {
   it("typing # switches to workspace symbols and opens a hit", async () => {
-    const searchSymbols = vi.fn().mockResolvedValue([
-      { name: "helper", filePath: "pkg/util.py", line: 1, column: 5 },
-    ]);
+    const searchSymbols = vi
+      .fn()
+      .mockResolvedValue([{ name: "helper", filePath: "pkg/util.py", line: 1, column: 5 }]);
     const onOpenSymbol = vi.fn();
     const { getByTestId, getByPlaceholderText } = render(
       React.createElement(CommandPaletteModal, {
@@ -46,7 +43,9 @@ describe("CommandPalette symbols mode", () => {
     fireEvent.change(input, { target: { value: "#helper" } });
     expect(getByPlaceholderText("Search workspace symbols...")).toBeTruthy();
     await waitFor(() => expect(searchSymbols).toHaveBeenCalled());
-    await waitFor(() => expect(getByTestId("command-palette-symbol").textContent).toContain("helper"));
+    await waitFor(() =>
+      expect(getByTestId("command-palette-symbol").textContent).toContain("helper"),
+    );
     fireEvent.click(getByTestId("command-palette-symbol"));
     expect(onOpenSymbol).toHaveBeenCalledWith({
       name: "helper",

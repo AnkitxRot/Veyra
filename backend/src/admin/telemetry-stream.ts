@@ -1,8 +1,13 @@
-import { WebSocket } from 'ws';
-import type { Db } from '../db.js';
-import type { AppConfig } from '../config.js';
-import { SandboxManager } from '../execution/sandbox.js';
-import { auditEmitter, auditFailureEmitter, getAuditFailureSnapshot, type AuditRecord } from '../audit.js';
+import { WebSocket } from "ws";
+import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
+import { SandboxManager } from "../execution/sandbox.js";
+import {
+  auditEmitter,
+  auditFailureEmitter,
+  getAuditFailureSnapshot,
+  type AuditRecord,
+} from "../audit.js";
 
 export class AdminTelemetryStreamManager {
   private static instance: AdminTelemetryStreamManager;
@@ -15,11 +20,11 @@ export class AdminTelemetryStreamManager {
 
   private constructor() {
     // Listen for platform events from audit system
-    auditEmitter.on('audit', (record: AuditRecord) => {
+    auditEmitter.on("audit", (record: AuditRecord) => {
       this.broadcastEvent(record);
     });
     // M93: listen for audit write failures
-    auditFailureEmitter.on('failure', () => {
+    auditFailureEmitter.on("failure", () => {
       this.broadcastAuditIntegrity();
     });
   }
@@ -49,14 +54,14 @@ export class AdminTelemetryStreamManager {
       this.startCollector();
     }
 
-    ws.on('close', () => {
+    ws.on("close", () => {
       this.clients.delete(ws);
       if (this.clients.size === 0) {
         this.stopCollector();
       }
     });
 
-    ws.on('error', () => {
+    ws.on("error", () => {
       this.clients.delete(ws);
       if (this.clients.size === 0) {
         this.stopCollector();
@@ -64,11 +69,11 @@ export class AdminTelemetryStreamManager {
     });
 
     // Handle client ping
-    ws.on('message', (data) => {
+    ws.on("message", (data) => {
       try {
         const msg = JSON.parse(data.toString());
-        if (msg.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+        if (msg.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
         }
       } catch {}
     });
@@ -78,7 +83,7 @@ export class AdminTelemetryStreamManager {
     this.stopCollector();
     this.ticker = setInterval(() => {
       this.collectAndBroadcast().catch((err) => {
-        console.error('[AdminTelemetry] Collector tick error:', err);
+        console.error("[AdminTelemetry] Collector tick error:", err);
       });
     }, 1000); // 1 Hz tick
     this.ticker.unref();
@@ -96,7 +101,7 @@ export class AdminTelemetryStreamManager {
 
     const payload = await this.buildTelemetryPayload();
     const message = JSON.stringify({
-      type: 'telemetry_tick',
+      type: "telemetry_tick",
       data: payload,
       timestamp: Date.now(),
     });
@@ -118,10 +123,10 @@ export class AdminTelemetryStreamManager {
     const payload = await this.buildTelemetryPayload();
     ws.send(
       JSON.stringify({
-        type: 'snapshot',
+        type: "snapshot",
         data: payload,
         timestamp: Date.now(),
-      })
+      }),
     );
   }
 
@@ -129,17 +134,17 @@ export class AdminTelemetryStreamManager {
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(
       JSON.stringify({
-        type: 'audit_integrity',
+        type: "audit_integrity",
         data: getAuditFailureSnapshot(),
         timestamp: Date.now(),
-      })
+      }),
     );
   }
 
   public broadcastEvent(record: AuditRecord) {
     if (this.clients.size === 0) return;
     const message = JSON.stringify({
-      type: 'platform_event',
+      type: "platform_event",
       event: record,
       timestamp: Date.now(),
     });
@@ -158,7 +163,7 @@ export class AdminTelemetryStreamManager {
     if (this.clients.size === 0) return;
     const snapshot = getAuditFailureSnapshot();
     const message = JSON.stringify({
-      type: 'audit_integrity',
+      type: "audit_integrity",
       data: snapshot,
       timestamp: Date.now(),
     });
@@ -184,12 +189,14 @@ export class AdminTelemetryStreamManager {
     const sandboxesData = await Promise.all(
       activeSandboxes.map(async (sb) => {
         const stats = await this.sandboxManager.getContainerStats(sb.projectId);
-        const projectRow = this.db!.prepare(`
+        const projectRow = this.db!.prepare(
+          `
           SELECT p.name, u.username
           FROM projects p
           JOIN users u ON u.id = p.owner_id
           WHERE p.id = ?
-        `).get(sb.projectId) as { name: string; username: string } | undefined;
+        `,
+        ).get(sb.projectId) as { name: string; username: string } | undefined;
 
         if (stats.running) {
           aggregateCpu += stats.cpuPercent;
@@ -200,12 +207,12 @@ export class AdminTelemetryStreamManager {
         return {
           containerId: sb.containerId,
           projectId: sb.projectId,
-          projectName: projectRow?.name ?? 'Workspace',
-          ownerUsername: projectRow?.username ?? 'Unknown',
+          projectName: projectRow?.name ?? "Workspace",
+          ownerUsername: projectRow?.username ?? "Unknown",
           ports: sb.ports,
           lastUsed: sb.lastUsed,
           idleSeconds: Math.max(0, Math.floor((Date.now() - sb.lastUsed) / 1000)),
-          status: stats.running ? 'running' : 'idle',
+          status: stats.running ? "running" : "idle",
           cpuPercent: stats.cpuPercent,
           memoryUsageBytes: stats.memoryUsageBytes,
           pids: stats.pids,
@@ -215,18 +222,26 @@ export class AdminTelemetryStreamManager {
             pidsLimit: this.cfg!.limits.pidsLimit,
           },
         };
-      })
+      }),
     );
 
     // Platform counters
-    const totalUsersRow = this.db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
-    const demoUsersRow = this.db.prepare("SELECT COUNT(*) as count FROM users WHERE username LIKE 'evaluator_%'").get() as { count: number };
-    const totalProjectsRow = this.db.prepare('SELECT COUNT(*) as count FROM projects').get() as { count: number };
-    const totalRunsRow = this.db.prepare('SELECT COUNT(*) as count FROM runs').get() as { count: number };
+    const totalUsersRow = this.db.prepare("SELECT COUNT(*) as count FROM users").get() as {
+      count: number;
+    };
+    const demoUsersRow = this.db
+      .prepare("SELECT COUNT(*) as count FROM users WHERE username LIKE 'evaluator_%'")
+      .get() as { count: number };
+    const totalProjectsRow = this.db.prepare("SELECT COUNT(*) as count FROM projects").get() as {
+      count: number;
+    };
+    const totalRunsRow = this.db.prepare("SELECT COUNT(*) as count FROM runs").get() as {
+      count: number;
+    };
 
     return {
       system: {
-        status: 'healthy',
+        status: "healthy",
         uptimeSeconds: Math.floor(process.uptime()),
         nodeVersion: process.version,
         platform: process.platform,

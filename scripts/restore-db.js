@@ -32,9 +32,7 @@ function parseArgs() {
   const options = {
     dataDir:
       process.env.DATA_DIR ??
-      (process.platform === "win32"
-        ? join(homedir(), ".cloud-ide")
-        : "/var/lib/cloud-ide"),
+      (process.platform === "win32" ? join(homedir(), ".cloud-ide") : "/var/lib/cloud-ide"),
     dbPath: process.env.DATABASE_PATH,
     backupDir: process.env.BACKUP_DIR,
     lockStaleMs: Number(process.env.BACKUP_LOCK_STALE_MS ?? 30_000),
@@ -91,9 +89,7 @@ function main() {
   const opts = parseArgs();
 
   if (opts.backupFile && opts.latest) {
-    console.error(
-      "\n[ERROR] Specify exactly one of --backup-file=<name> or --latest, not both.",
-    );
+    console.error("\n[ERROR] Specify exactly one of --backup-file=<name> or --latest, not both.");
     process.exit(1);
   }
   if (!opts.backupFile && !opts.latest) {
@@ -126,46 +122,33 @@ function main() {
 
   let result;
   try {
-    result = withBackupLockSync(
-      opts.backupDir,
-      { staleMs: opts.lockStaleMs },
-      () =>
-        restoreDatabaseFromBackup({
-          dbPath: opts.dbPath,
-          backupDir: opts.backupDir,
-          filename,
-        }),
+    result = withBackupLockSync(opts.backupDir, { staleMs: opts.lockStaleMs }, () =>
+      restoreDatabaseFromBackup({
+        dbPath: opts.dbPath,
+        backupDir: opts.backupDir,
+        filename,
+      }),
     );
   } catch (err) {
     console.error(`\n[ERROR] ${err.message}`);
     if (err.safetyCopyPath) {
-      console.error(
-        `[ERROR] Pre-restore safety copy preserved at: ${err.safetyCopyPath}`,
-      );
+      console.error(`[ERROR] Pre-restore safety copy preserved at: ${err.safetyCopyPath}`);
     }
     process.exit(1);
   }
 
   console.log("\n  ✓ Database restored and verified:");
   console.log(`    Restored From:           ${result.restoredFrom}`);
-  console.log(
-    `    Backup Size:             ${result.backupSizeBytes.toLocaleString()} bytes`,
-  );
+  console.log(`    Backup Size:             ${result.backupSizeBytes.toLocaleString()} bytes`);
   console.log(
     `    Pre-Restore Safety Copy: ${result.safetyCopyPath ?? "(none — no prior live database existed)"}`,
   );
   console.log(`    Post-Restore Integrity:  ${result.postRestoreIntegrity}`);
   console.log(`    Duration:                ${result.durationMs}ms`);
   console.log("");
-  console.log(
-    "  Any live database writes after this backup's creation timestamp are",
-  );
-  console.log(
-    "  permanently lost — this is expected behavior for a restore, not an error.",
-  );
-  console.log(
-    "  Start the application service now, then run: npm run deploy:smoke",
-  );
+  console.log("  Any live database writes after this backup's creation timestamp are");
+  console.log("  permanently lost — this is expected behavior for a restore, not an error.");
+  console.log("  Start the application service now, then run: npm run deploy:smoke");
   console.log("============================================================\n");
   process.exit(0);
 }

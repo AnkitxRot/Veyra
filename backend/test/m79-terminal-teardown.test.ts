@@ -102,11 +102,10 @@ describe("M79 — role loss reaps terminal sessions", () => {
       body: { name: "m79-roleloss", language: "python" },
     });
     projectId = p.data.project?.id ?? p.data.id;
-    await api.request(
-      "POST",
-      `/api/projects/${projectId}/collaborators`,
-      { token: ownerTok, body: { username: "m79collab", role: "editor" } },
-    );
+    await api.request("POST", `/api/projects/${projectId}/collaborators`, {
+      token: ownerTok,
+      body: { username: "m79collab", role: "editor" },
+    });
   });
   afterEach(() => api.close());
 
@@ -162,11 +161,10 @@ describe("M79 — role loss reaps terminal sessions", () => {
       pty,
       containerId: "c",
     });
-    await api.request(
-      "PATCH",
-      `/api/projects/${projectId}/collaborators/${collabId}`,
-      { token: ownerTok, body: { role: "editor" } },
-    );
+    await api.request("PATCH", `/api/projects/${projectId}/collaborators/${collabId}`, {
+      token: ownerTok,
+      body: { role: "editor" },
+    });
     expect(pty.kill).not.toHaveBeenCalled();
     expect(terminalSessions.has(collabId, projectId, "kept")).toBe(true);
   });

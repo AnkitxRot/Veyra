@@ -208,13 +208,9 @@ export default function TeamPanel({
               <div className="team-row-main">
                 <div className="team-row-top">
                   <span className="team-name">{displayLabel(c)}</span>
-                  {secondaryHandle(c) && (
-                    <span className="team-handle">{secondaryHandle(c)}</span>
-                  )}
+                  {secondaryHandle(c) && <span className="team-handle">{secondaryHandle(c)}</span>}
                   <span className="team-role">{c.role}</span>
-                  <span className="team-time">
-                    {formatRelativeTime(c.lastActive, now)}
-                  </span>
+                  <span className="team-time">{formatRelativeTime(c.lastActive, now)}</span>
                 </div>
                 <div className="team-activity">{activityText(c)}</div>
                 {file && (
@@ -223,23 +219,16 @@ export default function TeamPanel({
                     {c.cursor ? ` · L${c.cursor.line}` : ""}
                   </div>
                 )}
-                {c.workingFolder && (
-                  <div className="team-folder">📁 {c.workingFolder}</div>
-                )}
-                {c.intent?.text && (
-                  <div className="team-intent">🎯 {c.intent.text}</div>
-                )}
+                {c.workingFolder && <div className="team-folder">📁 {c.workingFolder}</div>}
+                {c.intent?.text && <div className="team-intent">🎯 {c.intent.text}</div>}
                 {(() => {
                   const lc = lastChangeByUser?.get(c.userId);
                   if (!lc) return null;
                   return (
                     <div className="team-last-change">
-                      Last change:{" "}
-                      {lc.kind === "callout"
-                        ? "left a callout"
-                        : lc.title}
-                      {lc.filePath ? ` · ${lc.filePath.split("/").pop()}` : ""}{" "}
-                      · {formatRelativeTime(Date.parse(lc.at), now)}
+                      Last change: {lc.kind === "callout" ? "left a callout" : lc.title}
+                      {lc.filePath ? ` · ${lc.filePath.split("/").pop()}` : ""} ·{" "}
+                      {formatRelativeTime(Date.parse(lc.at), now)}
                     </div>
                   );
                 })()}

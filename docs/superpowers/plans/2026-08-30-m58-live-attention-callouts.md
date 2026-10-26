@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript, Node ESM, `yjs`, `y-protocols`, `ws`, `lib0` encoding, `node:crypto`, React 18, Vite, Monaco, Vitest (backend: `singleThread` pool, real Yjs/`y-protocols` in collab tests, `makeWs()` fake socket; frontend: jsdom, fake timers, `@testing-library/react`).
 
 **Spec:** `docs/superpowers/specs/2026-08-30-m58-live-attention-callouts-design.md` — read it alongside this plan. The reviewer-approved decisions in the spec's §17 and in the approval message override any ambiguity:
+
 1. 4th outstanding request from one author → **drop the new request** (never evict a legitimate one); sender gets a lightweight "too many pending" state, not a persistent error mechanism.
 2. Callout: client TTL 45 s, **server hard ceiling 90 s**, refresh-while-visible allowed but never past the ceiling; at the ceiling it must disappear.
 3. Attention count badge on the existing collaborator chip; counts **only actionable incoming targeted requests** (never points/callouts); clicking the chip reaches the `AttentionTray`; TeamPanel and the per-avatar quick popover are preserved.
@@ -23,7 +24,7 @@
 - **No new WebSocket endpoint, no new presence store, no new document-sync mechanism.** Attention uses `MESSAGE_CUSTOM` + a bounded in-memory room registry only.
 - **No persistence of attention.** No SQLite table, no migration, no workspace file, no Git object, no `Y.Doc` key. `doc.share` is never accessed on any attention code path.
 - **Document sync untouched.** No changes to `Y.Doc` handling, `syncProtocol`, `MonacoBinding`, coalescing windows, watermarks, or `backend/src/config.ts`.
-- **M57 awareness untouched.** M58 never calls `awareness.setLocalStateField` and never adds an awareness field. It only *reads* `CollaboratorPresence`.
+- **M57 awareness untouched.** M58 never calls `awareness.setLocalStateField` and never adds an awareness field. It only _reads_ `CollaboratorPresence`.
 - **`backend/test/collab-awareness-security.test.ts` and `backend/test/m57-presence.test.ts` must pass UNCHANGED.**
 - **Author identity is always server-set** from `CollaboratorClientState` (the authenticated WS session). Any `author`/`userId` in a client payload is ignored. Event `id`, `createdAt`, `expiresAt`, `color` are server-constructed.
 - **Targeted requests:** deliver only to the intended recipient; survive recipient reconnect only while still valid; expire server-side; removed on dismissal, on author disconnect, on target disconnect; never persisted; never resurrect after expiry.
@@ -41,43 +42,43 @@
 
 ```ts
 export const ATTENTION_MAX_MESSAGE_LEN = 280;
-export const ATTENTION_POINT_TTL_MS = 6_000;      // client fade for a point
-export const ATTENTION_CALLOUT_TTL_MS = 45_000;   // client default visible life
+export const ATTENTION_POINT_TTL_MS = 6_000; // client fade for a point
+export const ATTENTION_CALLOUT_TTL_MS = 45_000; // client default visible life
 export const ATTENTION_CALLOUT_MAX_TTL_MS = 90_000; // SERVER hard ceiling
-export const ATTENTION_REQUEST_TTL_MS = 120_000;  // server registry expiry
+export const ATTENTION_REQUEST_TTL_MS = 120_000; // server registry expiry
 export const ATTENTION_RATE_WINDOW_MS = 10_000;
 export const ATTENTION_MAX_EVENTS_PER_WINDOW = 10; // per connection
 export const ATTENTION_MAX_OUTSTANDING_REQUESTS = 3; // per author, in registry
 export const ATTENTION_MAX_REGISTRY_ENTRIES = 200; // room-wide
-export const RANGE_NEAR_LINES = 5;                 // nearby tier threshold
+export const RANGE_NEAR_LINES = 5; // nearby tier threshold
 ```
 
 ---
 
 ## File Structure
 
-| File | Create/Modify | Responsibility |
-|---|---|---|
-| `backend/src/collab/attention.ts` | **Create** | Pure domain: constants, wire types, `normalizeRange`, `rangesOverlap`, `sanitizeAttentionMessage`, `newAttentionId`, `parseAttentionInput`, `buildAttentionEvent`, `RateLimiter`, `AttentionRequestRegistry`. No `ws` / `Y.Doc` imports. |
-| `backend/src/collab/manager.ts` | Modify | `CollaborationRoom`: `handleAttentionMessage` branch in the existing `case MESSAGE_CUSTOM`; `broadcastAttentionEvent` / `sendAttentionEventTo`; `clearAttentionRequest`; per-`ws` `RateLimiter` WeakMap; `attentionRegistry` + `attentionExpiryTimers`; join snapshot in `addClient`; cleanup in `removeClient`; teardown in `dispose`. |
-| `backend/test/m58-attention.test.ts` | **Create** | Pure-function tests + real-`CollaborationRoom` pipeline tests (auth, targeting, validation, rate limit, registry bounds, expiry, dismissal, disconnect, reconnect snapshot, project isolation, no-persistence, Yjs-convergence guard). |
-| `frontend/src/collab/attention.ts` | **Create** | Pure: constants, wire types, `normalizeRange`, `rangesOverlap`, `parseAttentionEvent`; `AttentionStore` (Map + TTL timers + change emitter). |
-| `frontend/src/collab/client.ts` | Modify | `sendAttentionPoint/Callout/Request`, `dismissAttentionRequest`, `getAttention`; `MESSAGE_CUSTOM` receive branch for `attention_event` / `attention_cleared`; `attentionStore` cleared in `resetLocalCollabState()` + `dispose()`. |
-| `frontend/test/collab.attention.test.ts` | **Create** | `AttentionStore` lifecycle + TTL (fake timers); `rangesOverlap` / `normalizeRange` matrix; `parseAttentionEvent` guards; sender frame shape. |
-| `frontend/src/components/Collab/AttentionTray.tsx` | **Create** | Bottom-right non-modal stack of incoming targeted-request cards + sender "✓ Sent" confirmation + overflow collapse. |
-| `frontend/test/AttentionTray.test.tsx` | **Create** | Card render, Go there / Dismiss handlers, sender confirmation, collapse, text-only message. |
-| `frontend/src/components/Editor/Editor.tsx` | Modify | Monaco actions (Point / Call out / Come look); point + callout decorations & message composer; three-tier spatial memo. |
-| `frontend/src/components/Editor/AttentionComposer.tsx` | **Create** | Small absolute-positioned message input + (for "Come look") collaborator picker, anchored near the current selection. Not a modal. |
-| `frontend/test/Editor.attention.test.tsx` | **Create** | Point/callout decorations, text-only bubble, closed-file open-before-reveal ordering, no model mutation. |
-| `frontend/test/Editor.nearby.test.tsx` | **Create** | Three-tier spatial awareness; no awareness/doc writes. |
-| `frontend/src/components/IDE/IDE.tsx` | Modify | `attention` throttled state; `handleAttentionNavigate` via `openAndRevealLocation`; retrofit `handleJumpToCollaborator`; render `<AttentionTray>`; thread props. |
-| `frontend/test/IDE.attention.test.tsx` | **Create** (or extend an existing IDE test) | Navigation goes through open-then-reveal; retrofitted Jump; no full-tree re-render storm. |
-| `frontend/src/components/Toolbar/Toolbar.tsx` | Modify | Thread `incomingRequestCount` prop to `CollaboratorAvatarStack`. |
-| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | Modify | Small badge on the existing `collab-count` chip; **preserve** the per-avatar quick popover and TeamPanel opening. |
-| `frontend/test/CollaboratorAvatarStack.attention.test.tsx` | **Create** (or extend `CollaboratorAvatarStack.test.tsx`) | Badge shows only when count > 0; popover still present. |
-| `frontend/src/styles/collab.css` | Modify | `.attention-point`, `.attention-callout-*`, `.attention-tray*`, `.attention-composer*`, `.spatial-*` — ambient, low-alpha, collaborator-colored, fade transitions. |
-| `frontend/test/collab.follow.attention.test.tsx` | **Create** | Attention arriving mid-Follow does not break follow; navigating to attention interacts with follow like a manual open. |
-| `STATUS.md` | Modify | New `## Milestone 58` section (final task). |
+| File                                                         | Create/Modify                                             | Responsibility                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/src/collab/attention.ts`                            | **Create**                                                | Pure domain: constants, wire types, `normalizeRange`, `rangesOverlap`, `sanitizeAttentionMessage`, `newAttentionId`, `parseAttentionInput`, `buildAttentionEvent`, `RateLimiter`, `AttentionRequestRegistry`. No `ws` / `Y.Doc` imports.                                                                                                |
+| `backend/src/collab/manager.ts`                              | Modify                                                    | `CollaborationRoom`: `handleAttentionMessage` branch in the existing `case MESSAGE_CUSTOM`; `broadcastAttentionEvent` / `sendAttentionEventTo`; `clearAttentionRequest`; per-`ws` `RateLimiter` WeakMap; `attentionRegistry` + `attentionExpiryTimers`; join snapshot in `addClient`; cleanup in `removeClient`; teardown in `dispose`. |
+| `backend/test/m58-attention.test.ts`                         | **Create**                                                | Pure-function tests + real-`CollaborationRoom` pipeline tests (auth, targeting, validation, rate limit, registry bounds, expiry, dismissal, disconnect, reconnect snapshot, project isolation, no-persistence, Yjs-convergence guard).                                                                                                  |
+| `frontend/src/collab/attention.ts`                           | **Create**                                                | Pure: constants, wire types, `normalizeRange`, `rangesOverlap`, `parseAttentionEvent`; `AttentionStore` (Map + TTL timers + change emitter).                                                                                                                                                                                            |
+| `frontend/src/collab/client.ts`                              | Modify                                                    | `sendAttentionPoint/Callout/Request`, `dismissAttentionRequest`, `getAttention`; `MESSAGE_CUSTOM` receive branch for `attention_event` / `attention_cleared`; `attentionStore` cleared in `resetLocalCollabState()` + `dispose()`.                                                                                                      |
+| `frontend/test/collab.attention.test.ts`                     | **Create**                                                | `AttentionStore` lifecycle + TTL (fake timers); `rangesOverlap` / `normalizeRange` matrix; `parseAttentionEvent` guards; sender frame shape.                                                                                                                                                                                            |
+| `frontend/src/components/Collab/AttentionTray.tsx`           | **Create**                                                | Bottom-right non-modal stack of incoming targeted-request cards + sender "✓ Sent" confirmation + overflow collapse.                                                                                                                                                                                                                     |
+| `frontend/test/AttentionTray.test.tsx`                       | **Create**                                                | Card render, Go there / Dismiss handlers, sender confirmation, collapse, text-only message.                                                                                                                                                                                                                                             |
+| `frontend/src/components/Editor/Editor.tsx`                  | Modify                                                    | Monaco actions (Point / Call out / Come look); point + callout decorations & message composer; three-tier spatial memo.                                                                                                                                                                                                                 |
+| `frontend/src/components/Editor/AttentionComposer.tsx`       | **Create**                                                | Small absolute-positioned message input + (for "Come look") collaborator picker, anchored near the current selection. Not a modal.                                                                                                                                                                                                      |
+| `frontend/test/Editor.attention.test.tsx`                    | **Create**                                                | Point/callout decorations, text-only bubble, closed-file open-before-reveal ordering, no model mutation.                                                                                                                                                                                                                                |
+| `frontend/test/Editor.nearby.test.tsx`                       | **Create**                                                | Three-tier spatial awareness; no awareness/doc writes.                                                                                                                                                                                                                                                                                  |
+| `frontend/src/components/IDE/IDE.tsx`                        | Modify                                                    | `attention` throttled state; `handleAttentionNavigate` via `openAndRevealLocation`; retrofit `handleJumpToCollaborator`; render `<AttentionTray>`; thread props.                                                                                                                                                                        |
+| `frontend/test/IDE.attention.test.tsx`                       | **Create** (or extend an existing IDE test)               | Navigation goes through open-then-reveal; retrofitted Jump; no full-tree re-render storm.                                                                                                                                                                                                                                               |
+| `frontend/src/components/Toolbar/Toolbar.tsx`                | Modify                                                    | Thread `incomingRequestCount` prop to `CollaboratorAvatarStack`.                                                                                                                                                                                                                                                                        |
+| `frontend/src/components/Collab/CollaboratorAvatarStack.tsx` | Modify                                                    | Small badge on the existing `collab-count` chip; **preserve** the per-avatar quick popover and TeamPanel opening.                                                                                                                                                                                                                       |
+| `frontend/test/CollaboratorAvatarStack.attention.test.tsx`   | **Create** (or extend `CollaboratorAvatarStack.test.tsx`) | Badge shows only when count > 0; popover still present.                                                                                                                                                                                                                                                                                 |
+| `frontend/src/styles/collab.css`                             | Modify                                                    | `.attention-point`, `.attention-callout-*`, `.attention-tray*`, `.attention-composer*`, `.spatial-*` — ambient, low-alpha, collaborator-colored, fade transitions.                                                                                                                                                                      |
+| `frontend/test/collab.follow.attention.test.tsx`             | **Create**                                                | Attention arriving mid-Follow does not break follow; navigating to attention interacts with follow like a manual open.                                                                                                                                                                                                                  |
+| `STATUS.md`                                                  | Modify                                                    | New `## Milestone 58` section (final task).                                                                                                                                                                                                                                                                                             |
 
 ---
 
@@ -112,10 +113,12 @@ Phase 3 (pure frontend store) ──┘                                       �
 ### Task 1: Range normalization + overlap
 
 **Files:**
+
 - Create: `backend/src/collab/attention.ts`
 - Test: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isAwarenessCoord` from `./presence.js` (finite, `0 ≤ n ≤ 5_000_000`).
 - Produces:
   - `export interface AttentionRange { startLine: number; startColumn: number; endLine: number; endColumn: number; }`
@@ -130,7 +133,10 @@ import { describe, it, expect } from "vitest";
 import { normalizeRange, rangesOverlap } from "../src/collab/attention.js";
 
 const R = (sl: number, sc: number, el: number, ec: number) => ({
-  startLine: sl, startColumn: sc, endLine: el, endColumn: ec,
+  startLine: sl,
+  startColumn: sc,
+  endLine: el,
+  endColumn: ec,
 });
 
 describe("M58 — normalizeRange", () => {
@@ -231,12 +237,7 @@ export interface AttentionRange {
   endColumn: number;
 }
 
-function beforeOrEqual(
-  aL: number,
-  aC: number,
-  bL: number,
-  bC: number,
-): boolean {
+function beforeOrEqual(aL: number, aC: number, bL: number, bC: number): boolean {
   return aL < bL || (aL === bL && aC <= bC);
 }
 
@@ -305,10 +306,12 @@ git add backend/src/collab/attention.ts backend/test/m58-attention.test.ts
 ### Task 2: Message sanitization + opaque ID + input parsing
 
 **Files:**
+
 - Modify: `backend/src/collab/attention.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Consumes: `sanitizeAwarenessFilePath` from `./presence.js`; `normalizeRange` (Task 1).
 - Produces:
   - `export function sanitizeAttentionMessage(v: unknown): string` — non-string → `""`; else replace every C0 control char (incl. NUL/TAB/CR/LF) and DEL with a space, collapse `\s+` → ` `, trim, slice to `ATTENTION_MAX_MESSAGE_LEN`. Returns `""` when nothing survives.
@@ -329,9 +332,7 @@ import {
 
 describe("M58 — sanitizeAttentionMessage", () => {
   it("trims, collapses whitespace, strips control chars", () => {
-    expect(sanitizeAttentionMessage("  the\n\trace is here  ")).toBe(
-      "the race is here",
-    );
+    expect(sanitizeAttentionMessage("  the\n\trace is here  ")).toBe("the race is here");
   });
   it("caps at 280 chars", () => {
     expect(sanitizeAttentionMessage("x".repeat(500))).toHaveLength(280);
@@ -357,9 +358,11 @@ describe("M58 — newAttentionId", () => {
 describe("M58 — parseAttentionInput", () => {
   const range = { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 };
   it("parses a valid point", () => {
-    expect(
-      parseAttentionInput({ type: "attention_point", file: "a/b.ts", range }),
-    ).toEqual({ kind: "point", file: "a/b.ts", range });
+    expect(parseAttentionInput({ type: "attention_point", file: "a/b.ts", range })).toEqual({
+      kind: "point",
+      file: "a/b.ts",
+      range,
+    });
   });
   it("parses a valid callout and cleans the message", () => {
     expect(
@@ -411,7 +414,13 @@ describe("M58 — parseAttentionInput", () => {
   });
   it("rejects a request with a non-integer targetUserId", () => {
     expect(
-      parseAttentionInput({ type: "attention_request", targetUserId: "12", file: "a", range, message: "x" }),
+      parseAttentionInput({
+        type: "attention_request",
+        targetUserId: "12",
+        file: "a",
+        range,
+        message: "x",
+      }),
     ).toBeNull();
   });
   it("never throws on garbage", () => {
@@ -441,9 +450,7 @@ export function sanitizeAttentionMessage(v: unknown): string {
     out += isControlChar(v.charCodeAt(i)) ? " " : v[i];
   }
   const s = out.replace(/\s+/g, " ").trim();
-  return s.length > ATTENTION_MAX_MESSAGE_LEN
-    ? s.slice(0, ATTENTION_MAX_MESSAGE_LEN)
-    : s;
+  return s.length > ATTENTION_MAX_MESSAGE_LEN ? s.slice(0, ATTENTION_MAX_MESSAGE_LEN) : s;
 }
 
 export function newAttentionId(): string {
@@ -511,10 +518,12 @@ git add backend/src/collab/attention.ts backend/test/m58-attention.test.ts
 ### Task 3: Server-authoritative event construction
 
 **Files:**
+
 - Modify: `backend/src/collab/attention.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AttentionInput` (Task 2), constants (Task 1).
 - Produces:
   - `export interface AttentionAuthor { userId: number; username: string; color: string }`
@@ -555,18 +564,30 @@ describe("M58 — buildAttentionEvent", () => {
   });
   it("builds a callout with the HARD ceiling TTL", () => {
     const e = buildAttentionEvent(
-      { kind: "callout", file: "a.ts", range: rng, message: "race" }, author, 1000);
+      { kind: "callout", file: "a.ts", range: rng, message: "race" },
+      author,
+      1000,
+    );
     expect(e.expiresAt).toBe(1000 + ATTENTION_CALLOUT_MAX_TTL_MS);
     expect(e.message).toBe("race");
   });
   it("builds a request with the request TTL and target", () => {
     const e = buildAttentionEvent(
-      { kind: "request", targetUserId: 12, file: "a.ts", range: rng, message: "look" }, author, 1000);
+      { kind: "request", targetUserId: 12, file: "a.ts", range: rng, message: "look" },
+      author,
+      1000,
+    );
     expect(e.expiresAt).toBe(1000 + ATTENTION_REQUEST_TTL_MS);
     expect(e.targetUserId).toBe(12);
   });
   it("ignores any author-like field smuggled through input", () => {
-    const dirty = { kind: "point", file: "a.ts", range: rng, author: { userId: 999 }, id: "deadbeef" } as any;
+    const dirty = {
+      kind: "point",
+      file: "a.ts",
+      range: rng,
+      author: { userId: 999 },
+      id: "deadbeef",
+    } as any;
     const e = buildAttentionEvent(dirty, author, 1000);
     expect(e.author).toEqual(author);
     expect(e.id).not.toBe("deadbeef");
@@ -602,11 +623,7 @@ export interface AttentionEvent {
   expiresAt: number;
 }
 
-export type AttentionClearedReason =
-  | "dismissed"
-  | "expired"
-  | "acted"
-  | "author_gone";
+export type AttentionClearedReason = "dismissed" | "expired" | "acted" | "author_gone";
 
 export interface AttentionClearedMsg {
   type: "attention_cleared";
@@ -660,10 +677,12 @@ git add backend/src/collab/attention.ts backend/test/m58-attention.test.ts
 ### Task 4: RateLimiter (token bucket / sliding window)
 
 **Files:**
+
 - Modify: `backend/src/collab/attention.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `export class RateLimiter { constructor(windowMs: number, max: number); tryConsume(now: number): boolean; }` — keeps a bounded array of accept timestamps within `[now - windowMs, now]`; `tryConsume` prunes stale entries, returns `false` if `count >= max`, else records `now` and returns `true`. The internal array never exceeds `max` entries.
 
@@ -735,10 +754,12 @@ git add backend/src/collab/attention.ts backend/test/m58-attention.test.ts
 ### Task 5: AttentionRequestRegistry (bounded policy, no timers)
 
 **Files:**
+
 - Modify: `backend/src/collab/attention.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AttentionEvent` (Task 3), `ATTENTION_MAX_OUTSTANDING_REQUESTS`, `ATTENTION_MAX_REGISTRY_ENTRIES`.
 - Produces:
   - `export class AttentionRequestRegistry` with:
@@ -807,7 +828,12 @@ describe("M58 — AttentionRequestRegistry", () => {
     const b = mkReq({ author: 1, target: 3, at: 2 });
     const c = mkReq({ author: 4, target: 2, at: 3 });
     [a, b, c].forEach((e) => reg.tryAdd(e));
-    expect(reg.deleteByAuthor(1).map((e) => e.id).sort()).toEqual([a.id, b.id].sort());
+    expect(
+      reg
+        .deleteByAuthor(1)
+        .map((e) => e.id)
+        .sort(),
+    ).toEqual([a.id, b.id].sort());
     expect(reg.size).toBe(1);
     expect(reg.deleteByTarget(2).map((e) => e.id)).toEqual([c.id]);
     expect(reg.size).toBe(0);
@@ -820,8 +846,14 @@ describe("M58 — AttentionRequestRegistry", () => {
 - [ ] **Step 3: Implement** (append)
 
 ```ts
-interface RegistryAddOk { ok: true; evicted: AttentionEvent | null }
-interface RegistryAddFail { ok: false; reason: "author_limit" }
+interface RegistryAddOk {
+  ok: true;
+  evicted: AttentionEvent | null;
+}
+interface RegistryAddFail {
+  ok: false;
+  reason: "author_limit";
+}
 
 export class AttentionRequestRegistry {
   private readonly byId = new Map<string, AttentionEvent>();
@@ -921,7 +953,7 @@ Expected: PASS, 0 errors.
 git add backend/src/collab/attention.ts backend/test/m58-attention.test.ts
 ```
 
-**Review checkpoint:** per-author cap rejects the *new* request (never evicts an existing one); room cap evicts the oldest by `createdAt`; registry holds no timers and no clock. **Rollback point:** revert `attention.ts` to Task 4 state — still unreferenced by `manager.ts`.
+**Review checkpoint:** per-author cap rejects the _new_ request (never evicts an existing one); room cap evicts the oldest by `createdAt`; registry holds no timers and no clock. **Rollback point:** revert `attention.ts` to Task 4 state — still unreferenced by `manager.ts`.
 
 ---
 
@@ -965,11 +997,13 @@ function customMessages(ws: any): any[] {
 ### Task 6: `handleAttentionMessage` — point + callout broadcast (no registry)
 
 **Files:**
+
 - Modify: `backend/src/collab/attention.ts` — add `export function fallbackUserColor(userId: number): string` (the same 8-colour Catppuccin palette + `Math.abs(userId) % 8` used by `frontend/src/collab/presence.ts:getUserColor`, so a point/callout carries a stable colour even before the author has published awareness).
 - Modify: `backend/src/collab/manager.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Consumes: `parseAttentionInput`, `buildAttentionEvent`, `RateLimiter`, `fallbackUserColor`, `ATTENTION_RATE_WINDOW_MS`, `ATTENTION_MAX_EVENTS_PER_WINDOW`.
 - Produces on `CollaborationRoom` (all `private` except where noted):
   - `private readonly attentionRateLimiters = new WeakMap<WebSocket, RateLimiter>()`
@@ -978,6 +1012,7 @@ function customMessages(ws: any): any[] {
   - `private handleAttentionMessage(ws: WebSocket, clientState: CollaboratorClientState, parsed: Record<string, unknown>): void`
   - `private broadcastAttention(obj: unknown, exceptWs?: WebSocket): void` (mirrors `broadcastRunStatus`)
 - Wiring: inside `handleMessage`'s `case MESSAGE_CUSTOM`, after the existing `file_open` branch, add:
+
   ```ts
   else if (
     typeof parsed.type === "string" &&
@@ -986,6 +1021,7 @@ function customMessages(ws: any): any[] {
     this.handleAttentionMessage(ws, clientState, parsed as Record<string, unknown>);
   }
   ```
+
   (Still inside the existing `try { JSON.parse } catch {}` — never throws.)
 
 - [ ] **Step 1: Write the failing tests**
@@ -996,19 +1032,25 @@ function customMessages(ws: any): any[] {
 
 it("broadcasts a valid point to peers but not the author", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
 
-  room.handleMessage(wsA, customFrame({
-    type: "attention_point", file: "auth/session.ts",
-    range: { startLine: 47, startColumn: 1, endLine: 47, endColumn: 1 },
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_point",
+      file: "auth/session.ts",
+      range: { startLine: 47, startColumn: 1, endLine: 47, endColumn: 1 },
+    }),
+  );
 
   const toB = customMessages(wsB).filter((m) => m.type === "attention_event");
   expect(toB).toHaveLength(1);
   expect(toB[0]).toMatchObject({
-    kind: "point", file: "auth/session.ts",
+    kind: "point",
+    file: "auth/session.ts",
     author: { userId: 1, username: "alice" },
   });
   expect(toB[0].id).toMatch(/^[0-9a-f]{16}$/);
@@ -1017,15 +1059,20 @@ it("broadcasts a valid point to peers but not the author", async () => {
 
 it("broadcasts a callout with a cleaned message and the 90s ceiling", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
   const t0 = Date.now();
-  room.handleMessage(wsA, customFrame({
-    type: "attention_callout", file: "a.ts",
-    range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
-    message: "  the\n\trace is here  ",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_callout",
+      file: "a.ts",
+      range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
+      message: "  the\n\trace is here  ",
+    }),
+  );
   const ev = customMessages(wsB).find((m) => m.type === "attention_event");
   expect(ev.message).toBe("the race is here");
   expect(ev.expiresAt - ev.createdAt).toBe(90_000);
@@ -1034,14 +1081,21 @@ it("broadcasts a callout with a cleaned message and the 90s ceiling", async () =
 
 it("forces author identity — a spoofed author/userId in the payload is ignored", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_point", file: "a.ts", author: { userId: 999, username: "eve" },
-    userId: 999, id: "cafebabecafebabe",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_point",
+      file: "a.ts",
+      author: { userId: 999, username: "eve" },
+      userId: 999,
+      id: "cafebabecafebabe",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+    }),
+  );
   const ev = customMessages(wsB).find((m) => m.type === "attention_event");
   expect(ev.author).toEqual({ userId: 1, username: "alice", color: expect.any(String) });
   expect(ev.id).not.toBe("cafebabecafebabe");
@@ -1049,13 +1103,22 @@ it("forces author identity — a spoofed author/userId in the payload is ignored
 
 it("drops a malformed attention frame without throwing or broadcasting", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
   const before = room.doc.share.size;
   expect(() => {
     room.handleMessage(wsA, customFrame({ type: "attention_point", file: "../etc", range: {} }));
-    room.handleMessage(wsA, customFrame({ type: "attention_callout", file: "a.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "   " }));
+    room.handleMessage(
+      wsA,
+      customFrame({
+        type: "attention_callout",
+        file: "a.ts",
+        range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+        message: "   ",
+      }),
+    );
     room.handleMessage(wsA, customFrame({ type: "attention_zzz" }));
   }).not.toThrow();
   expect(customMessages(wsB).filter((m) => m.type === "attention_event")).toHaveLength(0);
@@ -1064,14 +1127,19 @@ it("drops a malformed attention frame without throwing or broadcasting", async (
 
 it("rate-limits at 10 events / 10s per connection (burst of 50 → 10 delivered)", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
   for (let i = 0; i < 50; i++) {
-    room.handleMessage(wsA, customFrame({
-      type: "attention_point", file: "a.ts",
-      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
-    }));
+    room.handleMessage(
+      wsA,
+      customFrame({
+        type: "attention_point",
+        file: "a.ts",
+        range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      }),
+    );
   }
   expect(customMessages(wsB).filter((m) => m.type === "attention_event")).toHaveLength(10);
 });
@@ -1083,8 +1151,14 @@ it("rate-limits at 10 events / 10s per connection (burst of 50 → 10 delivered)
 
 ```ts
 const USER_COLORS = [
-  "#89b4fa", "#a6e3a1", "#fab387", "#f38ba8",
-  "#cba6f7", "#f9e2af", "#94e2d5", "#f5c2e7",
+  "#89b4fa",
+  "#a6e3a1",
+  "#fab387",
+  "#f38ba8",
+  "#cba6f7",
+  "#f9e2af",
+  "#94e2d5",
+  "#f5c2e7",
 ];
 export function fallbackUserColor(userId: number): string {
   return USER_COLORS[Math.abs(userId) % USER_COLORS.length];
@@ -1094,6 +1168,7 @@ export function fallbackUserColor(userId: number): string {
 - [ ] **Step 4: Implement in `manager.ts`**
 
 Add the import:
+
 ```ts
 import {
   parseAttentionInput,
@@ -1110,6 +1185,7 @@ import {
 ```
 
 Add fields to `CollaborationRoom` (near `runStatus`):
+
 ```ts
 private readonly attentionRateLimiters = new WeakMap<WebSocket, RateLimiter>();
 private readonly attentionRegistry = new AttentionRequestRegistry();
@@ -1117,6 +1193,7 @@ private readonly attentionExpiryTimers = new Map<string, NodeJS.Timeout>();
 ```
 
 Add methods:
+
 ```ts
 private attentionRateLimiterFor(ws: WebSocket): RateLimiter {
   let rl = this.attentionRateLimiters.get(ws);
@@ -1206,6 +1283,7 @@ private handleAttentionMessage(
 ```
 
 Wire the dispatch in `handleMessage`'s `case MESSAGE_CUSTOM` (right after the `file_open` `if` block, still inside the `try`):
+
 ```ts
 } else if (
   typeof parsed.type === "string" &&
@@ -1231,17 +1309,19 @@ Wire the dispatch in `handleMessage`'s `case MESSAGE_CUSTOM` (right after the `f
 git add backend/src/collab/attention.ts backend/src/collab/manager.ts backend/test/m58-attention.test.ts
 ```
 
-**Review checkpoint:** the dispatch is inside the existing `try/catch`; `handleAttentionMessage` returns early on `this.disposed`, on rate-limit, and on parse failure; points/callouts never touch the registry; the rate limiter is per-`ws` (Task 8 tests confirm multi-tab does not share a bucket — that is intentional per-connection, and the outstanding-request cap is the per-*user* backstop). **Rollback point:** remove the dispatch `else if` and the new methods/fields; `attention.ts` stays.
+**Review checkpoint:** the dispatch is inside the existing `try/catch`; `handleAttentionMessage` returns early on `this.disposed`, on rate-limit, and on parse failure; points/callouts never touch the registry; the rate limiter is per-`ws` (Task 8 tests confirm multi-tab does not share a bucket — that is intentional per-connection, and the outstanding-request cap is the per-_user_ backstop). **Rollback point:** remove the dispatch `else if` and the new methods/fields; `attention.ts` stays.
 
 ---
 
 ### Task 7: `attention_request` — targeting, registry, targeted delivery, author echo
 
 **Files:**
+
 - Modify: `backend/src/collab/manager.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AttentionRequestRegistry` (added in Task 6), `sendAttentionTo` (Task 6).
 - Produces on `CollaborationRoom`:
   - `private isRoomMember(userId: number, exceptWs?: WebSocket): boolean` — true iff some **currently-connected** client in `this.clients` has that `userId` (optionally excluding one socket, used to reject self-target).
@@ -1262,36 +1342,54 @@ git add backend/src/collab/attention.ts backend/src/collab/manager.ts backend/te
 
 it("delivers a request to the target and echoes it to the author", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs(); const wsC = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
+  const wsC = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
   await room.addClient(wsC, { userId: 3, username: "cara", role: "editor" });
 
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "auth/session.ts",
-    range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
-    message: "I think the race is here.",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "auth/session.ts",
+      range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
+      message: "I think the race is here.",
+    }),
+  );
 
   const toB = customMessages(wsB).filter((m) => m.type === "attention_event");
   const toA = customMessages(wsA).filter((m) => m.type === "attention_event");
   const toC = customMessages(wsC).filter((m) => m.type === "attention_event");
   expect(toB).toHaveLength(1);
-  expect(toB[0]).toMatchObject({ kind: "request", targetUserId: 2, message: "I think the race is here." });
-  expect(toA).toHaveLength(1);            // author echo
+  expect(toB[0]).toMatchObject({
+    kind: "request",
+    targetUserId: 2,
+    message: "I think the race is here.",
+  });
+  expect(toA).toHaveLength(1); // author echo
   expect(toA[0].id).toBe(toB[0].id);
-  expect(toC).toHaveLength(0);            // bystander sees nothing
+  expect(toC).toHaveLength(0); // bystander sees nothing
 });
 
 it("drops a request to a non-member userId", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 4242, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 4242,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
   expect(customMessages(wsB).filter((m) => m.type === "attention_event")).toHaveLength(0);
   expect(customMessages(wsA).filter((m) => m.type === "attention_event")).toHaveLength(0);
 });
@@ -1300,25 +1398,42 @@ it("drops a self-targeted request", async () => {
   const room = makeRoom("p1");
   const wsA = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 1, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 1,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
   expect(customMessages(wsA).filter((m) => m.type === "attention_event")).toHaveLength(0);
 });
 
 it("rejects the 4th outstanding request from one author and tells only the author", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  const send = () => room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
-  send(); send(); send(); send();
+  const send = () =>
+    room.handleMessage(
+      wsA,
+      customFrame({
+        type: "attention_request",
+        targetUserId: 2,
+        file: "a.ts",
+        range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+        message: "x",
+      }),
+    );
+  send();
+  send();
+  send();
+  send();
   const events = customMessages(wsB).filter((m) => m.type === "attention_event");
-  expect(events).toHaveLength(3);                       // only 3 delivered
+  expect(events).toHaveLength(3); // only 3 delivered
   const limited = customMessages(wsA).filter((m) => m.type === "attention_rate_limited");
   expect(limited).toHaveLength(1);
   expect(limited[0].scope).toBe("outstanding_requests");
@@ -1386,18 +1501,21 @@ Add `import { type AttentionClearedReason } from "./attention.js";`.
 git add backend/src/collab/manager.ts backend/test/m58-attention.test.ts
 ```
 
-**Review checkpoint:** target must be a currently-connected member of *this* room; self-target rejected; 4th request rejected (not the oldest); the `attention_rate_limited` notice goes only to the author and is transient. **Rollback point:** revert the `request` branch + helpers; point/callout still work.
+**Review checkpoint:** target must be a currently-connected member of _this_ room; self-target rejected; 4th request rejected (not the oldest); the `attention_rate_limited` notice goes only to the author and is transient. **Rollback point:** revert the `request` branch + helpers; point/callout still work.
 
 ---
 
 ### Task 8: Dismiss / acted authorization + expiry firing
 
 **Files:**
+
 - Modify: `backend/src/collab/manager.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - Produces: `handleAttentionMessage` gains an `attention_dismiss` branch (replacing the Task 6 early `return`):
+
   ```ts
   if (parsed.type === "attention_dismiss") {
     const id = typeof parsed.id === "string" ? parsed.id : null;
@@ -1405,12 +1523,12 @@ git add backend/src/collab/manager.ts backend/test/m58-attention.test.ts
     const event = this.attentionRegistry.get(id);
     // Authorization: the entry must exist AND target the dismisser's user.
     if (!event || event.targetUserId !== clientState.userId) return;
-    const reason: AttentionClearedReason =
-      parsed.acted === true ? "acted" : "dismissed";
+    const reason: AttentionClearedReason = parsed.acted === true ? "acted" : "dismissed";
     this.clearAttentionRequest(id, reason);
     return;
   }
   ```
+
   Note: `attention_dismiss` is **not** rate-limited (it is a de-escalation; still bounded because it only ever clears one existing entry).
 
 - [ ] **Step 1: Write the failing tests**
@@ -1418,13 +1536,20 @@ git add backend/src/collab/manager.ts backend/test/m58-attention.test.ts
 ```ts
 it("lets the target dismiss its own request and notifies both sides", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
   const id = customMessages(wsB).find((m) => m.type === "attention_event").id;
 
   room.handleMessage(wsB, customFrame({ type: "attention_dismiss", id }));
@@ -1437,32 +1562,51 @@ it("lets the target dismiss its own request and notifies both sides", async () =
 
 it("marks reason 'acted' when acted:true", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
   const id = customMessages(wsB).find((m) => m.type === "attention_event").id;
   room.handleMessage(wsB, customFrame({ type: "attention_dismiss", id, acted: true }));
-  expect(customMessages(wsB).filter((m) => m.type === "attention_cleared").at(-1).reason).toBe("acted");
+  expect(
+    customMessages(wsB)
+      .filter((m) => m.type === "attention_cleared")
+      .at(-1).reason,
+  ).toBe("acted");
 });
 
 it("ignores a dismiss from a non-target (no clearing another user's request by guessing an id)", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs(); const wsC = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
+  const wsC = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
   await room.addClient(wsC, { userId: 3, username: "cara", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
   const id = customMessages(wsB).find((m) => m.type === "attention_event").id;
   const beforeC = customMessages(wsC).length;
-  room.handleMessage(wsC, customFrame({ type: "attention_dismiss", id }));           // cara is not the target
-  room.handleMessage(wsA, customFrame({ type: "attention_dismiss", id }));           // author is not the target
+  room.handleMessage(wsC, customFrame({ type: "attention_dismiss", id })); // cara is not the target
+  room.handleMessage(wsA, customFrame({ type: "attention_dismiss", id })); // author is not the target
   room.handleMessage(wsB, customFrame({ type: "attention_dismiss", id: "0000000000000000" })); // wrong id
   expect(customMessages(wsC).length).toBe(beforeC);
   // still deliverable — the entry survived all three
@@ -1473,18 +1617,29 @@ it("expires a request after ATTENTION_REQUEST_TTL_MS and never re-delivers", asy
   vi.useFakeTimers();
   try {
     const room = makeRoom("p1");
-    const wsA = makeWs(); const wsB = makeWs();
+    const wsA = makeWs();
+    const wsB = makeWs();
     await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-    room.handleMessage(wsA, customFrame({
-      type: "attention_request", targetUserId: 2, file: "a.ts",
-      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-    }));
+    room.handleMessage(
+      wsA,
+      customFrame({
+        type: "attention_request",
+        targetUserId: 2,
+        file: "a.ts",
+        range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+        message: "x",
+      }),
+    );
     const id = customMessages(wsB).find((m) => m.type === "attention_event").id;
     vi.advanceTimersByTime(120_000 - 1);
     expect(customMessages(wsB).some((m) => m.type === "attention_cleared")).toBe(false);
     vi.advanceTimersByTime(2);
-    expect(customMessages(wsB).filter((m) => m.type === "attention_cleared").at(-1)).toMatchObject({ id, reason: "expired" });
+    expect(
+      customMessages(wsB)
+        .filter((m) => m.type === "attention_cleared")
+        .at(-1),
+    ).toMatchObject({ id, reason: "expired" });
     expect(room.hasAttentionRequest(id)).toBe(false);
   } finally {
     vi.useRealTimers();
@@ -1506,17 +1661,19 @@ it("expires a request after ATTENTION_REQUEST_TTL_MS and never re-delivers", asy
 git add backend/src/collab/manager.ts backend/test/m58-attention.test.ts
 ```
 
-**Review checkpoint:** dismiss authorization checks *both* existence and `targetUserId === dismisser`; a wrong / guessed id is a no-op; expiry fires exactly once at `expiresAt` and deletes. **Rollback point:** revert the dismiss branch + `hasAttentionRequest`.
+**Review checkpoint:** dismiss authorization checks _both_ existence and `targetUserId === dismisser`; a wrong / guessed id is a no-op; expiry fires exactly once at `expiresAt` and deletes. **Rollback point:** revert the dismiss branch + `hasAttentionRequest`.
 
 ---
 
 ### Task 9: Join snapshot, disconnect cleanup, dispose teardown, project isolation
 
 **Files:**
+
 - Modify: `backend/src/collab/manager.ts`
 - Modify: `backend/test/m58-attention.test.ts`
 
 **Interfaces:**
+
 - `addClient` — after the existing step 3 (run-status snapshot) and step 4 (destructive notice), add step 5:
   ```ts
   // M58: replay ONLY currently-valid targeted requests aimed at THIS user.
@@ -1526,7 +1683,9 @@ git add backend/src/collab/manager.ts backend/test/m58-attention.test.ts
     const enc = encoding.createEncoder();
     encoding.writeVarUint(enc, MESSAGE_CUSTOM);
     encoding.writeVarString(enc, JSON.stringify(event));
-    try { ws.send(encoding.toUint8Array(enc)); } catch {}
+    try {
+      ws.send(encoding.toUint8Array(enc));
+    } catch {}
   }
   ```
 - `removeClient` — after the awareness-state removal block, add:
@@ -1536,21 +1695,30 @@ git add backend/src/collab/manager.ts backend/test/m58-attention.test.ts
   if (clientState) {
     for (const e of this.attentionRegistry.deleteByAuthor(clientState.userId)) {
       const t = this.attentionExpiryTimers.get(e.id);
-      if (t) { clearTimeout(t); this.attentionExpiryTimers.delete(e.id); }
+      if (t) {
+        clearTimeout(t);
+        this.attentionExpiryTimers.delete(e.id);
+      }
       if (e.targetUserId !== undefined) {
         this.sendAttentionTo(e.targetUserId, {
-          type: "attention_cleared", id: e.id, reason: "author_gone",
+          type: "attention_cleared",
+          id: e.id,
+          reason: "author_gone",
         });
       }
     }
     for (const e of this.attentionRegistry.deleteByTarget(clientState.userId)) {
       const t = this.attentionExpiryTimers.get(e.id);
-      if (t) { clearTimeout(t); this.attentionExpiryTimers.delete(e.id); }
+      if (t) {
+        clearTimeout(t);
+        this.attentionExpiryTimers.delete(e.id);
+      }
     }
   }
   ```
   **Ordering note:** this must run **before** `if (this.clients.size === 0) this.scheduleIdleDisposal()` and after `this.clients.delete(ws)` (so the leaver is not counted as a member).
 - `dispose` — after the run-status teardown block:
+
   ```ts
   // M58: attention teardown.
   for (const t of this.attentionExpiryTimers.values()) clearTimeout(t);
@@ -1563,16 +1731,23 @@ git add backend/src/collab/manager.ts backend/test/m58-attention.test.ts
 ```ts
 it("reconnecting target receives only its still-valid requests; bystander gets none", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "auth/session.ts",
-    range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 }, message: "look",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "auth/session.ts",
+      range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
+      message: "look",
+    }),
+  );
   const id = customMessages(wsB).find((m) => m.type === "attention_event").id;
 
-  room.removeClient(wsB);                      // bob drops
+  room.removeClient(wsB); // bob drops
   // (author stays; target-leave cleanup deletes bob's inbound request)
   const wsB2 = makeWs();
   await room.addClient(wsB2, { userId: 2, username: "bob", role: "editor" });
@@ -1581,15 +1756,26 @@ it("reconnecting target receives only its still-valid requests; bystander gets n
 
 it("author reconnect does NOT resurrect a request they sent before dropping", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
-  room.removeClient(wsA);                      // alice drops → author_gone to bob
-  expect(customMessages(wsB).filter((m) => m.type === "attention_cleared").at(-1)).toMatchObject({ reason: "author_gone" });
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
+  room.removeClient(wsA); // alice drops → author_gone to bob
+  expect(
+    customMessages(wsB)
+      .filter((m) => m.type === "attention_cleared")
+      .at(-1),
+  ).toMatchObject({ reason: "author_gone" });
   const wsA2 = makeWs();
   await room.addClient(wsA2, { userId: 1, username: "alice", role: "editor" });
   expect(customMessages(wsB).filter((m) => m.type === "attention_event")).toHaveLength(1); // unchanged
@@ -1601,16 +1787,23 @@ it("snapshots a still-valid request to a target that reconnects while the AUTHOR
   // BEFORE the target-leave cleanup — i.e. a fresh connection for an
   // already-present user. That is exactly the multi-tab / quick-reconnect case.
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "auth/session.ts",
-    range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 }, message: "look",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "auth/session.ts",
+      range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
+      message: "look",
+    }),
+  );
   const id = customMessages(wsB).find((m) => m.type === "attention_event").id;
 
-  const wsB2 = makeWs();                       // bob opens a second tab
+  const wsB2 = makeWs(); // bob opens a second tab
   await room.addClient(wsB2, { userId: 2, username: "bob", role: "editor" });
   const snap = customMessages(wsB2).filter((m) => m.type === "attention_event");
   expect(snap).toHaveLength(1);
@@ -1621,46 +1814,75 @@ it("does not replay an expired request on reconnect", async () => {
   vi.useFakeTimers();
   try {
     const room = makeRoom("p1");
-    const wsA = makeWs(); const wsB = makeWs();
+    const wsA = makeWs();
+    const wsB = makeWs();
     await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
     await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-    room.handleMessage(wsA, customFrame({
-      type: "attention_request", targetUserId: 2, file: "a.ts",
-      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-    }));
-    vi.advanceTimersByTime(120_001);            // expired + cleared
+    room.handleMessage(
+      wsA,
+      customFrame({
+        type: "attention_request",
+        targetUserId: 2,
+        file: "a.ts",
+        range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+        message: "x",
+      }),
+    );
+    vi.advanceTimersByTime(120_001); // expired + cleared
     const wsB2 = makeWs();
     await room.addClient(wsB2, { userId: 2, username: "bob", role: "editor" });
     expect(customMessages(wsB2).filter((m) => m.type === "attention_event")).toHaveLength(0);
-  } finally { vi.useRealTimers(); }
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("project isolation — room B never sees room A's attention", async () => {
-  const roomA = makeRoom("pA"); const roomB = makeRoom("pB");
-  const a1 = makeWs(); const a2 = makeWs(); const b1 = makeWs();
+  const roomA = makeRoom("pA");
+  const roomB = makeRoom("pB");
+  const a1 = makeWs();
+  const a2 = makeWs();
+  const b1 = makeWs();
   await roomA.addClient(a1, { userId: 1, username: "alice", role: "editor" });
   await roomA.addClient(a2, { userId: 2, username: "bob", role: "editor" });
   await roomB.addClient(b1, { userId: 3, username: "cara", role: "editor" });
-  roomA.handleMessage(a1, customFrame({
-    type: "attention_point", file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
-  }));
-  roomA.handleMessage(a1, customFrame({
-    type: "attention_request", targetUserId: 2, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
+  roomA.handleMessage(
+    a1,
+    customFrame({
+      type: "attention_point",
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+    }),
+  );
+  roomA.handleMessage(
+    a1,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
   expect(customMessages(b1).filter((m) => String(m.type).startsWith("attention_"))).toHaveLength(0);
 });
 
 it("dispose clears all attention expiry timers and the registry", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
-  room.handleMessage(wsA, customFrame({
-    type: "attention_request", targetUserId: 2, file: "a.ts",
-    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "x",
-  }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "x",
+    }),
+  );
   const id = customMessages(wsB).find((m) => m.type === "attention_event").id;
   room.dispose();
   expect(room.hasAttentionRequest(id)).toBe(false);
@@ -1668,24 +1890,51 @@ it("dispose clears all attention expiry timers and the registry", async () => {
 
 it("no persistence — a full point/callout/request cycle writes no Y.Doc keys", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
   const before = room.doc.share.size;
-  room.handleMessage(wsA, customFrame({ type: "attention_point", file: "a.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 } }));
-  room.handleMessage(wsA, customFrame({ type: "attention_callout", file: "a.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "hi" }));
-  room.handleMessage(wsA, customFrame({ type: "attention_request", targetUserId: 2, file: "a.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }, message: "hi" }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_point",
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+    }),
+  );
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_callout",
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "hi",
+    }),
+  );
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_request",
+      targetUserId: 2,
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "hi",
+    }),
+  );
   expect(room.doc.share.size).toBe(before);
 });
 
 it("concurrent Yjs edits still converge with attention frames interleaved", async () => {
   const room = makeRoom("p1");
-  const wsA = makeWs(); const wsB = makeWs();
+  const wsA = makeWs();
+  const wsB = makeWs();
   await room.addClient(wsA, { userId: 1, username: "alice", role: "editor" });
   await room.addClient(wsB, { userId: 2, username: "bob", role: "editor" });
 
   // two independent client docs, synced through the room like m4-collab does
-  const docA = new Y.Doc(); const docB = new Y.Doc();
+  const docA = new Y.Doc();
+  const docB = new Y.Doc();
   const applyToRoom = (u: Uint8Array, from: any) => {
     const enc = encoding.createEncoder();
     encoding.writeVarUint(enc, 0 /* MESSAGE_SYNC */);
@@ -1694,7 +1943,14 @@ it("concurrent Yjs edits still converge with attention frames interleaved", asyn
   };
   docA.getText("f.ts").insert(0, "AAAA");
   applyToRoom(Y.encodeStateAsUpdate(docA), wsA);
-  room.handleMessage(wsA, customFrame({ type: "attention_point", file: "f.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 } }));
+  room.handleMessage(
+    wsA,
+    customFrame({
+      type: "attention_point",
+      file: "f.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+    }),
+  );
   docB.getText("f.ts").insert(0, "BB");
   applyToRoom(Y.encodeStateAsUpdate(docB), wsB);
 
@@ -1740,10 +1996,12 @@ Pure module + `AttentionStore`. Parallel-safe with Phases 1–2 (different packa
 ### Task 10: Pure wire types + range helpers (frontend mirror)
 
 **Files:**
+
 - Create: `frontend/src/collab/attention.ts`
 - Test: `frontend/test/collab.attention.test.ts`
 
 **Interfaces:**
+
 - Produces (types mirror the backend `AttentionEvent`/`AttentionClearedMsg` **minus** the `type` discriminant already consumed by the transport switch — keep `type` on the wire objects but the store holds `StoredAttention`):
   - constants block (identical values to the backend — §"Shared constants")
   - `export type AttentionKind = "point" | "callout" | "request";`
@@ -1760,12 +2018,20 @@ Pure module + `AttentionStore`. Parallel-safe with Phases 1–2 (different packa
 // frontend/test/collab.attention.test.ts
 import { describe, it, expect } from "vitest";
 import {
-  normalizeRange, rangesOverlap, parseAttentionEvent,
-  ATTENTION_POINT_TTL_MS, ATTENTION_CALLOUT_TTL_MS, ATTENTION_CALLOUT_MAX_TTL_MS,
+  normalizeRange,
+  rangesOverlap,
+  parseAttentionEvent,
+  ATTENTION_POINT_TTL_MS,
+  ATTENTION_CALLOUT_TTL_MS,
+  ATTENTION_CALLOUT_MAX_TTL_MS,
 } from "../src/collab/attention";
 
-const R = (sl: number, sc: number, el: number, ec: number) =>
-  ({ startLine: sl, startColumn: sc, endLine: el, endColumn: ec });
+const R = (sl: number, sc: number, el: number, ec: number) => ({
+  startLine: sl,
+  startColumn: sc,
+  endLine: el,
+  endColumn: ec,
+});
 
 describe("M58 client — constants match the backend", () => {
   it("pins the client TTLs", () => {
@@ -1792,10 +2058,15 @@ describe("M58 client — normalizeRange / rangesOverlap parity", () => {
 
 describe("M58 client — parseAttentionEvent", () => {
   const good = {
-    type: "attention_event", id: "a1b2c3d4e5f60718", kind: "callout",
+    type: "attention_event",
+    id: "a1b2c3d4e5f60718",
+    kind: "callout",
     author: { userId: 7, username: "rahul", color: "#89b4fa" },
-    file: "auth/session.ts", range: R(40, 1, 52, 1),
-    message: "race here", createdAt: 1000, expiresAt: 91000,
+    file: "auth/session.ts",
+    range: R(40, 1, 52, 1),
+    message: "race here",
+    createdAt: 1000,
+    expiresAt: 91000,
   };
   it("parses a valid event", () => {
     expect(parseAttentionEvent(good)?.id).toBe("a1b2c3d4e5f60718");
@@ -1841,10 +2112,12 @@ git add frontend/src/collab/attention.ts frontend/test/collab.attention.test.ts
 ### Task 11: `AttentionStore` — lifecycle, local TTL, hard ceiling, dismiss
 
 **Files:**
+
 - Modify: `frontend/src/collab/attention.ts`
 - Modify: `frontend/test/collab.attention.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `export type AttentionInboundMsg = ({ type: "attention_event" } & AttentionEvent) | { type: "attention_cleared"; id: string; reason: AttentionClearedReason };`
   - `export class AttentionStore`:
@@ -1901,9 +2174,20 @@ describe("M58 — AttentionStore", () => {
   it("honours the server hard ceiling even if the client tries to keep it alive", () => {
     const s = new AttentionStore();
     const created = Date.now();
-    s.apply(ev({ kind: "callout", id: "c2", message: "x", createdAt: created, expiresAt: created + 90_000 }));
+    s.apply(
+      ev({
+        kind: "callout",
+        id: "c2",
+        message: "x",
+        createdAt: created,
+        expiresAt: created + 90_000,
+      }),
+    );
     // keep touching it every 40s
-    for (let i = 0; i < 5; i++) { vi.advanceTimersByTime(40_000); s.touchCallout("c2"); }
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(40_000);
+      s.touchCallout("c2");
+    }
     // 200s elapsed — well past the 90s ceiling
     expect(s.list()).toHaveLength(0);
   });
@@ -1928,8 +2212,24 @@ describe("M58 — AttentionStore", () => {
     const s = new AttentionStore();
     s.apply(ev({ kind: "point", id: "p" }));
     s.apply(ev({ kind: "callout", id: "c", message: "x" }));
-    s.apply(ev({ kind: "request", id: "r-me", message: "x", targetUserId: 12, author: { userId: 7, username: "r", color: "#1" } }));
-    s.apply(ev({ kind: "request", id: "r-other", message: "x", targetUserId: 99, author: { userId: 7, username: "r", color: "#1" } }));
+    s.apply(
+      ev({
+        kind: "request",
+        id: "r-me",
+        message: "x",
+        targetUserId: 12,
+        author: { userId: 7, username: "r", color: "#1" },
+      }),
+    );
+    s.apply(
+      ev({
+        kind: "request",
+        id: "r-other",
+        message: "x",
+        targetUserId: 99,
+        author: { userId: 7, username: "r", color: "#1" },
+      }),
+    );
     expect(s.incomingRequestCount(12)).toBe(1);
   });
 
@@ -1957,7 +2257,7 @@ describe("M58 — AttentionStore", () => {
   - internal `Map<string, AttentionEvent>` + `Map<string, ReturnType<typeof setTimeout>>` for local timers + `Set<() => void>` subscribers.
   - `localTtlFor(kind)`: `point` → `ATTENTION_POINT_TTL_MS`, `callout` → `ATTENTION_CALLOUT_TTL_MS`, `request` → `null`.
   - scheduling helper: `const fireIn = Math.max(0, Math.min(localTtl, event.expiresAt - Date.now()));` `setTimeout(() => { this.events.delete(id); this.timers.delete(id); this.emit(); }, fireIn)`.
-  - `touchCallout`: compute `target = Math.min(Date.now() + ATTENTION_CALLOUT_TTL_MS, event.expiresAt)`; if `target - Date.now() <= 0` remove now; else if there is an existing timer, only reschedule when the new fire time is *later* than the current one (track the scheduled absolute fire time in a `Map<string, number>`), always clamped to `expiresAt`.
+  - `touchCallout`: compute `target = Math.min(Date.now() + ATTENTION_CALLOUT_TTL_MS, event.expiresAt)`; if `target - Date.now() <= 0` remove now; else if there is an existing timer, only reschedule when the new fire time is _later_ than the current one (track the scheduled absolute fire time in a `Map<string, number>`), always clamped to `expiresAt`.
   - `emit()` calls every subscriber inside a `try/catch`.
 
 - [ ] **Step 4: Run — verify pass** → PASS.
@@ -1980,10 +2280,12 @@ git add frontend/src/collab/attention.ts frontend/test/collab.attention.test.ts
 ### Task 12: `CollaborationClient` — senders + receive branch + reset
 
 **Files:**
+
 - Modify: `frontend/src/collab/client.ts`
 - Modify: `frontend/test/collab.attention.test.ts` (add a `CollaborationClient`-level block using the existing `FakeWebSocket` harness from `collab.awareness.test.ts`)
 
 **Interfaces:**
+
 - Consumes: `AttentionStore`, `AttentionRange`, constants from `./attention`.
 - Produces on `CollaborationClient`:
   - `public readonly attentionStore = new AttentionStore()` (or a `private` field + `public getAttention(): AttentionEvent[] { return this.attentionStore.list(); }`)
@@ -2016,7 +2318,12 @@ git add frontend/src/collab/attention.ts frontend/test/collab.attention.test.ts
 it("sendAttentionPoint emits a well-formed MESSAGE_CUSTOM frame", () => {
   const client = new CollaborationClient("p", { id: 1, username: "a" } as any);
   const sent = captureSentCustom(client); // helper: decode MESSAGE_CUSTOM frames
-  client.sendAttentionPoint("auth/session.ts", { startLine: 47, startColumn: 1, endLine: 47, endColumn: 1 });
+  client.sendAttentionPoint("auth/session.ts", {
+    startLine: 47,
+    startColumn: 1,
+    endLine: 47,
+    endColumn: 1,
+  });
   expect(sent()).toContainEqual({
     type: "attention_point",
     file: "auth/session.ts",
@@ -2029,12 +2336,19 @@ it("an inbound attention_event lands in the store and fires attention_change", (
   const client = new CollaborationClient("p", { id: 1, username: "a" } as any);
   const changes: any[] = [];
   client.on("attention_change", (l: any) => changes.push(l));
-  (client as any).handleMessage(makeCustomFrame({
-    type: "attention_event", id: "abc0000000000000", kind: "callout",
-    author: { userId: 7, username: "r", color: "#89b4fa" },
-    file: "a.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
-    message: "hi", createdAt: Date.now(), expiresAt: Date.now() + 90_000,
-  }));
+  (client as any).handleMessage(
+    makeCustomFrame({
+      type: "attention_event",
+      id: "abc0000000000000",
+      kind: "callout",
+      author: { userId: 7, username: "r", color: "#89b4fa" },
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "hi",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 90_000,
+    }),
+  );
   expect(client.getAttention().map((e) => e.id)).toContain("abc0000000000000");
   expect(changes.at(-1).some((e: any) => e.id === "abc0000000000000")).toBe(true);
   client.dispose();
@@ -2043,12 +2357,20 @@ it("an inbound attention_event lands in the store and fires attention_change", (
 it("dismissAttentionRequest sends a dismiss frame and removes it locally", () => {
   const client = new CollaborationClient("p", { id: 1, username: "a" } as any);
   const sent = captureSentCustom(client);
-  (client as any).handleMessage(makeCustomFrame({
-    type: "attention_event", id: "req0000000000000", kind: "request", targetUserId: 1,
-    author: { userId: 7, username: "r", color: "#89b4fa" },
-    file: "a.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
-    message: "look", createdAt: Date.now(), expiresAt: Date.now() + 120_000,
-  }));
+  (client as any).handleMessage(
+    makeCustomFrame({
+      type: "attention_event",
+      id: "req0000000000000",
+      kind: "request",
+      targetUserId: 1,
+      author: { userId: 7, username: "r", color: "#89b4fa" },
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      message: "look",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 120_000,
+    }),
+  );
   client.dismissAttentionRequest("req0000000000000", true);
   expect(sent()).toContainEqual({ type: "attention_dismiss", id: "req0000000000000", acted: true });
   expect(client.getAttention()).toHaveLength?.(0) ?? expect(client.getAttention().length).toBe(0);
@@ -2057,12 +2379,18 @@ it("dismissAttentionRequest sends a dismiss frame and removes it locally", () =>
 
 it("resetLocalCollabState clears transient attention", () => {
   const client = new CollaborationClient("p", { id: 1, username: "a" } as any);
-  (client as any).handleMessage(makeCustomFrame({
-    type: "attention_event", id: "x000000000000000", kind: "point",
-    author: { userId: 7, username: "r", color: "#89b4fa" },
-    file: "a.ts", range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
-    createdAt: Date.now(), expiresAt: Date.now() + 6_000,
-  }));
+  (client as any).handleMessage(
+    makeCustomFrame({
+      type: "attention_event",
+      id: "x000000000000000",
+      kind: "point",
+      author: { userId: 7, username: "r", color: "#89b4fa" },
+      file: "a.ts",
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 6_000,
+    }),
+  );
   (client as any).resetLocalCollabState();
   expect(client.getAttention()).toEqual([]);
   client.dispose();
@@ -2099,10 +2427,12 @@ git add frontend/src/collab/client.ts frontend/test/collab.attention.test.ts
 ### Task 13: `attention` state, canonical navigation, Jump retrofit
 
 **Files:**
+
 - Modify: `frontend/src/components/IDE/IDE.tsx`
 - Create: `frontend/test/IDE.attention.test.tsx` (follow the IDE.tsx test conventions in `MEMORY.md` / `status-md-is-the-backlog` — the repo has an established pattern; extend an existing IDE test file if one already covers navigation)
 
 **Interfaces:**
+
 - Consumes: `client.on("attention_change", …)`, `AttentionEvent`, `openAndRevealLocation`, `handleOpenFile`.
 - Produces:
   - `const [attention, setAttention] = useState<AttentionEvent[]>([]);`
@@ -2123,15 +2453,17 @@ git add frontend/src/collab/client.ts frontend/test/collab.attention.test.ts
     ```
   - render, after `<Toolbar>` / `<TeamPanel>`:
     ```tsx
-    {user && (
-      <AttentionTray
-        events={attention}
-        currentUserId={user.id}
-        rateLimited={attnRateNotice != null}
-        onNavigate={handleAttentionNavigate}
-        onDismiss={handleAttentionDismiss}
-      />
-    )}
+    {
+      user && (
+        <AttentionTray
+          events={attention}
+          currentUserId={user.id}
+          rateLimited={attnRateNotice != null}
+          onNavigate={handleAttentionNavigate}
+          onDismiss={handleAttentionDismiss}
+        />
+      );
+    }
     ```
   - pass to `<Editor>`: `attention={attention}` and `onAttentionNavigate={handleAttentionNavigate}`.
   - pass to `<Toolbar>`: `incomingRequestCount={attention.filter(e => e.kind === "request" && e.targetUserId === user?.id && e.author.userId !== user?.id).length}` (or compute via a memo).
@@ -2147,7 +2479,9 @@ import { describe, it, expect, vi } from "vitest";
 
 it("navigating to attention for a CLOSED file opens it before revealing", async () => {
   const calls: string[] = [];
-  const openFile = vi.fn(async () => { calls.push("open"); });
+  const openFile = vi.fn(async () => {
+    calls.push("open");
+  });
   // spy document.dispatchEvent for ide-reveal-location
   const origDispatch = document.dispatchEvent.bind(document);
   vi.spyOn(document, "dispatchEvent").mockImplementation((e: Event) => {
@@ -2166,7 +2500,7 @@ it("retrofitted Jump also uses open-then-reveal (no dispatch-only path)", async 
 });
 ```
 
-> Note: the strongest guard is behavioral — render `<IDE>`, emit an `attention_change` with a request whose `file` is not open, click "Go there" in the tray, and assert `api` was called to fetch that file's content (the open path) *before* `ide-reveal-location` fired. If the repo's IDE harness cannot reach the tray button, fall back to a focused unit test of `handleAttentionNavigate` exported for test, plus a `grep`-style source assertion that `handleAttentionNavigate` and `handleJumpToCollaborator` both reference `openAndRevealLocation`.
+> Note: the strongest guard is behavioral — render `<IDE>`, emit an `attention_change` with a request whose `file` is not open, click "Go there" in the tray, and assert `api` was called to fetch that file's content (the open path) _before_ `ide-reveal-location` fired. If the repo's IDE harness cannot reach the tray button, fall back to a focused unit test of `handleAttentionNavigate` exported for test, plus a `grep`-style source assertion that `handleAttentionNavigate` and `handleJumpToCollaborator` both reference `openAndRevealLocation`.
 
 - [ ] **Step 2: Run — verify fail** → `cd frontend && npx vitest run test/IDE.attention.test.tsx` → FAIL.
 
@@ -2175,7 +2509,7 @@ it("retrofitted Jump also uses open-then-reveal (no dispatch-only path)", async 
 - [ ] **Step 4: Run — verify pass** → PASS.
 
 - [ ] **Step 5: Regression** → `cd frontend && npx vitest run test/collab.follow.test.tsx test/collab.follow.attention.test.tsx` (the latter is created in Task 20 — skip if not yet present) `&& npx vitest run` for the full suite once Phase 4 compiles.
-Expected: existing suites green; **366 + new**.
+      Expected: existing suites green; **366 + new**.
 
 - [ ] **Step 6: Typecheck** → `cd frontend && npx tsc --noEmit` → 0 errors.
 
@@ -2194,23 +2528,25 @@ git add frontend/src/components/IDE/IDE.tsx frontend/test/IDE.attention.test.tsx
 ### Task 14: Author actions — Point / Call out / Come look
 
 **Files:**
+
 - Modify: `frontend/src/components/Editor/Editor.tsx`
 - Create: `frontend/src/components/Editor/AttentionComposer.tsx`
 - Test: `frontend/test/Editor.attention.test.tsx`
 
 **Interfaces:**
+
 - `EditorProps` gains: `attention?: AttentionEvent[]`, `onAttentionNavigate?: (e: AttentionEvent) => void`. (`collabClient`, `collaborators`, `currentUserId` already present.)
 - `AttentionComposer.tsx`:
   ```ts
   export interface AttentionComposerProps {
     mode: "callout" | "comeLook";
-    anchorTop: number;   // px within .editor-container
+    anchorTop: number; // px within .editor-container
     anchorLeft: number;
     collaborators: { userId: number; name: string; color: string }[]; // for comeLook picker; connected, minus self
     onSubmit: (message: string, targetUserId?: number) => void;
     onCancel: () => void;
   }
-  export default function AttentionComposer(props: AttentionComposerProps): JSX.Element
+  export default function AttentionComposer(props: AttentionComposerProps): JSX.Element;
   ```
   A small absolute-positioned card: `<input maxLength={280}>` + (comeLook only) a `<select>`/list of collaborators + Send/Cancel. Enter submits, Esc cancels. Not a modal (no backdrop, no focus trap beyond the input).
 - `Editor.tsx` registers three actions in the existing `monaco.editor.create` effect, alongside the AI actions, `contextMenuGroupId: "9_collab"` (after `1_ai`), enabled via `precondition`-style guard inside `run` (check `collabClientRef.current?.status === "connected"` and `!isReadOnlyRef.current`; if not, no-op):
@@ -2235,43 +2571,69 @@ import Editor from "../src/components/Editor/Editor";
 it("Point action sends a point for the current selection", () => {
   const client = fakeCollabClient(); // status "connected", spies
   renderEditorWithFile(client, "auth/session.ts");
-  triggerEditorAction("cloudide.attention.point", { startLineNumber: 47, startColumn: 1, endLineNumber: 47, endColumn: 1 });
+  triggerEditorAction("cloudide.attention.point", {
+    startLineNumber: 47,
+    startColumn: 1,
+    endLineNumber: 47,
+    endColumn: 1,
+  });
   expect(client.sendAttentionPoint).toHaveBeenCalledWith("auth/session.ts", {
-    startLine: 47, startColumn: 1, endLine: 47, endColumn: 1,
+    startLine: 47,
+    startColumn: 1,
+    endLine: 47,
+    endColumn: 1,
   });
 });
 
 it("Call out opens the composer and sends a callout on submit", () => {
   const client = fakeCollabClient();
   renderEditorWithFile(client, "a.ts");
-  triggerEditorAction("cloudide.attention.callout", { startLineNumber: 40, startColumn: 1, endLineNumber: 52, endColumn: 1 });
+  triggerEditorAction("cloudide.attention.callout", {
+    startLineNumber: 40,
+    startColumn: 1,
+    endLineNumber: 52,
+    endColumn: 1,
+  });
   const input = screen.getByPlaceholderText(/call out/i);
   fireEvent.change(input, { target: { value: "the race is here" } });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(client.sendAttentionCallout).toHaveBeenCalledWith(
-    "a.ts", { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 }, "the race is here",
+    "a.ts",
+    { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
+    "the race is here",
   );
 });
 
 it("Come look shows a collaborator picker and targets the chosen user", () => {
   const client = fakeCollabClient();
-  renderEditorWithFile(client, "a.ts", [
-    { userId: 2, name: "Rahul", color: "#89b4fa" },
-  ]);
-  triggerEditorAction("cloudide.attention.comeLook", { startLineNumber: 40, startColumn: 1, endLineNumber: 52, endColumn: 1 });
+  renderEditorWithFile(client, "a.ts", [{ userId: 2, name: "Rahul", color: "#89b4fa" }]);
+  triggerEditorAction("cloudide.attention.comeLook", {
+    startLineNumber: 40,
+    startColumn: 1,
+    endLineNumber: 52,
+    endColumn: 1,
+  });
   fireEvent.click(screen.getByRole("button", { name: /rahul/i }));
   const input = screen.getByPlaceholderText(/come look|message/i);
   fireEvent.change(input, { target: { value: "the race" } });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(client.sendAttentionRequest).toHaveBeenCalledWith(
-    2, "a.ts", { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 }, "the race",
+    2,
+    "a.ts",
+    { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
+    "the race",
   );
 });
 
 it("actions are inert when the collab client is not connected", () => {
   const client = fakeCollabClient({ status: "disconnected" });
   renderEditorWithFile(client, "a.ts");
-  triggerEditorAction("cloudide.attention.point", { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 });
+  triggerEditorAction("cloudide.attention.point", {
+    startLineNumber: 1,
+    startColumn: 1,
+    endLineNumber: 1,
+    endColumn: 1,
+  });
   expect(client.sendAttentionPoint).not.toHaveBeenCalled();
 });
 ```
@@ -2297,11 +2659,13 @@ git add frontend/src/components/Editor/Editor.tsx frontend/src/components/Editor
 ### Task 15: Incoming Point + Callout decorations (text-only, fading)
 
 **Files:**
+
 - Modify: `frontend/src/components/Editor/Editor.tsx`
 - Modify: `frontend/src/styles/collab.css`
 - Modify: `frontend/test/Editor.attention.test.tsx`
 
 **Interfaces:**
+
 - A `useEffect` keyed on `[attention, activeFile]` that maintains a `monaco.editor.IEditorDecorationsCollection` (created once via `editor.createDecorationsCollection()`), plus a small map of callout **content widgets**:
   - filter `attention` to `e.file === activeFile && (e.kind === "point" || e.kind === "callout")`.
   - **point** → one decoration at `range.startLine`: `glyphMarginClassName: "attention-point-glyph"`, `after: { content: ` 👉 ${e.author.username}`, inlineClassName: "attention-point-label" }`, plus `linesDecorationsClassName`. Colour via an inline `--attn-color` CSS var set on a wrapper is not possible on decorations; instead register a per-colour class or use `className` + a style tag keyed by colour hash (the repo already does colour-hashed classes for `getUserColor`). Simplest: `className: "attention-point-line"` + a `hoverMessage` naming the author; colour comes from `.attention-point-glyph` using `currentColor` driven by a data attribute is also not available — **use `overviewRuler: { color: e.author.color, position: monaco.editor.OverviewRulerLane.Right }`** for the colour cue and keep the glyph monochrome. (Decoration colour-by-collaborator is a known Monaco limitation; the overview-ruler tick + the labelled `after` text carry identity.)
@@ -2317,16 +2681,23 @@ it("renders a point decoration on the author's line", () => {
   const client = fakeCollabClient();
   const { editorApi } = renderEditorWithFile(client, "a.ts");
   rerenderEditorAttention([pointEvent({ file: "a.ts", line: 12 })]);
-  expect(editorApi.getDecorationsOnLine(12).some(d => d.options.className?.includes("attention") || d.options.overviewRuler)).toBe(true);
+  expect(
+    editorApi
+      .getDecorationsOnLine(12)
+      .some((d) => d.options.className?.includes("attention") || d.options.overviewRuler),
+  ).toBe(true);
 });
 
 it("renders a callout bubble with the message as TEXT (no HTML injection)", () => {
   const client = fakeCollabClient();
   renderEditorWithFile(client, "a.ts");
-  rerenderEditorAttention([calloutEvent({
-    file: "a.ts", range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
-    message: `<img src=x onerror="window.__pwned=1">`,
-  })]);
+  rerenderEditorAttention([
+    calloutEvent({
+      file: "a.ts",
+      range: { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
+      message: `<img src=x onerror="window.__pwned=1">`,
+    }),
+  ]);
   const bubble = document.querySelector(".attention-callout-bubble")!;
   expect(bubble.textContent).toContain('<img src=x onerror="window.__pwned=1">');
   expect(bubble.querySelector("img")).toBeNull();
@@ -2344,7 +2715,10 @@ it("clears decorations/widgets when the attention list empties", () => {
 it("does not mutate the Monaco model", () => {
   const { editorApi } = renderEditorWithFile(fakeCollabClient(), "a.ts");
   const before = editorApi.getValue();
-  rerenderEditorAttention([pointEvent({ file: "a.ts" }), calloutEvent({ file: "a.ts", message: "x" })]);
+  rerenderEditorAttention([
+    pointEvent({ file: "a.ts" }),
+    calloutEvent({ file: "a.ts", message: "x" }),
+  ]);
   expect(editorApi.getValue()).toBe(before);
 });
 ```
@@ -2368,15 +2742,20 @@ git add frontend/src/components/Editor/Editor.tsx frontend/src/styles/collab.css
 ### Task 16: Three-tier spatial awareness (feature 6)
 
 **Files:**
+
 - Modify: `frontend/src/components/Editor/Editor.tsx`
 - Create: `frontend/test/Editor.nearby.test.tsx`
 - Modify: `frontend/src/styles/collab.css`
 
 **Interfaces:**
+
 - Replace `nearbyEditingCollaborators` with `spatialCollaborators` — a memo over `[activeFile, collaborators, currentUserId, localSelection]` where `localSelection` is tracked from `onDidChangeCursorSelection` (a new `React.useState<AttentionRange>` seeded to the cursor line as a zero-width range; the existing `localCursorLine` state can stay for other consumers or be folded in).
   ```ts
   type SpatialTier = "nearby" | "overlapping";
-  interface SpatialHit { collaborator: CollaboratorPresence; tier: SpatialTier; }
+  interface SpatialHit {
+    collaborator: CollaboratorPresence;
+    tier: SpatialTier;
+  }
   const spatialCollaborators: SpatialHit[] = useMemo(() => {
     if (!activeFile) return [];
     const out: SpatialHit[] = [];
@@ -2403,23 +2782,53 @@ git add frontend/src/components/Editor/Editor.tsx frontend/src/styles/collab.css
 ```tsx
 // frontend/test/Editor.nearby.test.tsx
 it("same file but far apart and not editing → no spatial badge (same-file strip only)", () => {
-  renderEditor({ activeFile: "a.ts", currentUserId: 1, localSelection: range(10, 1, 10, 1),
-    collaborators: [collab({ userId: 2, activeFile: "a.ts", activity: "viewing", cursor: { line: 200, column: 1 } })] });
+  renderEditor({
+    activeFile: "a.ts",
+    currentUserId: 1,
+    localSelection: range(10, 1, 10, 1),
+    collaborators: [
+      collab({
+        userId: 2,
+        activeFile: "a.ts",
+        activity: "viewing",
+        cursor: { line: 200, column: 1 },
+      }),
+    ],
+  });
   expect(document.querySelector(".spatial-badge")).toBeNull();
   expect(document.querySelector(".editor-samefile-strip")).not.toBeNull();
 });
 
 it("editing within 5 lines, not overlapping → nearby badge", () => {
-  renderEditor({ activeFile: "a.ts", currentUserId: 1, localSelection: range(40, 1, 50, 1),
-    collaborators: [collab({ userId: 2, activeFile: "a.ts", activity: "editing", selection: sel(52, 1, 54, 1) })] });
+  renderEditor({
+    activeFile: "a.ts",
+    currentUserId: 1,
+    localSelection: range(40, 1, 50, 1),
+    collaborators: [
+      collab({ userId: 2, activeFile: "a.ts", activity: "editing", selection: sel(52, 1, 54, 1) }),
+    ],
+  });
   const b = document.querySelector(".spatial-badge")!;
   expect(b.className).toContain("spatial-nearby");
 });
 
 it("editing overlapping ranges → overlap badge with a View action", () => {
   const onView = vi.fn();
-  renderEditor({ activeFile: "a.ts", currentUserId: 1, localSelection: range(40, 1, 50, 1), onViewCollaborator: onView,
-    collaborators: [collab({ userId: 2, name: "Rahul", activeFile: "a.ts", activity: "editing", selection: sel(45, 1, 60, 1) })] });
+  renderEditor({
+    activeFile: "a.ts",
+    currentUserId: 1,
+    localSelection: range(40, 1, 50, 1),
+    onViewCollaborator: onView,
+    collaborators: [
+      collab({
+        userId: 2,
+        name: "Rahul",
+        activeFile: "a.ts",
+        activity: "editing",
+        selection: sel(45, 1, 60, 1),
+      }),
+    ],
+  });
   const b = document.querySelector(".spatial-badge")!;
   expect(b.className).toContain("spatial-overlap");
   fireEvent.click(screen.getByRole("button", { name: /view rahul/i }));
@@ -2427,16 +2836,36 @@ it("editing overlapping ranges → overlap badge with a View action", () => {
 });
 
 it("editing far apart (100+ lines) → no badge", () => {
-  renderEditor({ activeFile: "a.ts", currentUserId: 1, localSelection: range(40, 1, 50, 1),
-    collaborators: [collab({ userId: 2, activeFile: "a.ts", activity: "editing", selection: sel(300, 1, 320, 1) })] });
+  renderEditor({
+    activeFile: "a.ts",
+    currentUserId: 1,
+    localSelection: range(40, 1, 50, 1),
+    collaborators: [
+      collab({
+        userId: 2,
+        activeFile: "a.ts",
+        activity: "editing",
+        selection: sel(300, 1, 320, 1),
+      }),
+    ],
+  });
   expect(document.querySelector(".spatial-badge")).toBeNull();
 });
 
 it("never writes awareness or the document", () => {
   const client = fakeCollabClient();
-  renderEditor({ activeFile: "a.ts", currentUserId: 1, localSelection: range(40, 1, 50, 1), collabClient: client,
-    collaborators: [collab({ userId: 2, activeFile: "a.ts", activity: "editing", selection: sel(45, 1, 60, 1) })] });
-  expect(client.updateSelection).not.toHaveBeenCalledWith(expect.objectContaining({ startLine: 45 }));
+  renderEditor({
+    activeFile: "a.ts",
+    currentUserId: 1,
+    localSelection: range(40, 1, 50, 1),
+    collabClient: client,
+    collaborators: [
+      collab({ userId: 2, activeFile: "a.ts", activity: "editing", selection: sel(45, 1, 60, 1) }),
+    ],
+  });
+  expect(client.updateSelection).not.toHaveBeenCalledWith(
+    expect.objectContaining({ startLine: 45 }),
+  );
   // (updateSelection is only ever called from the LOCAL cursor handler)
 });
 ```
@@ -2464,22 +2893,26 @@ git add frontend/src/components/Editor/Editor.tsx frontend/test/Editor.nearby.te
 ### Task 17: `AttentionTray` component
 
 **Files:**
+
 - Create: `frontend/src/components/Collab/AttentionTray.tsx`
 - Create: `frontend/test/AttentionTray.test.tsx`
 - Modify: `frontend/src/styles/collab.css`
 
 **Interfaces:**
+
 ```ts
 export interface AttentionTrayProps {
-  events: AttentionEvent[];        // the full IDE attention list
+  events: AttentionEvent[]; // the full IDE attention list
   currentUserId: number;
-  rateLimited: boolean;            // brief "too many pending" flag from IDE
+  rateLimited: boolean; // brief "too many pending" flag from IDE
   onNavigate: (e: AttentionEvent) => void;
   onDismiss: (id: string, acted?: boolean) => void;
 }
-export default function AttentionTray(props: AttentionTrayProps): JSX.Element | null
+export default function AttentionTray(props: AttentionTrayProps): JSX.Element | null;
 ```
+
 Behavior:
+
 - **Incoming requests** = `events.filter(e => e.kind === "request" && e.targetUserId === currentUserId && e.author.userId !== currentUserId)`, sorted newest-first.
 - **Sent confirmations** = `events.filter(e => e.kind === "request" && e.author.userId === currentUserId)` → render a muted "✓ Sent to {targetName or 'collaborator'}" line; each auto-hidden after 4 s via a per-id `useEffect` timer (component-local, cleared on unmount).
 - Render bottom-right, `position: fixed`, `z-index` below modals, `role="region"` `aria-label="Attention requests"`. Returns `null` when there is nothing to show.
@@ -2498,30 +2931,57 @@ import AttentionTray from "../src/components/Collab/AttentionTray";
 
 const reqTo = (uid: number, over: any = {}) => ({
   id: over.id ?? Math.random().toString(16).slice(2),
-  kind: "request", targetUserId: uid,
+  kind: "request",
+  targetUserId: uid,
   author: over.author ?? { userId: 7, username: "Rahul", color: "#89b4fa" },
   file: over.file ?? "auth/session.ts",
   range: over.range ?? { startLine: 40, startColumn: 1, endLine: 52, endColumn: 1 },
   message: over.message ?? "I think the race is here.",
-  createdAt: over.createdAt ?? Date.now(), expiresAt: Date.now() + 120_000,
+  createdAt: over.createdAt ?? Date.now(),
+  expiresAt: Date.now() + 120_000,
 });
 
 it("renders a card for a request targeted at me", () => {
-  render(<AttentionTray events={[reqTo(1)]} currentUserId={1} rateLimited={false} onNavigate={vi.fn()} onDismiss={vi.fn()} />);
+  render(
+    <AttentionTray
+      events={[reqTo(1)]}
+      currentUserId={1}
+      rateLimited={false}
+      onNavigate={vi.fn()}
+      onDismiss={vi.fn()}
+    />,
+  );
   expect(screen.getByText(/Rahul wants your attention/i)).toBeTruthy();
   expect(screen.getByText(/session\.ts · L40/i)).toBeTruthy();
   expect(screen.getByText("I think the race is here.")).toBeTruthy();
 });
 
 it("does not render requests targeted at someone else", () => {
-  render(<AttentionTray events={[reqTo(99)]} currentUserId={1} rateLimited={false} onNavigate={vi.fn()} onDismiss={vi.fn()} />);
+  render(
+    <AttentionTray
+      events={[reqTo(99)]}
+      currentUserId={1}
+      rateLimited={false}
+      onNavigate={vi.fn()}
+      onDismiss={vi.fn()}
+    />,
+  );
   expect(screen.queryByText(/wants your attention/i)).toBeNull();
 });
 
 it("Go there navigates and marks acted", () => {
-  const onNavigate = vi.fn(); const onDismiss = vi.fn();
+  const onNavigate = vi.fn();
+  const onDismiss = vi.fn();
   const e = reqTo(1, { id: "r1" });
-  render(<AttentionTray events={[e]} currentUserId={1} rateLimited={false} onNavigate={onNavigate} onDismiss={onDismiss} />);
+  render(
+    <AttentionTray
+      events={[e]}
+      currentUserId={1}
+      rateLimited={false}
+      onNavigate={onNavigate}
+      onDismiss={onDismiss}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: /go there/i }));
   expect(onNavigate).toHaveBeenCalledWith(e);
   expect(onDismiss).toHaveBeenCalledWith("r1", true);
@@ -2529,32 +2989,72 @@ it("Go there navigates and marks acted", () => {
 
 it("Dismiss calls onDismiss without acted", () => {
   const onDismiss = vi.fn();
-  render(<AttentionTray events={[reqTo(1, { id: "r2" })]} currentUserId={1} rateLimited={false} onNavigate={vi.fn()} onDismiss={onDismiss} />);
+  render(
+    <AttentionTray
+      events={[reqTo(1, { id: "r2" })]}
+      currentUserId={1}
+      rateLimited={false}
+      onNavigate={vi.fn()}
+      onDismiss={onDismiss}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
   expect(onDismiss).toHaveBeenCalledWith("r2", undefined);
 });
 
 it("shows a Sent confirmation for a request I authored", () => {
   const mine = { ...reqTo(2), author: { userId: 1, username: "Me", color: "#111" } };
-  render(<AttentionTray events={[mine]} currentUserId={1} rateLimited={false} onNavigate={vi.fn()} onDismiss={vi.fn()} />);
+  render(
+    <AttentionTray
+      events={[mine]}
+      currentUserId={1}
+      rateLimited={false}
+      onNavigate={vi.fn()}
+      onDismiss={vi.fn()}
+    />,
+  );
   expect(screen.getByText(/sent/i)).toBeTruthy();
 });
 
 it("renders the message as text (no HTML injection)", () => {
-  render(<AttentionTray events={[reqTo(1, { message: `<img src=x onerror="window.__x=1">` })]} currentUserId={1} rateLimited={false} onNavigate={vi.fn()} onDismiss={vi.fn()} />);
+  render(
+    <AttentionTray
+      events={[reqTo(1, { message: `<img src=x onerror="window.__x=1">` })]}
+      currentUserId={1}
+      rateLimited={false}
+      onNavigate={vi.fn()}
+      onDismiss={vi.fn()}
+    />,
+  );
   expect(document.querySelector(".attention-tray img")).toBeNull();
   expect((window as any).__x).toBeUndefined();
 });
 
 it("collapses beyond 3 cards", () => {
   const many = [reqTo(1), reqTo(1), reqTo(1), reqTo(1), reqTo(1)];
-  render(<AttentionTray events={many} currentUserId={1} rateLimited={false} onNavigate={vi.fn()} onDismiss={vi.fn()} />);
+  render(
+    <AttentionTray
+      events={many}
+      currentUserId={1}
+      rateLimited={false}
+      onNavigate={vi.fn()}
+      onDismiss={vi.fn()}
+    />,
+  );
   expect(screen.getAllByRole("button", { name: /go there/i })).toHaveLength(3);
   expect(screen.getByText(/\+2 earlier/i)).toBeTruthy();
 });
 
 it("shows the rate-limited banner when rateLimited", () => {
-  render(<AttentionTray events={[]} currentUserId={1} rateLimited={true} onNavigate={vi.fn()} onDismiss={vi.fn()} />);
+  render(
+    <AttentionTray
+      events={[]}
+      currentUserId={1}
+      rateLimited={true}
+      onNavigate={vi.fn()}
+      onDismiss={vi.fn()}
+    />,
+  );
   expect(screen.getByText(/too many pending/i)).toBeTruthy();
 });
 ```
@@ -2580,12 +3080,14 @@ git add frontend/src/components/Collab/AttentionTray.tsx frontend/test/Attention
 ### Task 18: Attention count badge on the existing chip
 
 **Files:**
+
 - Modify: `frontend/src/components/Toolbar/Toolbar.tsx` (thread the prop)
 - Modify: `frontend/src/components/Collab/CollaboratorAvatarStack.tsx`
 - Create/extend: `frontend/test/CollaboratorAvatarStack.attention.test.tsx`
 - Modify: `frontend/src/styles/collab.css`
 
 **Interfaces:**
+
 - `ToolbarProps` gains `incomingRequestCount?: number` → passed straight to `<CollaboratorAvatarStack>`.
 - `CollaboratorAvatarStackProps` gains `incomingRequestCount?: number`.
 - On the existing `.collab-count` chip (`CollaboratorAvatarStack.tsx:294`): when `incomingRequestCount && incomingRequestCount > 0`, render a small child `<span class="collab-attn-badge" aria-label="{n} attention requests">{n}</span>` positioned top-right of the chip. Clicking the chip still calls `onOpenTeamPanel` (unchanged) — the `AttentionTray` is always visible when there are requests, so "clicking the chip reaches the tray" is satisfied by the tray being on-screen; **additionally** dispatch a `document` event `ide-focus-attention-tray` on chip click so the tray can briefly highlight/scroll into view (the tray adds a listener that toggles a `.is-focused` class for ~1.5 s). Keep it lightweight.
@@ -2600,9 +3102,25 @@ import { describe, it, expect, vi } from "vitest";
 import CollaboratorAvatarStack from "../src/components/Collab/CollaboratorAvatarStack";
 
 const baseProps = {
-  collaborators: [{ clientId: 2, userId: 2, name: "Rahul", role: "editor", color: "#89b4fa", status: "online", activity: { type: "viewing", timestamp: 0 }, lastActive: Date.now() }],
-  currentUserId: 1, runStatuses: [], isDnd: false, followingUserId: null,
-  onToggleDnd: vi.fn(), onFollowCollaborator: vi.fn(), onJumpToCollaborator: vi.fn(),
+  collaborators: [
+    {
+      clientId: 2,
+      userId: 2,
+      name: "Rahul",
+      role: "editor",
+      color: "#89b4fa",
+      status: "online",
+      activity: { type: "viewing", timestamp: 0 },
+      lastActive: Date.now(),
+    },
+  ],
+  currentUserId: 1,
+  runStatuses: [],
+  isDnd: false,
+  followingUserId: null,
+  onToggleDnd: vi.fn(),
+  onFollowCollaborator: vi.fn(),
+  onJumpToCollaborator: vi.fn(),
   onOpenTeamPanel: vi.fn(),
 } as any;
 
@@ -2615,7 +3133,13 @@ it("shows the attention badge only when count > 0", () => {
 
 it("still opens the team panel on chip click and keeps the quick popover", () => {
   const onOpenTeamPanel = vi.fn();
-  render(<CollaboratorAvatarStack {...baseProps} incomingRequestCount={1} onOpenTeamPanel={onOpenTeamPanel} />);
+  render(
+    <CollaboratorAvatarStack
+      {...baseProps}
+      incomingRequestCount={1}
+      onOpenTeamPanel={onOpenTeamPanel}
+    />,
+  );
   screen.getByRole("button", { name: /open team panel/i }).click();
   expect(onOpenTeamPanel).toHaveBeenCalled();
   // per-avatar popover still reachable
@@ -2647,14 +3171,16 @@ git add frontend/src/components/Toolbar/Toolbar.tsx frontend/src/components/Coll
 ### Task 19: Adversarial backend + frontend security suite
 
 **Files:**
+
 - Modify: `backend/test/m58-attention.test.ts` (add a `describe("M58 — security")` block)
 - Modify: `frontend/test/collab.attention.test.ts` / `frontend/test/Editor.attention.test.tsx` (add the XSS + no-mutation guards if not already covered)
 
 Most items are already covered by Phases 1–7. This task adds the **explicitly-named** gaps and consolidates so a reviewer can check the security model against one block. Add tests for each of these that are not already green:
 
 Backend (`describe("M58 — security")`):
+
 - [ ] **spoofed author** — already Task 6; assert again here with a callout + a request.
-- [ ] **forged target** — `attention_request` with `targetUserId` of a user in a *different* room → dropped (extend the isolation test).
+- [ ] **forged target** — `attention_request` with `targetUserId` of a user in a _different_ room → dropped (extend the isolation test).
 - [ ] **forged event id on create** — `attention_point`/`callout`/`request` payloads carrying `id: "…"` → the delivered event's `id` is server-generated and ≠ the supplied one.
 - [ ] **duplicate event id** — two requests in a row → different ids; a client cannot pin an id.
 - [ ] **unauthorized dismissal** — Task 8 covers non-target + author; add: a user from another room sending `attention_dismiss` with a valid-looking id → no-op (rooms don't share a registry, so this is structurally impossible; assert it).
@@ -2675,6 +3201,7 @@ Backend (`describe("M58 — security")`):
 - [ ] **document unaffected** — Task 9 convergence test.
 
 Frontend:
+
 - [ ] **XSS via callout bubble** — Task 15.
 - [ ] **XSS via tray card** — Task 17.
 - [ ] **no document mutation from any attention render** — Task 15 + add one asserting the tray render does not touch any Monaco model.
@@ -2698,6 +3225,7 @@ git add backend/test/m58-attention.test.ts frontend/test/*.test.ts frontend/test
 ### Task 20: Follow / M57-integration tests
 
 **Files:**
+
 - Create: `frontend/test/collab.follow.attention.test.tsx`
 
 **Interfaces:** none — behavioral only.
@@ -2790,9 +3318,11 @@ git add frontend/test/collab.follow.attention.test.tsx
 ### Task 22: Document M58
 
 **Files:**
+
 - Modify: `STATUS.md` — add a `## Milestone 58 — Live Attention, Callouts & Spatial Collaboration` section after the M57 section. Do **not** rewrite M1–M57.
 
 **Content (fill with real numbers from the verification runs):**
+
 - **Objective** — one paragraph (the "yo, come look at this" boundary).
 - **Already existed (reused, not reimplemented):** `MESSAGE_CUSTOM` transport + `broadcastRunStatus`/`addClient`-snapshot pattern, `CollaborationRoom.clients` map for targeting, `requireProjectAccess` room gate, server-authoritative identity, `sanitizeAwarenessFilePath` / `isAwarenessCoord`, M57 `CollaboratorPresence` + `collaboratorsInFile` + `getUserColor`, `Editor.tsx` `nearbyEditingCollaborators` (extended), `openAndRevealLocation` open-then-reveal primitive, `throttleLatest`, Monaco `editor.addAction`. **None mutated.**
 - **What M58 added:** the 4-event `MESSAGE_CUSTOM` vocabulary (`attention_point/callout/request/dismiss` in, `attention_event/attention_cleared` out); `backend/src/collab/attention.ts` (pure domain + `RateLimiter` + `AttentionRequestRegistry`); `CollaborationRoom` attention branch + targeted delivery + bounded registry + expiry timers + join snapshot + disconnect cleanup; `frontend/src/collab/attention.ts` + `AttentionStore`; `CollaborationClient` senders/receiver; `IDE.tsx` throttled `attention` state + canonical navigation + Jump retrofit; `Editor.tsx` Point/Call out/Come look actions + point & callout decorations + three-tier spatial awareness; `AttentionComposer`; `AttentionTray`; collaborator-chip attention badge.
@@ -2819,39 +3349,40 @@ git add STATUS.md docs/superpowers/specs/2026-08-30-m58-live-attention-callouts-
 
 **1. Spec coverage:**
 
-| Spec section | Task(s) |
-|---|---|
-| §3 reuse inventory | Tasks 6, 13, 14, 16, 18 (each reuse point named) |
-| §4.1 new modules | Tasks 1–5 (backend), 10–12 (frontend), 14/17 (components) |
-| §5.1–5.2 protocol | Tasks 2, 3, 6, 7, 8, 12 |
-| §5.3 opaque id | Tasks 2 (`newAttentionId`), 19 (forge/dup tests) |
-| §5.4 validation | Tasks 2, 6, 19 |
-| §5.5 rate limiting | Tasks 4, 5, 6, 7, 19 (multi-tab) |
-| §6.1 point lifecycle | Tasks 6, 11 |
-| §6.2 callout ceiling | Tasks 3 (server 90 s), 11 (client `touchCallout`), 19 |
-| §6.3 request registry | Tasks 5, 7, 8, 9 |
-| §6.4 join snapshot | Task 9 |
-| §6.5 no persistence | Tasks 9, 19 |
-| §7 range semantics | Task 1 (+ Task 10 parity) |
-| §8 spatial tiers | Task 16 |
-| §9.1 author actions | Task 14 |
-| §9.2–9.3 decorations | Task 15 |
-| §9.4 tray | Task 17 |
-| §9.5 navigation | Task 13 |
-| §9.6 chip badge | Task 18 |
-| §10 security | Task 19 (consolidated) + inline in 6/7/8/9/15/17 |
-| §11 performance | Tasks 13 (throttle), 15 (decoration diffing), 9/19 (timers/bounds) |
-| §12 testing | every task is TDD; Tasks 19, 20 consolidate |
-| §13 browser acceptance | Task 21 |
-| §14 non-goals | Task 22 (documented); no task implements any |
-| §15 roadmap | Task 22 |
-| §17 approved decisions | Tasks 3, 7, 11, 8, 18 |
+| Spec section           | Task(s)                                                            |
+| ---------------------- | ------------------------------------------------------------------ |
+| §3 reuse inventory     | Tasks 6, 13, 14, 16, 18 (each reuse point named)                   |
+| §4.1 new modules       | Tasks 1–5 (backend), 10–12 (frontend), 14/17 (components)          |
+| §5.1–5.2 protocol      | Tasks 2, 3, 6, 7, 8, 12                                            |
+| §5.3 opaque id         | Tasks 2 (`newAttentionId`), 19 (forge/dup tests)                   |
+| §5.4 validation        | Tasks 2, 6, 19                                                     |
+| §5.5 rate limiting     | Tasks 4, 5, 6, 7, 19 (multi-tab)                                   |
+| §6.1 point lifecycle   | Tasks 6, 11                                                        |
+| §6.2 callout ceiling   | Tasks 3 (server 90 s), 11 (client `touchCallout`), 19              |
+| §6.3 request registry  | Tasks 5, 7, 8, 9                                                   |
+| §6.4 join snapshot     | Task 9                                                             |
+| §6.5 no persistence    | Tasks 9, 19                                                        |
+| §7 range semantics     | Task 1 (+ Task 10 parity)                                          |
+| §8 spatial tiers       | Task 16                                                            |
+| §9.1 author actions    | Task 14                                                            |
+| §9.2–9.3 decorations   | Task 15                                                            |
+| §9.4 tray              | Task 17                                                            |
+| §9.5 navigation        | Task 13                                                            |
+| §9.6 chip badge        | Task 18                                                            |
+| §10 security           | Task 19 (consolidated) + inline in 6/7/8/9/15/17                   |
+| §11 performance        | Tasks 13 (throttle), 15 (decoration diffing), 9/19 (timers/bounds) |
+| §12 testing            | every task is TDD; Tasks 19, 20 consolidate                        |
+| §13 browser acceptance | Task 21                                                            |
+| §14 non-goals          | Task 22 (documented); no task implements any                       |
+| §15 roadmap            | Task 22                                                            |
+| §17 approved decisions | Tasks 3, 7, 11, 8, 18                                              |
 
 No gaps.
 
 **2. Placeholder scan:** the plan contains real code for every pure function and real test code for every task. The React-integration tasks (13, 14, 15, 16, 17, 18) give concrete `Interfaces` blocks with exact prop/method signatures and real test bodies; the "follow the repo's Editor/IDE test harness" notes point at named existing files (`collab.awareness.test.ts`, existing `Editor.*`/IDE tests) rather than inventing one — acceptable because those harnesses exist and the plan says which to copy. No "TBD"/"add error handling"/"similar to Task N".
 
 **3. Type consistency:**
+
 - `AttentionEvent` shape identical in backend Task 3 and frontend Task 10 (frontend drops the transport `type` discriminant when stored; wire objects keep it).
 - `AttentionRange` = `{ startLine, startColumn, endLine, endColumn }` everywhere.
 - `normalizeRange` / `rangesOverlap` — same signature and semantics both sides (Task 1 body copied in Task 10, parity-tested).
@@ -2867,7 +3398,7 @@ Consistent.
 
 ## Adversarial plan review (per the brief's checklist)
 
-- **Every event has a clear owner?** Yes — points/callouts: no owner (pure relay, client TTL). Requests: the room's `AttentionRequestRegistry` + one expiry timer each. The client `AttentionStore` owns *rendering* lifetime only.
+- **Every event has a clear owner?** Yes — points/callouts: no owner (pure relay, client TTL). Requests: the room's `AttentionRequestRegistry` + one expiry timer each. The client `AttentionStore` owns _rendering_ lifetime only.
 - **Can a malicious client clear another user's request?** No — Task 8: dismiss requires the entry to exist AND `targetUserId === dismisser.userId`; cross-room is structurally impossible (per-room registry); guessed ids miss.
 - **Can attention state survive too long?** No — point 6 s (client), callout 90 s hard server ceiling (Task 3 `expiresAt`; `touchCallout` clamped, Task 11), request 120 s server timer (Task 7/8). Registry capped at 200 with oldest-eviction (Task 5).
 - **Can reconnect replay stale events?** No — join snapshot (Task 9) sends only `byTarget(thisUser)` entries with `expiresAt > now`; expired entries are already deleted by their timer; author-leave deletes the entry entirely.

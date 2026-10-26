@@ -150,9 +150,7 @@ export function listBackupFilesSync(backupDir) {
     }
   }
 
-  list.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  );
+  list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return list;
 }
 
@@ -566,12 +564,7 @@ export class RestoreVerificationError extends Error {
  * @returns {RestoreResult}
  */
 export function restoreDatabaseFromBackup(opts) {
-  const {
-    dbPath,
-    backupDir,
-    filename,
-    integrityCheckFn = verifyDatabaseBackupIntegrity,
-  } = opts;
+  const { dbPath, backupDir, filename, integrityCheckFn = verifyDatabaseBackupIntegrity } = opts;
 
   assertValidRestoreFilename(filename);
 
@@ -603,10 +596,7 @@ export function restoreDatabaseFromBackup(opts) {
     mkdirSync(safetyDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const nonce = randomBytes(3).toString("hex");
-    safetyCopyPath = join(
-      safetyDir,
-      `${basename(dbPath)}.pre-restore-${stamp}-${nonce}`,
-    );
+    safetyCopyPath = join(safetyDir, `${basename(dbPath)}.pre-restore-${stamp}-${nonce}`);
     copyFileSync(dbPath, safetyCopyPath);
     for (const suffix of ["-wal", "-shm"]) {
       if (existsSync(dbPath + suffix)) {
@@ -619,10 +609,7 @@ export function restoreDatabaseFromBackup(opts) {
   // dbPath — the rename is the only operation that ever touches the final
   // live path, so a failure during the copy can never leave dbPath
   // partially written.
-  const tempPath = join(
-    dbDir,
-    `.restoring-${process.pid}-${randomBytes(3).toString("hex")}`,
-  );
+  const tempPath = join(dbDir, `.restoring-${process.pid}-${randomBytes(3).toString("hex")}`);
   try {
     copyFileSync(backupPath, tempPath);
     renameSync(tempPath, dbPath);

@@ -16,12 +16,7 @@ import { closeAllConnectionsForUser } from "../ws/connectionRegistry.js";
 import { getUserPreferences, updateUserPreferences } from "./preferences.js";
 import { getProfile, updateProfile } from "../profile/store.js";
 import { validateProfilePatch } from "../profile/validate.js";
-import {
-  canViewAvatar,
-  deleteAvatar,
-  getAvatarFile,
-  storeAvatar,
-} from "../profile/media.js";
+import { canViewAvatar, deleteAvatar, getAvatarFile, storeAvatar } from "../profile/media.js";
 import { parseMultipartFormData } from "../files/upload.js";
 import { collaborationManager } from "../collab/manager.js";
 
@@ -186,19 +181,12 @@ print("=" * 60)
 export function authRoutes(db: Db, cfg: AppConfig): Router {
   const router = Router();
   const sessionTtlMs = cfg.sessionTtlMs;
-  const authLimiter = new RateLimiter(
-    cfg.authRateLimit.max,
-    cfg.authRateLimit.windowMs,
-  );
+  const authLimiter = new RateLimiter(cfg.authRateLimit.max, cfg.authRateLimit.windowMs);
   const demoLimiter = new RateLimiter(10, 60_000); // 10 demo creations per min per IP
 
   const checkRateLimit = (req: Request, limiter = authLimiter): void => {
     if (!limiter.allow(req.ip ?? "unknown")) {
-      throw new ApiError(
-        429,
-        "too many requests, please try again later",
-        "rate_limited",
-      );
+      throw new ApiError(429, "too many requests, please try again later", "rate_limited");
     }
   };
 
@@ -226,26 +214,18 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
       if (username === cfg.adminUsername || username.startsWith("evaluator_")) {
         throw new ApiError(409, "username already taken", "username_taken");
       }
-      if (
-        typeof password !== "string" ||
-        password.length < cfg.minPasswordLength
-      ) {
+      if (typeof password !== "string" || password.length < cfg.minPasswordLength) {
         throw new ApiError(
           400,
           `password must be at least ${cfg.minPasswordLength} characters`,
           "invalid_password",
         );
       }
-      const exists = db
-        .prepare("SELECT id FROM users WHERE username = ?")
-        .get(username);
-      if (exists)
-        throw new ApiError(409, "username already taken", "username_taken");
+      const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
+      if (exists) throw new ApiError(409, "username already taken", "username_taken");
       const hash = await hashPassword(password);
       const info = db
-        .prepare(
-          "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-        )
+        .prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
         .run(username, hash, "user");
       const userId = Number(info.lastInsertRowid);
       const token = issueSession(db, userId, sessionTtlMs);
@@ -258,9 +238,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
         ipAddress: req.ip,
       });
 
-      res
-        .status(201)
-        .json({ token, user: { id: userId, username, role: "user" } });
+      res.status(201).json({ token, user: { id: userId, username, role: "user" } });
     } catch (err) {
       next(err);
     }
@@ -271,19 +249,12 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
       checkRateLimit(req);
       const { username, password } = req.body ?? {};
       if (typeof username !== "string" || typeof password !== "string") {
-        throw new ApiError(
-          400,
-          "username and password are required",
-          "invalid_credentials",
-        );
+        throw new ApiError(400, "username and password are required", "invalid_credentials");
       }
       const row = db
-        .prepare(
-          "SELECT id, username, password_hash, role FROM users WHERE username = ?",
-        )
+        .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
         .get(username) as
-        | { id: number; username: string; password_hash: string; role?: string }
-        | undefined;
+        { id: number; username: string; password_hash: string; role?: string } | undefined;
 
       let valid = false;
       if (row) {
@@ -300,11 +271,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
           details: { username, reason: "invalid_credentials" },
           ipAddress: req.ip,
         });
-        throw new ApiError(
-          401,
-          "invalid username or password",
-          "invalid_credentials",
-        );
+        throw new ApiError(401, "invalid username or password", "invalid_credentials");
       }
 
       const role = (row.role as "user" | "admin") || "user";
@@ -330,19 +297,12 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
       checkRateLimit(req);
       const { username, password } = req.body ?? {};
       if (typeof username !== "string" || typeof password !== "string") {
-        throw new ApiError(
-          400,
-          "username and password are required",
-          "invalid_credentials",
-        );
+        throw new ApiError(400, "username and password are required", "invalid_credentials");
       }
       const row = db
-        .prepare(
-          "SELECT id, username, password_hash, role FROM users WHERE username = ?",
-        )
+        .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
         .get(username) as
-        | { id: number; username: string; password_hash: string; role?: string }
-        | undefined;
+        { id: number; username: string; password_hash: string; role?: string } | undefined;
 
       let valid = false;
       if (row) {
@@ -359,11 +319,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
           details: { username, reason: "admin_login_invalid_credentials" },
           ipAddress: req.ip,
         });
-        throw new ApiError(
-          401,
-          "invalid username or password",
-          "invalid_credentials",
-        );
+        throw new ApiError(401, "invalid username or password", "invalid_credentials");
       }
 
       if (row.role !== "admin") {
@@ -407,9 +363,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
       const hash = await hashPassword(randomPass);
 
       const info = db
-        .prepare(
-          "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-        )
+        .prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
         .run(guestUsername, hash, "user");
       const userId = Number(info.lastInsertRowid);
 
@@ -453,9 +407,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
 
   router.post("/logout", requireAuth(db), (req, res) => {
     const header = req.headers.authorization ?? "";
-    let token = header.startsWith("Bearer ")
-      ? header.slice("Bearer ".length)
-      : null;
+    let token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
     if (!token && req.cookies && req.cookies.session_token) {
       token = req.cookies.session_token;
     }
@@ -517,11 +469,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
   // M62-2 — self-service profile identity (displayName / pronouns / bio).
   const assertNotDemo = (req: Request): void => {
     if (req.user!.username.startsWith("evaluator_")) {
-      throw new ApiError(
-        403,
-        "demo accounts cannot edit their profile",
-        "demo_forbidden",
-      );
+      throw new ApiError(403, "demo accounts cannot edit their profile", "demo_forbidden");
     }
   };
 
@@ -589,63 +537,50 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
     res.sendFile(file.absPath);
   };
 
-  router.post(
-    "/profile/avatar",
-    requireAuth(db),
-    avatarBody,
-    async (req, res, next) => {
-      try {
-        assertNotDemo(req);
-        const userId = req.user!.id;
-        if (!avatarUploadLimiter.allow(String(userId))) {
-          throw new ApiError(429, "too many avatar uploads", "rate_limited");
-        }
-        const ct = req.headers["content-type"];
-        if (typeof ct !== "string" || !ct.toLowerCase().includes("multipart/form-data")) {
-          throw new ApiError(
-            400,
-            "avatar upload requires multipart/form-data",
-            "invalid_multipart",
-          );
-        }
-        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-          throw new ApiError(400, "no upload body received", "empty_upload");
-        }
-        const { files } = parseMultipartFormData(req.body, ct);
-        if (files.length !== 1) {
-          throw new ApiError(
-            400,
-            "avatar upload requires exactly one file",
-            "invalid_upload",
-          );
-        }
-        const stored = await storeAvatar(db, cfg, userId, files[0]!.buffer);
-        try {
-          recordAuditLog(db, {
-            userId,
-            eventType: "PROFILE_MEDIA_UPLOADED",
-            details: {
-              kind: "avatar",
-              mime: stored.mime,
-              bytes: stored.bytes,
-              width: stored.width,
-              height: stored.height,
-            },
-            ipAddress: req.ip,
-          });
-        } catch {}
-        collaborationManager.broadcastProfileEventForUser(userId);
-        res.json({
-          avatarVersion: stored.avatarVersion,
-          mime: stored.mime,
-          width: stored.width,
-          height: stored.height,
-        });
-      } catch (err) {
-        next(err);
+  router.post("/profile/avatar", requireAuth(db), avatarBody, async (req, res, next) => {
+    try {
+      assertNotDemo(req);
+      const userId = req.user!.id;
+      if (!avatarUploadLimiter.allow(String(userId))) {
+        throw new ApiError(429, "too many avatar uploads", "rate_limited");
       }
-    },
-  );
+      const ct = req.headers["content-type"];
+      if (typeof ct !== "string" || !ct.toLowerCase().includes("multipart/form-data")) {
+        throw new ApiError(400, "avatar upload requires multipart/form-data", "invalid_multipart");
+      }
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        throw new ApiError(400, "no upload body received", "empty_upload");
+      }
+      const { files } = parseMultipartFormData(req.body, ct);
+      if (files.length !== 1) {
+        throw new ApiError(400, "avatar upload requires exactly one file", "invalid_upload");
+      }
+      const stored = await storeAvatar(db, cfg, userId, files[0]!.buffer);
+      try {
+        recordAuditLog(db, {
+          userId,
+          eventType: "PROFILE_MEDIA_UPLOADED",
+          details: {
+            kind: "avatar",
+            mime: stored.mime,
+            bytes: stored.bytes,
+            width: stored.width,
+            height: stored.height,
+          },
+          ipAddress: req.ip,
+        });
+      } catch {}
+      collaborationManager.broadcastProfileEventForUser(userId);
+      res.json({
+        avatarVersion: stored.avatarVersion,
+        mime: stored.mime,
+        width: stored.width,
+        height: stored.height,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.delete("/profile/avatar", requireAuth(db), async (req, res, next) => {
     try {

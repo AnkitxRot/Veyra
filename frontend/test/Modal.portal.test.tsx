@@ -53,28 +53,14 @@ describe("Modal — M36 viewport-level portal rendering", () => {
   });
 
   it("preserves the glass-modal-backdrop class (carries the existing z-index/stacking CSS) after portaling", () => {
-    render(
-      <PromptModal
-        isOpen
-        title="New File"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    render(<PromptModal isOpen title="New File" onConfirm={vi.fn()} onCancel={vi.fn()} />);
     const backdrop = document.querySelector(".glass-modal-backdrop");
     expect(backdrop!.className).toBe("glass-modal-backdrop");
   });
 
   it("Escape closes PromptModal (calls onCancel)", () => {
     const onCancel = vi.fn();
-    render(
-      <PromptModal
-        isOpen
-        title="Rename"
-        onConfirm={vi.fn()}
-        onCancel={onCancel}
-      />,
-    );
+    render(<PromptModal isOpen title="Rename" onConfirm={vi.fn()} onCancel={onCancel} />);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
@@ -126,14 +112,12 @@ describe("Modal — M36 viewport-level portal rendering", () => {
         onCancel={vi.fn()}
       />,
     );
-    const input = document.querySelector(
-      ".glass-modal-backdrop input",
-    ) as HTMLInputElement;
+    const input = document.querySelector(".glass-modal-backdrop input") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "new-name.py  " } });
     fireEvent.click(
-      Array.from(
-        document.querySelectorAll(".glass-modal-backdrop button"),
-      ).find((b) => b.textContent === "Confirm")!,
+      Array.from(document.querySelectorAll(".glass-modal-backdrop button")).find(
+        (b) => b.textContent === "Confirm",
+      )!,
     );
     expect(onConfirm).toHaveBeenCalledWith("new-name.py");
   });
@@ -151,60 +135,33 @@ describe("Modal — M36 viewport-level portal rendering", () => {
       />,
     );
     fireEvent.click(
-      Array.from(
-        document.querySelectorAll(".glass-modal-backdrop button"),
-      ).find((b) => b.textContent === "Delete")!,
+      Array.from(document.querySelectorAll(".glass-modal-backdrop button")).find(
+        (b) => b.textContent === "Delete",
+      )!,
     );
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
   it("closing removes the portaled backdrop from the document (no leaked DOM)", () => {
     const { rerender } = render(
-      <PromptModal
-        isOpen
-        title="New Folder"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
+      <PromptModal isOpen title="New Folder" onConfirm={vi.fn()} onCancel={vi.fn()} />,
     );
     expect(document.querySelector(".glass-modal-backdrop")).toBeTruthy();
 
     rerender(
-      <PromptModal
-        isOpen={false}
-        title="New Folder"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
+      <PromptModal isOpen={false} title="New Folder" onConfirm={vi.fn()} onCancel={vi.fn()} />,
     );
     expect(document.querySelector(".glass-modal-backdrop")).toBeNull();
   });
 
   it("reopening does not duplicate the portaled backdrop", () => {
     const { rerender } = render(
-      <PromptModal
-        isOpen
-        title="New Folder"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
+      <PromptModal isOpen title="New Folder" onConfirm={vi.fn()} onCancel={vi.fn()} />,
     );
     rerender(
-      <PromptModal
-        isOpen={false}
-        title="New Folder"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
+      <PromptModal isOpen={false} title="New Folder" onConfirm={vi.fn()} onCancel={vi.fn()} />,
     );
-    rerender(
-      <PromptModal
-        isOpen
-        title="New Folder"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    rerender(<PromptModal isOpen title="New Folder" onConfirm={vi.fn()} onCancel={vi.fn()} />);
     expect(document.querySelectorAll(".glass-modal-backdrop").length).toBe(1);
   });
 });

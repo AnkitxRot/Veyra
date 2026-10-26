@@ -6,10 +6,7 @@ import type { Db } from "../db.js";
 import { workspacePath } from "../projects/service.js";
 import { sandboxManager } from "../execution/sandbox.js";
 import { RunGate } from "../execution/runGate.js";
-import {
-  terminalSessions,
-  type RegistryPty,
-} from "../execution/terminalSessions.js";
+import { terminalSessions, type RegistryPty } from "../execution/terminalSessions.js";
 import { recordAuditLog } from "../audit.js";
 import { resolveSecretsForInjection } from "../projectsecrets/store.js";
 import {
@@ -44,10 +41,7 @@ const TERMINAL_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
  * A client that sent a non-zero lastSeq or `resume=1` expects to reattach.
  * The server must refuse to silently spawn a replacement.
  */
-export function shouldRefuseSilentSpawn(
-  lastSeq: number,
-  resume: boolean,
-): boolean {
+export function shouldRefuseSilentSpawn(lastSeq: number, resume: boolean): boolean {
   return (Number.isFinite(lastSeq) && lastSeq > 0) || resume === true;
 }
 
@@ -113,10 +107,7 @@ export async function handleTerminalConnection(
   lastSeqParam = 0,
   resume = false,
 ): Promise<void> {
-  const lastSeq =
-    Number.isFinite(lastSeqParam) && lastSeqParam >= 0
-      ? Math.floor(lastSeqParam)
-      : 0;
+  const lastSeq = Number.isFinite(lastSeqParam) && lastSeqParam >= 0 ? Math.floor(lastSeqParam) : 0;
   // A well-formed client-supplied id enables reattach. Anything else is a
   // fresh, server-owned session (back-compat with older clients).
   const terminalId =
@@ -168,8 +159,7 @@ export async function handleTerminalConnection(
   if (shouldRefuseSilentSpawn(lastSeq, resume)) {
     if (ws.readyState === ws.OPEN) {
       const reason =
-        terminalSessions.reapedReason(userId, projectId, terminalId) ??
-        "grace_expired";
+        terminalSessions.reapedReason(userId, projectId, terminalId) ?? "grace_expired";
       ws.send(JSON.stringify({ type: "ended", reason }));
       ws.close();
     }
@@ -218,12 +208,7 @@ export async function handleTerminalConnection(
 
   let containerId: string;
   try {
-    containerId = await sandboxManager.ensureProjectSandbox(
-      projectId,
-      cfg,
-      cwd,
-      userId,
-    );
+    containerId = await sandboxManager.ensureProjectSandbox(projectId, cfg, cwd, userId);
   } catch (err: any) {
     releasePermit();
     if (ws.readyState === ws.OPEN) {
@@ -336,9 +321,7 @@ export async function handleTerminalConnection(
       pty: registryPty,
       containerId,
       graceMs: cfg.terminalDetachGraceMs,
-      secretsCleanup: capturedSecrets
-        ? () => capturedSecrets.cleanup()
-        : null,
+      secretsCleanup: capturedSecrets ? () => capturedSecrets.cleanup() : null,
       onEnd: releasePermit,
     });
     if (db) {

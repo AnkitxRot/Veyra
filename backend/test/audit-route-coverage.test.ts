@@ -10,65 +10,54 @@ import { join } from "node:path";
  * list can only shrink. Some listed routes are audited in a service layer the
  * static scan cannot see; they are still listed so the debt stays visible.
  */
-const ROUTE_FILES = [
-  "admin",
-  "ai",
-  "auth",
-  "comments",
-  "git",
-  "projects",
-  "projectsecrets",
-];
+const ROUTE_FILES = ["admin", "ai", "auth", "comments", "git", "projects", "projectsecrets"];
 
 const KNOWN_UNAUDITED = new Set<string>([
-  "admin POST \"/backups\"",
-  "admin DELETE \"/backups/:filename\"",
-  "admin POST \"/workspace-backups/:projectId\"",
-  "admin DELETE \"/workspace-backups/:projectId/:filename\"",
-  "admin POST \"/workspace-backups/:projectId/:filename/restore\"",
-  "ai POST \"/:id/ai/action\"",
-  "ai POST \"/:id/ai/apply-patch\"",
-  "ai POST \"/:id/ai/verify\"",
-  "comments POST \"/:id/comments/:threadId/replies\"",
-  "comments PATCH \"/:id/comments/:commentId\"",
-  "comments DELETE \"/:id/comments/:commentId\"",
-  "comments POST \"/:id/comments/:threadId/reopen\"",
-  "comments PUT \"/:id/comments/:commentId/reactions/:emoji\"",
-  "comments DELETE \"/:id/comments/:commentId/reactions/:emoji\"",
-  "comments POST \"/:id/comments/:threadId/anchor-status\"",
-  "projects POST \"/\"",
-  "projects POST \"/from-template\"",
-  "projects POST \"/import\"",
-  "projects DELETE \"/:id\"",
-  "projects POST \"/:id/collab/while-away/ack\"",
-  "projects POST \"/:id/snapshots\"",
-  "projects POST \"/:id/snapshots/:snapshotId/restore\"",
-  "projects DELETE \"/:id/snapshots/:snapshotId\"",
-  "projects POST \"/:id/import\"",
-  "projects POST \"/:id/fork\"",
-  "projects POST \"/:id/upload\"",
-  "projects POST \"/:id/move\"",
-  "projects POST \"/:id/delete\"",
-  "projects POST \"/:id/search\"",
-  "projects POST \"/:id/search/replace\"",
-  "projects POST \"/:id/format\"",
-  "projects POST \"/:id/run\"",
-  "projects POST \"/:id/install\"",
+  'admin POST "/backups"',
+  'admin DELETE "/backups/:filename"',
+  'admin POST "/workspace-backups/:projectId"',
+  'admin DELETE "/workspace-backups/:projectId/:filename"',
+  'admin POST "/workspace-backups/:projectId/:filename/restore"',
+  'ai POST "/:id/ai/action"',
+  'ai POST "/:id/ai/apply-patch"',
+  'ai POST "/:id/ai/verify"',
+  'comments POST "/:id/comments/:threadId/replies"',
+  'comments PATCH "/:id/comments/:commentId"',
+  'comments DELETE "/:id/comments/:commentId"',
+  'comments POST "/:id/comments/:threadId/reopen"',
+  'comments PUT "/:id/comments/:commentId/reactions/:emoji"',
+  'comments DELETE "/:id/comments/:commentId/reactions/:emoji"',
+  'comments POST "/:id/comments/:threadId/anchor-status"',
+  'projects POST "/"',
+  'projects POST "/from-template"',
+  'projects POST "/import"',
+  'projects DELETE "/:id"',
+  'projects POST "/:id/collab/while-away/ack"',
+  'projects POST "/:id/snapshots"',
+  'projects POST "/:id/snapshots/:snapshotId/restore"',
+  'projects DELETE "/:id/snapshots/:snapshotId"',
+  'projects POST "/:id/import"',
+  'projects POST "/:id/fork"',
+  'projects POST "/:id/upload"',
+  'projects POST "/:id/move"',
+  'projects POST "/:id/delete"',
+  'projects POST "/:id/search"',
+  'projects POST "/:id/search/replace"',
+  'projects POST "/:id/format"',
+  'projects POST "/:id/run"',
+  'projects POST "/:id/install"',
 ]);
 
 function scan(): { audited: string[]; unaudited: string[] } {
   const audited: string[] = [];
   const unaudited: string[] = [];
   for (const dir of ROUTE_FILES) {
-    const src = readFileSync(
-      join(__dirname, "..", "src", dir, "routes.ts"),
-      "utf8",
-    );
+    const src = readFileSync(join(__dirname, "..", "src", dir, "routes.ts"), "utf8");
     const mutating = /(?:router|app)\.(post|put|patch|delete)\(\s*(["'`][^"'`]*["'`])/g;
     const any = /(?:router|app)\.(get|post|put|patch|delete)\(/g;
     const starts: number[] = [];
-    for (let m; (m = any.exec(src)); ) starts.push(m.index);
-    for (let m; (m = mutating.exec(src)); ) {
+    for (let m; (m = any.exec(src));) starts.push(m.index);
+    for (let m; (m = mutating.exec(src));) {
       const next = starts.find((i) => i > m!.index) ?? src.length;
       const body = src.slice(m.index, next);
       const key = `${dir} ${m[1]!.toUpperCase()} ${m[2]}`;

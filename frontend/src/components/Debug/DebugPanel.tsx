@@ -1,11 +1,6 @@
 import React from "react";
 import { useOptionalDebugSession } from "../../hooks/useDebugger";
-import {
-  IconPlay,
-  IconStop,
-  IconChevronRight,
-  IconAlertTriangle,
-} from "../common/Icons";
+import { IconPlay, IconStop, IconChevronRight, IconAlertTriangle } from "../common/Icons";
 
 function stateLabel(state: string): string {
   switch (state) {
@@ -46,10 +41,7 @@ export default function DebugPanel() {
   return (
     <div className="debug-panel" data-testid="debug-panel">
       <div className="debug-toolbar" role="toolbar" aria-label="Debugger">
-        <span
-          className={`debug-state debug-state-${dbg.state}`}
-          data-testid="debug-status"
-        >
+        <span className={`debug-state debug-state-${dbg.state}`} data-testid="debug-status">
           {stateLabel(dbg.state)}
         </span>
         <button
@@ -123,8 +115,7 @@ export default function DebugPanel() {
       {dbg.sourceMismatch && (
         <div className="debug-mismatch" role="status">
           <IconAlertTriangle size={12} />
-          The paused file has unsaved edits. The debuggee is still running the
-          snapshot from launch.
+          The paused file has unsaved edits. The debuggee is still running the snapshot from launch.
         </div>
       )}
       <div className="debug-columns">
@@ -139,9 +130,7 @@ export default function DebugPanel() {
                 <button
                   type="button"
                   className={`debug-frame ${
-                    dbg.pausedLine === f.line && dbg.pausedPath === f.path
-                      ? "active"
-                      : ""
+                    dbg.pausedLine === f.line && dbg.pausedPath === f.path ? "active" : ""
                   }`}
                   onClick={() => dbg.selectFrame(f)}
                 >
@@ -168,8 +157,7 @@ export default function DebugPanel() {
                       className="debug-var"
                       disabled={v.variablesReference <= 0}
                       onClick={() =>
-                        v.variablesReference > 0 &&
-                        dbg.expandVariables(v.variablesReference)
+                        v.variablesReference > 0 && dbg.expandVariables(v.variablesReference)
                       }
                     >
                       <span className="debug-var-name">{v.name}</span>

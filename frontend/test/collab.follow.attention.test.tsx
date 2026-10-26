@@ -4,10 +4,7 @@ import * as React from "react";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import {
-  monaco,
-  __resetMonacoMocks,
-} from "./mocks/monaco";
+import { monaco, __resetMonacoMocks } from "./mocks/monaco";
 import type { CollaboratorPresence } from "../src/collab/presence";
 import type { AttentionEvent } from "../src/collab/attention";
 
@@ -24,10 +21,7 @@ afterEach(() => {
 
 describe("M58 — attention x Follow / M57 coexistence", () => {
   it("attention navigation does not cancel Follow (no handleUserEdit / setFollowedUserId in the nav handlers)", () => {
-    const src = readFileSync(
-      join(here, "../src/components/IDE/IDE.tsx"),
-      "utf-8",
-    );
+    const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
     const nav = src.slice(
       src.indexOf("const handleAttentionNavigate"),
       src.indexOf("const handleAttentionDismiss"),
@@ -74,12 +68,8 @@ describe("M58 — attention x Follow / M57 coexistence", () => {
       } as any),
     );
     expect(document.querySelectorAll(".editor-samefile-strip")).toHaveLength(1);
-    expect(document.querySelectorAll(".attention-callout-bubble")).toHaveLength(
-      1,
-    );
+    expect(document.querySelectorAll(".attention-callout-bubble")).toHaveLength(1);
     expect(screen.getByText(/Rahul ·/)).toBeTruthy();
-    expect(
-      document.querySelector(".attention-callout-msg")?.textContent,
-    ).toBe("look here");
+    expect(document.querySelector(".attention-callout-msg")?.textContent).toBe("look here");
   });
 });

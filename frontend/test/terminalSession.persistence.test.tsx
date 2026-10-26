@@ -106,9 +106,7 @@ async function flush() {
 
 describe("M79 — terminal session survives bottom-panel navigation", () => {
   it("keeps one XTerm and one WebSocket when the panel is hidden then shown", async () => {
-    const view = render(
-      <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
-    );
+    const view = render(<Terminal projectId="p1" resolvedTheme="dark" visible={true} />);
     await flush();
     expect(FakeXTerm.instances).toHaveLength(1);
     expect(FakeWS.instances).toHaveLength(1);
@@ -117,9 +115,7 @@ describe("M79 — terminal session survives bottom-panel navigation", () => {
 
     // Switch to another bottom tab: the host stays mounted, only `visible` flips.
     act(() => {
-      view.rerender(
-        <Terminal projectId="p1" resolvedTheme="dark" visible={false} />,
-      );
+      view.rerender(<Terminal projectId="p1" resolvedTheme="dark" visible={false} />);
     });
     await flush();
 
@@ -130,9 +126,7 @@ describe("M79 — terminal session survives bottom-panel navigation", () => {
 
     // Switch back.
     act(() => {
-      view.rerender(
-        <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
-      );
+      view.rerender(<Terminal projectId="p1" resolvedTheme="dark" visible={true} />);
     });
     await flush();
 
@@ -143,15 +137,11 @@ describe("M79 — terminal session survives bottom-panel navigation", () => {
   });
 
   it("does not create a second WebSocket across repeated visibility toggles", async () => {
-    const view = render(
-      <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
-    );
+    const view = render(<Terminal projectId="p1" resolvedTheme="dark" visible={true} />);
     await flush();
     for (let i = 0; i < 6; i++) {
       act(() => {
-        view.rerender(
-          <Terminal projectId="p1" resolvedTheme="dark" visible={i % 2 === 0} />,
-        );
+        view.rerender(<Terminal projectId="p1" resolvedTheme="dark" visible={i % 2 === 0} />);
       });
       await flush();
     }
@@ -161,16 +151,12 @@ describe("M79 — terminal session survives bottom-panel navigation", () => {
   });
 
   it("disposes the session and starts a new one on project change", async () => {
-    const view = render(
-      <Terminal projectId="p1" resolvedTheme="dark" visible={true} />,
-    );
+    const view = render(<Terminal projectId="p1" resolvedTheme="dark" visible={true} />);
     await flush();
     const firstTerm = FakeXTerm.instances[0]!;
 
     act(() => {
-      view.rerender(
-        <Terminal projectId="p2" resolvedTheme="dark" visible={true} />,
-      );
+      view.rerender(<Terminal projectId="p2" resolvedTheme="dark" visible={true} />);
     });
     await flush();
 

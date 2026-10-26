@@ -9,12 +9,20 @@ vi.mock("../src/monacoSetup", () => ({ monaco }));
 import Editor from "../src/components/Editor/Editor";
 
 beforeEach(() => {
-  document.querySelectorAll(".attention-callout-bubble, .attention-point-chip, .attention-callout-keep, .comment-chip, .comment-glyph").forEach((n) => n.remove());
+  document
+    .querySelectorAll(
+      ".attention-callout-bubble, .attention-point-chip, .attention-callout-keep, .comment-chip, .comment-glyph",
+    )
+    .forEach((n) => n.remove());
 });
 afterEach(() => {
   cleanup();
   __resetMonacoMocks();
-  document.querySelectorAll(".attention-callout-bubble, .attention-point-chip, .attention-callout-keep, .comment-chip, .comment-glyph").forEach((n) => n.remove());
+  document
+    .querySelectorAll(
+      ".attention-callout-bubble, .attention-point-chip, .attention-callout-keep, .comment-chip, .comment-glyph",
+    )
+    .forEach((n) => n.remove());
 });
 
 const evt = (over: Partial<AttentionEvent>): AttentionEvent => ({
@@ -75,7 +83,9 @@ describe("M61-A Keep as comment — Editor callout bubble", () => {
   });
 
   it("Keep button does not appear for point attention (only callout)", () => {
-    document.querySelectorAll(".attention-callout-bubble, .attention-point-chip, .attention-callout-keep").forEach((n) => n.remove());
+    document
+      .querySelectorAll(".attention-callout-bubble, .attention-point-chip, .attention-callout-keep")
+      .forEach((n) => n.remove());
     const point: AttentionEvent = {
       id: "p1",
       kind: "point",

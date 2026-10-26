@@ -70,9 +70,7 @@ describe.skipIf(!enabled)("M85 developer journey (browser)", () => {
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -156,10 +154,7 @@ describe.skipIf(!enabled)("M85 developer journey (browser)", () => {
     await page.goto(`${base}/p/${projectId}`, { waitUntil: "load" });
     const login = page.locator("#auth-username");
     const tree = page.locator(".file-tree-container ul.file-tree").first();
-    await Promise.race([
-      tree.waitFor({ timeout: 60_000 }),
-      login.waitFor({ timeout: 60_000 }),
-    ]);
+    await Promise.race([tree.waitFor({ timeout: 60_000 }), login.waitFor({ timeout: 60_000 })]);
     if (await login.isVisible().catch(() => false)) {
       await login.fill(username);
       await page.locator("#auth-password").fill(password);
@@ -178,9 +173,7 @@ describe.skipIf(!enabled)("M85 developer journey (browser)", () => {
       await page.locator('[data-testid="test-explorer"]').waitFor({
         timeout: 15_000,
       });
-      await page
-        .locator('[data-testid="workflow-task-npm:test"]')
-        .waitFor({ timeout: 15_000 });
+      await page.locator('[data-testid="workflow-task-npm:test"]').waitFor({ timeout: 15_000 });
       await page.click('[data-testid="workflow-task-npm:test"]');
       await page.waitForFunction(
         () => {
@@ -194,9 +187,8 @@ describe.skipIf(!enabled)("M85 developer journey (browser)", () => {
       );
       await page.waitForFunction(
         () =>
-          (globalThis as any).document.querySelectorAll(
-            '[data-testid="workflow-result"]',
-          ).length >= 1,
+          (globalThis as any).document.querySelectorAll('[data-testid="workflow-result"]').length >=
+          1,
         null,
         { timeout: 90_000 },
       );
@@ -207,9 +199,11 @@ describe.skipIf(!enabled)("M85 developer journey (browser)", () => {
         () => {
           const monaco = (globalThis as any).monaco;
           if (!monaco) return false;
-          return monaco.editor.getModels().some((m: { uri: { path: string } }) =>
-            String(m.uri.path ?? "").includes("add.test.js"),
-          );
+          return monaco.editor
+            .getModels()
+            .some((m: { uri: { path: string } }) =>
+              String(m.uri.path ?? "").includes("add.test.js"),
+            );
         },
         null,
         { timeout: 30_000 },
@@ -218,13 +212,10 @@ describe.skipIf(!enabled)("M85 developer journey (browser)", () => {
       const diag = await page.evaluate(() => {
         const d = (globalThis as any).document;
         return {
-          status: d.querySelector('[data-testid="workflow-status"]')
-            ?.textContent,
+          status: d.querySelector('[data-testid="workflow-status"]')?.textContent,
           results: d.querySelectorAll('[data-testid="workflow-result"]').length,
-          locs: d.querySelectorAll('[data-testid="workflow-result-loc"]')
-            .length,
-          runDisabled: d.querySelector('[data-testid="workflow-run-all"]')
-            ?.disabled,
+          locs: d.querySelectorAll('[data-testid="workflow-result-loc"]').length,
+          runDisabled: d.querySelector('[data-testid="workflow-run-all"]')?.disabled,
         };
       });
       throw new Error(
@@ -240,11 +231,9 @@ describe.skipIf(!enabled)("M85 developer journey (browser)", () => {
       all: true,
     });
     expect(stage.status).toBe(200);
-    const commit = await authJson(
-      "POST",
-      `/api/projects/${projectId}/git/commit`,
-      { message: "m85 journey" },
-    );
+    const commit = await authJson("POST", `/api/projects/${projectId}/git/commit`, {
+      message: "m85 journey",
+    });
     expect(commit.status).toBe(200);
     expect(typeof commit.data.shortHash).toBe("string");
     const status = await authJson("GET", `/api/projects/${projectId}/git/status`);

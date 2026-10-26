@@ -40,8 +40,7 @@ if (process.env.CI === "true" && dockerOk && !chromiumPath) {
 const enabled = dockerOk && hasFrontend && !!chromiumPath;
 
 const PY_SRC = "x = 1\ny = 2\nz = x + y\nprint(z)\n";
-const JS_SRC =
-  "const x = 1;\nconst y = 2;\nconst z = x + y;\nconsole.log(z);\n";
+const JS_SRC = "const x = 1;\nconst y = 2;\nconst z = x + y;\nconsole.log(z);\n";
 const TS_HELPER = [
   "export function add(a: number, b: number): number {",
   "  const sum = a + b;",
@@ -86,9 +85,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     const app = createApp(cfg, db);
     server = createServer(app);
     setupWebSocketServer(server, db, cfg);
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     base = `http://127.0.0.1:${address.port}`;
 
@@ -182,8 +179,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
       },
     ]);
     const page = await context.newPage();
-    const debugWs: { dir: string; type?: string; state?: string; text?: string }[] =
-      [];
+    const debugWs: { dir: string; type?: string; state?: string; text?: string }[] = [];
     page.on("websocket", (ws) => {
       if (!ws.url().includes("/ws/debug")) return;
       const record = (dir: string, payload: string) => {
@@ -213,10 +209,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
 
     const login = page.locator("#auth-username");
     const tree = page.locator(".file-tree-container ul.file-tree").first();
-    await Promise.race([
-      tree.waitFor({ timeout: 60_000 }),
-      login.waitFor({ timeout: 60_000 }),
-    ]);
+    await Promise.race([tree.waitFor({ timeout: 60_000 }), login.waitFor({ timeout: 60_000 })]);
     if (await login.isVisible().catch(() => false)) {
       await login.fill(username);
       await page.locator("#auth-password").fill(password);
@@ -224,11 +217,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     }
 
     await tree.waitFor({ timeout: 60_000 });
-    await page
-      .locator('[role="treeitem"]')
-      .filter({ hasText: fileName })
-      .first()
-      .click();
+    await page.locator('[role="treeitem"]').filter({ hasText: fileName }).first().click();
     await page.waitForFunction(
       () => ((globalThis as any).monaco?.editor.getModels().length ?? 0) > 0,
       null,
@@ -252,7 +241,9 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
         const models = monaco.editor.getModels();
         const needle = fileName.replace(/\\/g, "/").toLowerCase();
         const model = models.find((m: { uri: { path: string } }) => {
-          const p = String(m.uri.path ?? "").replace(/\\/g, "/").toLowerCase();
+          const p = String(m.uri.path ?? "")
+            .replace(/\\/g, "/")
+            .toLowerCase();
           return p === needle || p.endsWith("/" + needle);
         });
         if (!model) throw new Error(`no model for ${fileName}`);
@@ -296,8 +287,8 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     );
     await page.waitForFunction(
       (fileName) => {
-        const keys = Object.keys((globalThis as any).localStorage).filter(
-          (k: string) => k.startsWith("veyra_debug_bp_"),
+        const keys = Object.keys((globalThis as any).localStorage).filter((k: string) =>
+          k.startsWith("veyra_debug_bp_"),
         );
         return keys.some((k: string) =>
           ((globalThis as any).localStorage.getItem(k) ?? "").includes(fileName),
@@ -329,9 +320,9 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
           const status = (globalThis as any).document.querySelector(
             '[data-testid="debug-status"]',
           )?.textContent;
-          const stack = (globalThis as any).document.querySelector(
-            '[data-testid="debug-stack"]',
-          )?.textContent ?? "";
+          const stack =
+            (globalThis as any).document.querySelector('[data-testid="debug-stack"]')
+              ?.textContent ?? "";
           return status === "Paused" && stack.includes(fileName);
         },
         fileName,
@@ -339,21 +330,16 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
       );
     } catch {
       const diag = await page.evaluate(() => ({
-        status: (globalThis as any).document.querySelector(
-          '[data-testid="debug-status"]',
-        )?.textContent,
-        message: (globalThis as any).document.querySelector(
-          '[data-testid="debug-message"]',
-        )?.textContent,
-        stack: (globalThis as any).document.querySelector(
-          '[data-testid="debug-stack"]',
-        )?.textContent,
-        vars: (globalThis as any).document.querySelector(
-          '[data-testid="debug-variables"]',
-        )?.textContent,
-        output: (globalThis as any).document.querySelector(
-          '[data-testid="debug-output"]',
-        )?.textContent,
+        status: (globalThis as any).document.querySelector('[data-testid="debug-status"]')
+          ?.textContent,
+        message: (globalThis as any).document.querySelector('[data-testid="debug-message"]')
+          ?.textContent,
+        stack: (globalThis as any).document.querySelector('[data-testid="debug-stack"]')
+          ?.textContent,
+        vars: (globalThis as any).document.querySelector('[data-testid="debug-variables"]')
+          ?.textContent,
+        output: (globalThis as any).document.querySelector('[data-testid="debug-output"]')
+          ?.textContent,
         hook: (globalThis as any).__VEYRA_DEBUG__ ?? null,
       }));
       throw new Error(
@@ -365,9 +351,7 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     const stackText = await page.locator('[data-testid="debug-stack"]').innerText();
     expect(stackText).toMatch(new RegExp(fileName.replace(".", "\\.")));
     await page.click(
-      finish === "stop"
-        ? '[data-testid="debug-stop"]'
-        : '[data-testid="debug-continue"]',
+      finish === "stop" ? '[data-testid="debug-stop"]' : '[data-testid="debug-continue"]',
     );
     await page.waitForFunction(
       () => {
@@ -381,73 +365,56 @@ describe.skipIf(!enabled)("debug browser e2e (real Monaco + real adapters)", () 
     );
   }
 
-  it(
-    "Python: breakpoint, pause, variables, continue",
-    async () => {
-      const { browser, page } = await openProject(pythonProjectId, "main.py");
-      try {
-        await debugFlow(page, "main.py", PY_SRC);
-      } finally {
-        await browser.close();
-      }
-    },
-    180_000,
-  );
+  it("Python: breakpoint, pause, variables, continue", async () => {
+    const { browser, page } = await openProject(pythonProjectId, "main.py");
+    try {
+      await debugFlow(page, "main.py", PY_SRC);
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 
-  it(
-    "Node: breakpoint, pause, variables, continue",
-    async () => {
-      const { browser, page } = await openProject(nodeProjectId, "main.js");
-      try {
-        await debugFlow(page, "main.js", JS_SRC);
-      } finally {
-        await browser.close();
-      }
-    },
-    180_000,
-  );
+  it("Node: breakpoint, pause, variables, continue", async () => {
+    const { browser, page } = await openProject(nodeProjectId, "main.js");
+    try {
+      await debugFlow(page, "main.js", JS_SRC);
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 
-  it(
-    "TypeScript: .ts breakpoint, mapped source, variables, continue",
-    async () => {
-      const { browser, page, debugWs } = await openProject(
-        tsProjectId,
-        "helper.ts",
+  it("TypeScript: .ts breakpoint, mapped source, variables, continue", async () => {
+    const { browser, page, debugWs } = await openProject(tsProjectId, "helper.ts");
+    try {
+      await page.evaluate(() => {
+        (globalThis as any).document.dispatchEvent(
+          new (globalThis as any).CustomEvent("ide-open-and-reveal", {
+            detail: { filePath: "src/main.ts", line: 1, column: 1 },
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () => {
+          const monaco = (globalThis as any).monaco;
+          const models = monaco?.editor.getModels() ?? [];
+          return models.some((m: { uri: { path: string } }) =>
+            String(m.uri.path ?? "")
+              .replace(/\\/g, "/")
+              .endsWith("/src/main.ts"),
+          );
+        },
+        null,
+        { timeout: 30_000 },
       );
       try {
-        await page.evaluate(() => {
-          (globalThis as any).document.dispatchEvent(
-            new (globalThis as any).CustomEvent("ide-open-and-reveal", {
-              detail: { filePath: "src/main.ts", line: 1, column: 1 },
-            }),
-          );
+        await debugFlow(page, "src/main.ts", TS_MAIN, "continue", 5, {
+          writeEditor: false,
         });
-        await page.waitForFunction(
-          () => {
-            const monaco = (globalThis as any).monaco;
-            const models = monaco?.editor.getModels() ?? [];
-            return models.some((m: { uri: { path: string } }) =>
-              String(m.uri.path ?? "")
-                .replace(/\\/g, "/")
-                .endsWith("/src/main.ts"),
-            );
-          },
-          null,
-          { timeout: 30_000 },
-        );
-        try {
-          await debugFlow(page, "src/main.ts", TS_MAIN, "continue", 5, {
-            writeEditor: false,
-          });
-        } catch (err) {
-          throw new Error(
-            `${(err as Error).message} capturedWs=${JSON.stringify(debugWs)}`,
-          );
-        }
-      } finally {
-        await browser.close();
+      } catch (err) {
+        throw new Error(`${(err as Error).message} capturedWs=${JSON.stringify(debugWs)}`);
       }
-    },
-    180_000,
-  );
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 });

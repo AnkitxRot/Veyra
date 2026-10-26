@@ -2,7 +2,7 @@
  * Normalized Diagnostic and Problem model with language-specific compiler & runtime parsers.
  */
 
-export type DiagnosticSeverity = 'error' | 'warning' | 'info';
+export type DiagnosticSeverity = "error" | "warning" | "info";
 
 export interface Diagnostic {
   id: string;
@@ -32,7 +32,7 @@ export interface FileDiagnosticsGroup {
 export function parseDiagnostics(
   output: string,
   _fallbackLanguage?: string,
-  _activeFilePath?: string
+  _activeFilePath?: string,
 ): Diagnostic[] {
   if (!output || !output.trim()) return [];
 
@@ -66,7 +66,11 @@ export function parseDiagnostics(
       const lineNum = parseInt(gccMatch[2]!, 10);
       const colNum = gccMatch[3] ? parseInt(gccMatch[3], 10) : 1;
       const typeStr = gccMatch[4]!.toLowerCase();
-      const severity: DiagnosticSeverity = typeStr.includes('error') ? 'error' : typeStr.includes('warning') ? 'warning' : 'info';
+      const severity: DiagnosticSeverity = typeStr.includes("error")
+        ? "error"
+        : typeStr.includes("warning")
+          ? "warning"
+          : "info";
       const message = gccMatch[5]!.trim();
 
       diagnostics.push({
@@ -76,7 +80,7 @@ export function parseDiagnostics(
         filePath,
         line: lineNum,
         column: colNum,
-        source: 'gcc',
+        source: "gcc",
         raw: line,
       });
       continue;
@@ -89,7 +93,8 @@ export function parseDiagnostics(
       const lineNum = parseInt(tsMatch[2]!, 10);
       const colNum = parseInt(tsMatch[3]!, 10);
       const typeStr = tsMatch[4]!.toLowerCase();
-      const severity: DiagnosticSeverity = typeStr === 'error' ? 'error' : typeStr === 'warning' ? 'warning' : 'info';
+      const severity: DiagnosticSeverity =
+        typeStr === "error" ? "error" : typeStr === "warning" ? "warning" : "info";
       const code = tsMatch[5];
       const message = tsMatch[6]!.trim();
 
@@ -100,7 +105,7 @@ export function parseDiagnostics(
         filePath,
         line: lineNum,
         column: colNum,
-        source: 'tsc',
+        source: "tsc",
         code,
         raw: line,
       });
@@ -112,7 +117,8 @@ export function parseDiagnostics(
     if (javacMatch) {
       const filePath = cleanFilePath(javacMatch[1]!);
       const lineNum = parseInt(javacMatch[2]!, 10);
-      const severity: DiagnosticSeverity = javacMatch[3]!.toLowerCase() === 'error' ? 'error' : 'warning';
+      const severity: DiagnosticSeverity =
+        javacMatch[3]!.toLowerCase() === "error" ? "error" : "warning";
       const message = javacMatch[4]!.trim();
 
       diagnostics.push({
@@ -122,7 +128,7 @@ export function parseDiagnostics(
         filePath,
         line: lineNum,
         column: 1,
-        source: 'javac',
+        source: "javac",
         raw: line,
       });
       continue;
@@ -135,7 +141,7 @@ export function parseDiagnostics(
       const pyLine = parseInt(pyFileMatch[2]!, 10);
 
       // Look ahead for error message
-      let pyMessage = 'Runtime Error';
+      let pyMessage = "Runtime Error";
       for (let j = i + 1; j < Math.min(lines.length, i + 6); j++) {
         const nextLine = lines[j]!.trim();
         const errMatch = nextLine.match(pyErrorNameRegex);
@@ -147,12 +153,12 @@ export function parseDiagnostics(
 
       diagnostics.push({
         id: `diag-py-${++idCounter}`,
-        severity: 'error',
+        severity: "error",
         message: pyMessage,
         filePath: pyFilePath,
         line: pyLine,
         column: 1,
-        source: 'python',
+        source: "python",
         raw: line,
       });
       continue;
@@ -166,10 +172,10 @@ export function parseDiagnostics(
       const colNum = parseInt(nodeMatch[4]!, 10);
 
       // Find leading error message if at start of stack trace
-      let errorMsg = 'JavaScript Runtime Exception';
+      let errorMsg = "JavaScript Runtime Exception";
       for (let k = i - 1; k >= Math.max(0, i - 4); k--) {
         const prevLine = lines[k]!.trim();
-        if (prevLine.includes('Error:') || prevLine.includes('Exception:')) {
+        if (prevLine.includes("Error:") || prevLine.includes("Exception:")) {
           errorMsg = prevLine;
           break;
         }
@@ -177,12 +183,12 @@ export function parseDiagnostics(
 
       diagnostics.push({
         id: `diag-node-${++idCounter}`,
-        severity: 'error',
+        severity: "error",
         message: errorMsg,
         filePath,
         line: lineNum,
         column: colNum,
-        source: 'node',
+        source: "node",
         raw: line,
       });
       continue;
@@ -208,9 +214,9 @@ export function parseDiagnostics(
  * Cleans path prefixes (e.g. /workspace/, ./, leading slashes).
  */
 function cleanFilePath(p: string): string {
-  let cleaned = p.replace(/\\/g, '/').trim();
-  cleaned = cleaned.replace(/^\/workspace\//, '');
-  cleaned = cleaned.replace(/^\.\//, '');
+  let cleaned = p.replace(/\\/g, "/").trim();
+  cleaned = cleaned.replace(/^\/workspace\//, "");
+  cleaned = cleaned.replace(/^\.\//, "");
   return cleaned;
 }
 
@@ -232,8 +238,8 @@ export function groupDiagnosticsByFile(diagnostics: Diagnostic[]): FileDiagnosti
     let infoCount = 0;
 
     for (const item of items) {
-      if (item.severity === 'error') errorCount++;
-      else if (item.severity === 'warning') warningCount++;
+      if (item.severity === "error") errorCount++;
+      else if (item.severity === "warning") warningCount++;
       else infoCount++;
     }
 

@@ -64,9 +64,11 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
   it("1. creates online backup successfully and returns metadata", async () => {
     const db = openDb(dbPath);
     try {
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("alice", "hash123", "user");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "alice",
+        "hash123",
+        "user",
+      );
 
       const backup = await createDatabaseBackup(db, cfg);
       expect(backup).toBeDefined();
@@ -82,9 +84,11 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
   it("2. backup file passes PRAGMA integrity_check", async () => {
     const db = openDb(dbPath);
     try {
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("bob", "hash456", "user");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "bob",
+        "hash456",
+        "user",
+      );
       const backup = await createDatabaseBackup(db, cfg);
       const integrity = verifyDatabaseBackupIntegrity(backup.filePath);
       expect(integrity).toBe("ok");
@@ -97,15 +101,15 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
     const db = openDb(dbPath);
     try {
       for (let i = 0; i < 20; i++) {
-        db.prepare(
-          "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-        ).run(`user_${i}`, `hash_${i}`, "user");
+        db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+          `user_${i}`,
+          `hash_${i}`,
+          "user",
+        );
       }
 
       // Read before
-      const countBefore = (
-        db.prepare("SELECT COUNT(*) as c FROM users").get() as any
-      ).c;
+      const countBefore = (db.prepare("SELECT COUNT(*) as c FROM users").get() as any).c;
       expect(countBefore).toBe(20);
 
       // Perform backup
@@ -113,9 +117,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       expect(backup.integrity).toBe("ok");
 
       // Read after
-      const countAfter = (
-        db.prepare("SELECT COUNT(*) as c FROM users").get() as any
-      ).c;
+      const countAfter = (db.prepare("SELECT COUNT(*) as c FROM users").get() as any).c;
       expect(countAfter).toBe(20);
     } finally {
       db.close();
@@ -125,17 +127,21 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
   it("4. representative writes continue before and after backup without lockups", async () => {
     const db = openDb(dbPath);
     try {
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("pre_backup_user", "hash_pre", "user");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "pre_backup_user",
+        "hash_pre",
+        "user",
+      );
 
       const backup1 = await createDatabaseBackup(db, cfg);
       expect(backup1.integrity).toBe("ok");
 
       // Immediate write post backup
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("post_backup_user", "hash_post", "user");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "post_backup_user",
+        "hash_post",
+        "user",
+      );
 
       const backup2 = await createDatabaseBackup(db, cfg);
       expect(backup2.integrity).toBe("ok");
@@ -153,12 +159,16 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
   it("5. resulting backup contains committed data and is restorable offline", async () => {
     const db = openDb(dbPath);
     try {
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("charlie", "secret_hash", "admin");
-      db.prepare(
-        "INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)",
-      ).run("proj_1", 1, "Project Alpha");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "charlie",
+        "secret_hash",
+        "admin",
+      );
+      db.prepare("INSERT INTO projects (id, owner_id, name) VALUES (?, ?, ?)").run(
+        "proj_1",
+        1,
+        "Project Alpha",
+      );
 
       const backup = await createDatabaseBackup(db, cfg);
 
@@ -171,9 +181,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
         expect(user).toBeDefined();
         expect(user.role).toBe("admin");
 
-        const proj = restoredDb
-          .prepare("SELECT * FROM projects WHERE id = ?")
-          .get("proj_1") as any;
+        const proj = restoredDb.prepare("SELECT * FROM projects WHERE id = ?").get("proj_1") as any;
         expect(proj).toBeDefined();
         expect(proj.name).toBe("Project Alpha");
       } finally {
@@ -187,9 +195,11 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
   it("6. cleans up partial artifact on failure and leaves live DB untouched", async () => {
     const db = openDb(dbPath);
     try {
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("david", "hash_d", "user");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "david",
+        "hash_d",
+        "user",
+      );
 
       // Invalid backupDir with invalid path simulation
       const invalidCfg = {
@@ -200,9 +210,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       await expect(createDatabaseBackup(db, invalidCfg)).rejects.toThrow();
 
       // Live DB must still be healthy and queryable
-      const user = db
-        .prepare("SELECT * FROM users WHERE username = ?")
-        .get("david") as any;
+      const user = db.prepare("SELECT * FROM users WHERE username = ?").get("david") as any;
       expect(user).toBeDefined();
       expect(user.username).toBe("david");
     } finally {
@@ -220,21 +228,13 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
 
       let list = await listDatabaseBackups(cfg);
       expect(list.length).toBe(3);
-      expect(list.map((b) => b.filename)).toEqual([
-        b3.filename,
-        b2.filename,
-        b1.filename,
-      ]);
+      expect(list.map((b) => b.filename)).toEqual([b3.filename, b2.filename, b1.filename]);
 
       // 4th backup triggers pruning of the oldest (b1)
       const b4 = await createDatabaseBackup(db, cfg);
       list = await listDatabaseBackups(cfg);
       expect(list.length).toBe(3);
-      expect(list.map((b) => b.filename)).toEqual([
-        b4.filename,
-        b3.filename,
-        b2.filename,
-      ]);
+      expect(list.map((b) => b.filename)).toEqual([b4.filename, b3.filename, b2.filename]);
       expect(existsSync(b1.filePath)).toBe(false);
       expect(existsSync(b2.filePath)).toBe(true);
       expect(existsSync(b4.filePath)).toBe(true);
@@ -248,9 +248,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
     try {
       // Populate with some data
       for (let i = 0; i < 50; i++) {
-        db.prepare(
-          "INSERT INTO audit_logs (event_type, details) VALUES (?, ?)",
-        ).run(
+        db.prepare("INSERT INTO audit_logs (event_type, details) VALUES (?, ?)").run(
           "EXECUTION_COMPLETED",
           JSON.stringify({ index: i, largePayload: "x".repeat(1024) }),
         );
@@ -331,18 +329,10 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       expect(existsSync(b1.filePath)).toBe(true);
 
       // Traversal rejection
-      await expect(
-        deleteDatabaseBackup(db, cfg, "../escape.db"),
-      ).rejects.toThrow();
-      await expect(
-        deleteDatabaseBackup(db, cfg, "..\\escape.db"),
-      ).rejects.toThrow();
-      await expect(
-        deleteDatabaseBackup(db, cfg, "/etc/passwd"),
-      ).rejects.toThrow();
-      await expect(
-        deleteDatabaseBackup(db, cfg, "invalid\0.db"),
-      ).rejects.toThrow();
+      await expect(deleteDatabaseBackup(db, cfg, "../escape.db")).rejects.toThrow();
+      await expect(deleteDatabaseBackup(db, cfg, "..\\escape.db")).rejects.toThrow();
+      await expect(deleteDatabaseBackup(db, cfg, "/etc/passwd")).rejects.toThrow();
+      await expect(deleteDatabaseBackup(db, cfg, "invalid\0.db")).rejects.toThrow();
 
       // Successful deletion
       const deleted = await deleteDatabaseBackup(db, cfg, b1.filename);
@@ -350,9 +340,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       expect(existsSync(b1.filePath)).toBe(false);
 
       // 404 on deleting non-existent backup
-      await expect(
-        deleteDatabaseBackup(db, cfg, b1.filename),
-      ).rejects.toThrow();
+      await expect(deleteDatabaseBackup(db, cfg, b1.filename)).rejects.toThrow();
     } finally {
       db.close();
     }
@@ -365,12 +353,12 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       await createDatabaseBackup(db, cfg);
 
       // Insert and query
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("final_user", "final_hash", "user");
-      const row = db
-        .prepare("SELECT * FROM users WHERE username = ?")
-        .get("final_user") as any;
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "final_user",
+        "final_hash",
+        "user",
+      );
+      const row = db.prepare("SELECT * FROM users WHERE username = ?").get("final_user") as any;
       expect(row.username).toBe("final_user");
 
       // Verify WAL mode and pragma integrity
@@ -383,9 +371,11 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
 
   it("13. CLI script (scripts/backup-db.js) executes successfully with exit code 0", () => {
     const db = openDb(dbPath);
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("cli_user", "cli_pass", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "cli_user",
+      "cli_pass",
+      "user",
+    );
     db.close();
 
     const scriptPath = join(projectRoot, "scripts/backup-db.js");
@@ -410,11 +400,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
     expect(() => {
       execFileSync(
         process.execPath,
-        [
-          scriptPath,
-          `--db-path=${nonexistentPath}`,
-          `--backup-dir=${backupDir}`,
-        ],
+        [scriptPath, `--db-path=${nonexistentPath}`, `--backup-dir=${backupDir}`],
         { encoding: "utf8", stdio: "pipe" },
       );
     }).toThrow();
@@ -423,9 +409,11 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
   it("19. listDatabaseBackups reports honest integrity: 'unverified' by default, 'ok'/'failed' only when re-verified", async () => {
     const db = openDb(dbPath);
     try {
-      db.prepare(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-      ).run("integrity_user", "hash_i", "user");
+      db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+        "integrity_user",
+        "hash_i",
+        "user",
+      );
       const backup = await createDatabaseBackup(db, cfg);
 
       // Default listing must not silently claim verification that never happened.
@@ -539,45 +527,38 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
 
     // A waiter must time out rather than reclaim a lock whose holder PID is
     // still alive, even though it looks stale by age alone.
-    expect(() =>
-      acquireBackupLock(backupDir, { staleMs: 100, maxWaitMs: 300 }),
-    ).toThrow(/Timed out waiting for backup lock/);
-    expect(existsSync(lockPath)).toBe(true);
-    expect(JSON.parse(readFileSync(lockPath, "utf8")).token).toBe(
-      "still-working",
+    expect(() => acquireBackupLock(backupDir, { staleMs: 100, maxWaitMs: 300 })).toThrow(
+      /Timed out waiting for backup lock/,
     );
+    expect(existsSync(lockPath)).toBe(true);
+    expect(JSON.parse(readFileSync(lockPath, "utf8")).token).toBe("still-working");
 
     rmSync(lockPath, { force: true });
   });
 
   it("23. true concurrent cross-process backup attempts (separate OS processes) serialize safely via the shared filesystem lock", async () => {
     const db = openDb(dbPath);
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-    ).run("cross_process_user", "hash_cp", "user");
+    db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)").run(
+      "cross_process_user",
+      "hash_cp",
+      "user",
+    );
     db.close();
 
     const scriptPath = join(projectRoot, "scripts/backup-db.js");
     const runCli = () =>
-      new Promise<{ code: number | null; stdout: string; stderr: string }>(
-        (resolvePromise) => {
-          const child = spawn(
-            process.execPath,
-            [
-              scriptPath,
-              `--db-path=${dbPath}`,
-              `--backup-dir=${backupDir}`,
-              "--max-backups=10",
-            ],
-            { stdio: ["ignore", "pipe", "pipe"] },
-          );
-          let stdout = "";
-          let stderr = "";
-          child.stdout.on("data", (d) => (stdout += d.toString()));
-          child.stderr.on("data", (d) => (stderr += d.toString()));
-          child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
-        },
-      );
+      new Promise<{ code: number | null; stdout: string; stderr: string }>((resolvePromise) => {
+        const child = spawn(
+          process.execPath,
+          [scriptPath, `--db-path=${dbPath}`, `--backup-dir=${backupDir}`, "--max-backups=10"],
+          { stdio: ["ignore", "pipe", "pipe"] },
+        );
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (d) => (stdout += d.toString()));
+        child.stderr.on("data", (d) => (stderr += d.toString()));
+        child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
+      });
 
     // Launch two genuinely separate OS processes at (as close to) the same
     // time as possible — this is real cross-process concurrency, not an
@@ -623,14 +604,9 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
   });
 
   it("25. CLI script consumes the shared backup module instead of reimplementing backup logic", () => {
-    const scriptSource = readFileSync(
-      join(projectRoot, "scripts/backup-db.js"),
-      "utf8",
-    );
+    const scriptSource = readFileSync(join(projectRoot, "scripts/backup-db.js"), "utf8");
 
-    expect(scriptSource).toMatch(
-      /from\s+["']\.\.\/backend\/src\/backup\/shared\.js["']/,
-    );
+    expect(scriptSource).toMatch(/from\s+["']\.\.\/backend\/src\/backup\/shared\.js["']/);
     // Guard against regressing back to the pre-fix duplicated implementation.
     expect(scriptSource).not.toMatch(/function\s+listBackups\s*\(/);
     expect(scriptSource).not.toMatch(/function\s+pruneBackups\s*\(/);
@@ -723,18 +699,14 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       expect(createRes.status).toBe(201);
       expect(createRes.data.ok).toBe(true);
       expect(createRes.data.backup).toBeDefined();
-      expect(createRes.data.backup.filename).toMatch(
-        /^cloudeeeide_backup_.+\.db$/,
-      );
+      expect(createRes.data.backup.filename).toMatch(/^cloudeeeide_backup_.+\.db$/);
       expect(createRes.data.backup.integrity).toBe("ok");
 
       const listRes = await api.request("GET", "/api/admin/backups", {
         token: adminToken,
       });
       expect(listRes.data.backups.length).toBe(1);
-      expect(listRes.data.backups[0].filename).toBe(
-        createRes.data.backup.filename,
-      );
+      expect(listRes.data.backups[0].filename).toBe(createRes.data.backup.filename);
     });
 
     it("17. GET /api/admin/backups/:filename downloads backup file and rejects traversal", async () => {
@@ -744,31 +716,21 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       const filename = createRes.data.backup.filename;
 
       // Traversal rejection
-      const traversalRes = await api.request(
-        "GET",
-        "/api/admin/backups/..%2F..%2Fetc%2Fpasswd",
-        {
-          token: adminToken,
-        },
-      );
+      const traversalRes = await api.request("GET", "/api/admin/backups/..%2F..%2Fetc%2Fpasswd", {
+        token: adminToken,
+      });
       expect(traversalRes.status).toBe(400);
 
       // Non-admin download rejection
-      const userRes = await api.request(
-        "GET",
-        `/api/admin/backups/${filename}`,
-        { token: userToken },
-      );
+      const userRes = await api.request("GET", `/api/admin/backups/${filename}`, {
+        token: userToken,
+      });
       expect(userRes.status).toBe(403);
 
       // Admin download success
-      const downloadRes = await api.request(
-        "GET",
-        `/api/admin/backups/${filename}`,
-        {
-          token: adminToken,
-        },
-      );
+      const downloadRes = await api.request("GET", `/api/admin/backups/${filename}`, {
+        token: adminToken,
+      });
       expect(downloadRes.status).toBe(200);
       expect(downloadRes.text.length).toBeGreaterThan(0);
 
@@ -779,9 +741,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
         { token: adminToken },
       );
       expect(auditRes.status).toBe(200);
-      expect(
-        auditRes.data.logs.some((l: any) => l.details.filename === filename),
-      ).toBe(true);
+      expect(auditRes.data.logs.some((l: any) => l.details.filename === filename)).toBe(true);
     });
 
     it("18. DELETE /api/admin/backups/:filename deletes backup file and records audit log", async () => {
@@ -791,13 +751,9 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
       const filename = createRes.data.backup.filename;
 
       // Delete endpoint
-      const delRes = await api.request(
-        "DELETE",
-        `/api/admin/backups/${filename}`,
-        {
-          token: adminToken,
-        },
-      );
+      const delRes = await api.request("DELETE", `/api/admin/backups/${filename}`, {
+        token: adminToken,
+      });
       expect(delRes.status).toBe(200);
       expect(delRes.data.deleted).toBe(filename);
 
@@ -816,9 +772,7 @@ describe("Milestone 25 — Production SQLite Database Backup & Disaster Recovery
         },
       );
       expect(auditRes.status).toBe(200);
-      expect(
-        auditRes.data.logs.some((l: any) => l.details.filename === filename),
-      ).toBe(true);
+      expect(auditRes.data.logs.some((l: any) => l.details.filename === filename)).toBe(true);
     });
   });
 });

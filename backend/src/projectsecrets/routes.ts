@@ -30,19 +30,13 @@ export function projectSecretRoutes(cfg: AppConfig, db: Db): Router {
 
   const assertNotDemo = (req: Request) => {
     if (userOf(req).username.startsWith("evaluator_")) {
-      throw new ApiError(
-        403,
-        "demo accounts cannot store secrets",
-        "demo_forbidden",
-      );
+      throw new ApiError(403, "demo accounts cannot store secrets", "demo_forbidden");
     }
   };
 
   const envFromQuery = (req: Request): string | null =>
     normalizeEnvironment(
-      typeof req.query.environment === "string"
-        ? req.query.environment
-        : undefined,
+      typeof req.query.environment === "string" ? req.query.environment : undefined,
     );
 
   // List metadata only — never a value, never ciphertext. Safe regardless of
@@ -76,8 +70,7 @@ export function projectSecretRoutes(cfg: AppConfig, db: Db): Router {
       const body = req.body ?? {};
       const name = validateSecretName(body.name);
       const environment = normalizeEnvironment(body.environment);
-      const isSecret =
-        body.isSecret === undefined ? true : body.isSecret === true;
+      const isSecret = body.isSecret === undefined ? true : body.isSecret === true;
       const meta = createProjectSecret(db, cfg, {
         projectId: project.id,
         name,
@@ -107,12 +100,9 @@ export function projectSecretRoutes(cfg: AppConfig, db: Db): Router {
       const name = validateSecretName(req.params.name);
       const environment = normalizeEnvironment(
         body.environment ??
-          (typeof req.query.environment === "string"
-            ? req.query.environment
-            : undefined),
+          (typeof req.query.environment === "string" ? req.query.environment : undefined),
       );
-      const isSecret =
-        body.isSecret === undefined ? true : body.isSecret === true;
+      const isSecret = body.isSecret === undefined ? true : body.isSecret === true;
       const meta = updateProjectSecret(db, cfg, {
         projectId: project.id,
         name,

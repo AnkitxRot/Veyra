@@ -45,11 +45,7 @@ function reject(message: string, code = "invalid_image"): never {
 }
 
 function looksLikeHtmlOrSvg(buf: Buffer): boolean {
-  const start = buf
-    .subarray(0, 256)
-    .toString("latin1")
-    .trimStart()
-    .toLowerCase();
+  const start = buf.subarray(0, 256).toString("latin1").trimStart().toLowerCase();
   return (
     start.startsWith("<svg") ||
     start.startsWith("<?xml") ||
@@ -134,11 +130,7 @@ function readWebp(buf: Buffer): { width: number; height: number; end: number } {
   if (fourcc === "VP8 ") {
     if (buf.length < 30) reject("truncated WebP");
     const startCode = buf.subarray(23, 26);
-    if (
-      startCode[0] !== 0x9d ||
-      startCode[1] !== 0x01 ||
-      startCode[2] !== 0x2a
-    ) {
+    if (startCode[0] !== 0x9d || startCode[1] !== 0x01 || startCode[2] !== 0x2a) {
       reject("invalid WebP VP8");
     }
     width = buf.readUInt16LE(26) & 0x3fff;
@@ -168,12 +160,7 @@ function detect(buf: Buffer): {
   if (buf.length >= 8 && buf.subarray(0, 8).equals(PNG_SIG)) {
     return { mime: "image/png", ...readPng(buf) };
   }
-  if (
-    buf.length >= 3 &&
-    buf[0] === 0xff &&
-    buf[1] === 0xd8 &&
-    buf[2] === 0xff
-  ) {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
     return { mime: "image/jpeg", ...readJpeg(buf) };
   }
   if (
@@ -199,11 +186,7 @@ export function validateImage(
     reject("image is empty", "empty_image");
   }
   if (buf.length > limits.maxBytes) {
-    throw new ApiError(
-      400,
-      `image exceeds ${limits.maxBytes} bytes`,
-      "image_too_large",
-    );
+    throw new ApiError(400, `image exceeds ${limits.maxBytes} bytes`, "image_too_large");
   }
   if (looksLikeHtmlOrSvg(buf)) {
     reject("SVG and HTML images are not allowed");
@@ -215,10 +198,7 @@ export function validateImage(
     width < limits.minDim ||
     height < limits.minDim
   ) {
-    reject(
-      `image must be at least ${limits.minDim}x${limits.minDim}`,
-      "invalid_image_dimensions",
-    );
+    reject(`image must be at least ${limits.minDim}x${limits.minDim}`, "invalid_image_dimensions");
   }
   if (width > limits.maxWidth || height > limits.maxHeight) {
     reject(

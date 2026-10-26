@@ -1,5 +1,5 @@
-import { type TreeNode } from '../types';
-import { scoreFuzzyMatch } from './fuzzySearch';
+import { type TreeNode } from "../types";
+import { scoreFuzzyMatch } from "./fuzzySearch";
 
 export const MAX_QUICK_OPEN_RESULTS = 80;
 
@@ -16,16 +16,16 @@ export interface IndexedFile {
 export function buildFileIndex(tree: TreeNode[]): IndexedFile[] {
   const index: IndexedFile[] = [];
 
-  function traverse(nodes: TreeNode[], parentPath = '') {
+  function traverse(nodes: TreeNode[], parentPath = "") {
     for (const node of nodes) {
       const currentPath = node.path || (parentPath ? `${parentPath}/${node.name}` : node.name);
-      if (node.type === 'dir' && node.children) {
+      if (node.type === "dir" && node.children) {
         traverse(node.children, currentPath);
-      } else if (node.type === 'file') {
-        const parts = currentPath.split('/');
+      } else if (node.type === "file") {
+        const parts = currentPath.split("/");
         const filename = parts.pop() || currentPath;
-        const directory = parts.join('/');
-        const ext = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() || '' : '';
+        const directory = parts.join("/");
+        const ext = filename.includes(".") ? filename.split(".").pop()?.toLowerCase() || "" : "";
 
         index.push({
           path: currentPath,
@@ -52,7 +52,7 @@ export function buildFileIndex(tree: TreeNode[]): IndexedFile[] {
 export function searchFileIndex(
   index: IndexedFile[],
   query: string,
-  recentPaths: string[] = []
+  recentPaths: string[] = [],
 ): IndexedFile[] {
   if (!query || !query.trim()) {
     // When query is empty, return recent files first, then the rest
@@ -94,7 +94,8 @@ export function searchFileIndex(
     }
     // 3. Filename substring match
     else if (filenameLower.includes(cleanQuery)) {
-      score = 1500 + (cleanQuery.length / file.filename.length) * 100 - filenameLower.indexOf(cleanQuery);
+      score =
+        1500 + (cleanQuery.length / file.filename.length) * 100 - filenameLower.indexOf(cleanQuery);
     }
     // 4. Path substring match
     else if (pathLower.includes(cleanQuery)) {

@@ -43,9 +43,7 @@ describe("detectLanguage edge cases", () => {
 
   it("respects activeFile extension over markers", () => {
     // activeFile is .ts → TypeScript, even though package.json exists
-    expect(
-      detectLanguage(["package.json", "main.ts"], null, "main.ts")?.id,
-    ).toBe("typescript");
+    expect(detectLanguage(["package.json", "main.ts"], null, "main.ts")?.id).toBe("typescript");
   });
 
   it("falls back to extension majority when no markers match", () => {
@@ -58,9 +56,7 @@ describe("detectLanguage edge cases", () => {
 describe("resolveMainFile edge cases", () => {
   it("returns activeFile if it matches the language", () => {
     const py = detectLanguage(["main.py", "util.py"], "python")!;
-    expect(resolveMainFile(py, ["main.py", "util.py"], "main.py")).toBe(
-      "main.py",
-    );
+    expect(resolveMainFile(py, ["main.py", "util.py"], "main.py")).toBe("main.py");
   });
 
   it("prefers canonical main file when activeFile does not match", () => {
@@ -96,11 +92,7 @@ describe("runProject compile-phase cancellation wiring", () => {
     // step, not just the run step.
     const calls: any[] = [];
     vi.doMock("../src/execution/sandbox.js", () => ({
-      sandboxRun: async (
-        _projectId: string,
-        _workspaceDir: string,
-        opts: any,
-      ) => {
+      sandboxRun: async (_projectId: string, _workspaceDir: string, opts: any) => {
         calls.push(opts);
         return {
           stdout: "",
@@ -122,10 +114,7 @@ describe("runProject compile-phase cancellation wiring", () => {
     const cfg = makeTestConfig();
     const ws = mkdtempSync(join(tmpdir(), "pipeline-cancel-test-"));
     try {
-      writeFileSync(
-        join(ws, "main.c"),
-        '#include <stdio.h>\nint main(){printf("hi");return 0;}\n',
-      );
+      writeFileSync(join(ws, "main.c"), '#include <stdio.h>\nint main(){printf("hi");return 0;}\n');
 
       const onController = vi.fn();
       await runProject(cfg, "test-project", ws, {
@@ -198,10 +187,7 @@ describe("M5a: execution hot path uses async Docker checks, not blocking execSyn
       writeFileSync(join(ws, "main.py"), "print('hi')\n");
       const result = await runProject(cfg, "test-project", ws, { userId: 1 });
       expect(result.type).toBe("success");
-      expect(asyncCalls).toEqual([
-        "isDockerRunningAsync",
-        "isRunnerImageAvailableAsync",
-      ]);
+      expect(asyncCalls).toEqual(["isDockerRunningAsync", "isRunnerImageAvailableAsync"]);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

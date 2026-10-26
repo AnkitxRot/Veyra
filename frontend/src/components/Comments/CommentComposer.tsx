@@ -49,9 +49,7 @@ export default function CommentComposer({
   const suggestions = useMemo(() => {
     if (activeToken == null) return [];
     const q = activeToken.toLowerCase();
-    return members
-      .filter((mem) => mem.username.toLowerCase().startsWith(q))
-      .slice(0, 6);
+    return members.filter((mem) => mem.username.toLowerCase().startsWith(q)).slice(0, 6);
   }, [activeToken, members]);
 
   const update = (v: string) => {
@@ -71,9 +69,7 @@ export default function CommentComposer({
     const re = /@(\w+)/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(body)) !== null) {
-      const found = members.find(
-        (mem) => mem.username.toLowerCase() === m![1]!.toLowerCase(),
-      );
+      const found = members.find((mem) => mem.username.toLowerCase() === m![1]!.toLowerCase());
       if (found) ids.add(found.userId);
     }
     return [...ids];
@@ -132,9 +128,7 @@ export default function CommentComposer({
               role="option"
               aria-selected={i === menuIndex}
               className={
-                i === menuIndex
-                  ? "comment-mention-item is-active"
-                  : "comment-mention-item"
+                i === menuIndex ? "comment-mention-item is-active" : "comment-mention-item"
               }
               onMouseDown={(e) => {
                 e.preventDefault();

@@ -17,11 +17,7 @@ import {
   type RawBackupEntry,
 } from "./shared.js";
 
-export {
-  BACKUP_FILENAME_RE,
-  generateBackupFilename,
-  verifyDatabaseBackupIntegrity,
-};
+export { BACKUP_FILENAME_RE, generateBackupFilename, verifyDatabaseBackupIntegrity };
 
 export interface BackupMetadata {
   filename: string;
@@ -42,11 +38,7 @@ export interface BackupMetadata {
  */
 async function withBackupLock<T>(cfg: AppConfig, fn: () => T): Promise<T> {
   try {
-    return await withBackupLockAsync(
-      cfg.backupDir,
-      { staleMs: cfg.backupLockStaleMs },
-      fn,
-    );
+    return await withBackupLockAsync(cfg.backupDir, { staleMs: cfg.backupLockStaleMs }, fn);
   } catch (err: any) {
     if (err instanceof BackupLockTimeoutError) {
       throw new ApiError(503, err.message, "backup_lock_timeout");
@@ -129,11 +121,7 @@ export async function createDatabaseBackup(
     const backupPath = join(cfg.backupDir, filename);
 
     if (existsSync(backupPath)) {
-      throw new ApiError(
-        409,
-        "Backup destination collision",
-        "backup_collision",
-      );
+      throw new ApiError(409, "Backup destination collision", "backup_collision");
     }
 
     try {
@@ -143,11 +131,7 @@ export async function createDatabaseBackup(
       try {
         rmSync(backupPath, { force: true });
       } catch {}
-      throw new ApiError(
-        500,
-        `Database backup failed: ${err.message}`,
-        "backup_failed",
-      );
+      throw new ApiError(500, `Database backup failed: ${err.message}`, "backup_failed");
     }
 
     secureBackupFilePermissions(backupPath);
@@ -172,11 +156,7 @@ export async function createDatabaseBackup(
     // calling the lock-free prune primitive directly here (instead of the
     // locking `pruneDatabaseBackups` export) avoids self-deadlocking on a
     // lock we already hold.
-    pruneBackupFilesSync(
-      cfg.backupDir,
-      cfg.maxDatabaseBackups,
-      cfg.maxBackupBytes,
-    );
+    pruneBackupFilesSync(cfg.backupDir, cfg.maxDatabaseBackups, cfg.maxBackupBytes);
 
     recordAuditLog(db, {
       userId: options?.actorUserId,
@@ -221,11 +201,7 @@ export async function deleteDatabaseBackup(
     try {
       rmSync(filePath, { force: true });
     } catch (err: any) {
-      throw new ApiError(
-        500,
-        `Failed to delete backup: ${err.message}`,
-        "delete_failed",
-      );
+      throw new ApiError(500, `Failed to delete backup: ${err.message}`, "delete_failed");
     }
 
     recordAuditLog(db, {

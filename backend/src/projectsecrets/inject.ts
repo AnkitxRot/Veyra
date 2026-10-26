@@ -101,15 +101,7 @@ export async function writeContainerSecretsFile(
     path,
     cleanup: async () => {
       try {
-        await execFileAsync("docker", [
-          "exec",
-          "--user",
-          "ide",
-          containerId,
-          "rm",
-          "-f",
-          path,
-        ]);
+        await execFileAsync("docker", ["exec", "--user", "ide", containerId, "rm", "-f", path]);
       } catch {
         // The /run tmpfs is wiped when the container is removed.
       }

@@ -4,10 +4,7 @@ import { ApiError } from "../errors.js";
 import type { AppConfig } from "../config.js";
 import { projectDir } from "../projects/service.js";
 import { firstRedactedLine } from "./redact.js";
-import {
-  containsAsciiControlChars,
-  sanitizeRemoteUrlForClient,
-} from "./remoteUrl.js";
+import { containsAsciiControlChars, sanitizeRemoteUrlForClient } from "./remoteUrl.js";
 import {
   assertGitProjectId,
   runSandboxGit,
@@ -65,11 +62,7 @@ export function mapGitError(err: any, secrets: string[] = []): ApiError {
       raw,
     )
   ) {
-    return new ApiError(
-      409,
-      "local changes would be overwritten",
-      "checkout_conflict",
-    );
+    return new ApiError(409, "local changes would be overwritten", "checkout_conflict");
   }
   if (/not fully merged/i.test(raw)) {
     return new ApiError(409, "branch is not fully merged", "branch_not_merged");
@@ -100,10 +93,7 @@ export interface RunGitOpts {
 
 /** Test-only: drain argv of every Git process M87 started (sandbox + host). */
 export function _takeCapturedGitArgvForTests(): string[][] {
-  return [
-    ..._takeCapturedSandboxGitArgvForTests(),
-    ..._takeCapturedTransportArgvForTests(),
-  ];
+  return [..._takeCapturedSandboxGitArgvForTests(), ..._takeCapturedTransportArgvForTests()];
 }
 
 /** Run Git in the project's sandbox. Non-zero exits throw unless allowed. */
@@ -164,23 +154,16 @@ async function assertValidBranchName(
   projectId: string,
   name: unknown,
 ): Promise<string> {
-  if (
-    typeof name !== "string" ||
-    name.length === 0 ||
-    name.length > MAX_BRANCH_NAME
-  ) {
+  if (typeof name !== "string" || name.length === 0 || name.length > MAX_BRANCH_NAME) {
     throw new ApiError(400, "invalid branch name", "invalid_branch_name");
   }
   if (containsAsciiControlChars(name) || name.startsWith("-")) {
     throw new ApiError(400, "invalid branch name", "invalid_branch_name");
   }
   // Git's own grammar is the authoritative check.
-  const res = await runGit(
-    cfg,
-    projectId,
-    ["check-ref-format", "--branch", name],
-    { allowNonZero: true },
-  );
+  const res = await runGit(cfg, projectId, ["check-ref-format", "--branch", name], {
+    allowNonZero: true,
+  });
   if (res.code !== 0 || res.stdout.trim() !== name) {
     throw new ApiError(400, "invalid branch name", "invalid_branch_name");
   }
@@ -273,10 +256,7 @@ export interface GitBranch {
  * directory. `lstat` never follows a sandbox-planted symlink, and a gitfile
  * (`.git` as a file pointing elsewhere) is not a Veyra repository.
  */
-export async function isRepository(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<boolean> {
+export async function isRepository(cfg: AppConfig, projectId: string): Promise<boolean> {
   assertGitProjectId(projectId);
   try {
     const st = await fs.lstat(join(projectDir(cfg, projectId), ".git"));
@@ -304,11 +284,7 @@ export async function initRepository(
 
   const { username } = user;
   await runGit(cfg, projectId, ["config", "user.name", username]);
-  await runGit(cfg, projectId, [
-    "config",
-    "user.email",
-    `${username}@veyra.local`,
-  ]);
+  await runGit(cfg, projectId, ["config", "user.email", `${username}@veyra.local`]);
 
   const branch = (await getCurrentBranch(cfg, projectId)).branch ?? "main";
   return { initialized: true, alreadyRepo: false, branch };
@@ -318,12 +294,9 @@ export async function getCurrentBranch(
   cfg: AppConfig,
   projectId: string,
 ): Promise<{ branch: string | null; detached: boolean }> {
-  const res = await runGit(
-    cfg,
-    projectId,
-    ["symbolic-ref", "--quiet", "--short", "HEAD"],
-    { allowNonZero: true },
-  );
+  const res = await runGit(cfg, projectId, ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+    allowNonZero: true,
+  });
   if (res.code === 0) {
     return { branch: res.stdout.trim() || null, detached: false };
   }
@@ -339,12 +312,9 @@ export async function getCurrentBranch(
 }
 
 export async function hasCommits(cfg: AppConfig, projectId: string): Promise<boolean> {
-  const res = await runGit(
-    cfg,
-    projectId,
-    ["rev-parse", "--verify", "--quiet", "HEAD"],
-    { allowNonZero: true },
-  );
+  const res = await runGit(cfg, projectId, ["rev-parse", "--verify", "--quiet", "HEAD"], {
+    allowNonZero: true,
+  });
   return res.code === 0;
 }
 
@@ -359,20 +329,13 @@ function classifyEntry(
   const untracked = index === "?";
   const base = { path, index, worktree, untracked };
   const staged: GitFileEntry | null =
-    !untracked && index !== " "
-      ? { ...base, staged: true, unstaged: false }
-      : null;
+    !untracked && index !== " " ? { ...base, staged: true, unstaged: false } : null;
   const unstaged: GitFileEntry | null =
-    untracked || worktree !== " "
-      ? { ...base, staged: false, unstaged: true }
-      : null;
+    untracked || worktree !== " " ? { ...base, staged: false, unstaged: true } : null;
   return { staged, unstaged };
 }
 
-export async function getStatus(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<GitStatus> {
+export async function getStatus(cfg: AppConfig, projectId: string): Promise<GitStatus> {
   if (!(await isRepository(cfg, projectId))) {
     return {
       initialized: false,
@@ -407,12 +370,7 @@ export async function getStatus(
     const worktree = rec[1]!;
     let path = rec.slice(3);
     let origPath: string | undefined;
-    if (
-      index === "R" ||
-      index === "C" ||
-      worktree === "R" ||
-      worktree === "C"
-    ) {
+    if (index === "R" || index === "C" || worktree === "R" || worktree === "C") {
       // Rename/copy: the ORIGINAL path is the next NUL-delimited token.
       origPath = tokens[i + 1] ?? undefined;
       i++;
@@ -441,10 +399,7 @@ export async function getStatus(
   };
 }
 
-async function readOriginRemote(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<GitRemoteInfo | null> {
+async function readOriginRemote(cfg: AppConfig, projectId: string): Promise<GitRemoteInfo | null> {
   const rem = await runGit(cfg, projectId, ["remote", "get-url", "origin"], {
     allowNonZero: true,
   });
@@ -501,25 +456,14 @@ export async function getFileDiff(
   // An untracked file is invisible to `git diff` — show its full content as
   // an addition (matching how editors present a brand-new file).
   if (!staged) {
-    const tracked = await runGit(
-      cfg,
-      projectId,
-      ["ls-files", "--error-unmatch", "--", path],
-      { allowNonZero: true },
-    );
+    const tracked = await runGit(cfg, projectId, ["ls-files", "--error-unmatch", "--", path], {
+      allowNonZero: true,
+    });
     if (tracked.code !== 0) {
       const res = await runGit(
         cfg,
         projectId,
-        [
-          "diff",
-          "--no-color",
-          "-U3",
-          "--no-index",
-          "--",
-          "/dev/null",
-          path,
-        ],
+        ["diff", "--no-color", "-U3", "--no-index", "--", "/dev/null", path],
         { allowNonZero: true },
       );
       const parsed = parseUnifiedDiff(path, false, res.stdout);
@@ -535,11 +479,7 @@ export async function getFileDiff(
   return parseUnifiedDiff(path, staged, res.stdout);
 }
 
-function parseUnifiedDiff(
-  path: string,
-  staged: boolean,
-  raw: string,
-): GitFileDiff {
+function parseUnifiedDiff(path: string, staged: boolean, raw: string): GitFileDiff {
   const lines = raw.split("\n");
   const hunks: GitDiffHunk[] = [];
   let binary = false;
@@ -552,10 +492,7 @@ function parseUnifiedDiff(
   let emitted = 0;
 
   for (const line of lines) {
-    if (
-      line.startsWith("Binary files ") ||
-      line.startsWith("GIT binary patch")
-    ) {
+    if (line.startsWith("Binary files ") || line.startsWith("GIT binary patch")) {
       binary = true;
       continue;
     }
@@ -667,15 +604,10 @@ export async function unstage(
     });
   } else {
     // No HEAD yet: "unstage" means remove the entry from the index entirely.
-    await runGit(
-      cfg,
-      projectId,
-      ["rm", "--cached", "-r", "-q", ...PATHSPEC_STDIN],
-      {
-        allowNonZero: true,
-        input: nulList(target),
-      },
-    );
+    await runGit(cfg, projectId, ["rm", "--cached", "-r", "-q", ...PATHSPEC_STDIN], {
+      allowNonZero: true,
+      input: nulList(target),
+    });
   }
 }
 
@@ -725,11 +657,7 @@ export async function commit(
   );
 
   const hashRes = await runGit(cfg, projectId, ["rev-parse", "HEAD"]);
-  const shortRes = await runGit(cfg, projectId, [
-    "rev-parse",
-    "--short",
-    "HEAD",
-  ]);
+  const shortRes = await runGit(cfg, projectId, ["rev-parse", "--short", "HEAD"]);
   return {
     hash: hashRes.stdout.trim(),
     shortHash: shortRes.stdout.trim(),
@@ -746,9 +674,7 @@ export async function getLog(
   const n = Math.max(
     1,
     Math.min(
-      typeof limit === "number" && Number.isFinite(limit)
-        ? Math.floor(limit)
-        : LOG_DEFAULT_LIMIT,
+      typeof limit === "number" && Number.isFinite(limit) ? Math.floor(limit) : LOG_DEFAULT_LIMIT,
       LOG_MAX_LIMIT,
     ),
   );
@@ -871,11 +797,7 @@ export async function createBranch(
   await assertRepo(cfg, projectId);
   const branchName = await assertValidBranchName(cfg, projectId, name);
   if (!(await hasCommits(cfg, projectId))) {
-    throw new ApiError(
-      400,
-      "make at least one commit before creating a branch",
-      "no_commits",
-    );
+    throw new ApiError(400, "make at least one commit before creating a branch", "no_commits");
   }
   const res = await runGit(cfg, projectId, ["branch", "--", branchName], {
     allowNonZero: true,
@@ -920,16 +842,7 @@ export async function checkoutBranch(
   // Files that differ between HEAD and the target branch — a checkout would
   // change these on disk.
   const changed = new Set(
-    (
-      await runGit(cfg, projectId, [
-        "diff",
-        "--name-only",
-        "-z",
-        "HEAD",
-        branchName,
-        "--",
-      ])
-    ).stdout
+    (await runGit(cfg, projectId, ["diff", "--name-only", "-z", "HEAD", branchName, "--"])).stdout
       .split("\0")
       .filter(Boolean)
       .map((p) => p.replace(/\\/g, "/")),
@@ -945,11 +858,7 @@ export async function checkoutBranch(
   //    orphaning the editor buffer.
   const st = await getStatus(cfg, projectId);
 
-  const blocking = collectMutationBlockingPaths(
-    [...changed],
-    st,
-    dirtyOpenPaths,
-  );
+  const blocking = collectMutationBlockingPaths([...changed], st, dirtyOpenPaths);
 
   if (blocking.length > 0) {
     return { ok: false, conflict: true, blockingPaths: blocking };
@@ -976,18 +885,11 @@ export async function deleteBranch(
   const branchName = await assertValidBranchName(cfg, projectId, name);
   const { branch: current } = await getCurrentBranch(cfg, projectId);
   if (current === branchName) {
-    throw new ApiError(
-      409,
-      "cannot delete the current branch",
-      "cannot_delete_current",
-    );
+    throw new ApiError(409, "cannot delete the current branch", "cannot_delete_current");
   }
-  const res = await runGit(
-    cfg,
-    projectId,
-    ["branch", force ? "-D" : "-d", "--", branchName],
-    { allowNonZero: true },
-  );
+  const res = await runGit(cfg, projectId, ["branch", force ? "-D" : "-d", "--", branchName], {
+    allowNonZero: true,
+  });
   if (res.code !== 0) {
     if (/not found|does not exist/i.test(res.stderr)) {
       throw new ApiError(404, "branch not found", "branch_not_found");
@@ -1037,10 +939,6 @@ export function collectMutationBlockingPaths(
 
 export async function assertRepo(cfg: AppConfig, projectId: string): Promise<void> {
   if (!(await isRepository(cfg, projectId))) {
-    throw new ApiError(
-      409,
-      "this project is not a git repository yet",
-      "not_a_repo",
-    );
+    throw new ApiError(409, "this project is not a git repository yet", "not_a_repo");
   }
 }

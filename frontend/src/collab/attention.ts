@@ -45,11 +45,7 @@ export interface AttentionEvent {
   expiresAt: number;
 }
 
-export type AttentionClearedReason =
-  | "dismissed"
-  | "expired"
-  | "acted"
-  | "author_gone";
+export type AttentionClearedReason = "dismissed" | "expired" | "acted" | "author_gone";
 
 // --- range helpers (byte-parity with the backend) --------------------------
 
@@ -57,12 +53,7 @@ function isCoord(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 5_000_000;
 }
 
-function beforeOrEqual(
-  aL: number,
-  aC: number,
-  bL: number,
-  bC: number,
-): boolean {
+function beforeOrEqual(aL: number, aC: number, bL: number, bC: number): boolean {
   return aL < bL || (aL === bL && aC <= bC);
 }
 
@@ -70,12 +61,7 @@ export function normalizeRange(v: unknown): AttentionRange | null {
   if (!v || typeof v !== "object") return null;
   const r = v as Record<string, unknown>;
   const { startLine, startColumn, endLine, endColumn } = r;
-  if (
-    !isCoord(startLine) ||
-    !isCoord(startColumn) ||
-    !isCoord(endLine) ||
-    !isCoord(endColumn)
-  ) {
+  if (!isCoord(startLine) || !isCoord(startColumn) || !isCoord(endLine) || !isCoord(endColumn)) {
     return null;
   }
   if (!beforeOrEqual(startLine, startColumn, endLine, endColumn)) return null;

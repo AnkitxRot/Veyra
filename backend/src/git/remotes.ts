@@ -56,11 +56,7 @@ export interface RemoteTarget {
   creds: RemoteOpCreds | null;
 }
 
-function mapRemoteGitError(
-  err: any,
-  secrets: string[] = [],
-  hadCreds = false,
-): ApiError {
+function mapRemoteGitError(err: any, secrets: string[] = [], hadCreds = false): ApiError {
   if (err instanceof ApiError && err.code !== "git_error") {
     if (err.message) {
       err.message = redactGitOutput(err.message, secrets);
@@ -78,15 +74,11 @@ function mapRemoteGitError(
   ) {
     return new ApiError(
       401,
-      hadCreds
-        ? "authentication with the remote failed"
-        : "this remote requires credentials",
+      hadCreds ? "authentication with the remote failed" : "this remote requires credentials",
       hadCreds ? "auth_failed" : "credentials_required",
     );
   }
-  if (
-    /repository not found|not found.*repository|remote: not found/i.test(text)
-  ) {
+  if (/repository not found|not found.*repository|remote: not found/i.test(text)) {
     return new ApiError(404, "remote repository not found", "repository_not_found");
   }
   if (
@@ -94,22 +86,10 @@ function mapRemoteGitError(
       text,
     )
   ) {
-    return new ApiError(
-      502,
-      "remote repository is unavailable",
-      "remote_unavailable",
-    );
+    return new ApiError(502, "remote repository is unavailable", "remote_unavailable");
   }
-  if (
-    /not possible to fast-forward|diverged|refusing to merge unrelated histories/i.test(
-      text,
-    )
-  ) {
-    return new ApiError(
-      409,
-      "local and remote branches have diverged",
-      "branch_diverged",
-    );
+  if (/not possible to fast-forward|diverged|refusing to merge unrelated histories/i.test(text)) {
+    return new ApiError(409, "local and remote branches have diverged", "branch_diverged");
   }
   if (/non-fast-forward|failed to push some refs|\[rejected\]/i.test(text)) {
     return new ApiError(
@@ -118,16 +98,8 @@ function mapRemoteGitError(
       "non_fast_forward",
     );
   }
-  if (
-    /would be overwritten|please commit your changes or stash|uncommitted changes/i.test(
-      text,
-    )
-  ) {
-    return new ApiError(
-      409,
-      "local changes would be overwritten",
-      "dirty_worktree",
-    );
+  if (/would be overwritten|please commit your changes or stash|uncommitted changes/i.test(text)) {
+    return new ApiError(409, "local changes would be overwritten", "dirty_worktree");
   }
   if (err instanceof ApiError) return err;
   return mapGitError(err, secrets);
@@ -135,11 +107,7 @@ function mapRemoteGitError(
 
 function remoteFailure(hadCreds: boolean): (f: RemoteFailure) => never {
   return (f) => {
-    throw mapRemoteGitError(
-      { stderr: f.stderr, message: f.stderr },
-      f.secrets,
-      hadCreds,
-    );
+    throw mapRemoteGitError({ stderr: f.stderr, message: f.stderr }, f.secrets, hadCreds);
   };
 }
 
@@ -167,10 +135,7 @@ export async function resolveRemoteTarget(
   return { url, creds: credsFor(url) };
 }
 
-export async function getOriginUrl(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<string | null> {
+export async function getOriginUrl(cfg: AppConfig, projectId: string): Promise<string | null> {
   await assertRepo(cfg, projectId);
   const rem = await runGit(cfg, projectId, ["remote", "get-url", ORIGIN], {
     allowNonZero: true,
@@ -222,11 +187,7 @@ export async function cloneIntoProject(
   const cwd = await workspacePath(cfg, projectId);
   const entries = await fs.readdir(cwd);
   if (entries.length > 0) {
-    throw new ApiError(
-      409,
-      "destination project workspace is not empty",
-      "workspace_not_empty",
-    );
+    throw new ApiError(409, "destination project workspace is not empty", "workspace_not_empty");
   }
 
   const hadCreds = Boolean(creds);
@@ -251,42 +212,25 @@ export async function cloneIntoProject(
     }
   }
 
-  await runGit(
-    cfg,
-    projectId,
-    ["init", "-q", "--shared=world", "-b", defaultBranch],
-    { noRepoEnv: true },
-  );
+  await runGit(cfg, projectId, ["init", "-q", "--shared=world", "-b", defaultBranch], {
+    noRepoEnv: true,
+  });
   if (!(await isRepository(cfg, projectId))) {
     throw new ApiError(502, "clone did not produce a git repository", "git_error");
   }
   const { username } = user;
   await runGit(cfg, projectId, ["config", "user.name", username]);
-  await runGit(cfg, projectId, [
-    "config",
-    "user.email",
-    `${username}@veyra.local`,
-  ]);
+  await runGit(cfg, projectId, ["config", "user.email", `${username}@veyra.local`]);
   await runGit(cfg, projectId, ["remote", "add", ORIGIN, "--", url]);
 
-  const tips = await transport(
-    () => deliverRemoteTracking(cfg, projectId),
-    hadCreds,
-  );
+  const tips = await transport(() => deliverRemoteTracking(cfg, projectId), hadCreds);
   if (tips.has(defaultBranch)) {
     const tracking = `${REMOTE_TRACKING_PREFIX}${defaultBranch}`;
-    await runGit(
-      cfg,
-      projectId,
-      ["checkout", "-q", "-B", defaultBranch, tracking, "--"],
-      { timeoutMs: GIT_TRANSFER_TIMEOUT_MS },
-    );
+    await runGit(cfg, projectId, ["checkout", "-q", "-B", defaultBranch, tracking, "--"], {
+      timeoutMs: GIT_TRANSFER_TIMEOUT_MS,
+    });
     await setUpstream(cfg, projectId, defaultBranch);
-    await runGit(cfg, projectId, [
-      "symbolic-ref",
-      `${REMOTE_TRACKING_PREFIX}HEAD`,
-      tracking,
-    ]);
+    await runGit(cfg, projectId, ["symbolic-ref", `${REMOTE_TRACKING_PREFIX}HEAD`, tracking]);
   }
 
   if ((await directorySize(cwd)) > cfg.maxAggregateUploadBytes) {
@@ -307,17 +251,9 @@ function cloneTooLarge(cfg: AppConfig): ApiError {
 }
 
 /** What `git push --set-upstream` and `git clone` record for a branch. */
-async function setUpstream(
-  cfg: AppConfig,
-  projectId: string,
-  branch: string,
-): Promise<void> {
+async function setUpstream(cfg: AppConfig, projectId: string, branch: string): Promise<void> {
   await runGit(cfg, projectId, ["config", `branch.${branch}.remote`, ORIGIN]);
-  await runGit(cfg, projectId, [
-    "config",
-    `branch.${branch}.merge`,
-    `refs/heads/${branch}`,
-  ]);
+  await runGit(cfg, projectId, ["config", `branch.${branch}.merge`, `refs/heads/${branch}`]);
 }
 
 async function fetchIntoProject(
@@ -327,13 +263,7 @@ async function fetchIntoProject(
 ): Promise<void> {
   const hadCreds = Boolean(target.creds);
   await transport(async () => {
-    await mirrorFetch(
-      cfg,
-      projectId,
-      target.url,
-      target.creds,
-      remoteFailure(hadCreds),
-    );
+    await mirrorFetch(cfg, projectId, target.url, target.creds, remoteFailure(hadCreds));
     await deliverRemoteTracking(cfg, projectId);
   }, hadCreds);
 }
@@ -372,28 +302,17 @@ export async function previewPull(
   const url = target.url;
   const { branch, detached } = await getCurrentBranch(cfg, projectId);
   if (detached || !branch) {
-    throw new ApiError(
-      409,
-      "cannot pull in detached HEAD state",
-      "detached_head",
-    );
+    throw new ApiError(409, "cannot pull in detached HEAD state", "detached_head");
   }
 
   await fetchIntoProject(cfg, projectId, target);
 
   const remoteRef = `${ORIGIN}/${branch}`;
-  const exists = await runGit(
-    cfg,
-    projectId,
-    ["rev-parse", "--verify", "--quiet", remoteRef],
-    { allowNonZero: true },
-  );
+  const exists = await runGit(cfg, projectId, ["rev-parse", "--verify", "--quiet", remoteRef], {
+    allowNonZero: true,
+  });
   if (exists.code !== 0) {
-    throw new ApiError(
-      409,
-      `no upstream branch ${remoteRef}`,
-      "no_upstream",
-    );
+    throw new ApiError(409, `no upstream branch ${remoteRef}`, "no_upstream");
   }
 
   const headIsAncestor = await runGit(
@@ -438,14 +357,7 @@ export async function previewPull(
   }
 
   const changed = (
-    await runGit(cfg, projectId, [
-      "diff",
-      "--name-only",
-      "-z",
-      "HEAD",
-      remoteRef,
-      "--",
-    ])
+    await runGit(cfg, projectId, ["diff", "--name-only", "-z", "HEAD", remoteRef, "--"])
   ).stdout
     .split("\0")
     .filter(Boolean)
@@ -472,12 +384,10 @@ export async function commitFastForwardPull(
   branch: string,
 ): Promise<void> {
   const remoteRef = `${ORIGIN}/${branch}`;
-  const res = await runGit(
-    cfg,
-    projectId,
-    ["merge", "--ff-only", "--no-stat", "--", remoteRef],
-    { allowNonZero: true, timeoutMs: GIT_TRANSFER_TIMEOUT_MS },
-  );
+  const res = await runGit(cfg, projectId, ["merge", "--ff-only", "--no-stat", "--", remoteRef], {
+    allowNonZero: true,
+    timeoutMs: GIT_TRANSFER_TIMEOUT_MS,
+  });
   if (res.code !== 0) {
     throw mapRemoteGitError({ stderr: res.stderr });
   }
@@ -491,11 +401,7 @@ export async function pushCurrentBranch(
   await assertRepo(cfg, projectId);
   const { branch, detached } = await getCurrentBranch(cfg, projectId);
   if (detached || !branch) {
-    throw new ApiError(
-      409,
-      "cannot push in detached HEAD state",
-      "detached_head",
-    );
+    throw new ApiError(409, "cannot push in detached HEAD state", "detached_head");
   }
   const hadCreds = Boolean(target.creds);
   await transport(async () => {
@@ -514,38 +420,19 @@ export async function pushCurrentBranch(
       throw new ApiError(400, "repository has no commits yet", "no_commits");
     }
     await importCommitFromSandbox(cfg, projectId, sha);
-    await mirrorPush(
-      cfg,
-      projectId,
-      target.url,
-      target.creds,
-      sha,
-      name,
-      remoteFailure(hadCreds),
-    );
-    await runGit(cfg, projectId, [
-      "update-ref",
-      `${REMOTE_TRACKING_PREFIX}${name}`,
-      sha,
-    ]);
+    await mirrorPush(cfg, projectId, target.url, target.creds, sha, name, remoteFailure(hadCreds));
+    await runGit(cfg, projectId, ["update-ref", `${REMOTE_TRACKING_PREFIX}${name}`, sha]);
     await setUpstream(cfg, projectId, name);
   }, hadCreds);
   return { ok: true, branch, remote: target.url };
 }
 
-export async function requireOriginUrl(
-  cfg: AppConfig,
-  projectId: string,
-): Promise<string> {
+export async function requireOriginUrl(cfg: AppConfig, projectId: string): Promise<string> {
   const rem = await runGit(cfg, projectId, ["remote", "get-url", ORIGIN], {
     allowNonZero: true,
   });
   if (rem.code !== 0 || !rem.stdout.trim()) {
-    throw new ApiError(
-      409,
-      "no HTTPS remote is configured (origin)",
-      "no_remote",
-    );
+    throw new ApiError(409, "no HTTPS remote is configured (origin)", "no_remote");
   }
   const raw = rem.stdout.trim();
   // Re-validate so a terminal-set ssh/file remote cannot be used.
@@ -559,11 +446,7 @@ export async function requireOriginUrl(
         "credential_bearing_url",
       );
     }
-    throw new ApiError(
-      409,
-      "origin is not a valid HTTPS remote",
-      "invalid_remote_url",
-    );
+    throw new ApiError(409, "origin is not a valid HTTPS remote", "invalid_remote_url");
   }
 }
 
@@ -592,9 +475,6 @@ async function directorySize(dir: string): Promise<number> {
 }
 
 /** Exported for error-path tests that inspect redaction. */
-export function _redactRemoteTextForTests(
-  text: string,
-  secrets: string[],
-): string {
+export function _redactRemoteTextForTests(text: string, secrets: string[]): string {
   return firstRedactedLine(text, secrets);
 }

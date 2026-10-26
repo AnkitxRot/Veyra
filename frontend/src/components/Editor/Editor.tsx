@@ -68,18 +68,11 @@ export function getLiveContent(path: string): string | null {
 export function applyLiveContent(path: string, content: string): boolean {
   const model = liveModels.get(normalizeModelKey(path));
   if (!model || model.isDisposed()) return false;
-  model.pushEditOperations(
-    [],
-    [{ range: model.getFullModelRange(), text: content }],
-    () => null,
-  );
+  model.pushEditOperations([], [{ range: model.getFullModelRange(), text: content }], () => null);
   return true;
 }
 
-function registerLiveModel(
-  path: string,
-  model: monaco.editor.ITextModel,
-): void {
+function registerLiveModel(path: string, model: monaco.editor.ITextModel): void {
   liveModels.set(normalizeModelKey(path), model);
 }
 
@@ -199,9 +192,7 @@ export default function Editor({
   // M69: Monaco built-in theme id for the resolved appearance. Kept in a ref
   // so the mount-time create() closure reads the current value; a later
   // change is applied in place by the effect below (never a remount).
-  const monacoThemeRef = useRef(
-    resolvedTheme === "light" ? "vs" : "vs-dark",
-  );
+  const monacoThemeRef = useRef(resolvedTheme === "light" ? "vs" : "vs-dark");
   monacoThemeRef.current = resolvedTheme === "light" ? "vs" : "vs-dark";
   // M70: the resolved save chord + the live Monaco save action's disposable.
   const saveChordRef = useRef(saveChord);
@@ -222,15 +213,10 @@ export default function Editor({
     anchorLeft: number;
     range: AttentionRange;
   } | null>(null);
-  const attnDecorationsRef =
-    useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
-  const calloutWidgetsRef = useRef<Map<string, monaco.editor.IContentWidget>>(
-    new Map(),
-  );
+  const attnDecorationsRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  const calloutWidgetsRef = useRef<Map<string, monaco.editor.IContentWidget>>(new Map());
   // M59: clickable point chips (parity with callout bubbles, for navigation).
-  const pointWidgetsRef = useRef<Map<string, monaco.editor.IContentWidget>>(
-    new Map(),
-  );
+  const pointWidgetsRef = useRef<Map<string, monaco.editor.IContentWidget>>(new Map());
   // M59: a pending "restore this view state once the right model is active".
   const restorePendingRef = useRef<{
     filePath: string;
@@ -272,10 +258,11 @@ export default function Editor({
   // (rangesOverlap of the active selections). Never a lock, never a semantic
   // conflict claim.
   const spatialCollaborators = React.useMemo(() => {
-    if (!activeFile) return [] as {
-      collaborator: CollaboratorPresence;
-      tier: "nearby" | "overlapping";
-    }[];
+    if (!activeFile)
+      return [] as {
+        collaborator: CollaboratorPresence;
+        tier: "nearby" | "overlapping";
+      }[];
     const out: {
       collaborator: CollaboratorPresence;
       tier: "nearby" | "overlapping";
@@ -304,22 +291,15 @@ export default function Editor({
       if (!theirs) continue;
       if (rangesOverlap(localSelection, theirs)) {
         out.push({ collaborator: cbr, tier: "overlapping" });
-      } else if (
-        Math.abs(theirs.startLine - localSelection.startLine) <=
-        RANGE_NEAR_LINES
-      ) {
+      } else if (Math.abs(theirs.startLine - localSelection.startLine) <= RANGE_NEAR_LINES) {
         out.push({ collaborator: cbr, tier: "nearby" });
       }
     }
     return out;
   }, [activeFile, collaborators, currentUserId, localSelection]);
 
-  const overlappingCollaborators = spatialCollaborators.filter(
-    (s) => s.tier === "overlapping",
-  );
-  const nearbyCollaborators = spatialCollaborators.filter(
-    (s) => s.tier === "nearby",
-  );
+  const overlappingCollaborators = spatialCollaborators.filter((s) => s.tier === "overlapping");
+  const nearbyCollaborators = spatialCollaborators.filter((s) => s.tier === "nearby");
 
   // M57: everyone whose focused file IS this file (distinct from the
   // within-5-lines proximity warning above — this is "who else is in here at
@@ -327,8 +307,8 @@ export default function Editor({
   const sameFileCollaborators = React.useMemo(() => {
     if (!activeFile) return [];
     const seen = new Set<number>();
-    return collaboratorsInFile(collaborators ?? [], activeFile, currentUserId).filter(
-      (c) => (seen.has(c.userId) ? false : (seen.add(c.userId), true)),
+    return collaboratorsInFile(collaborators ?? [], activeFile, currentUserId).filter((c) =>
+      seen.has(c.userId) ? false : (seen.add(c.userId), true),
     );
   }, [activeFile, collaborators, currentUserId]);
 
@@ -430,9 +410,7 @@ export default function Editor({
             return {
               filePath: activeFileRef.current,
               viewState: ed.saveViewState?.() ?? null,
-              cursor: pos
-                ? { line: pos.lineNumber, column: pos.column }
-                : null,
+              cursor: pos ? { line: pos.lineNumber, column: pos.column } : null,
             };
           },
           restore: (filePath, viewState) => {
@@ -442,9 +420,7 @@ export default function Editor({
             const active = m ? normalizeModelKey(m.uri.path) : null;
             if (active !== filePath) return false;
             try {
-              ed.restoreViewState?.(
-                viewState as monaco.editor.ICodeEditorViewState,
-              );
+              ed.restoreViewState?.(viewState as monaco.editor.ICodeEditorViewState);
               ed.focus?.();
               return true;
             } catch {
@@ -456,10 +432,7 @@ export default function Editor({
 
       monacoRef.current.onDidChangeCursorPosition((e) => {
         if (collabClientRef.current) {
-          collabClientRef.current.updateCursorPosition(
-            e.position.lineNumber,
-            e.position.column,
-          );
+          collabClientRef.current.updateCursorPosition(e.position.lineNumber, e.position.column);
         }
       });
 
@@ -506,9 +479,7 @@ export default function Editor({
         setOpenFiles((prev: any) => {
           const currentFile = prev.find((f: any) => f.path === currentPath);
           if (currentFile && !currentFile.dirty) {
-            return prev.map((f: any) =>
-              f.path === currentPath ? { ...f, dirty: true } : f,
-            );
+            return prev.map((f: any) => (f.path === currentPath ? { ...f, dirty: true } : f));
           }
           return prev;
         });
@@ -530,9 +501,7 @@ export default function Editor({
         contextMenuOrder: 1,
         run: (ed) => {
           const sel = ed.getSelection();
-          const selectedText = sel
-            ? ed.getModel()?.getValueInRange(sel)
-            : undefined;
+          const selectedText = sel ? ed.getModel()?.getValueInRange(sel) : undefined;
           document.dispatchEvent(
             new CustomEvent("ide-ai-action", {
               detail: {
@@ -560,9 +529,7 @@ export default function Editor({
         contextMenuOrder: 2,
         run: (ed) => {
           const sel = ed.getSelection();
-          const selectedText = sel
-            ? ed.getModel()?.getValueInRange(sel)
-            : undefined;
+          const selectedText = sel ? ed.getModel()?.getValueInRange(sel) : undefined;
           document.dispatchEvent(
             new CustomEvent("ide-ai-action", {
               detail: {
@@ -599,9 +566,7 @@ export default function Editor({
         contextMenuOrder: 4,
         run: (ed) => {
           const sel = ed.getSelection();
-          const selectedText = sel
-            ? ed.getModel()?.getValueInRange(sel)
-            : undefined;
+          const selectedText = sel ? ed.getModel()?.getValueInRange(sel) : undefined;
           document.dispatchEvent(
             new CustomEvent("ide-ai-action", {
               detail: {
@@ -620,9 +585,7 @@ export default function Editor({
         !isReadOnlyRef.current &&
         collabClientRef.current?.status === "connected";
 
-      const rangeFromSelection = (
-        sel: monaco.Selection | null,
-      ): AttentionRange => ({
+      const rangeFromSelection = (sel: monaco.Selection | null): AttentionRange => ({
         startLine: sel?.startLineNumber ?? 1,
         startColumn: sel?.startColumn ?? 1,
         endLine: sel?.endLineNumber ?? 1,
@@ -635,7 +598,7 @@ export default function Editor({
       ): { top: number; left: number } => {
         const pos = sel
           ? { lineNumber: sel.startLineNumber, column: sel.startColumn }
-          : ed.getPosition() ?? { lineNumber: 1, column: 1 };
+          : (ed.getPosition() ?? { lineNumber: 1, column: 1 });
         const vp = ed.getScrolledVisiblePosition(pos);
         return { top: (vp?.top ?? 40) + 4, left: (vp?.left ?? 40) + 8 };
       };
@@ -795,11 +758,7 @@ export default function Editor({
       let didSetValue = false;
 
       if (!model) {
-        model = monaco.editor.createModel(
-          activeFileData.content || "",
-          langInfo.monacoId,
-          uri,
-        );
+        model = monaco.editor.createModel(activeFileData.content || "", langInfo.monacoId, uri);
         // Force LF regardless of platform/content-detection: when the initial
         // value is still empty (a real race — this effect can run before the
         // REST fetch or the collab Y.Text seed resolves), Monaco falls back to
@@ -821,11 +780,7 @@ export default function Editor({
         // active, non-dirty file. Always evaluated because it is a cheap
         // comparison, and it never fires for local keystrokes, which set
         // `dirty: true` in the same update.
-        if (
-          !collabClient &&
-          model.getValue() !== activeFileData.content &&
-          !activeFileData.dirty
-        ) {
+        if (!collabClient && model.getValue() !== activeFileData.content && !activeFileData.dirty) {
           model.setValue(activeFileData.content || "");
           didSetValue = true;
         }
@@ -850,12 +805,7 @@ export default function Editor({
       if (needsFullSetup) {
         // Attach y-monaco collaborative binding
         if (collabClient && model) {
-          collabClient.bindMonacoModel(
-            activeFile,
-            model,
-            monacoRef.current,
-            isReadOnly,
-          );
+          collabClient.bindMonacoModel(activeFile, model, monacoRef.current, isReadOnly);
           // M57: a real tab/active-file switch (not first mount, not a
           // collab-state change) is an observable navigation.
           if (lastKey && lastKey.activeFile !== activeFile) {
@@ -895,9 +845,7 @@ export default function Editor({
     let restored = false;
     if (pending.viewState != null) {
       try {
-        ed.restoreViewState?.(
-          pending.viewState as monaco.editor.ICodeEditorViewState,
-        );
+        ed.restoreViewState?.(pending.viewState as monaco.editor.ICodeEditorViewState);
         restored = true;
       } catch {
         restored = false;
@@ -935,8 +883,7 @@ export default function Editor({
       tryConsumeRestoreRef.current();
     };
     document.addEventListener("ide-restore-view-state", onRestore);
-    return () =>
-      document.removeEventListener("ide-restore-view-state", onRestore);
+    return () => document.removeEventListener("ide-restore-view-state", onRestore);
   }, []);
 
   // Synchronize Monaco Error Markers with Diagnostics
@@ -944,9 +891,7 @@ export default function Editor({
     const allModels = monaco.editor.getModels();
 
     for (const model of allModels) {
-      const normPath = model.uri.path.startsWith("/")
-        ? model.uri.path.slice(1)
-        : model.uri.path;
+      const normPath = model.uri.path.startsWith("/") ? model.uri.path.slice(1) : model.uri.path;
 
       const fileDiagnostics = diagnostics.filter(
         (d) => d.filePath === normPath || d.filePath === model.uri.path,
@@ -1002,8 +947,7 @@ export default function Editor({
     };
 
     document.addEventListener("ide-reveal-location", handleReveal);
-    return () =>
-      document.removeEventListener("ide-reveal-location", handleReveal);
+    return () => document.removeEventListener("ide-reveal-location", handleReveal);
   }, [setActiveFile]);
 
   // Clean up models for closed files
@@ -1017,9 +961,7 @@ export default function Editor({
     const openPaths = new Set(openFiles.map((f: any) => f.path));
     const allModels = monaco.editor.getModels();
     for (const model of allModels) {
-      const normPath = model.uri.path.startsWith("/")
-        ? model.uri.path.slice(1)
-        : model.uri.path;
+      const normPath = model.uri.path.startsWith("/") ? model.uri.path.slice(1) : model.uri.path;
       if (!openPaths.has(normPath) && !openPaths.has(model.uri.path)) {
         liveModels.delete(normPath);
         model.dispose();
@@ -1038,9 +980,7 @@ export default function Editor({
     }
 
     const relevant = attention.filter(
-      (e) =>
-        e.file === activeFile &&
-        (e.kind === "point" || e.kind === "callout"),
+      (e) => e.file === activeFile && (e.kind === "point" || e.kind === "callout"),
     );
 
     const decos: monaco.editor.IModelDeltaDecoration[] = relevant.map((e) => {
@@ -1053,9 +993,7 @@ export default function Editor({
           isPoint ? e.range.startColumn : e.range.endColumn,
         ),
         options: {
-          className: isPoint
-            ? "attention-point-line"
-            : "attention-callout-range",
+          className: isPoint ? "attention-point-line" : "attention-callout-range",
           glyphMarginClassName: isPoint ? "attention-point-glyph" : undefined,
           isWholeLine: false,
           // M59: the "👉 name" text now lives in a clickable point chip widget
@@ -1087,9 +1025,7 @@ export default function Editor({
       // (navigate + end any different follow). Button clicks are excluded.
       dom.onclick = (ev) => {
         if ((ev.target as HTMLElement)?.closest("button")) return;
-        document.dispatchEvent(
-          new CustomEvent("ide-attention-activate", { detail: { id: e.id } }),
-        );
+        document.dispatchEvent(new CustomEvent("ide-attention-activate", { detail: { id: e.id } }));
       };
       const dot = document.createElement("span");
       dot.className = "attention-callout-dot";
@@ -1108,9 +1044,7 @@ export default function Editor({
       follow.setAttribute("aria-label", `Follow ${e.author.username}`);
       follow.onclick = (ev) => {
         ev.stopPropagation();
-        document.dispatchEvent(
-          new CustomEvent("ide-attention-follow", { detail: { id: e.id } }),
-        );
+        document.dispatchEvent(new CustomEvent("ide-attention-follow", { detail: { id: e.id } }));
       };
       const keep = document.createElement("button");
       keep.type = "button";
@@ -1171,9 +1105,7 @@ export default function Editor({
       dom.textContent = `👉 ${e.author.username}`;
       dom.setAttribute("role", "button");
       dom.onclick = () => {
-        document.dispatchEvent(
-          new CustomEvent("ide-attention-activate", { detail: { id: e.id } }),
-        );
+        document.dispatchEvent(new CustomEvent("ide-attention-activate", { detail: { id: e.id } }));
       };
       const widget: monaco.editor.IContentWidget = {
         getId: () => `attention-point-${e.id}`,
@@ -1246,9 +1178,7 @@ export default function Editor({
               >
                 {getLanguageIcon(f.path, 13)}
                 <span className="tab-filename">{f.path.split("/").pop()}</span>
-                {f.dirty && (
-                  <span className="tab-dirty-indicator" title="Unsaved changes" />
-                )}
+                {f.dirty && <span className="tab-dirty-indicator" title="Unsaved changes" />}
                 {(() => {
                   const cc = commentCountsByFile?.get(f.path) ?? 0;
                   return cc > 0 ? (
@@ -1277,9 +1207,7 @@ export default function Editor({
                       />
                     ))}
                     {tabCollaborators.length > 3 && (
-                      <span className="tab-collab-count">
-                        +{tabCollaborators.length - 3}
-                      </span>
+                      <span className="tab-collab-count">+{tabCollaborators.length - 3}</span>
                     )}
                   </span>
                 )}
@@ -1287,16 +1215,10 @@ export default function Editor({
                   className="tab-close"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const newFiles = openFiles.filter(
-                      (of: any) => of.path !== f.path,
-                    );
+                    const newFiles = openFiles.filter((of: any) => of.path !== f.path);
                     setOpenFiles(newFiles);
                     if (activeFile === f.path) {
-                      setActiveFile(
-                        newFiles.length
-                          ? newFiles[newFiles.length - 1].path
-                          : null,
-                      );
+                      setActiveFile(newFiles.length ? newFiles[newFiles.length - 1].path : null);
                     }
                   }}
                   title="Close Tab"
@@ -1321,21 +1243,15 @@ export default function Editor({
             >
               <span className="spatial-dot" aria-hidden="true" />
               <span>
-                ⚠{" "}
-                {overlappingCollaborators
-                  .map((s) => displayLabel(s.collaborator))
-                  .join(", ")}{" "}
-                {overlappingCollaborators.length === 1 ? "is" : "are"} editing
-                the same lines
+                ⚠ {overlappingCollaborators.map((s) => displayLabel(s.collaborator)).join(", ")}{" "}
+                {overlappingCollaborators.length === 1 ? "is" : "are"} editing the same lines
               </span>
               {onViewCollaborator && overlappingCollaborators[0] && (
                 <button
                   type="button"
                   className="spatial-view"
                   onClick={() =>
-                    onViewCollaborator(
-                      overlappingCollaborators[0]!.collaborator.userId,
-                    )
+                    onViewCollaborator(overlappingCollaborators[0]!.collaborator.userId)
                   }
                 >
                   View {displayLabel(overlappingCollaborators[0].collaborator)}
@@ -1353,10 +1269,8 @@ export default function Editor({
             >
               <span className="spatial-dot" aria-hidden="true" />
               <span>
-                {nearbyCollaborators
-                  .map((s) => displayLabel(s.collaborator))
-                  .join(", ")}{" "}
-                editing nearby (within {RANGE_NEAR_LINES} lines)
+                {nearbyCollaborators.map((s) => displayLabel(s.collaborator)).join(", ")} editing
+                nearby (within {RANGE_NEAR_LINES} lines)
               </span>
             </div>
           ) : null}
@@ -1379,8 +1293,7 @@ export default function Editor({
                 style={{ backgroundColor: c.color }}
                 aria-hidden="true"
               />
-              {displayLabel(c)} ·{" "}
-              {c.activity?.type === "editing" ? "✏️ Editing" : "👀 Viewing"}
+              {displayLabel(c)} · {c.activity?.type === "editing" ? "✏️ Editing" : "👀 Viewing"}
             </span>
           ))}
         </div>
@@ -1396,14 +1309,9 @@ export default function Editor({
             .filter(
               (c) =>
                 c.userId !== currentUserId &&
-                (c.status === "online" ||
-                  c.status === "idle" ||
-                  c.status === "away"),
+                (c.status === "online" || c.status === "idle" || c.status === "away"),
             )
-            .filter(
-              (c, i, arr) =>
-                arr.findIndex((x) => x.userId === c.userId) === i,
-            )
+            .filter((c, i, arr) => arr.findIndex((x) => x.userId === c.userId) === i)
             .map((c) => ({
               userId: c.userId,
               name: displayLabel(c),
@@ -1416,12 +1324,7 @@ export default function Editor({
               if (composer.mode === "callout") {
                 client.sendAttentionCallout(file, composer.range, message);
               } else if (targetUserId != null) {
-                client.sendAttentionRequest(
-                  targetUserId,
-                  file,
-                  composer.range,
-                  message,
-                );
+                client.sendAttentionRequest(targetUserId, file, composer.range, message);
               }
             }
             setComposer(null);
@@ -1462,9 +1365,7 @@ export default function Editor({
             <div className="empty-state-icon">
               <IconCode size={24} />
             </div>
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "4px" }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               <h3
                 style={{
                   margin: 0,
@@ -1482,8 +1383,8 @@ export default function Editor({
                   color: "var(--fg-muted)",
                 }}
               >
-                Select a file from the sidebar explorer, Quick Open (Ctrl+P), or
-                create a new file to start coding.
+                Select a file from the sidebar explorer, Quick Open (Ctrl+P), or create a new file
+                to start coding.
               </p>
             </div>
             {onCreateFile && (

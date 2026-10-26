@@ -33,9 +33,7 @@ export default function AttentionComposer({
 }: AttentionComposerProps) {
   const [message, setMessage] = useState("");
   const [targetUserId, setTargetUserId] = useState<number | null>(
-    mode === "comeLook" && collaborators.length === 1
-      ? collaborators[0]!.userId
-      : null,
+    mode === "comeLook" && collaborators.length === 1 ? collaborators[0]!.userId : null,
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -69,11 +67,7 @@ export default function AttentionComposer({
         <div className="attention-composer-picker">
           <span className="attention-composer-label">Come look — who?</span>
           {collaborators.map((cb) => (
-            <button
-              key={cb.userId}
-              type="button"
-              onClick={() => setTargetUserId(cb.userId)}
-            >
+            <button key={cb.userId} type="button" onClick={() => setTargetUserId(cb.userId)}>
               <span
                 className="attention-composer-dot"
                 style={{ background: cb.color }}

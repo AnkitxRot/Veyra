@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  screen,
-  cleanup,
-  waitFor,
-  fireEvent,
-} from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import * as React from "react";
 
 // M68 — behavioural coverage for the tree load / retry wiring. IDE.tsx itself
@@ -31,9 +25,7 @@ afterEach(cleanup);
 /** Mirrors IDE.tsx's `loadTree` + notice wiring, keyed by project id. */
 function TreeLoader({ pid }: { pid: string }) {
   const { notices, notify, dismiss, dismissKey } = useNotices();
-  const [treeStatus, setTreeStatus] = React.useState<
-    "loading" | "ready" | "error"
-  >("loading");
+  const [treeStatus, setTreeStatus] = React.useState<"loading" | "ready" | "error">("loading");
   const [tree, setTree] = React.useState<{ pid: string; files: string[] }>({
     pid: "",
     files: [],
@@ -86,10 +78,7 @@ function TreeLoader({ pid }: { pid: string }) {
       <span data-testid="tree">
         {tree.pid}:{tree.files.join(",")}
       </span>
-      <NoticeStack
-        notices={notices.filter((n) => n.surface === "stack")}
-        onDismiss={dismiss}
-      />
+      <NoticeStack notices={notices.filter((n) => n.surface === "stack")} onDismiss={dismiss} />
     </div>
   );
 }
@@ -98,42 +87,30 @@ describe("M68 tree load / retry — behaviour", () => {
   it("shows a retryable error notice when the initial load fails", async () => {
     apiMock.mockRejectedValueOnce(new Error("network"));
     render(<TreeLoader pid="p1" />);
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("error"),
-    );
-    expect(
-      screen.getByText("Couldn't load this project's files."),
-    ).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("error"));
+    expect(screen.getByText("Couldn't load this project's files.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
   it("a single Retry click fires exactly one more request and clears the error", async () => {
     apiMock.mockRejectedValueOnce(new Error("network"));
     render(<TreeLoader pid="p1" />);
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("error"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("error"));
     expect(apiMock).toHaveBeenCalledTimes(1);
 
     apiMock.mockResolvedValueOnce({ tree: ["a.py", "b.py"] });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("ready"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("ready"));
     expect(apiMock).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("tree").textContent).toBe("p1:a.py,b.py");
-    expect(
-      screen.queryByText("Couldn't load this project's files."),
-    ).toBeNull();
+    expect(screen.queryByText("Couldn't load this project's files.")).toBeNull();
   });
 
   it("rapid double Retry clicks do not overlap into two requests", async () => {
     apiMock.mockRejectedValueOnce(new Error("network"));
     render(<TreeLoader pid="p1" />);
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("error"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("error"));
 
     let resolve!: (v: { tree: string[] }) => void;
     apiMock.mockReturnValueOnce(
@@ -148,9 +125,7 @@ describe("M68 tree load / retry — behaviour", () => {
     expect(apiMock).toHaveBeenCalledTimes(2); // 1 initial + 1 retry, not 4
 
     resolve({ tree: [] });
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("ready"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("ready"));
   });
 
   it("a project switch mid-flight discards the previous project's tree", async () => {
@@ -165,9 +140,7 @@ describe("M68 tree load / retry — behaviour", () => {
     // switch to p2 before p1's fetch resolves
     apiMock.mockResolvedValueOnce({ tree: ["p2.py"] });
     rerender(<TreeLoader pid="p2" />);
-    await waitFor(() =>
-      expect(screen.getByTestId("tree").textContent).toBe("p2:p2.py"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tree").textContent).toBe("p2:p2.py"));
 
     // p1 resolves LATE — it must not overwrite p2's tree
     resolveP1({ tree: ["p1.py"] });

@@ -18,18 +18,14 @@ describe("M58 — attention navigation open-then-reveal", () => {
       calls.push("open");
     });
     const orig = document.dispatchEvent.bind(document);
-    const spy = vi
-      .spyOn(document, "dispatchEvent")
-      .mockImplementation((e: Event) => {
-        if ((e as CustomEvent).type === "ide-reveal-location") {
-          calls.push("reveal");
-        }
-        return orig(e);
-      });
+    const spy = vi.spyOn(document, "dispatchEvent").mockImplementation((e: Event) => {
+      if ((e as CustomEvent).type === "ide-reveal-location") {
+        calls.push("reveal");
+      }
+      return orig(e);
+    });
 
-    const { openAndRevealLocation } = await import(
-      "../src/utils/revealLocation"
-    );
+    const { openAndRevealLocation } = await import("../src/utils/revealLocation");
     await openAndRevealLocation(openFile, {
       filePath: "auth/session.ts",
       line: 40,
@@ -41,10 +37,7 @@ describe("M58 — attention navigation open-then-reveal", () => {
   });
 
   it("IDE.tsx routes attention navigation AND collaborator Jump through openAndRevealLocation", () => {
-    const src = readFileSync(
-      join(here, "../src/components/IDE/IDE.tsx"),
-      "utf-8",
-    );
+    const src = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
     // handleAttentionNavigate uses the primitive
     const navBlock = src.slice(
       src.indexOf("const handleAttentionNavigate"),
@@ -60,6 +53,6 @@ describe("M58 — attention navigation open-then-reveal", () => {
       src.indexOf("const handleJumpToCollaborator") + 800,
     );
     expect(jumpBlock).toContain("openAndRevealLocation(handleOpenFile");
-    expect(jumpBlock).not.toContain('setTimeout(() => {\n          document.dispatchEvent');
+    expect(jumpBlock).not.toContain("setTimeout(() => {\n          document.dispatchEvent");
   });
 });

@@ -102,7 +102,11 @@ describe("M62-5 — display identity is consistent across every collaboration su
 
     // Team panel row
     const { unmount: u2 } = render(
-      <TeamPanel {...teamProps} collaborators={[pres({ userId: 1, name: "me" }), ada]} currentUserId={1} />,
+      <TeamPanel
+        {...teamProps}
+        collaborators={[pres({ userId: 1, name: "me" }), ada]}
+        currentUserId={1}
+      />,
     );
     const teamRow = screen.getByText("Ada L.").closest(".team-row")!;
     expect(within(teamRow as HTMLElement).getByText("@ada99")).toBeTruthy();
@@ -137,7 +141,11 @@ describe("M62-5 — display identity is consistent across every collaboration su
     const ada = pres({ userId: 42, name: "ada99" }); // no displayName
 
     const { unmount: u1 } = render(
-      <TeamPanel {...teamProps} collaborators={[pres({ userId: 1, name: "me" }), ada]} currentUserId={1} />,
+      <TeamPanel
+        {...teamProps}
+        collaborators={[pres({ userId: 1, name: "me" }), ada]}
+        currentUserId={1}
+      />,
     );
     const teamRow = screen.getByText("ada99").closest(".team-row")!;
     expect(within(teamRow as HTMLElement).queryByText("@ada99")).toBeNull();
@@ -168,7 +176,11 @@ describe("M62-5 — display identity is consistent across every collaboration su
     const a = pres({ userId: 1, name: "ada99", displayName: "Ada L." });
     const b = pres({ userId: 2, name: "ada100", displayName: "Ada L." });
     render(
-      <TeamPanel {...teamProps} collaborators={[pres({ userId: 9, name: "me" }), a, b]} currentUserId={9} />,
+      <TeamPanel
+        {...teamProps}
+        collaborators={[pres({ userId: 9, name: "me" }), a, b]}
+        currentUserId={9}
+      />,
     );
     // both display "Ada L."
     expect(screen.getAllByText("Ada L.").length).toBe(2);
@@ -247,7 +259,11 @@ describe("M62-5 — display identity is consistent across every collaboration su
   it("renders a display name containing HTML as plain text (no markup sink)", () => {
     const evil = pres({ userId: 5, name: "mallory", displayName: "<img src=x onerror=alert(1)>" });
     const { container } = render(
-      <TeamPanel {...teamProps} collaborators={[pres({ userId: 1, name: "me" }), evil]} currentUserId={1} />,
+      <TeamPanel
+        {...teamProps}
+        collaborators={[pres({ userId: 1, name: "me" }), evil]}
+        currentUserId={1}
+      />,
     );
     expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
@@ -277,9 +293,7 @@ describe("M62-5 — display identity is consistent across every collaboration su
     expect(document.querySelector("img")!.getAttribute("src")).toBe(expected);
     u2();
 
-    const { unmount: u3 } = render(
-      <FollowBanner followedUser={ada} onStopFollowing={() => {}} />,
-    );
+    const { unmount: u3 } = render(<FollowBanner followedUser={ada} onStopFollowing={() => {}} />);
     expect(document.querySelector("img")!.getAttribute("src")).toBe(expected);
     u3();
 

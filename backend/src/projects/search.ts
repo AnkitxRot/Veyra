@@ -366,12 +366,7 @@ async function runContentWorker<
   signal?: AbortSignal,
 ): Promise<T> {
   const startTime = performance.now();
-  const {
-    query,
-    isRegex = false,
-    isWholeWord = false,
-    isCaseSensitive = false,
-  } = options;
+  const { query, isRegex = false, isWholeWord = false, isCaseSensitive = false } = options;
 
   const emptyResult = {
     groups: [],
@@ -391,20 +386,14 @@ async function runContentWorker<
   let patternSource: string;
   const patternFlags = isCaseSensitive ? "g" : "gi";
   try {
-    let pattern = isRegex
-      ? query
-      : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let pattern = isRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (isWholeWord) {
       pattern = `\\b${pattern}\\b`;
     }
     void new RegExp(pattern, patternFlags);
     patternSource = pattern;
   } catch (err: any) {
-    throw new ApiError(
-      400,
-      `Invalid search pattern: ${err.message}`,
-      "invalid_regex",
-    );
+    throw new ApiError(400, `Invalid search pattern: ${err.message}`, "invalid_regex");
   }
 
   return new Promise<T>((resolve, reject) => {
@@ -468,12 +457,7 @@ export async function searchProjectContent(
   options: SearchOptions,
   signal?: AbortSignal,
 ): Promise<SearchResponse> {
-  return runContentWorker<SearchResponse>(
-    workspaceDir,
-    options,
-    "search",
-    signal,
-  );
+  return runContentWorker<SearchResponse>(workspaceDir, options, "search", signal);
 }
 
 /**
@@ -491,10 +475,5 @@ export async function replaceProjectContent(
   options: ReplaceOptions,
   signal?: AbortSignal,
 ): Promise<ReplaceResponse> {
-  return runContentWorker<ReplaceResponse>(
-    workspaceDir,
-    options,
-    "replace",
-    signal,
-  );
+  return runContentWorker<ReplaceResponse>(workspaceDir, options, "replace", signal);
 }

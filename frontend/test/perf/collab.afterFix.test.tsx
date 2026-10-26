@@ -52,9 +52,7 @@ function Host({
   tree: TreeNode[];
   stabilize: boolean;
 }) {
-  const [collaborators, setCollaborators] = React.useState<
-    CollaboratorPresence[]
-  >([]);
+  const [collaborators, setCollaborators] = React.useState<CollaboratorPresence[]>([]);
   React.useEffect(() => {
     const t = throttleLatest<CollaboratorPresence[]>(setCollaborators, 200);
     emit = t;
@@ -101,13 +99,7 @@ const REPEATS = 2;
 
 beforeEach(() => {
   vi.useFakeTimers({
-    toFake: [
-      "setTimeout",
-      "clearTimeout",
-      "requestAnimationFrame",
-      "cancelAnimationFrame",
-      "Date",
-    ],
+    toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "Date"],
   });
 });
 afterEach(() => {
@@ -120,9 +112,7 @@ function runChurn(tree: TreeNode[], stabilize: boolean) {
   const recorder = new RenderRecorder();
   let view: ReturnType<typeof render>;
   act(() => {
-    view = render(
-      <Host recorder={recorder} tree={tree} stabilize={stabilize} />,
-    );
+    view = render(<Host recorder={recorder} tree={tree} stabilize={stabilize} />);
   });
   act(() => vi.advanceTimersByTime(1));
   // prime with the first real roster
