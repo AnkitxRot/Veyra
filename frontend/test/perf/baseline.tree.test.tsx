@@ -34,7 +34,7 @@ function TreeHost({
   // `bump` stands in for an unrelated IDE state change (e.g. setStats every
   // 2.5s). It is not consumed by Sidebar — a correctly-scoped Sidebar would
   // not re-render for it.
-  bump;
+  void bump;
   return (
     <Probe id="sidebar" recorder={recorder}>
       <Sidebar

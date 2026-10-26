@@ -2445,7 +2445,7 @@ export default function IDE({
             targetFile.path,
             res.formatted,
           );
-          appliedToModel;
+          void appliedToModel;
           setOpenFiles((prev) =>
             prev.map((f) =>
               f.path === targetFile.path

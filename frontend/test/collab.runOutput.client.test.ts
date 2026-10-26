@@ -157,7 +157,7 @@ describe("CollaborationClient — M65 shared run output (receive-only)", () => {
     const decoded = ws.sent.map((u8) => {
       try {
         const dec = encoding as any; // decode manually
-        dec;
+        void dec;
         return new TextDecoder().decode(u8);
       } catch {
         return "";

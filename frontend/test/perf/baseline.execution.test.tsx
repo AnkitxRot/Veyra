@@ -66,8 +66,8 @@ const project = { id: "proj-1", name: "P" };
 /** Reads ONLY controls — the hypothetical consumer the spec asks about. */
 function ControlsOnlyProbe() {
   const { isRunning, run, stop } = useExecutionSession();
-  run;
-  stop;
+  void run;
+  void stop;
   return <div data-testid="controls">{isRunning ? "run" : "idle"}</div>;
 }
 
