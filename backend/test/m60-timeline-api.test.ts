@@ -123,13 +123,17 @@ describe("M60 timeline API", () => {
         id: number;
       }
     ).id;
+    // Relative to now: the while-away query clamps to the last 24h, so fixed
+    // dates silently age out of the window.
+    const eventAt = new Date(Date.now() - 2 * 3600_000).toISOString();
+    const seenAt = new Date(Date.now() - 3 * 3600_000).toISOString();
     api.db
       .prepare(
         `INSERT INTO collaboration_changes
          (id,project_id,author_user_id,file_path,kind,started_at,ended_at)
          VALUES ('wa1', ?, ?, 'y.ts', 'edit_burst', ?, ?)`,
       )
-      .run(p, otherId, "2026-08-31T10:00:00.000Z", "2026-08-31T10:00:00.000Z");
+      .run(p, otherId, eventAt, eventAt);
 
     // owner's collab_last_seen must exist and be older than the event, else
     // the 24h clamp already filters it — set it explicitly
@@ -142,7 +146,7 @@ describe("M60 timeline API", () => {
         (api.db.prepare("SELECT id FROM users WHERE username='m60owner4'").get() as {
           id: number;
         }).id,
-        "2026-08-31T09:00:00.000Z",
+        seenAt,
       );
 
     const first = await api.request(
