@@ -9,7 +9,7 @@ Check for already-shipped work before starting (see M92 discovery).
 ## Phase 1 — Hygiene (small, do first)
 | # | Milestone | Scope | Done when |
 | --- | --- | --- | --- |
-| M95 | Repo hygiene & docs | Add LICENSE; remove `backend/scratch-test.js`; move committed load-test results to a release asset or `docs/reports/load-test/`; keep root to README/STATUS/CLAUDE; collapse STATUS.md (≈10k lines) into a short ledger plus `docs/milestones/` archive. | Root has no stray reports; STATUS < 500 lines. |
+| M95 | Repo hygiene & docs | Add LICENSE; move committed load-test results to a release asset or `docs/reports/load-test/`; keep root to README/STATUS/CLAUDE; collapse STATUS.md (≈10k lines) into a short ledger plus `docs/milestones/` archive. | Root has no stray reports; STATUS < 500 lines. |
 | M96 | CI stability | Use the M85 diagnostics to find root causes of flaky Playwright runs (workflow-browser, debug-browser); add retries only with evidence; split Docker/E2E jobs; document the Docker-less Windows test story. | 20 consecutive green runs on main. |
 | M97 | Audit completeness check | Test that enumerates mutating routes/WS handlers and asserts each emits an audit event; admin UI for `audit-integrity`; export of audit log. | Coverage test fails when a new mutating route has no audit event. |
 

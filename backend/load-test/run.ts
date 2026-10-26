@@ -1,6 +1,6 @@
 // M5a/M5c load harness CLI. Boots a real in-process backend instance, ramps
 // a weighted mix of virtual users, holds steady state, ramps down, and
-// writes a bounded JSON + Markdown evidence report to load-test/results/.
+// writes a bounded JSON + Markdown evidence report to load-test/results/ (gitignored; past runs archived in docs/archive/load-test-results/).
 //
 // Usage (M5a general mix):
 //   npx tsx load-test/run.ts --level 1  --users 1  --ramp 30 --steady 60  --rampdown 15

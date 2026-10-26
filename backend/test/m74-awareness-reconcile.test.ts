@@ -67,7 +67,7 @@ describe("M74 — awareness table reconciliation against live sockets", () => {
   /**
    * The "socket closes without the removal frame reaching the server" race
    * (heartbeat-reaper / dev StrictMode / project-switch churn), per
-   * STATUS.md:8262-8272, :8308-8310.
+   * docs/archive/STATUS-history.md:8262-8272, :8308-8310.
    *
    * Connection A's underlying socket dies with no `close` event and no
    * awareness-removal frame — so `removeClient(wsA)` never runs and A's

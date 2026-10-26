@@ -180,3 +180,6 @@
 
 # Local toolchain caches (never part of the Veyra source tree)
 .tools/
+
+# Load-test output (archived runs live in docs/archive/load-test-results)
+backend/load-test/results/
