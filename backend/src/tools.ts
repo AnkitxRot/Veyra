@@ -1,4 +1,4 @@
-import { execSync, execFile } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { IS_WINDOWS } from "./config.js";
 
@@ -7,9 +7,10 @@ const execFileAsync = promisify(execFile);
 export function commandExists(cmd: string): boolean {
   try {
     if (IS_WINDOWS) {
-      execSync(`where.exe ${cmd}`, { stdio: "ignore" });
+      execFileSync("where.exe", [cmd], { stdio: "ignore" });
     } else {
-      execSync(`command -v ${cmd}`, { stdio: "ignore" });
+      // `command -v` is a shell builtin; pass cmd as a positional arg so it is never parsed as shell syntax.
+      execFileSync("sh", ["-c", 'command -v -- "$1"', "sh", cmd], { stdio: "ignore" });
     }
     return true;
   } catch {
@@ -96,7 +97,7 @@ export function isDockerRunning(): boolean {
     return false;
   }
   try {
-    execSync("docker info", { stdio: "ignore" });
+    execFileSync("docker", ["info"], { stdio: "ignore" });
     dockerCache = { value: true, timestamp: now };
     return true;
   } catch {
@@ -112,7 +113,7 @@ export function isRunnerImageAvailable(): boolean {
   }
   if (!isDockerRunning()) return false;
   try {
-    const result = execSync("docker image inspect cloudeeeide-runner:latest", {
+    const result = execFileSync("docker", ["image", "inspect", "cloudeeeide-runner:latest"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     });

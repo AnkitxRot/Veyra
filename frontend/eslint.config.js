@@ -69,5 +69,8 @@ export default tseslint.config(
       "no-empty": ["warn", { allowEmptyCatch: true }],
     },
   },
-  { files: ["**/*.{js,mjs,cjs}", "vitest.config.ts", "vite.config.ts"], ...tseslint.configs.disableTypeChecked },
+  {
+    files: ["**/*.{js,mjs,cjs}", "vitest.config.ts", "vite.config.ts"],
+    ...tseslint.configs.disableTypeChecked,
+  },
 );
