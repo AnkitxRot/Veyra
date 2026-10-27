@@ -21,6 +21,13 @@ export const CLIENT_REQUESTS = new Set<string>([
   "textDocument/signatureHelp",
   "workspace/symbol",
   "completionItem/resolve",
+  // M110: edit-producing requests. Their results are reshaped by workspaceEdit.ts;
+  // `workspace/executeCommand` stays blocked.
+  "textDocument/prepareRename",
+  "textDocument/rename",
+  "textDocument/codeAction",
+  "textDocument/formatting",
+  "textDocument/rangeFormatting",
 ]);
 
 export const SERVER_REQUESTS_HANDLED = new Set<string>([

@@ -85,6 +85,32 @@ function onMessage(msg) {
     });
     return;
   }
+  if (msg.method === "textDocument/rename") {
+    const uri = msg.params?.textDocument?.uri;
+    const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: msg.params?.newName };
+    send({
+      jsonrpc: "2.0",
+      id: msg.id,
+      result: {
+        documentChanges: [
+          { textDocument: { uri, version: 1 }, edits: [edit] },
+          { kind: "delete", uri },
+        ],
+      },
+    });
+    return;
+  }
+  if (msg.method === "textDocument/codeAction") {
+    send({
+      jsonrpc: "2.0",
+      id: msg.id,
+      result: [
+        { title: "Run it", command: { command: "boom", title: "boom" } },
+        { title: "Organize imports", kind: "source.organizeImports", edit: { changes: { [msg.params?.textDocument?.uri]: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: "import os\n" }] } } },
+      ],
+    });
+    return;
+  }
   if (msg.method === "textDocument/hover") {
     const uri = msg.params?.textDocument?.uri;
     send({

@@ -3,7 +3,7 @@
  * Executable mapping lives exclusively on the backend.
  */
 
-export type LspServerId = "python" | "typescript";
+export type LspServerId = "python" | "typescript" | "cpp";
 
 export interface LspLanguageInfo {
   id: LspServerId;
@@ -26,7 +26,14 @@ export const TYPESCRIPT_LSP: LspLanguageInfo = {
   extensions: ["ts", "tsx", "js", "jsx", "mjs", "cjs"],
 };
 
-const ALL: LspLanguageInfo[] = [PYTHON_LSP, TYPESCRIPT_LSP];
+export const CPP_LSP: LspLanguageInfo = {
+  id: "cpp",
+  monacoIds: ["c", "cpp"],
+  chipLabel: "C++ LSP",
+  extensions: ["c", "h", "cc", "cpp", "cxx", "hpp", "hh"],
+};
+
+const ALL: LspLanguageInfo[] = [PYTHON_LSP, TYPESCRIPT_LSP, CPP_LSP];
 
 function extensionOf(relPath: string): string {
   const base = relPath.split("/").pop() ?? "";

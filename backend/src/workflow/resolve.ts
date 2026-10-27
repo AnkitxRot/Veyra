@@ -51,6 +51,12 @@ export async function resolveWorkflowTask(
     return { ok: false, error: "invalid target path" };
   }
 
+  if (task.origin === "tasks.json" && task.run) {
+    const args = [...(task.args ?? [])];
+    if (target && !target.startsWith("-")) args.push(target);
+    return { ok: true, value: { task, command: task.run, args, kind: task.kind } };
+  }
+
   if (task.origin === "pytest") {
     const args = ["-m", "pytest", "-v", "--tb=short"];
     if (target) args.push("--", target);

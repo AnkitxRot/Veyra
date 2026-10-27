@@ -2920,12 +2920,18 @@ export default function IDE({
     document.addEventListener(LSP_STATUS_EVENT, onStatus);
     document.addEventListener(LSP_DIAGNOSTICS_EVENT, onDiags);
     document.addEventListener(LSP_OPEN_REVEAL_EVENT, onReveal);
+    const onLspNotice = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text === "string") notify({ kind: "warning", text, ttl: 6000 });
+    };
+    document.addEventListener("ide-lsp-notice", onLspNotice);
     return () => {
+      document.removeEventListener("ide-lsp-notice", onLspNotice);
       document.removeEventListener(LSP_STATUS_EVENT, onStatus);
       document.removeEventListener(LSP_DIAGNOSTICS_EVENT, onDiags);
       document.removeEventListener(LSP_OPEN_REVEAL_EVENT, onReveal);
     };
-  }, [handleOpenFile]);
+  }, [handleOpenFile, notify]);
 
   // M5: AI Action Trigger Handler
   const handleTriggerAIAction = useCallback(

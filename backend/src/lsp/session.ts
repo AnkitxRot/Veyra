@@ -17,6 +17,8 @@ import {
   SERVER_NOTIFICATIONS_FORWARDED,
   SERVER_REQUESTS_HANDLED,
 } from "./protocol.js";
+import { applyChange, isRangeChange } from "./textEdit.js";
+import { sanitizeCodeActions, sanitizeTextEdits, sanitizeWorkspaceEdit } from "./workspaceEdit.js";
 import { fromWorkspaceUri, rewriteUris, toWorkspaceUri, WORKSPACE_ROOT_URI } from "./uri.js";
 import type { LspSpawnFn } from "./process.js";
 import { recordAuditLog, type AuditEventType } from "../audit.js";
@@ -59,6 +61,7 @@ export interface LspStatusPayload {
 }
 
 interface PendingClient {
+  method: string;
   client: LspClientSocket;
   clientId: string | number;
 }
@@ -67,6 +70,8 @@ interface TrackedClient {
   socket: LspClientSocket;
   /** Workspace-relative paths this socket opened. */
   openDocs: Set<string>;
+  /** M110: this socket's own copy of each open doc, the base for its incremental edits. */
+  mirror: Map<string, string>;
   pendingCount: number;
 }
 
@@ -234,6 +239,7 @@ export class LspSession {
     this.clients.set(socket, {
       socket,
       openDocs: new Set(),
+      mirror: new Map(),
       pendingCount: 0,
     });
     this.touch();
@@ -360,6 +366,7 @@ export class LspSession {
       if (text.length > this.limits.messageMaxBytes) return;
       const alreadyTracked = tracked.openDocs.has(rel);
       tracked.openDocs.add(rel);
+      tracked.mirror.set(rel, text);
       const languageId = this.language.documentLanguageId(rel);
       const canonical = resolveCanonicalText(this.documentSource, rel, text);
       const existing = this.docs.get(rel);
@@ -380,12 +387,30 @@ export class LspSession {
     if (msg.method === "textDocument/didChange") {
       const td = (msg.params as { textDocument?: { uri?: unknown } })?.textDocument;
       const rel = fromWorkspaceUri(td?.uri);
-      const changes = (msg.params as { contentChanges?: { text?: unknown }[] })?.contentChanges;
-      const text =
-        Array.isArray(changes) && typeof changes[0]?.text === "string" ? changes[0].text : null;
-      if (!rel || text === null) return;
+      const changes = (msg.params as { contentChanges?: unknown[] })?.contentChanges;
+      if (!rel || !Array.isArray(changes) || changes.length === 0 || changes.length > 64) return;
       if (!tracked.openDocs.has(rel)) return;
+      let text: string | null = null;
+      const first = changes[0] as { text?: unknown } | undefined;
+      if (changes.every(isRangeChange)) {
+        // M110 incremental: apply to this socket's own mirror, never another tab's.
+        let cur = tracked.mirror.get(rel) ?? null;
+        for (const c of changes) {
+          cur = cur === null ? null : applyChange(cur, c);
+          if (cur === null) break;
+        }
+        if (cur === null) {
+          tracked.mirror.delete(rel);
+          this.sendTo(tracked.socket, { type: "resync", uri: toWorkspaceUri(rel) });
+          return;
+        }
+        text = cur;
+      } else if (changes.length === 1 && typeof first?.text === "string") {
+        text = first.text;
+      }
+      if (text === null) return;
       if (text.length > this.limits.messageMaxBytes) return;
+      tracked.mirror.set(rel, text);
       const existing = this.docs.get(rel);
       if (!existing) return;
       const canonical = resolveCanonicalText(this.documentSource, rel, text);
@@ -398,6 +423,7 @@ export class LspSession {
       if (!rel) return;
       if (!tracked.openDocs.has(rel)) return;
       tracked.openDocs.delete(rel);
+      tracked.mirror.delete(rel);
       this.releaseDoc(rel);
       return;
     }
@@ -433,7 +459,7 @@ export class LspSession {
     }
     const serverId = this.nextServerId++;
     tracked.pendingCount += 1;
-    this.pending.set(serverId, { client: tracked.socket, clientId: msg.id });
+    this.pending.set(serverId, { method: msg.method, client: tracked.socket, clientId: msg.id });
     this.sendServer({
       jsonrpc: "2.0",
       id: serverId,
@@ -490,10 +516,18 @@ export class LspSession {
         });
         return;
       }
+      let result: unknown = "result" in msg ? rewritten.value : undefined;
+      if (pending.method === "textDocument/rename") result = sanitizeWorkspaceEdit(result);
+      else if (pending.method === "textDocument/codeAction") result = sanitizeCodeActions(result);
+      else if (
+        pending.method === "textDocument/formatting" ||
+        pending.method === "textDocument/rangeFormatting"
+      )
+        result = sanitizeTextEdits(result);
       this.sendTo(pending.client, {
         jsonrpc: "2.0",
         id: pending.clientId,
-        result: "result" in msg ? rewritten.value : undefined,
+        result,
       });
       return;
     }
@@ -558,6 +592,7 @@ export class LspSession {
           workspace: {
             workspaceFolders: true,
             configuration: true,
+            workspaceEdit: { documentChanges: true, resourceOperations: [] },
           },
           textDocument: {
             synchronization: { dynamicRegistration: false, didSave: false },
@@ -568,6 +603,16 @@ export class LspSession {
             documentSymbol: {},
             signatureHelp: {},
             publishDiagnostics: {},
+            rename: { prepareSupport: true },
+            formatting: {},
+            rangeFormatting: {},
+            codeAction: {
+              codeActionLiteralSupport: {
+                codeActionKind: {
+                  valueSet: ["quickfix", "refactor", "source", "source.organizeImports"],
+                },
+              },
+            },
           },
         },
         initializationOptions: this.language.initializationOptions,

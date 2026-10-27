@@ -222,6 +222,10 @@ export function useLanguageIntelligence(opts: {
           syncDocuments(session, true);
         }
       };
+      bridge.onResync = (rel) => {
+        const text = getLiveRef.current(rel);
+        if (!cancelled && text !== null) bridge.didChange(rel, text);
+      };
       bridge.onDiagnostics = (rel, items) => {
         if (cancelled) return;
         const diags = toDiagnostics(rel, items);

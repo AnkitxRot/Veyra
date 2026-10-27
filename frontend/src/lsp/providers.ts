@@ -4,6 +4,7 @@ import type { LspBridge } from "./bridge";
 import { LSP_OPEN_REVEAL_EVENT } from "./types";
 import { fromWorkspaceUri, toWorkspaceUri } from "./uri";
 import { lspLanguageForPath } from "./languages";
+import { splitChanges, toMonacoEdits } from "./edits";
 
 const bridges = new Map<string, LspBridge>();
 let registered = false;
@@ -81,7 +82,7 @@ export function ensureLspProviders(): void {
   if (registered) return;
   registered = true;
   silenceMonacoBuiltinTs();
-  for (const lang of ["python", "typescript", "javascript"] as const) {
+  for (const lang of ["python", "typescript", "javascript", "c", "cpp"] as const) {
     registerProvidersFor(lang);
   }
 }
@@ -233,6 +234,124 @@ function registerProvidersFor(lang: string): void {
       };
     },
   });
+  monaco.languages.registerRenameProvider(lang, {
+    resolveRenameLocation: async (model, position) => {
+      const bridge = bridgeForModel(model);
+      const rel = modelPath(model);
+      const uri = rel ? toWorkspaceUri(rel) : null;
+      const word = model.getWordAtPosition(position);
+      const fallback = word
+        ? { range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn), text: word.word }
+        : { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "" };
+      if (!bridge || !uri) return fallback;
+      try {
+        const r = (await bridge.request("textDocument/prepareRename", {
+          textDocument: { uri },
+          position: toLspPosition(position),
+        })) as { start?: unknown; range?: LspRange; placeholder?: string } | null;
+        const range = r && "range" in r && r.range ? r.range : (r as LspRange | null);
+        if (!range || !("start" in range) || !range.start) return fallback;
+        const mr = fromLspRange(range);
+        return {
+          range: new monaco.Range(mr.startLineNumber, mr.startColumn, mr.endLineNumber, mr.endColumn),
+          text: (r && "placeholder" in r && r.placeholder) || model.getValueInRange(mr),
+        };
+      } catch {
+        return fallback;
+      }
+    },
+    provideRenameEdits: async (model, position, newName) => {
+      const bridge = bridgeForModel(model);
+      const rel = modelPath(model);
+      const uri = rel ? toWorkspaceUri(rel) : null;
+      if (!bridge || !uri) return { edits: [], rejectReason: "language server unavailable" };
+      const result = (await bridge.request("textDocument/rename", {
+        textDocument: { uri },
+        position: toLspPosition(position),
+        newName,
+      })) as { changes?: unknown } | null;
+      return workspaceEditToMonaco(result?.changes, "rename");
+    },
+  });
+
+  monaco.languages.registerCodeActionProvider(lang, {
+    provideCodeActions: async (model, range, context) => {
+      const bridge = bridgeForModel(model);
+      const rel = modelPath(model);
+      const uri = rel ? toWorkspaceUri(rel) : null;
+      if (!bridge || !uri) return { actions: [], dispose: () => {} };
+      const result = (await bridge.request("textDocument/codeAction", {
+        textDocument: { uri },
+        range: {
+          start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+          end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+        },
+        context: { diagnostics: [], only: context.only ? [context.only] : undefined },
+      })) as { title?: unknown; kind?: unknown; edit?: { changes?: unknown } }[] | null;
+      const actions: monaco.languages.CodeAction[] = [];
+      for (const a of Array.isArray(result) ? result : []) {
+        if (typeof a?.title !== "string" || !a.edit?.changes) continue;
+        actions.push({
+          title: a.title,
+          kind: typeof a.kind === "string" ? a.kind : undefined,
+          edit: workspaceEditToMonaco(a.edit.changes, a.title),
+        });
+      }
+      return { actions, dispose: () => {} };
+    },
+  });
+
+  const formatEdits = async (
+    model: monaco.editor.ITextModel,
+    method: "textDocument/formatting" | "textDocument/rangeFormatting",
+    options: monaco.languages.FormattingOptions,
+    range?: monaco.Range,
+  ): Promise<monaco.languages.TextEdit[]> => {
+    const bridge = bridgeForModel(model);
+    const rel = modelPath(model);
+    const uri = rel ? toWorkspaceUri(rel) : null;
+    if (!bridge || !uri) return [];
+    const params: Record<string, unknown> = {
+      textDocument: { uri },
+      options: { tabSize: options.tabSize, insertSpaces: options.insertSpaces },
+    };
+    if (range)
+      params.range = {
+        start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+        end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+      };
+    return toMonacoEdits(await bridge.request(method, params));
+  };
+  monaco.languages.registerDocumentFormattingEditProvider(lang, {
+    provideDocumentFormattingEdits: (model, options) => formatEdits(model, "textDocument/formatting", options),
+  });
+  monaco.languages.registerDocumentRangeFormattingEditProvider(lang, {
+    provideDocumentRangeFormattingEdits: (model, range, options) =>
+      formatEdits(model, "textDocument/rangeFormatting", options, range),
+  });
+}
+
+function workspaceEditToMonaco(changes: unknown, label: string): monaco.languages.WorkspaceEdit {
+  const openModels = new Map<string, monaco.editor.ITextModel>();
+  for (const m of monaco.editor.getModels()) {
+    const p = modelPath(m);
+    if (p) openModels.set(p, m);
+  }
+  const { open, skipped } = splitChanges(changes, fromWorkspaceUri, (p) => openModels.has(p));
+  if (skipped.length) {
+    document.dispatchEvent(
+      new CustomEvent("ide-lsp-notice", { detail: { text: `${label}: ${skipped.length} file(s) not open were not changed (${skipped.slice(0, 3).join(", ")})` } }),
+    );
+  }
+  return {
+    edits: open.flatMap(({ path, edits }) =>
+      edits.map((e) => ({
+        resource: openModels.get(path)!.uri,
+        textEdit: e,
+        versionId: undefined,
+      })),
+    ),
+  };
 }
 
 function modelPath(model: monaco.editor.ITextModel): string | null {

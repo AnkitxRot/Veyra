@@ -332,6 +332,10 @@ const languages = {
     languages._symbols.push(provider);
     return { dispose() {} };
   },
+  registerRenameProvider: (_lang: string, _provider: unknown) => ({ dispose() {} }),
+  registerCodeActionProvider: (_lang: string, _provider: unknown) => ({ dispose() {} }),
+  registerDocumentFormattingEditProvider: (_lang: string, _provider: unknown) => ({ dispose() {} }),
+  registerDocumentRangeFormattingEditProvider: (_lang: string, _provider: unknown) => ({ dispose() {} }),
   registerSignatureHelpProvider: (_lang: string, provider: unknown) => {
     languages._signature.push(provider);
     return { dispose() {} };

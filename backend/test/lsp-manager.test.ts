@@ -121,6 +121,100 @@ describe("lsp manager lifecycle", () => {
     expect(languageServers.activeProcessCount()).toBe(1);
   });
 
+  it("applies incremental didChange against the socket's own copy and asks for resync on a bad range (M110)", async () => {
+    const cfg = makeTestConfig();
+    const sock = new FakeSock();
+    const session = await languageServers.attach({
+      projectId: "p1",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: sock,
+      workspaceDir: cfg.workspacesDir,
+    });
+    await waitFor(() => sock.lastStatus()?.state === "ready", 5000, "ready");
+    const uri = "file:///workspace/main.py";
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: { textDocument: { uri, text: "x = 1\n" } },
+    });
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didChange",
+      params: {
+        textDocument: { uri },
+        contentChanges: [
+          { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, text: "undefined_name" },
+        ],
+      },
+    });
+    await waitFor(
+      () =>
+        sock.messages.some(
+          (m) => m.method === "textDocument/publishDiagnostics" && m.params?.diagnostics?.length > 0,
+        ),
+      5000,
+      "diagnostics from incremental edit",
+    );
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didChange",
+      params: {
+        textDocument: { uri },
+        contentChanges: [
+          { range: { start: { line: 9, character: 0 }, end: { line: 9, character: 0 } }, text: "z" },
+        ],
+      },
+    });
+    await waitFor(() => sock.messages.some((m) => m.type === "resync"), 3000, "resync");
+  });
+
+  it("reshapes rename / codeAction results to plain text edits (M110)", async () => {
+    const cfg = makeTestConfig();
+    const sock = new FakeSock();
+    const session = await languageServers.attach({
+      projectId: "p1",
+      language: "python",
+      userId: 1,
+      cfg,
+      socket: sock,
+      workspaceDir: cfg.workspacesDir,
+    });
+    await waitFor(() => sock.lastStatus()?.state === "ready", 5000, "ready");
+    const uri = "file:///workspace/main.py";
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: { textDocument: { uri, text: "foo = 1\n" } },
+    });
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      id: 20,
+      method: "textDocument/rename",
+      params: { textDocument: { uri }, position: { line: 0, character: 0 }, newName: "bar" },
+    });
+    session!.handleClientMessage(sock, {
+      jsonrpc: "2.0",
+      id: 21,
+      method: "textDocument/codeAction",
+      params: {
+        textDocument: { uri },
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        context: { diagnostics: [] },
+      },
+    });
+    await waitFor(() => sock.messages.some((m) => m.id === 20) && sock.messages.some((m) => m.id === 21), 5000, "replies");
+    const rename = sock.messages.find((m) => m.id === 20).result;
+    expect(Object.keys(rename.changes)).toEqual([uri]);
+    expect(rename.changes[uri][0].newText).toBe("bar");
+    expect(JSON.stringify(rename)).not.toContain("delete");
+    const actions = sock.messages.find((m) => m.id === 21).result;
+    expect(actions).toHaveLength(1);
+    expect(actions[0].title).toBe("Organize imports");
+    expect(actions[0]).not.toHaveProperty("command");
+  });
+
   it("answers completion, hover, definition, references, and symbols", async () => {
     const cfg = makeTestConfig();
     const sock = new FakeSock();

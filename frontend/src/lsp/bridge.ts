@@ -1,4 +1,5 @@
 import type { JsonRpcMessage, LspDiagnostic, LspStatus } from "./types";
+import { diffToChange } from "./textDiff";
 import { fromWorkspaceUri, toWorkspaceUri } from "./uri";
 
 export interface LspTransport {
@@ -24,6 +25,10 @@ export class LspBridge {
   private readonly pending = new Map<number, Pending>();
   private readonly unsub: () => void;
   private disposed = false;
+  /** M110: last text the backend is known to hold per path; the base for incremental edits. */
+  private readonly lastSent = new Map<string, string>();
+  /** Backend could not apply an incremental edit; the next didChange sends the full text. */
+  onResync: ((relPath: string) => void) | null = null;
   onStatus: ((status: LspStatus) => void) | null = null;
   onDiagnostics: ((uri: string, items: LspDiagnostic[]) => void) | null = null;
   status: LspStatus = { state: "starting", language: "" };
@@ -35,6 +40,7 @@ export class LspBridge {
   didOpen(relPath: string, text: string, languageId?: string): void {
     const uri = toWorkspaceUri(relPath);
     if (!uri) return;
+    this.lastSent.set(relPath, text);
     this.notify("textDocument/didOpen", {
       textDocument: {
         uri,
@@ -48,15 +54,24 @@ export class LspBridge {
   didChange(relPath: string, text: string): void {
     const uri = toWorkspaceUri(relPath);
     if (!uri) return;
+    const prev = this.lastSent.get(relPath);
+    this.lastSent.set(relPath, text);
+    let contentChanges: unknown[] = [{ text }];
+    if (prev !== undefined) {
+      const change = diffToChange(prev, text);
+      if (!change) return;
+      contentChanges = [change];
+    }
     this.notify("textDocument/didChange", {
       textDocument: { uri, version: 1 },
-      contentChanges: [{ text }],
+      contentChanges,
     });
   }
 
   didClose(relPath: string): void {
     const uri = toWorkspaceUri(relPath);
     if (!uri) return;
+    this.lastSent.delete(relPath);
     this.notify("textDocument/didClose", {
       textDocument: { uri },
     });
@@ -103,6 +118,14 @@ export class LspBridge {
   private onPayload(payload: unknown): void {
     if (!payload || typeof payload !== "object") return;
     const msg = payload as JsonRpcMessage & LspStatus & { type?: string };
+    if (msg.type === "resync") {
+      const rel = fromWorkspaceUri((msg as { uri?: unknown }).uri);
+      if (rel) {
+        this.lastSent.delete(rel);
+        this.onResync?.(rel);
+      }
+      return;
+    }
     if (msg.type === "status") {
       this.status = {
         state: msg.state,

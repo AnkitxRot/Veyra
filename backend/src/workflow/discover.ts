@@ -10,13 +10,16 @@ import { isSkippedTreeName } from "../files/service.js";
 import { readConfinedFile } from "../files/confined.js";
 
 export type WorkflowKind = "test" | "build";
-export type WorkflowOrigin = "package.json" | "pytest";
+export type WorkflowOrigin = "package.json" | "pytest" | "tasks.json";
 
 export interface WorkflowTask {
   id: string;
   name: string;
   kind: WorkflowKind;
   origin: WorkflowOrigin;
+  /** M110: declared argv for `.veyra/tasks.json` tasks (never run through a shell). */
+  run?: string;
+  args?: string[];
 }
 
 export interface WorkflowManifest {
@@ -55,6 +58,71 @@ function scriptKind(name: string): WorkflowKind {
   return name === "build" || name.startsWith("build:") ? "build" : "test";
 }
 
+const MAX_TASKS_JSON = 64 * 1024;
+const MAX_CUSTOM_TASKS = 20;
+const CUSTOM_NAME = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,47}$/;
+/** Fixed executable allowlist for tasks.json; arguments are charset-checked, never shell-parsed. */
+export const CUSTOM_EXECUTABLES = new Set([
+  "npm",
+  "npx",
+  "node",
+  "python3",
+  "pytest",
+  "make",
+  "cargo",
+  "go",
+  "mvn",
+  "gradle",
+  "tsc",
+]);
+const CUSTOM_ARG = /^[A-Za-z0-9_:=,./@+%-][A-Za-z0-9_:=,./@+%-]{0,127}$/;
+
+export function customTaskId(name: string): string {
+  return `custom:${name}`;
+}
+
+/** Validate the `.veyra/tasks.json` payload; invalid entries are dropped, not repaired. */
+export function parseCustomTasks(raw: unknown): WorkflowTask[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const list = (raw as { tasks?: unknown }).tasks;
+  if (!Array.isArray(list)) return [];
+  const out: WorkflowTask[] = [];
+  const seen = new Set<string>();
+  for (const e of list) {
+    if (out.length >= MAX_CUSTOM_TASKS) break;
+    if (!e || typeof e !== "object") continue;
+    const { name, kind, run, args } = e as Record<string, unknown>;
+    if (typeof name !== "string" || !CUSTOM_NAME.test(name) || seen.has(name)) continue;
+    if (kind !== "test" && kind !== "build") continue;
+    if (typeof run !== "string" || !CUSTOM_EXECUTABLES.has(run)) continue;
+    const a = args === undefined ? [] : args;
+    if (!Array.isArray(a) || a.length > 16) continue;
+    if (!a.every((x) => typeof x === "string" && CUSTOM_ARG.test(x) && !x.includes(".."))) continue;
+    seen.add(name);
+    out.push({
+      id: customTaskId(name),
+      name,
+      kind,
+      origin: "tasks.json",
+      run,
+      args: a as string[],
+    });
+  }
+  return out;
+}
+
+async function discoverCustomTasks(workspaceDir: string): Promise<WorkflowTask[]> {
+  try {
+    const { content } = await readConfinedFile(workspaceDir, join(workspaceDir, ".veyra/tasks.json"), {
+      maxBytes: MAX_TASKS_JSON,
+    });
+    if (content.length > MAX_TASKS_JSON) return [];
+    return parseCustomTasks(JSON.parse(content));
+  } catch {
+    return [];
+  }
+}
+
 export async function discoverWorkflow(workspaceDir: string): Promise<WorkflowManifest> {
   const tasks: WorkflowTask[] = [];
   tasks.push(...(await discoverNpmTasks(workspaceDir)));
@@ -66,6 +134,7 @@ export async function discoverWorkflow(workspaceDir: string): Promise<WorkflowMa
       origin: "pytest",
     });
   }
+  tasks.push(...(await discoverCustomTasks(workspaceDir)));
   return { tasks };
 }
 

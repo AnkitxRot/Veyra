@@ -79,7 +79,7 @@ export async function getCapabilities(): Promise<Capabilities> {
 }
 
 export type WorkflowKind = "test" | "build";
-export type WorkflowOrigin = "package.json" | "pytest";
+export type WorkflowOrigin = "package.json" | "pytest" | "tasks.json";
 
 export interface WorkflowTask {
   id: string;

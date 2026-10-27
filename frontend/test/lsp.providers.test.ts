@@ -20,7 +20,7 @@ describe("lsp monaco providers", () => {
   it("registers providers once and no-ops without a bridge", async () => {
     ensureLspProviders();
     ensureLspProviders();
-    expect(monaco.languages._completion).toHaveLength(3);
+    expect(monaco.languages._completion).toHaveLength(5);
     const provider = monaco.languages._completion[0] as {
       provideCompletionItems: (
         model: unknown,

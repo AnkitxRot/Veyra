@@ -100,9 +100,33 @@ export const TYPESCRIPT_LSP: LspLanguageSpec = {
   },
 };
 
+export const CPP_LSP: LspLanguageSpec = {
+  id: "cpp",
+  monacoId: "cpp",
+  monacoIds: ["c", "cpp"],
+  displayName: "C / C++",
+  chipLabel: "C++ LSP",
+  extensions: ["c", "h", "cc", "cpp", "cxx", "hpp", "hh"],
+  command: "clangd",
+  args: ["--log=error", "--background-index=false"],
+  extraEnv: [],
+  initializationOptions: {},
+  documentLanguageId: (relPath: string) => {
+    switch (extensionOf(relPath)) {
+      case "c":
+        return "c";
+      case "h":
+        return "cpp";
+      default:
+        return "cpp";
+    }
+  },
+};
+
 const BY_ID = new Map<string, LspLanguageSpec>([
   [PYTHON_LSP.id, PYTHON_LSP],
   [TYPESCRIPT_LSP.id, TYPESCRIPT_LSP],
+  [CPP_LSP.id, CPP_LSP],
 ]);
 
 export function getLspLanguage(id: unknown): LspLanguageSpec | null {
