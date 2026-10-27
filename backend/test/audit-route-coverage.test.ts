@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -52,16 +52,23 @@ function scan(): { audited: string[]; unaudited: string[] } {
   const audited: string[] = [];
   const unaudited: string[] = [];
   for (const dir of ROUTE_FILES) {
-    const src = readFileSync(join(__dirname, "..", "src", dir, "routes.ts"), "utf8");
-    const mutating = /(?:router|app)\.(post|put|patch|delete)\(\s*(["'`][^"'`]*["'`])/g;
-    const any = /(?:router|app)\.(get|post|put|patch|delete)\(/g;
-    const starts: number[] = [];
-    for (let m; (m = any.exec(src));) starts.push(m.index);
-    for (let m; (m = mutating.exec(src));) {
-      const next = starts.find((i) => i > m!.index) ?? src.length;
-      const body = src.slice(m.index, next);
-      const key = `${dir} ${m[1]!.toUpperCase()} ${m[2]}`;
-      (/record\w*Audit|recordAudit|audit/i.test(body) ? audited : unaudited).push(key);
+    // routes.ts plus the `*Routes.ts` group files it delegates to (projects/ is split by feature).
+    const srcDir = join(__dirname, "..", "src", dir);
+    const routeFiles = readdirSync(srcDir).filter(
+      (f) => f === "routes.ts" || /Routes\.ts$/.test(f),
+    );
+    for (const file of routeFiles) {
+      const src = readFileSync(join(srcDir, file), "utf8");
+      const mutating = /(?:router|app)\.(post|put|patch|delete)\(\s*(["'`][^"'`]*["'`])/g;
+      const any = /(?:router|app)\.(get|post|put|patch|delete)\(/g;
+      const starts: number[] = [];
+      for (let m; (m = any.exec(src));) starts.push(m.index);
+      for (let m; (m = mutating.exec(src));) {
+        const next = starts.find((i) => i > m!.index) ?? src.length;
+        const body = src.slice(m.index, next);
+        const key = `${dir} ${m[1]!.toUpperCase()} ${m[2]}`;
+        (/record\w*Audit|recordAudit|audit/i.test(body) ? audited : unaudited).push(key);
+      }
     }
   }
   return { audited, unaudited };
