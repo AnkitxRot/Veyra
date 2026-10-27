@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback } from "react";
+import { monacoThemeName } from "../../colorThemes";
 import { editorExtraOptions } from "../../settingsSchema";
 import { monaco } from "../../monacoSetup";
 import { chordToMonacoKeybinding } from "../../keymap/keymap";
@@ -204,8 +205,8 @@ export default function Editor({
   // M69: Monaco built-in theme id for the resolved appearance. Kept in a ref
   // so the mount-time create() closure reads the current value; a later
   // change is applied in place by the effect below (never a remount).
-  const monacoThemeRef = useRef(resolvedTheme === "light" ? "vs" : "vs-dark");
-  monacoThemeRef.current = resolvedTheme === "light" ? "vs" : "vs-dark";
+  const monacoThemeRef = useRef(monacoThemeName(resolvedTheme));
+  monacoThemeRef.current = monacoThemeName(resolvedTheme);
   // M70: the resolved save chord + the live Monaco save action's disposable.
   const saveChordRef = useRef(saveChord);
   saveChordRef.current = saveChord;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { COLOR_THEME_EVENT, terminalThemeName } from "../colorThemes";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { getWebSocketUrl } from "../api";
@@ -186,7 +187,7 @@ export function useTerminalSession(
   const ensureXterm = (): XTerm => {
     if (xtermRef.current) return xtermRef.current;
     const term = new XTerm({
-      theme: TERMINAL_THEMES[themeRef.current],
+      theme: terminalThemeName(themeRef.current, TERMINAL_THEMES),
       fontFamily: "var(--font-mono)",
       fontSize: 13,
       lineHeight: 1.35,
@@ -455,9 +456,15 @@ export function useTerminalSession(
   // ---- M69: in-place theme, never a reconnect / new XTerm ---------------
 
   useEffect(() => {
-    if (xtermRef.current) {
-      xtermRef.current.options.theme = TERMINAL_THEMES[resolvedTheme];
-    }
+    const apply = () => {
+      if (xtermRef.current) {
+        xtermRef.current.options.theme = terminalThemeName(resolvedTheme, TERMINAL_THEMES);
+      }
+    };
+    apply();
+    // M106: a colour-theme change keeps the same dark/light base.
+    document.addEventListener(COLOR_THEME_EVENT, apply);
+    return () => document.removeEventListener(COLOR_THEME_EVENT, apply);
   }, [resolvedTheme]);
 
   return useMemo<TerminalSession>(

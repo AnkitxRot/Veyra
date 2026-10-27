@@ -35,11 +35,11 @@ describe("M69 — appearance controller wiring", () => {
     // The xterm is created with the palette for the current resolved theme…
     expect(terminalSession).not.toMatch(/theme:\s*\{\s*\n\s*background:/);
     expect(terminalSession).toContain('from "../components/Terminal/terminalThemes"');
-    expect(terminalSession).toContain("theme: TERMINAL_THEMES[themeRef.current]");
+    expect(terminalSession).toContain("theme: terminalThemeName(themeRef.current, TERMINAL_THEMES)");
     // …and a theme change updates the live instance in place, keyed on the
     // prop — never a reconnect or a new XTerm.
     expect(terminalSession).toMatch(
-      /xtermRef\.current\.options\.theme = TERMINAL_THEMES\[resolvedTheme\];\s*\}\s*\},\s*\[resolvedTheme\]\)/,
+      /xtermRef\.current\.options\.theme = terminalThemeName\(resolvedTheme, TERMINAL_THEMES\);\s*\}\s*\};[\s\S]*?\},\s*\[resolvedTheme\]\)/,
     );
     // The session boundary (which owns the WebSocket lifecycle) uses refs
     // for projectId and userId — the deps array shows only the session surface.

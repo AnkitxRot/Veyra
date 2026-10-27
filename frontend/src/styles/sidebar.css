@@ -241,3 +241,8 @@
   background: var(--glass-border);
   margin: 3px 0;
 }
+
+/* M106: file icon theme "none" hides explorer icons. */
+[data-file-icons="none"] .tree-node-icon {
+  display: none;
+}

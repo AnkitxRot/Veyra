@@ -40,6 +40,8 @@ import Toolbar from "../Toolbar/Toolbar";
 // Lazy: pulls in monaco-editor (~4.5MB raw); a static import here put that
 // weight in the entry bundle, downloading before even the login screen showed.
 const EditorGroupsView = React.lazy(() => import("./EditorGroupsView"));
+import ThemePicker from "../Settings/ThemePicker";
+import { useColorTheme } from "../../hooks/useColorTheme";
 import LayeredSettingsPanel from "../Settings/LayeredSettingsPanel";
 import { useLayeredSettings } from "../../hooks/useLayeredSettings";
 import OutlinePanel from "./OutlinePanel";
@@ -415,7 +417,11 @@ export default function IDE({
   // (Monaco re-themes in place) and to the terminal session (M79 — xterm
   // re-themes in place; the session itself is project-lifetime, not tab- or
   // collapse-scoped).
-  const { resolvedTheme } = useAppearance(preferences.theme);
+  const { resolvedTheme: appearanceTheme } = useAppearance(preferences.theme);
+  // M106: a selected colour theme overrides the base; null = M69 behaviour.
+  const colorTheme = useColorTheme(appearanceTheme);
+  const resolvedTheme = colorTheme.resolved;
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
 
   // M70: the resolved keybinding map (defaults + the user's typed overrides).
   // One source of truth — fed to `useKeyboardShortcuts`, the Editor's Monaco
@@ -3058,6 +3064,13 @@ export default function IDE({
         handler: () => setSettingsPanelOpen(true),
       },
       {
+        id: "preferences.colorTheme",
+        title: "Preferences: Color Theme",
+        description: "Pick, import or export a color theme; choose the file icon theme",
+        category: "Navigation",
+        handler: () => setThemePickerOpen(true),
+      },
+      {
         id: "view.toggleOutline",
         title: "Toggle Outline",
         description: "Show the symbol outline of the active file",
@@ -3889,6 +3902,18 @@ export default function IDE({
                 path={viewer.path}
                 kind={viewer.kind}
                 onClose={() => setViewer(null)}
+              />
+            )}
+            {themePickerOpen && (
+              <ThemePicker
+                activeId={colorTheme.activeId}
+                customThemes={colorTheme.customThemes}
+                fileIcons={colorTheme.fileIcons}
+                onSelect={colorTheme.select}
+                onImport={colorTheme.importTheme}
+                onRemove={colorTheme.removeCustom}
+                onFileIcons={colorTheme.setFileIcons}
+                onClose={() => setThemePickerOpen(false)}
               />
             )}
             {settingsPanelOpen && (
