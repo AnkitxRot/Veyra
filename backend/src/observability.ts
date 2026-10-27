@@ -55,7 +55,7 @@ export function startGcObserver(): void {
   if (gcObserver) return;
   gcObserver = new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
-      const label = GC_KIND_LABELS[(entry as any).kind] ?? "unknown";
+      const label = GC_KIND_LABELS[(entry as { kind?: number }).kind ?? -1] ?? "unknown";
       const stats = gcStatsByKind.get(label) ?? {
         count: 0,
         totalDurationMs: 0,

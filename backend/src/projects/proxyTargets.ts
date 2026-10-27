@@ -31,7 +31,7 @@ export async function resolveProxyEntry(
   const project = requireOwnedProject(db, userId, projectId);
 
   const port = parseInt(portRaw, 10);
-  if (isNaN(port) || !ALLOWED_PREVIEW_PORTS.includes(port as any)) {
+  if (isNaN(port) || !(ALLOWED_PREVIEW_PORTS as readonly unknown[]).includes(port)) {
     throw new ApiError(400, "Invalid port", "invalid_port");
   }
 

@@ -1,6 +1,7 @@
 import { WebSocketServer } from "ws";
-import type { WebSocket } from "ws";
-import type { IncomingMessage } from "node:http";
+import type { RawData, WebSocket } from "ws";
+import type { Socket } from "node:net";
+import type { IncomingMessage, Server } from "node:http";
 import { parse } from "node:url";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
@@ -169,7 +170,7 @@ export function getHeartbeatController(wss: WebSocketServer): HeartbeatControlle
   return heartbeatControllers.get(wss);
 }
 
-export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSocketServer {
+export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): WebSocketServer {
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: DEFAULT_WS_MAX_PAYLOAD,
@@ -181,7 +182,7 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
   heartbeatControllers.set(wss, heartbeat);
   heartbeat.start();
 
-  server.on("upgrade", async (req: IncomingMessage, socket: any, head: Buffer) => {
+  server.on("upgrade", async (req: IncomingMessage, socket: Socket, head: Buffer) => {
     const { pathname, query } = parse(req.url || "", true);
 
     // Auth validation — session cookie
@@ -327,8 +328,12 @@ export function setupWebSocketServer(server: any, db: Db, cfg: AppConfig): WebSo
         // disconnect and on while-away ack.
         insertLastSeenIfAbsent(db, projectId, row.id);
 
-        ws.on("message", (data: any) => {
-          const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+        ws.on("message", (data: RawData) => {
+          const u8 = Array.isArray(data)
+            ? new Uint8Array(Buffer.concat(data))
+            : data instanceof Uint8Array
+              ? data
+              : new Uint8Array(data);
           room.handleMessage(ws, u8);
         });
 

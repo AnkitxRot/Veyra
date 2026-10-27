@@ -44,7 +44,7 @@ export function snapshotDir(cfg: AppConfig, projectId: string): string {
  * In-memory serialization locks per project to prevent TOCTOU race conditions
  * between quota calculation, eviction, archive writing, and DB modification.
  */
-const projectSnapshotLocks = new Map<string, Promise<any>>();
+const projectSnapshotLocks = new Map<string, Promise<unknown>>();
 
 export async function withProjectSnapshotLock<T>(
   projectId: string,

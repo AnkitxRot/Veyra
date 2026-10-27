@@ -224,7 +224,10 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/telemetry/historical", async (req: Request, res: Response, next: NextFunction) => {
     try {
       checkLimit(req);
-      const range = (req.query.range as any) || "15m";
+      const range =
+        (req.query.range as Parameters<
+          typeof telemetryHistorian.queryAdminHistoricalTelemetry
+        >[0]) || "15m";
       const result = telemetryHistorian.queryAdminHistoricalTelemetry(range);
       res.json(result);
     } catch (err) {
@@ -915,7 +918,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
   router.post("/backups", async (req: Request, res: Response, next: NextFunction) => {
     try {
       checkLimit(req);
-      const actorUserId = (req as any).user?.id;
+      const actorUserId = req.user?.id;
       const backup = await createDatabaseBackup(db, cfg, {
         actorUserId,
         ipAddress: req.ip,
@@ -957,7 +960,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
       // completion — a full-database export (password hashes, session
       // tokens) is sensitive enough that even an interrupted/aborted
       // transfer should leave an audit trail.
-      const actorUserId = (req as any).user?.id;
+      const actorUserId = req.user?.id;
       recordAuditLog(db, {
         userId: actorUserId,
         eventType: "DATABASE_BACKUP_DOWNLOADED",
@@ -974,7 +977,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
   router.delete("/backups/:filename", async (req: Request, res: Response, next: NextFunction) => {
     try {
       checkLimit(req);
-      const actorUserId = (req as any).user?.id;
+      const actorUserId = req.user?.id;
       const filename = req.params.filename as string;
       await deleteDatabaseBackup(db, cfg, filename, {
         actorUserId,
@@ -1000,7 +1003,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
         checkLimit(req);
         const projectId = req.params.projectId as string;
         assertValidProjectId(projectId);
-        const actorUserId = (req as any).user?.id;
+        const actorUserId = req.user?.id;
         const backup = await createWorkspaceBackup(cfg, db, projectId, {
           actorUserId,
           ipAddress: req.ip,
@@ -1059,7 +1062,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
           throw new ApiError(404, "Workspace backup not found", "not_found");
         }
 
-        const actorUserId = (req as any).user?.id;
+        const actorUserId = req.user?.id;
         // audit_logs.project_id is ON DELETE CASCADE and a workspace
         // backup deliberately outlives its source project's deletion (see
         // workspaceBackup.ts) — a since-deleted project's id can't be used
@@ -1088,7 +1091,7 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
         checkLimit(req);
         const projectId = req.params.projectId as string;
         const filename = req.params.filename as string;
-        const actorUserId = (req as any).user?.id;
+        const actorUserId = req.user?.id;
         await deleteWorkspaceBackup(cfg, db, projectId, filename, {
           actorUserId,
           ipAddress: req.ip,
@@ -1111,8 +1114,8 @@ export function adminRoutes(cfg: AppConfig, db: Db): Router {
         checkLimit(req);
         const projectId = req.params.projectId as string;
         const filename = req.params.filename as string;
-        const actorUserId = (req as any).user?.id;
-        const actorUsername = (req as any).user?.username;
+        const actorUserId = req.user?.id;
+        const actorUsername = req.user?.username;
         const result = await restoreWorkspaceBackup(cfg, db, projectId, filename, {
           actorUserId,
           actorUsername,

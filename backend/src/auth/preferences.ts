@@ -241,7 +241,7 @@ export function updateUserPreferences(
   if (updates.wordWrap !== undefined) {
     if (
       typeof updates.wordWrap !== "string" ||
-      !VALID_WORD_WRAPS.includes(updates.wordWrap as any)
+      !(VALID_WORD_WRAPS as readonly unknown[]).includes(updates.wordWrap)
     ) {
       throw new ApiError(
         400,
@@ -260,7 +260,7 @@ export function updateUserPreferences(
   if (updates.lineNumbers !== undefined) {
     if (
       typeof updates.lineNumbers !== "string" ||
-      !VALID_LINE_NUMBERS.includes(updates.lineNumbers as any)
+      !(VALID_LINE_NUMBERS as readonly unknown[]).includes(updates.lineNumbers)
     ) {
       throw new ApiError(
         400,
@@ -273,7 +273,7 @@ export function updateUserPreferences(
   if (updates.cursorBlinking !== undefined) {
     if (
       typeof updates.cursorBlinking !== "string" ||
-      !VALID_CURSOR_BLINKING.includes(updates.cursorBlinking as any)
+      !(VALID_CURSOR_BLINKING as readonly unknown[]).includes(updates.cursorBlinking)
     ) {
       throw new ApiError(
         400,
@@ -286,7 +286,7 @@ export function updateUserPreferences(
   if (updates.renderWhitespace !== undefined) {
     if (
       typeof updates.renderWhitespace !== "string" ||
-      !VALID_RENDER_WHITESPACE.includes(updates.renderWhitespace as any)
+      !(VALID_RENDER_WHITESPACE as readonly unknown[]).includes(updates.renderWhitespace)
     ) {
       throw new ApiError(
         400,
@@ -345,7 +345,10 @@ export function updateUserPreferences(
   }
 
   if (updates.theme !== undefined) {
-    if (typeof updates.theme !== "string" || !VALID_THEMES.includes(updates.theme as any)) {
+    if (
+      typeof updates.theme !== "string" ||
+      !(VALID_THEMES as readonly unknown[]).includes(updates.theme)
+    ) {
       throw new ApiError(400, `theme must be one of: ${VALID_THEMES.join(", ")}`, "invalid_theme");
     }
   }

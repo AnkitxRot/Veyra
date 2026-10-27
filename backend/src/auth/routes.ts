@@ -1,7 +1,7 @@
 import { Router, raw } from "express";
 import { z } from "zod";
 import { checkedString, parseInput } from "../validate.js";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import type { Db } from "../db.js";
@@ -206,7 +206,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
     }
   };
 
-  const setCookie = (res: any, token: string, ttl: number) => {
+  const setCookie = (res: Response, token: string, ttl: number) => {
     res.cookie("session_token", token, {
       httpOnly: true,
       secure: cfg.cookieSecure,
@@ -524,7 +524,7 @@ export function authRoutes(db: Db, cfg: AppConfig): Router {
     return Number(raw);
   };
 
-  const sendAvatarFile = (req: Request, res: any, targetId: number): void => {
+  const sendAvatarFile = (req: Request, res: Response, targetId: number): void => {
     if (!canViewAvatar(db, req.user!.id, targetId)) {
       // 404, not 403 — an avatar's existence is not disclosed to non-viewers.
       throw new ApiError(404, "not found", "not_found");

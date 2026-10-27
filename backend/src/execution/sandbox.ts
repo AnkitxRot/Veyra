@@ -677,7 +677,7 @@ export class SandboxManager {
     internalPort: number,
     containerized: boolean,
   ): Promise<string | null> {
-    if (!ALLOWED_PREVIEW_PORTS.includes(internalPort as any)) return null;
+    if (!(ALLOWED_PREVIEW_PORTS as readonly unknown[]).includes(internalPort)) return null;
 
     const info = this.projectContainers.get(projectId);
     if (!info) return null;

@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import type { AppConfig } from "../config.js";
 import { workspacePath } from "../projects/service.js";
 import { invalidateTreeCache } from "../files/service.js";
@@ -56,14 +56,14 @@ export interface RemoteTarget {
   creds: RemoteOpCreds | null;
 }
 
-function mapRemoteGitError(err: any, secrets: string[] = [], hadCreds = false): ApiError {
+function mapRemoteGitError(err: unknown, secrets: string[] = [], hadCreds = false): ApiError {
   if (err instanceof ApiError && err.code !== "git_error") {
     if (err.message) {
       err.message = redactGitOutput(err.message, secrets);
     }
     return err;
   }
-  const raw = String(err?.stderr ?? err?.message ?? "");
+  const raw = String(errorInfo(err).stderr ?? errorInfo(err).message ?? "");
   const text = redactGitOutput(raw, secrets);
   // M87: HTTP statuses are matched in Git's own phrasing only; a bare "401"
   // also matched ephemeral ports and object ids in the remote line.

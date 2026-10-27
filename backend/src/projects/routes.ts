@@ -1,5 +1,8 @@
 import { Router } from "express";
-import type { Request, Response } from "express";
+type ProjectTelemetryRange = NonNullable<
+  NonNullable<Parameters<typeof telemetryHistorian.queryProjectTelemetry>[1]>["range"]
+>;
+import type { NextFunction, Request, Response } from "express";
 import type { Db } from "../db.js";
 import { type AppConfig } from "../config.js";
 import { ApiError, errorInfo } from "../errors.js";
@@ -415,7 +418,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
   router.get("/:id/telemetry", (req, res, next) => {
     try {
       const project = requireOwnedProject(db, userOf(req).id, req.params.id);
-      const range = (req.query.range as any) || "5m";
+      const range = (req.query.range as ProjectTelemetryRange | undefined) || "5m";
       const startTime = req.query.start as string | undefined;
       const endTime = req.query.end as string | undefined;
       const maxPoints = Math.min(
@@ -805,7 +808,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
     limit: cfg.maxAggregateUploadBytes ?? 25 * 1024 * 1024,
   });
 
-  const uploadParser = (req: Request, res: any, next: any) => {
+  const uploadParser = (req: Request, res: Response, next: NextFunction) => {
     const contentType = req.headers["content-type"] || "";
     if (
       contentType.includes("multipart/form-data") ||
@@ -1171,7 +1174,7 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
             throw new ApiError(
               500,
               `Could not create the safety snapshot before replacing: ${
-                (err as any)?.message || "unknown error"
+                errorInfo(err).message || "unknown error"
               }`,
               "snapshot_failed",
             );

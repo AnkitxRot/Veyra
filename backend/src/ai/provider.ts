@@ -66,7 +66,11 @@ export interface AIProvider {
   readonly id: string;
   readonly name: string;
   readonly type: AIProviderType;
-  executeAction(action: AIAction, context: AIContextBundle, options?: any): Promise<AIResponse>;
+  executeAction(
+    action: AIAction,
+    context: AIContextBundle,
+    options?: Record<string, unknown>,
+  ): Promise<AIResponse>;
 }
 
 /**
