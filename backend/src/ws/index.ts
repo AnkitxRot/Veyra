@@ -170,6 +170,8 @@ export function getHeartbeatController(wss: WebSocketServer): HeartbeatControlle
   return heartbeatControllers.get(wss);
 }
 
+import { isOriginAllowed } from "./origin.js";
+
 export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): WebSocketServer {
   const wss = new WebSocketServer({
     noServer: true,
@@ -184,6 +186,12 @@ export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): We
 
   server.on("upgrade", async (req: IncomingMessage, socket: Socket, head: Buffer) => {
     const { pathname, query } = parse(req.url || "", true);
+
+    if (!isOriginAllowed(req, cfg.allowedOrigins)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
 
     // Auth validation — session cookie
     let token = "";

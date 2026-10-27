@@ -1,6 +1,7 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
+import { APP_CSP, csrfGuard, isProxyPath } from "./security.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AppConfig } from "./config.js";
@@ -30,8 +31,11 @@ export function initDirectories(cfg: AppConfig): void {
 }
 
 function securityHeaders() {
-  return (_req: Request, res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     res.setHeader("X-Content-Type-Options", "nosniff");
+    if (!isProxyPath(req.path) && !res.hasHeader("Content-Security-Policy")) {
+      res.setHeader("Content-Security-Policy", APP_CSP);
+    }
     // Preview renders in a same-origin iframe; SAMEORIGIN permits that while
     // blocking cross-origin framing.
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -77,6 +81,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   app.use(cookieParser());
   app.use(express.json({ limit: "2mb" }));
   app.use(securityHeaders());
+  app.use("/api", csrfGuard(cfg.allowedOrigins));
 
   // Liveness: cheap, and deliberately independent of Docker so the process is
   // not restarted just because the execution runtime is unavailable.

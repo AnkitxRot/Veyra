@@ -3,6 +3,9 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { parseAllowedOrigins } from "./ws/origin.js";
+import { validateEnv } from "./envSchema.js";
+
 export const IS_WINDOWS = process.platform === "win32";
 
 export interface Limits {
@@ -147,6 +150,8 @@ export interface AppConfig {
   /** Optional extra CA bundle for Git HTTPS (corporate MITM / test remotes).
    *  Unset in production. Never a secret. */
   gitSslCaInfo?: string;
+  /** M99: WebSocket Origin allowlist (exact origins). Empty => same-host only. */
+  allowedOrigins: string[];
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -218,6 +223,7 @@ function boundedIntEnv(
 }
 
 export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
+  validateEnv();
   const defaultDataDir = IS_WINDOWS ? join(homedir(), ".cloud-ide") : "/var/lib/cloud-ide";
 
   const dataDir = overrides.dataDir ?? process.env.DATA_DIR ?? defaultDataDir;
@@ -559,5 +565,6 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     // fail closed.
     secretsMasterKey: overrides.secretsMasterKey ?? process.env.SECRETS_MASTER_KEY ?? undefined,
     gitSslCaInfo: overrides.gitSslCaInfo ?? process.env.GIT_SSL_CAINFO ?? undefined,
+    allowedOrigins: overrides.allowedOrigins ?? parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
   };
 }
