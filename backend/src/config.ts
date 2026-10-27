@@ -152,6 +152,9 @@ export interface AppConfig {
   gitSslCaInfo?: string;
   /** M99: WebSocket Origin allowlist (exact origins). Empty => same-host only. */
   allowedOrigins: string[];
+  /** M100: bearer token for /metrics; when unset, metricsAllowedIps gates it. */
+  metricsToken?: string;
+  metricsAllowedIps: string[];
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -565,6 +568,10 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     // fail closed.
     secretsMasterKey: overrides.secretsMasterKey ?? process.env.SECRETS_MASTER_KEY ?? undefined,
     gitSslCaInfo: overrides.gitSslCaInfo ?? process.env.GIT_SSL_CAINFO ?? undefined,
+    metricsToken: overrides.metricsToken ?? process.env.METRICS_TOKEN ?? undefined,
+    metricsAllowedIps:
+      overrides.metricsAllowedIps ??
+      (process.env.METRICS_ALLOWED_IPS ?? "127.0.0.1,::1").split(",").map((x) => x.trim()).filter(Boolean),
     allowedOrigins: overrides.allowedOrigins ?? parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
   };
 }

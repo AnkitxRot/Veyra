@@ -286,3 +286,26 @@ export function resetObservabilityForTests(): void {
   dbHistogramsByLabel.clear();
   gcStatsByKind.clear();
 }
+
+// --- Prometheus text exposition -------------------------------------------
+
+/** Renders a snapshot in Prometheus text format v0.0.4. */
+export function renderPrometheus(s: ObservabilitySnapshot): string {
+  const out: string[] = [];
+  const metric = (name: string, help: string, type: "gauge" | "counter", value: number, labels = "") => {
+    out.push(`# HELP ${name} ${help}`, `# TYPE ${name} ${type}`, `${name}${labels} ${value}`);
+  };
+  metric("veyra_ws_connections", "Active WebSocket connections", "gauge", s.activeWsConnections);
+  metric("veyra_collab_rooms", "Active collaboration rooms", "gauge", s.activeCollabRooms);
+  metric("veyra_sandboxes", "Active sandbox containers", "gauge", s.activeSandboxes);
+  metric("veyra_collab_broadcast_sends_total", "Collab broadcast sends", "counter", s.totalCollabBroadcastSends);
+  metric("veyra_process_resident_memory_bytes", "Resident set size", "gauge", s.memory.rssBytes);
+  metric("veyra_process_heap_used_bytes", "V8 heap used", "gauge", s.memory.heapUsedBytes);
+  metric("veyra_process_cpu_user_seconds_total", "User CPU time", "counter", s.cpuUsageMicros.userMicros / 1e6);
+  metric("veyra_process_cpu_system_seconds_total", "System CPU time", "counter", s.cpuUsageMicros.systemMicros / 1e6);
+  metric("veyra_db_calls_total", "SQLite calls", "counter", s.dbCalls.overall.count);
+  if (s.eventLoopLagMs) {
+    metric("veyra_event_loop_lag_p99_seconds", "Event loop lag p99", "gauge", s.eventLoopLagMs.p99Ms / 1000);
+  }
+  return out.join("\n") + "\n";
+}

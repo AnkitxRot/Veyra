@@ -216,6 +216,8 @@ export async function importProjectZip(
 /**
  * Creates a new project from an imported ZIP archive.
  */
+const pendingImports = new Map<number, number>();
+
 export async function importNewProjectZip(
   cfg: AppConfig,
   db: Db,
@@ -223,12 +225,22 @@ export async function importNewProjectZip(
   zipBuffer: Buffer,
   meta: { name?: string; language?: string } = {},
 ): Promise<{ project: any; fileCount: number }> {
-  // Check user project quota
+  // Check user project quota. M100: in-flight imports count against the quota
+  // (check + reserve is synchronous, so concurrent imports cannot all pass).
   const row = db.prepare("SELECT count(*) as c FROM projects WHERE owner_id = ?").get(userId) as
     { c: number } | undefined;
-  if ((row?.c ?? 0) >= cfg.projectQuota) {
+  if ((row?.c ?? 0) + (pendingImports.get(userId) ?? 0) >= cfg.projectQuota) {
     throw new ApiError(403, `project limit of ${cfg.projectQuota} reached`, "quota_exceeded");
   }
+  pendingImports.set(userId, (pendingImports.get(userId) ?? 0) + 1);
+  let released = false;
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    const n = (pendingImports.get(userId) ?? 1) - 1;
+    if (n <= 0) pendingImports.delete(userId);
+    else pendingImports.set(userId, n);
+  };
 
   const projectName =
     typeof meta.name === "string" && meta.name.trim()
@@ -237,24 +249,29 @@ export async function importNewProjectZip(
 
   // 1. Unpack into staging directory first
   const stagingDir = join(cfg.dataDir, `tmp_import_${randomUUID()}`);
-  await fs.mkdir(stagingDir, { recursive: true });
-
   let extractedFiles;
   try {
+    await fs.mkdir(stagingDir, { recursive: true });
     extractedFiles = await extractZipArchive(zipBuffer, stagingDir, cfg);
   } catch (err) {
     try {
       await fs.rm(stagingDir, { recursive: true, force: true });
     } catch {}
+    release();
     throw err;
   }
 
   // 2. Create project and copy files
   try {
-    const project = await createProject(cfg, db, userId, {
-      name: projectName,
-      language: meta.language ?? "auto",
-    });
+    let project;
+    try {
+      project = await createProject(cfg, db, userId, {
+        name: projectName,
+        language: meta.language ?? "auto",
+      });
+    } finally {
+      release(); // the row (if created) now counts in the DB quota query
+    }
 
     const cwd = projectDir(cfg, project.id);
     await copyDirectory(stagingDir, cwd);

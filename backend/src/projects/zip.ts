@@ -1,8 +1,9 @@
 import { deflateRaw, deflateRawSync, inflateRaw } from "node:zlib";
 import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, posix, relative, resolve } from "node:path";
 import { ApiError, errorInfo } from "../errors.js";
+import { isGitInternalRel } from "../files/service.js";
 import type { AppConfig } from "../config.js";
 
 // Standard CRC-32 table initialization
@@ -304,15 +305,16 @@ export async function extractZipArchive(
       );
     }
 
-    // Skip unwanted system/metadata directories
+    // Skip unwanted system/metadata directories. Match on the normalized path
+    // so `./.git/config` and `a/../.git/x` cannot dodge the prefix checks.
+    const skipName = posix.normalize(normalizedName).replace(/^\.\//, "");
     if (
-      normalizedName.startsWith(".git/") ||
-      normalizedName.startsWith("node_modules/") ||
-      normalizedName.startsWith(".venv/") ||
-      normalizedName.startsWith(".cloudide-build-") ||
-      normalizedName === ".git" ||
-      normalizedName === "node_modules" ||
-      normalizedName === ".venv"
+      isGitInternalRel(skipName) ||
+      skipName.startsWith("node_modules/") ||
+      skipName.startsWith(".venv/") ||
+      skipName.startsWith(".cloudide-build-") ||
+      skipName === "node_modules" ||
+      skipName === ".venv"
     ) {
       cdPtr += 46 + nameLen + extraLen + commentLen;
       continue;

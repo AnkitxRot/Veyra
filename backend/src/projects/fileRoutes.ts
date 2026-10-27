@@ -10,11 +10,13 @@ import {
   deleteProjectPath,
   listFiles,
   moveProjectPath,
+  readProjectBytes,
   readProjectFile,
   treeListing,
   writeProjectFile,
 } from "../files/service.js";
 import { recordAuditLog } from "../audit.js";
+import { TEXT_ENCODINGS, inlineViewType, type TextEncoding } from "../files/encoding.js";
 import { collaborationManager } from "../collab/manager.js";
 import {
   uploadProjectFiles,
@@ -64,6 +66,37 @@ export function registerFileRoutes(router: Router, cfg: AppConfig, db: Db): void
     }
   });
 
+  // M103: byte-exact inline viewer (images/PDF). Anything else is a download.
+  // SVG can carry script, so every response is sandboxed with a locked-down CSP.
+  router.get("/:id/raw", async (req, res, next) => {
+    try {
+      const { project } = requireProjectAccess(db, userOf(req).id, req.params.id as string, "viewer");
+      const path = req.query.path;
+      if (typeof path !== "string")
+        throw new ApiError(400, "path query parameter is required", "invalid_path");
+      const cwd = await workspacePath(cfg, project.id);
+      const bytes = await readProjectBytes(cwd, path);
+      const type = inlineViewType(path);
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Cache-Control", "private, no-cache");
+      res.setHeader(
+        "Content-Security-Policy",
+        type === "application/pdf" ? "default-src 'none'; style-src 'unsafe-inline'" : "default-src 'none'; sandbox",
+      );
+      if (type) {
+        res.type(type);
+        res.setHeader("Content-Disposition", "inline");
+      } else {
+        res.type("application/octet-stream");
+        const name = (path.split("/").pop() ?? "file").replace(/[^\w.\- ]/g, "_");
+        res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+      }
+      res.send(bytes);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/:id/file", async (req, res, next) => {
     try {
       const { project } = requireProjectAccess(
@@ -72,15 +105,16 @@ export function registerFileRoutes(router: Router, cfg: AppConfig, db: Db): void
         req.params.id as string,
         "editor",
       );
-      const { path, content } = parseInput(
+      const { path, content, encoding } = parseInput(
         z.object({
           path: checkedString("path is required", "invalid_path"),
           content: checkedString("content is required", "invalid_content"),
+          encoding: z.enum(TEXT_ENCODINGS as [TextEncoding, ...TextEncoding[]]).optional(),
         }),
         req.body ?? {},
       );
       const cwd = await workspacePath(cfg, project.id);
-      await writeProjectFile(cwd, path, content);
+      await writeProjectFile(cwd, path, content, encoding);
       if (db) {
         try {
           recordAuditLog(db, {

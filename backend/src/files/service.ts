@@ -1,7 +1,16 @@
 import { promises as fs, constants } from "node:fs";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { ApiError, errorInfo } from "../errors.js";
-import { readConfinedFile, writeConfinedFile } from "./confined.js";
+import { readConfinedBytes, writeConfinedFile } from "./confined.js";
+import {
+  decodeText,
+  detectEncoding,
+  detectEol,
+  encodeText,
+  isBinary,
+  type Eol,
+  type TextEncoding,
+} from "./encoding.js";
 
 const MAX_FILE_SIZE = 1024 * 1024;
 const SKIP_DIRS = new Set([
@@ -72,7 +81,7 @@ export function assertNotGitInternal(relPath: string): void {
  * filesystems may be case-insensitive, and Win32 ignores trailing dots and
  * spaces and `:stream` suffixes on a path segment (`GIT~1` is its 8.3 name).
  */
-function isGitInternalRel(rel: string): boolean {
+export function isGitInternalRel(rel: string): boolean {
   const first = rel.replace(/\\/g, "/").split("/")[0] ?? "";
   const segment = first
     .replace(/:.*$/, "")
@@ -326,17 +335,31 @@ export async function tree(root: string): Promise<TreeNode[]> {
   return (await treeListing(root)).tree;
 }
 
+export interface FileReadResult {
+  content: string;
+  size: number;
+  binary: boolean;
+  encoding: TextEncoding;
+  eol: Eol;
+}
+
 export async function readProjectFile(
   root: string,
   relPath: string,
-): Promise<{ content: string; size: number }> {
+): Promise<FileReadResult> {
   assertNotGitInternal(relPath);
   const abs = safeResolve(root, relPath);
   await assertInsideWorkspace(root, abs);
   // M87: the check above is advisory; the read itself verifies the opened
   // file, so a symlink swapped in after the check cannot redirect it.
   try {
-    return await readConfinedFile(root, abs, { maxBytes: MAX_FILE_SIZE });
+    const buf = await readConfinedBytes(root, abs, { maxBytes: MAX_FILE_SIZE });
+    if (isBinary(buf)) {
+      return { content: "", size: buf.length, binary: true, encoding: "utf-8", eol: "none" };
+    }
+    const encoding = detectEncoding(buf);
+    const content = decodeText(buf, encoding);
+    return { content, size: buf.length, binary: false, encoding, eol: detectEol(content) };
   } catch (err) {
     if (err instanceof ApiError) throw err;
     if (errorInfo(err).code === "ENOENT" || errorInfo(err).code === "ENOTDIR") {
@@ -349,10 +372,27 @@ export async function readProjectFile(
   }
 }
 
+/** Byte-exact read for the inline viewer (/raw); same confinement as readProjectFile. */
+export async function readProjectBytes(root: string, relPath: string): Promise<Buffer> {
+  assertNotGitInternal(relPath);
+  const abs = safeResolve(root, relPath);
+  await assertInsideWorkspace(root, abs);
+  try {
+    return await readConfinedBytes(root, abs, { maxBytes: 25 * 1024 * 1024 });
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    const code = errorInfo(err).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw new ApiError(404, "file not found", "not_found");
+    if (code === "EISDIR") throw new ApiError(400, "not a file", "not_a_file");
+    throw err;
+  }
+}
+
 export async function writeProjectFile(
   root: string,
   relPath: string,
   content: string,
+  encoding: TextEncoding = "utf-8",
 ): Promise<void> {
   if (typeof content !== "string")
     throw new ApiError(400, "content must be a string", "invalid_content");
@@ -364,8 +404,24 @@ export async function writeProjectFile(
   }
   await fs.mkdir(dirname(abs), { recursive: true });
   // M87: truncates/writes only after proving the opened file is inside root.
-  await writeConfinedFile(root, abs, content);
+  await writeConfinedFile(root, abs, encoding === "utf-8" ? content : encodeText(content, encoding));
   invalidateTreeCache(root);
+}
+
+/**
+ * Re-resolves the parent directory of `abs` at the moment of use and returns
+ * realParent/basename, throwing if the parent now lies outside the workspace.
+ * The final component is deliberately not resolved (a symlink is moved or
+ * removed as a link, never followed).
+ */
+async function pinParent(root: string, abs: string): Promise<string> {
+  const realRoot = await fs.realpath(root);
+  const realParent = await fs.realpath(dirname(abs));
+  const rel = relative(realRoot, realParent);
+  if (rel.startsWith("..") || isAbsolute(rel)) throw escapeError();
+  const pinned = join(realParent, basename(abs));
+  if (isGitInternalRel(relative(realRoot, pinned))) throw gitInternalError();
+  return pinned;
 }
 
 export async function moveProjectPath(
@@ -391,7 +447,9 @@ export async function moveProjectPath(
     if (errorInfo(err).status === 409) throw err;
   }
   await fs.mkdir(dirname(dstAbs), { recursive: true });
-  await fs.rename(srcAbs, dstAbs);
+  // M100: operate on parent-realpath + basename so a parent directory swapped
+  // for a symlink after the checks above cannot redirect the rename.
+  await fs.rename(await pinParent(root, srcAbs), await pinParent(root, dstAbs));
   invalidateTreeCache(root);
   return { path: to };
 }
@@ -409,7 +467,7 @@ export async function deleteProjectPath(root: string, relPath: string): Promise<
   } catch {
     throw new ApiError(404, "path not found", "not_found");
   }
-  await fs.rm(abs, { recursive: true, force: true });
+  await fs.rm(await pinParent(root, abs), { recursive: true, force: true });
   invalidateTreeCache(root);
 }
 

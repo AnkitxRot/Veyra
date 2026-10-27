@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-27. Latest milestone: **M99**.
+Last updated: 2026-10-27. Latest milestone: **M103**.
 
 This file is the short milestone ledger. The complete historical record
 (~10k lines, M1–M86 write-ups, verification logs, architecture decisions
@@ -32,6 +32,10 @@ the commit messages and reports, not re-run for this summary.
 | M97 | Audit + security pass | branch `docs/m94-status-roadmap` | `COLLABORATOR_*` audit events; ratchet test for unaudited mutating routes; prod `npm audit` 6→0; AI subsystem fixes (ReDoS that blocked the event loop, `/ai/verify` field bounds, viewers no longer see run output in the AI journal); CI permissions/concurrency/audit gate. |
 | M98 | Toolchain and architecture overhaul | branch `overhaul/m95` | Node 24, TS 6, Express 5, React 19, Vite 8, Vitest 5; zod validation, pino logger, async zlib, routes split, typed ide-* events. Report: `docs/reports/m98-overhaul-report.md`. |
 | M99 | Prod hardening I | branch `overhaul/m99` | WS Origin allowlist (`ALLOWED_ORIGINS`), zod env validation (`envSchema.ts`), global CSP, Origin/Sec-Fetch-Site CSRF guard on `/api` writes. Proxy previews excluded from CSP; `sandbox` CSP for previews deferred (breaks Vite module loading without browser verification). |
+| M100 | Prod hardening II | branch `overhaul/m100` | Per-route rate limits (files/run/git/ai), `/metrics` Prometheus (token or IP allowlist), M97 follow-ups (zip `.git` normalisation, atomic import quota, pinned-parent move/delete), LICENSE, Docker HEALTHCHECK. Residual: true TOCTOU closure needs dirfd pinning; import quota is per-process. |
+| M101 | Split editor | branch `overhaul/m100` | Pure `editorGroups` reducer + `EditorGroupsView`; split right/down (max 3 groups), drag tabs between groups; secondary groups share Monaco models and own no collab. |
+| M102 | Terminal tabs | branch `overhaul/m100` | Up to 5 terminals per project (`terminalTabs.ts`, `TerminalTabs.tsx`) with split view; per-slot resume keys; fixes M88 resume (userId was not passed). |
+| M103 | Viewers + encoding | branch `overhaul/m100` | Binary guard, image/SVG/PDF viewer via sandboxed `GET /:id/raw`, escape-first markdown preview, real encoding/EOL detection (utf-8/-bom/utf-16/latin1) with encoding-aware save. |
 
 ### Security review (M97)
 

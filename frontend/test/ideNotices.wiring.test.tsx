@@ -203,7 +203,7 @@ describe("M64 — IDE.tsx notice wiring", () => {
   it("M75 — the open-file failure is a transient error notice, not alert()", () => {
     const at = src.indexOf("const handleOpenFile = useCallback");
     expect(at).toBeGreaterThan(-1);
-    const block = src.slice(at, at + 900);
+    const block = src.slice(at, at + 1600);
     expect(block).not.toContain("alert(");
     expect(block).toContain('kind: "error"');
     expect(block).toContain("Could not open ");

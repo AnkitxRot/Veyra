@@ -30,15 +30,18 @@ export default function Terminal({
   userId,
   resolvedTheme = "dark",
   visible = true,
+  slot,
 }: {
   projectId: string;
   /** Authenticated user id. Required for M88 same-tab PTY resume. */
   userId?: number;
   resolvedTheme?: "dark" | "light";
   visible?: boolean;
+  /** M102: resume slot for additional terminals in the same project. */
+  slot?: string;
 }) {
   const { state, endedReason, bindContainer, ensureStarted, clear, retry, fit } =
-    useTerminalSession(projectId, resolvedTheme, userId);
+    useTerminalSession(projectId, resolvedTheme, userId, slot);
 
   const hostRef = useRef<HTMLDivElement>(null);
 

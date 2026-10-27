@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { ApiError } from "./errors.js";
 
 /**
@@ -54,5 +55,24 @@ export function csrfGuard(allowedOrigins: readonly string[]) {
       return next(new ApiError(403, "cross-site request rejected", "csrf_rejected"));
     }
     next();
+  };
+}
+
+/**
+ * Gate for /metrics: a bearer token (METRICS_TOKEN) or, absent a token, an IP
+ * allowlist (default loopback only). Constant-time token comparison.
+ */
+export function metricsGate(token: string | undefined, allowedIps: readonly string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (token) {
+      const got = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      const a = Buffer.from(got);
+      const b = Buffer.from(token);
+      if (a.length === b.length && timingSafeEqual(a, b)) return next();
+      return next(new ApiError(401, "metrics token required", "unauthorized"));
+    }
+    const ip = (req.ip ?? "").replace(/^::ffff:/, "");
+    if (allowedIps.includes(ip)) return next();
+    return next(new ApiError(403, "forbidden", "forbidden"));
   };
 }

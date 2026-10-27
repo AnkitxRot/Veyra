@@ -131,6 +131,14 @@ export interface EditorProps {
   /** M59: model-safe view-state save/restore for the follow anchor. */
   editorViewApiRef?: React.MutableRefObject<EditorViewApi | null>;
   preferences?: UserPreferences;
+  /** M101: a non-primary editor group. It shares Monaco models with the
+   *  primary group but never owns the live-content/view-state APIs, collab
+   *  binding or model disposal. */
+  secondary?: boolean;
+  /** M101: every path open in ANY group, so this group's model cleanup does
+   *  not dispose models that another group still shows. */
+  retainPaths?: string[];
+  groupId?: string;
   /** M61-A: comment threads for the active project. */
   commentThreads?: CommentThreadDTO[];
   projectId?: string;
@@ -163,6 +171,9 @@ export default function Editor({
   saveChord = "mod+s",
   liveApiRef,
   editorViewApiRef,
+  secondary = false,
+  retainPaths,
+  groupId,
   preferences,
   commentThreads = [],
   projectId,
@@ -396,12 +407,12 @@ export default function Editor({
       // Publish the live-content API for save consumers. Done as soon as the
       // editor exists so Ctrl+S issued while chunks/models settle still
       // resolves truthfully (or falls back cleanly when it cannot).
-      if (liveApiRef) {
+      if (liveApiRef && !secondary) {
         liveApiRef.current = { get: getLiveContent, apply: applyLiveContent };
       }
 
       // M59: model-safe view-state API for the follow anchor.
-      if (editorViewApiRef) {
+      if (editorViewApiRef && !secondary) {
         editorViewApiRef.current = {
           save: () => {
             const ed = monacoRef.current;
@@ -681,6 +692,11 @@ export default function Editor({
       // observe content from a dying editor. Registry entries are dropped;
       // the models themselves stay governed by the openFiles cleanup effect
       // exactly as before (no disposal-order change for collab bindings).
+      if (secondary) {
+        monacoRef.current?.dispose();
+        monacoRef.current = null;
+        return;
+      }
       if (liveApiRef && liveApiRef.current) {
         liveApiRef.current = null;
       }
@@ -731,6 +747,20 @@ export default function Editor({
 
     const activeFileData = openFiles.find((f: any) => f.path === activeFile);
     if (!activeFileData) return;
+
+    if (secondary) {
+      // Attach to the shared model only: no content sync, no collab binding.
+      const sUri = monaco.Uri.file(activeFile);
+      const sModel =
+        monaco.editor.getModel(sUri) ??
+        monaco.editor.createModel(
+          activeFileData.content || "",
+          getLanguageInfo(activeFile).monacoId,
+          sUri,
+        );
+      if (monacoRef.current.getModel() !== sModel) monacoRef.current.setModel(sModel);
+      return;
+    }
 
     const uri = monaco.Uri.file(activeFile);
     let model = monaco.editor.getModel(uri);
@@ -958,7 +988,11 @@ export default function Editor({
       if (m.isDisposed()) liveModels.delete(key);
     }
 
-    const openPaths = new Set(openFiles.map((f: any) => f.path));
+    if (secondary) return;
+    const openPaths = new Set<string>([
+      ...openFiles.map((f: any) => f.path as string),
+      ...(retainPaths ?? []),
+    ]);
     const allModels = monaco.editor.getModels();
     for (const model of allModels) {
       const normPath = model.uri.path.startsWith("/") ? model.uri.path.slice(1) : model.uri.path;
@@ -967,7 +1001,7 @@ export default function Editor({
         model.dispose();
       }
     }
-  }, [openFiles]);
+  }, [openFiles, retainPaths, secondary]);
 
   // M58: render incoming point/callout decorations + callout bubbles for the
   // ACTIVE file only. Never mutates the Monaco model. Message text is always
@@ -1172,6 +1206,14 @@ export default function Editor({
                 key={f.path}
                 className={`editor-tab ${activeFile === f.path ? "active" : ""}`}
                 onClick={() => setActiveFile(f.path)}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(
+                    "application/x-veyra-tab",
+                    JSON.stringify({ path: f.path, from: groupId ?? "main" }),
+                  );
+                  e.dataTransfer.effectAllowed = "move";
+                }}
                 role="tab"
                 aria-selected={activeFile === f.path}
                 title={f.path}

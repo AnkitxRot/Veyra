@@ -47,8 +47,8 @@ describe("M69 — appearance controller wiring", () => {
       /[state, endedReason, bindContainer, ensureStarted, clear, retry, fit]/,
     );
     // The view no longer owns any theme or socket logic — it delegates to
-    // useTerminalSession with projectId, resolvedTheme, and userId (M88).
-    expect(terminal).toContain("useTerminalSession(projectId, resolvedTheme, userId)");
+    // useTerminalSession with projectId, resolvedTheme, userId (M88) and slot (M102).
+    expect(terminal).toContain("useTerminalSession(projectId, resolvedTheme, userId, slot)");
   });
 
   it("theme is a typed preference and part of the editable modal keys", () => {

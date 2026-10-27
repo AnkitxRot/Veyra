@@ -45,7 +45,12 @@ export function useTerminalSession(
   projectId: string,
   resolvedTheme: "dark" | "light",
   userId?: number,
+  /** M102: extra terminals in the same project use their own resume slot. */
+  slot?: string,
 ): TerminalSession {
+  const slotRef = useRef(slot);
+  slotRef.current = slot;
+  const rk = (pid: string): string => (slotRef.current ? `${pid}~${slotRef.current}` : pid);
   const [state, setStateRaw] = useState<TerminalConnectionState>(TERMINAL_STATES.connecting);
   const [endedReason, setEndedReason] = useState<TerminalEndedReason | null>(null);
 
@@ -294,7 +299,7 @@ export function useTerminalSession(
           const uid = userIdRef.current;
           const pid = projectIdRef.current;
           if (isPersistableTerminalUser(uid) && pid) {
-            writeTerminalResume(uid, pid, terminalIdRef.current);
+            writeTerminalResume(uid, rk(pid), terminalIdRef.current);
           }
           persistedRef.current = true;
         }
@@ -374,14 +379,14 @@ export function useTerminalSession(
     const uid = userIdRef.current;
     const pid = projectIdRef.current;
     if (!isPersistableTerminalUser(uid) || !pid) return;
-    writeTerminalResume(uid, pid, terminalId);
+    writeTerminalResume(uid, rk(pid), terminalId);
   };
 
   const forgetStoredId = () => {
     const uid = userIdRef.current;
     const pid = projectIdRef.current;
     if (!isPersistableTerminalUser(uid) || !pid) return;
-    clearTerminalResume(uid, pid);
+    clearTerminalResume(uid, rk(pid));
   };
 
   const retry = useCallback(() => {
@@ -416,7 +421,7 @@ export function useTerminalSession(
     // (userId, projectId) — enables reattach after same-tab reload.  Otherwise
     // mint a fresh id for a new session.
     const restored =
-      isPersistableTerminalUser(userId) && projectId ? readTerminalResume(userId, projectId) : null;
+      isPersistableTerminalUser(userId) && projectId ? readTerminalResume(userId, rk(projectId)) : null;
     if (restored) {
       terminalIdRef.current = restored;
       resumeRef.current = true;

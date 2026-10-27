@@ -1,7 +1,10 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
-import { APP_CSP, csrfGuard, isProxyPath } from "./security.js";
+import { APP_CSP, csrfGuard, isProxyPath, metricsGate } from "./security.js";
+import { routeRateLimit } from "./ratelimitMiddleware.js";
+import { getObservabilitySnapshot, renderPrometheus } from "./observability.js";
+import { activeConnectionCount } from "./ws/connectionRegistry.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AppConfig } from "./config.js";
@@ -83,6 +86,22 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   app.use(securityHeaders());
   app.use("/api", csrfGuard(cfg.allowedOrigins));
 
+  app.get("/metrics", metricsGate(cfg.metricsToken, cfg.metricsAllowedIps), (_req, res) => {
+    res
+      .type("text/plain; version=0.0.4")
+      .send(
+        renderPrometheus(
+          getObservabilitySnapshot({
+            activeConnectionCount,
+            getActiveRoomCount: () => collaborationManager.getActiveRoomCount(),
+            getActiveSandboxCount: () => sandboxManager.getActiveSandboxCount(),
+            getTotalCollabBroadcastSends: () => collaborationManager.getTotalBroadcastSendCount(),
+            getSandboxRoomOccupancyMetrics: () => sandboxManager.getRoomOccupancyMetrics(),
+          }),
+        ),
+      );
+  });
+
   // Liveness: cheap, and deliberately independent of Docker so the process is
   // not restarted just because the execution runtime is unavailable.
   app.get("/api/health", (_req, res) => {
@@ -120,6 +139,8 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   });
 
   app.use("/api/auth", authRoutes(db, cfg));
+  const projectLimiter = routeRateLimit();
+  app.use("/api/projects", requireAuth(db), projectLimiter);
   app.use("/api/projects", requireAuth(db), projectRoutes(cfg, db));
   app.use("/api/projects", requireAuth(db), projectSecretRoutes(cfg, db));
   app.use("/api/projects", requireAuth(db), aiRoutes(cfg, db));

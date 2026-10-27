@@ -4,8 +4,15 @@ import React, {
   useCallback,
   useMemo,
   useRef,
+  useReducer,
   Suspense,
 } from "react";
+import {
+  groupsReducer,
+  initialGroups,
+  mainPaths,
+  type SplitDirection,
+} from "../../editorGroups";
 import { flushSync } from "react-dom";
 import {
   type User,
@@ -32,12 +39,13 @@ import Sidebar from "../Sidebar/Sidebar";
 import Toolbar from "../Toolbar/Toolbar";
 // Lazy: pulls in monaco-editor (~4.5MB raw); a static import here put that
 // weight in the entry bundle, downloading before even the login screen showed.
-const Editor = React.lazy(() => import("../Editor/Editor"));
+const EditorGroupsView = React.lazy(() => import("./EditorGroupsView"));
+import { FileViewer, MarkdownPreview, viewerKindFor, type ViewerKind } from "./FileViewer";
 // Type-only import: erased at compile time, so the lazy chunk boundary for
 // Monaco is preserved while IDE stays typed against the live-content API.
 import type { LiveContentApi } from "../Editor/Editor";
 import Output from "../Output/Output";
-import Terminal from "../Terminal/Terminal";
+import TerminalTabs from "../Terminal/TerminalTabs";
 import Preview from "../Preview/Preview";
 import { ExecutionSessionProvider } from "../../hooks/useExecutionSession";
 import { DebugSessionProvider } from "../../hooks/useDebugger";
@@ -236,13 +244,35 @@ export default function IDE({
   const activeProjectIdRef = useRef<string | null>(null);
   activeProjectIdRef.current = project?.id ?? null;
   const [tree, setTree] = useState<TreeNode[]>([]);
+  const [editorGroups, dispatchGroups] = useReducer(groupsReducer, initialGroups);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const splitActiveEditor = (direction: SplitDirection) => {
+    const open = openFilesRef.current.map((f) => f.path);
+    const main = mainPaths(open, editorGroupsRef.current);
+    const path = activeFileRef.current;
+    // Moving the only main tab would leave an empty primary group.
+    if (!path || main.length < 2 || !main.includes(path)) return;
+    dispatchGroups({ type: "split", direction, id: `g${Date.now().toString(36)}`, path });
+  };
+  const editorGroupsRef = useRef(editorGroups);
+  editorGroupsRef.current = editorGroups;
   const activeFileRef = useRef<string | null>(null);
   activeFileRef.current = activeFile;
   const [openFiles, setOpenFiles] = useState<
     { path: string; content: string; dirty?: boolean }[]
   >([]);
   const openFilesRef = useRef(openFiles);
+  // M103: non-text files (image/PDF/binary) open in a viewer, never in Monaco.
+  const [viewer, setViewer] = useState<{ projectId: string; path: string; kind: ViewerKind } | null>(null);
+  const [mdPreview, setMdPreview] = useState(false);
+  // M103: real encoding/EOL per open file (reported by the server on read).
+  const [fileMeta, setFileMeta] = useState<Record<string, { encoding: string; eol: string }>>({});
+  const fileMetaRef = useRef(fileMeta);
+  fileMetaRef.current = fileMeta;
+  const encodingFor = (path: string) => {
+    const e = fileMetaRef.current[path]?.encoding;
+    return e && e !== "utf-8" ? e : undefined;
+  };
   // Populated by the (lazily loaded) Editor on mount: the live Monaco model
   // registry that serves as the save-time source of truth. See M1.
   const liveApiRef = useRef<LiveContentApi | null>(null);
@@ -610,6 +640,7 @@ export default function IDE({
     // it — corrupting the new project's file with duplicated content. This
     // was found via manual QA: forking a project, then switching back to
     // the source, duplicated a source file's content on disk.
+    dispatchGroups({ type: "reset" });
     setOpenFiles([]);
     setActiveFile(null);
     // M68: the previous project's file tree must not linger under the new
@@ -1374,9 +1405,17 @@ export default function IDE({
     }
 
     try {
-      const res = await api<{ content: string }>(
+      const res = await api<{ content: string; binary?: boolean; encoding?: string; eol?: string }>(
         `/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`,
       );
+      const kind = viewerKindFor(path, !!res.binary);
+      if (kind) {
+        setViewer({ projectId: project.id, path, kind });
+        return;
+      }
+      setViewer(null);
+      if (res.encoding || res.eol)
+        setFileMeta((m) => ({ ...m, [path]: { encoding: res.encoding ?? "utf-8", eol: res.eol ?? "LF" } }));
       setOpenFiles((prev) => appendOpenFile(prev, { path, content: res.content }));
       setActiveFile(path);
     } catch (err: any) {
@@ -2540,7 +2579,7 @@ export default function IDE({
       try {
         await api(`/api/projects/${project.id}/file`, {
           method: "POST",
-          body: JSON.stringify({ path, content: finalContent }),
+          body: JSON.stringify({ path, content: finalContent, encoding: encodingFor(path) }),
         });
         setOpenFiles((prev) =>
           prev.map((f) =>
@@ -2625,7 +2664,7 @@ export default function IDE({
       try {
         await api(`/api/projects/${project.id}/file`, {
           method: "POST",
-          body: JSON.stringify({ path: f.path, content }),
+          body: JSON.stringify({ path: f.path, content, encoding: encodingFor(f.path) }),
         });
         savedContents.set(f.path, content);
       } catch {}
@@ -2701,7 +2740,7 @@ export default function IDE({
         try {
           await api(`/api/projects/${project.id}/file`, {
             method: "POST",
-            body: JSON.stringify({ path: f.path, content }),
+            body: JSON.stringify({ path: f.path, content, encoding: encodingFor(f.path) }),
           });
           savedContents.set(f.path, content);
         } catch (err: any) {
@@ -2999,6 +3038,27 @@ export default function IDE({
 
     const commands: Command[] = [
       // Navigation
+      {
+        id: "markdown.togglePreview",
+        title: "Toggle Markdown Preview",
+        description: "Show a side-by-side preview of the active Markdown file",
+        category: "Navigation",
+        handler: () => setMdPreview((v) => !v),
+      },
+      {
+        id: "workbench.action.splitEditorRight",
+        title: "Split Editor Right",
+        description: "Move the active tab into a new editor group on the right",
+        category: "Navigation",
+        handler: () => splitActiveEditor("right"),
+      },
+      {
+        id: "workbench.action.splitEditorDown",
+        title: "Split Editor Down",
+        description: "Move the active tab into a new editor group below",
+        category: "Navigation",
+        handler: () => splitActiveEditor("down"),
+      },
       {
         id: "workbench.action.quickOpen",
         title: "Quick Open File",
@@ -3761,7 +3821,9 @@ export default function IDE({
                   </div>
                 }
               >
-                <Editor
+                <EditorGroupsView
+                  groups={editorGroups}
+                  dispatch={dispatchGroups}
                   project={project}
                   openFiles={openFiles}
                   setOpenFiles={setOpenFiles}
@@ -3795,6 +3857,20 @@ export default function IDE({
                 />
               </Suspense>
             </ErrorBoundary>
+            {viewer && project && viewer.projectId === project.id && (
+              <FileViewer
+                projectId={project.id}
+                path={viewer.path}
+                kind={viewer.kind}
+                onClose={() => setViewer(null)}
+              />
+            )}
+            {mdPreview && activeFile && /\.(md|markdown)$/i.test(activeFile) && (
+              <MarkdownPreview
+                content={openFiles.find((f) => f.path === activeFile)?.content ?? ""}
+                onClose={() => setMdPreview(false)}
+              />
+            )}
           </div>
 
           {/* Vertical Resizer Bar */}
@@ -4072,8 +4148,10 @@ export default function IDE({
                       : "none",
                 }}
               >
-                <Terminal
+                <TerminalTabs
+                  key={project.id}
                   projectId={project.id}
+                  userId={user.id}
                   resolvedTheme={resolvedTheme}
                   visible={bottomTab === "terminal" && !isBottomCollapsed}
                 />
@@ -4176,8 +4254,26 @@ export default function IDE({
             >
               {formatOnSave ? "Format: On" : "Format: Off"}
             </span>
-            <span className="ide-statusbar-item">UTF-8</span>
-            <span className="ide-statusbar-item">LF</span>
+            <select
+              className="ide-statusbar-item"
+              aria-label="File encoding"
+              title="Encoding used when saving this file"
+              disabled={!activeFile}
+              value={(activeFile && fileMeta[activeFile]?.encoding) || "utf-8"}
+              onChange={(e) => {
+                const encoding = e.target.value;
+                if (activeFile)
+                  setFileMeta((m) => ({ ...m, [activeFile]: { eol: m[activeFile]?.eol ?? "LF", encoding } }));
+              }}
+              style={{ background: "transparent", color: "inherit", border: 0, font: "inherit" }}
+            >
+              {["utf-8", "utf-8-bom", "utf-16le", "utf-16be", "latin1"].map((e) => (
+                <option key={e} value={e}>
+                  {e.toUpperCase()}
+                </option>
+              ))}
+            </select>
+            <span className="ide-statusbar-item">{(activeFile && fileMeta[activeFile]?.eol) || "LF"}</span>
             <span
               className="ide-statusbar-item"
               style={{ color: "var(--accent)" }}

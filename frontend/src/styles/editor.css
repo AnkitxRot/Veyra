@@ -535,3 +535,13 @@
 .follow-stop-btn:hover {
   background: rgba(243, 139, 168, 0.25) !important;
 }
+
+/* M101: split editor groups */
+.editor-groups { gap: 1px; background: var(--border); }
+.editor-group { background: var(--bg, inherit); overflow: hidden; }
+.editor-group-close {
+  position: absolute; top: 4px; right: 8px; z-index: 5;
+  background: transparent; border: 0; color: var(--text-dim, #888);
+  cursor: pointer; font-size: 16px; line-height: 1;
+}
+.editor-group-close:hover { color: var(--text, #fff); }

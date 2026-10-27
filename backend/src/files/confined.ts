@@ -168,7 +168,11 @@ export async function readConfinedBytes(
  * Replace (or create) the regular file at `abs` only if the opened file is
  * inside `root`. Nothing is truncated or written before the check passes.
  */
-export async function writeConfinedFile(root: string, abs: string, content: string): Promise<void> {
+export async function writeConfinedFile(
+  root: string,
+  abs: string,
+  content: string | Buffer,
+): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
     let fh: FileHandle;
     try {
@@ -197,7 +201,7 @@ export async function writeConfinedFile(root: string, abs: string, content: stri
       }
       await assertHandleConfined(root, abs, fh, st);
       await fh.truncate(0);
-      const data = Buffer.from(content, "utf8");
+      const data = typeof content === "string" ? Buffer.from(content, "utf8") : content;
       if (testWriteHook) {
         await testWriteHook(abs, data.toString("utf8"));
       } else {

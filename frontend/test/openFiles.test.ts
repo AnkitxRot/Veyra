@@ -58,7 +58,7 @@ describe("IDE.handleOpenFile wiring", () => {
   );
   const block = src.slice(
     src.indexOf("const handleOpenFile = useCallback"),
-    src.indexOf("const handleOpenFile = useCallback") + 700,
+    src.indexOf("const handleOpenFile = useCallback") + 1400,
   );
 
   it("inserts new tabs through the deduping appendOpenFile helper", () => {
