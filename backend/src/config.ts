@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 import { parseAllowedOrigins } from "./ws/origin.js";
 import { validateEnv } from "./envSchema.js";
 import { parseRunnerImages } from "./execution/runtime.js";
+import {
+  parseHostProfileSetting,
+  resolveHostProfile,
+  type HostProfile,
+} from "./resourceProfile.js";
 
 export const IS_WINDOWS = process.platform === "win32";
 
@@ -158,6 +163,14 @@ export interface AppConfig {
   metricsAllowedIps: string[];
   /** M108: operator allowlist of sandbox images a project may select via .veyra/runtime.json. */
   runnerImages: string[];
+  /** M111: resolved host resource profile (HOST_PROFILE=auto|low|standard). */
+  hostProfile: HostProfile;
+  /** M111: idle time before a sandbox is `docker stop`ped (container kept). */
+  sandboxStopAfterMs: number;
+  /** M111: host-wide concurrent run/build/install cap. */
+  maxGlobalRuns: number;
+  /** M111: free host RAM kept back when admitting a sandbox (0 disables). */
+  hostMemReserveBytes: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -233,7 +246,26 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
   const defaultDataDir = IS_WINDOWS ? join(homedir(), ".cloud-ide") : "/var/lib/cloud-ide";
 
   const dataDir = overrides.dataDir ?? process.env.DATA_DIR ?? defaultDataDir;
+  const profile =
+    overrides.hostProfile ?? resolveHostProfile(parseHostProfileSetting(process.env.HOST_PROFILE));
+  const mb = 1024 * 1024;
   return {
+    hostProfile: profile,
+    sandboxStopAfterMs:
+      overrides.sandboxStopAfterMs ??
+      boundedIntEnv("SANDBOX_STOP_AFTER_MS", profile.sandboxStopAfterMs, {
+        min: 1_000,
+        max: 86_400_000,
+      }),
+    maxGlobalRuns:
+      overrides.maxGlobalRuns ??
+      boundedIntEnv("MAX_GLOBAL_RUNS", profile.maxGlobalRuns, { min: 1, max: 256 }),
+    hostMemReserveBytes:
+      overrides.hostMemReserveBytes ??
+      boundedIntEnv("HOST_MEM_RESERVE_MB", profile.memReserveBytes / mb, {
+        min: 0,
+        max: 65_536,
+      }) * mb,
     port: overrides.port ?? Number(process.env.PORT ?? 3000),
     adminUsername: overrides.adminUsername ?? process.env.ADMIN_USERNAME ?? "admin",
     dataDir,
@@ -243,7 +275,15 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     sessionTtlMs: overrides.sessionTtlMs ?? 30 * 24 * 3600 * 1000,
     runTimeoutMs: overrides.runTimeoutMs ?? 15_000,
     buildTimeoutMs: overrides.buildTimeoutMs ?? 60_000,
-    limits: overrides.limits ?? DEFAULT_LIMITS,
+    limits: overrides.limits ?? {
+      ...DEFAULT_LIMITS,
+      memoryBytes:
+        boundedIntEnv("SANDBOX_MEMORY_MB", profile.memoryBytes / mb, { min: 64, max: 65_536 }) * mb,
+      cpuQuota: Math.round(
+        boundedIntEnv("SANDBOX_CPU_MILLIS", profile.cpuQuota / 100, { min: 100, max: 64_000 }) * 100,
+      ),
+      pidsLimit: boundedIntEnv("SANDBOX_PIDS_LIMIT", profile.pidsLimit, { min: 32, max: 4096 }),
+    },
     workspacesDir: join(dataDir, "workspaces"),
     authRateLimit: overrides.authRateLimit ?? {
       max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 20),
@@ -251,7 +291,9 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     },
     minPasswordLength: overrides.minPasswordLength ?? Number(process.env.MIN_PASSWORD_LENGTH ?? 8),
     projectQuota: overrides.projectQuota ?? Number(process.env.PROJECT_QUOTA ?? 20),
-    maxConcurrentRuns: overrides.maxConcurrentRuns ?? Number(process.env.MAX_CONCURRENT_RUNS ?? 3),
+    maxConcurrentRuns:
+      overrides.maxConcurrentRuns ??
+      Number(process.env.MAX_CONCURRENT_RUNS ?? profile.maxConcurrentRuns),
     sandboxIdleTimeoutMs:
       overrides.sandboxIdleTimeoutMs ?? Number(process.env.SANDBOX_IDLE_TIMEOUT_MS ?? 30 * 60_000),
     sandboxReaperIntervalMs:
@@ -278,7 +320,7 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       (process.env.COOKIE_SECURE !== undefined
         ? process.env.COOKIE_SECURE === "1" || process.env.COOKIE_SECURE.toLowerCase() === "true"
         : process.env.NODE_ENV === "production"),
-    maxSandboxes: overrides.maxSandboxes ?? Number(process.env.MAX_SANDBOXES ?? 20),
+    maxSandboxes: overrides.maxSandboxes ?? Number(process.env.MAX_SANDBOXES ?? profile.maxSandboxes),
     // Global maxSandboxes is a host-wide safety cap; this is the per-owner
     // fairness limit underneath it, so one user opening many projects can't
     // consume the whole host's sandbox budget alone. 5 is generous for
@@ -309,13 +351,16 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     // sessions are evicted first when the ceiling is hit. Per project: one
     // Python + one TypeScript/JavaScript server.
     maxLspServers:
-      overrides.maxLspServers ?? boundedIntEnv("MAX_LSP_SERVERS", 8, { min: 1, max: 64 }),
+      overrides.maxLspServers ?? boundedIntEnv("MAX_LSP_SERVERS", profile.maxLspServers, { min: 1, max: 64 }),
     maxLspServersPerProject:
       overrides.maxLspServersPerProject ??
-      boundedIntEnv("MAX_LSP_SERVERS_PER_PROJECT", 2, { min: 1, max: 8 }),
+      boundedIntEnv("MAX_LSP_SERVERS_PER_PROJECT", profile.maxLspServersPerProject, {
+        min: 1,
+        max: 8,
+      }),
     lspIdleTimeoutMs:
       overrides.lspIdleTimeoutMs ??
-      boundedIntEnv("LSP_IDLE_TIMEOUT_MS", 120_000, {
+      boundedIntEnv("LSP_IDLE_TIMEOUT_MS", profile.lspIdleTimeoutMs, {
         min: 5_000,
         max: 3_600_000,
       }),
@@ -343,10 +388,13 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
     // globally, 2 per project (two users), 1 per user. Timeouts fail closed
     // rather than restarting (no restart storm).
     maxDebugSessions:
-      overrides.maxDebugSessions ?? boundedIntEnv("MAX_DEBUG_SESSIONS", 4, { min: 1, max: 32 }),
+      overrides.maxDebugSessions ?? boundedIntEnv("MAX_DEBUG_SESSIONS", profile.maxDebugSessions, { min: 1, max: 32 }),
     maxDebugSessionsPerProject:
       overrides.maxDebugSessionsPerProject ??
-      boundedIntEnv("MAX_DEBUG_SESSIONS_PER_PROJECT", 2, { min: 1, max: 8 }),
+      boundedIntEnv("MAX_DEBUG_SESSIONS_PER_PROJECT", profile.maxDebugSessionsPerProject, {
+        min: 1,
+        max: 8,
+      }),
     maxDebugSessionsPerUser:
       overrides.maxDebugSessionsPerUser ??
       boundedIntEnv("MAX_DEBUG_SESSIONS_PER_USER", 1, { min: 1, max: 4 }),
@@ -504,7 +552,7 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       overrides.telemetryFlushIntervalMs ?? Number(process.env.TELEMETRY_FLUSH_INTERVAL_MS ?? 5000),
     telemetrySampleIntervalMs:
       overrides.telemetrySampleIntervalMs ??
-      Number(process.env.TELEMETRY_SAMPLE_INTERVAL_MS ?? 2000),
+      Number(process.env.TELEMETRY_SAMPLE_INTERVAL_MS ?? profile.telemetrySampleIntervalMs),
     maxSnapshotsPerProject:
       overrides.maxSnapshotsPerProject ?? Number(process.env.MAX_SNAPSHOTS_PER_PROJECT ?? 10),
     maxSnapshotBytesPerProject:

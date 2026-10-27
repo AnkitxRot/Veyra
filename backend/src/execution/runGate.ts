@@ -23,9 +23,24 @@ export class RunGate {
   activeCount(userId: number): number {
     return this.active.get(userId) ?? 0;
   }
+
+  /** Sum across all keys (gate-occupancy gauge). */
+  totalActive(): number {
+    let n = 0;
+    for (const v of this.active.values()) n += v;
+    return n;
+  }
 }
 
 export const runGate = new RunGate();
+
+/**
+ * M111: host-wide cap on concurrently executing sandbox processes (runs,
+ * builds, installs) regardless of user. Single key; `max` is
+ * `config.maxGlobalRuns`.
+ */
+export const globalRunGate = new RunGate();
+export const GLOBAL_RUN_KEY = 0;
 
 /**
  * Separate per-user budget for workspace search. Each search spawns a real

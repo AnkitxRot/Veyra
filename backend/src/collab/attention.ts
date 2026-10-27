@@ -221,6 +221,12 @@ export class RateLimiter {
     this.hits.push(now);
     return true;
   }
+
+  /** M111: true when every recorded hit has aged out (safe to drop the limiter). */
+  isIdle(now: number): boolean {
+    const last = this.hits[this.hits.length - 1];
+    return last === undefined || last <= now - this.windowMs;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -75,6 +75,12 @@ export async function detectPreviewPorts(
     return cached.detection;
   }
 
+  // M111: entries were never evicted; drop expired ones once the map grows.
+  if (cache.size >= 256) {
+    const t = now();
+    for (const [k, v] of cache) if (t - v.at >= CACHE_TTL_MS) cache.delete(k);
+  }
+
   if (!sandboxManager.hasActiveSandbox(projectId)) {
     const detection: PreviewDetection = { ports: [], sandbox: false };
     cache.set(projectId, { at: now(), detection });

@@ -211,9 +211,22 @@ export interface ObservabilitySnapshot {
   /** Cumulative GC pause count/duration by kind since startGcObserver() was
    *  called (or since the last resetObservabilityForTests()). */
   gc: Record<string, GcKindStats>;
+  /** M111: host-profile gauges. Absent when the caller supplies no source. */
+  host?: HostMetrics;
+}
+
+export interface HostMetrics {
+  freeMemoryBytes: number;
+  sandboxesRunning: number;
+  sandboxesStopped: number;
+  /** Per-gate occupancy, e.g. { run: 1, globalRun: 1, sandbox: 3 }. */
+  gates: Record<string, number>;
+  /** 1 for the active profile name, e.g. { low: 1 }. */
+  profile: string;
 }
 
 export interface ObservabilityDeps {
+  getHostMetrics?: () => HostMetrics;
   activeConnectionCount: () => number;
   getActiveRoomCount: () => number;
   getActiveSandboxCount: () => number;
@@ -276,6 +289,7 @@ export function getObservabilitySnapshot(deps: ObservabilityDeps): Observability
       return { userMicros: cpu.user, systemMicros: cpu.system };
     })(),
     gc: Object.fromEntries(gcStatsByKind),
+    host: deps.getHostMetrics?.(),
   };
 }
 
@@ -304,6 +318,14 @@ export function renderPrometheus(s: ObservabilitySnapshot): string {
   metric("veyra_process_cpu_user_seconds_total", "User CPU time", "counter", s.cpuUsageMicros.userMicros / 1e6);
   metric("veyra_process_cpu_system_seconds_total", "System CPU time", "counter", s.cpuUsageMicros.systemMicros / 1e6);
   metric("veyra_db_calls_total", "SQLite calls", "counter", s.dbCalls.overall.count);
+  if (s.host) {
+    metric("veyra_host_free_memory_bytes", "Host free memory", "gauge", s.host.freeMemoryBytes);
+    metric("veyra_sandboxes_running", "Running sandbox containers", "gauge", s.host.sandboxesRunning);
+    metric("veyra_sandboxes_stopped", "Soft-stopped sandbox containers", "gauge", s.host.sandboxesStopped);
+    out.push("# HELP veyra_gate_occupancy In-flight holders per concurrency gate", "# TYPE veyra_gate_occupancy gauge");
+    for (const [gate, n] of Object.entries(s.host.gates)) out.push(`veyra_gate_occupancy{gate="${gate}"} ${n}`);
+    metric("veyra_host_profile", "Active host resource profile (label)", "gauge", 1, `{profile="${s.host.profile}"}`);
+  }
   if (s.eventLoopLagMs) {
     metric("veyra_event_loop_lag_p99_seconds", "Event loop lag p99", "gauge", s.eventLoopLagMs.p99Ms / 1000);
   }

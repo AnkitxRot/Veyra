@@ -736,16 +736,27 @@ export class TelemetryHistorian {
     const flushInterval = this.cfg?.telemetryFlushIntervalMs || 5000;
 
     // Periodic sandbox sampler
+    // M111: one batched `docker stats` call per tick for all running sandboxes
+    // (was one process per sandbox), and a tick is skipped while the previous
+    // one is still in flight so a slow daemon never stacks spawns.
+    let sampling = false;
     this.sampleTimer = setInterval(async () => {
+      if (sampling) return;
+      sampling = true;
       try {
         const activeSandboxes = await this.sandboxManager.getAllActiveSandboxes();
+        if (activeSandboxes.length === 0) return;
+        const all = await this.sandboxManager.getAllContainerStats();
         for (const sb of activeSandboxes) {
-          const stats = await this.sandboxManager.getContainerStats(sb.projectId);
-          if (stats.running) {
+          const stats = all.get(sb.projectId);
+          if (stats?.running) {
             this.recordSample(sb.projectId, sb.containerId, stats);
           }
         }
-      } catch {}
+      } catch {
+      } finally {
+        sampling = false;
+      }
     }, sampleInterval);
     this.sampleTimer.unref();
 

@@ -1,11 +1,11 @@
 import { spawn, execFile, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { promisify } from "node:util";
-import { hostname } from "node:os";
+import { freemem, hostname } from "node:os";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db.js";
 import { isDockerRunning, isDockerRunningAsync, isRunnerImageAvailableAsync } from "../tools.js";
 import { ALLOWED_PREVIEW_PORTS } from "./previewPorts.js";
-import { RunGate } from "./runGate.js";
+import { RunGate, globalRunGate, GLOBAL_RUN_KEY, runGate } from "./runGate.js";
 import { terminalSessions } from "./terminalSessions.js";
 import { languageServers } from "../lsp/manager.js";
 import { debugSessions } from "../debug/manager.js";
@@ -18,9 +18,35 @@ import {
 } from "../projectsecrets/inject.js";
 import { log } from "../logger.js";
 import { resolveRuntimeImage } from "./runtime.js";
-import { errorInfo } from "../errors.js";
+import { ApiError, errorInfo, serverBusy } from "../errors.js";
 
 const execFileAsync = promisify(execFile);
+
+/** M111: a sandbox must be idle this long before pressure-eviction may stop it. */
+const EVICT_MIN_IDLE_MS = 15_000;
+
+interface ProjectContainerInfo {
+  containerId: string;
+  ports: Record<number, number>;
+  lastUsed: number;
+  /** Owner charged against `sandboxGate` for this live container.
+   *  Undefined only for entries adopted by `reconcile()` when the
+   *  owning project's row could not be resolved. */
+  ownerId: number | undefined;
+  /** M74: true once the idle reaper has observed this project's
+   *  collaboration room with >=1 live client. Gates the room-empty
+   *  grace path so a never-occupied container (terminal-only, no
+   *  provider) keeps pure `idleTimeoutMs` semantics. */
+  roomEverOccupied: boolean;
+  /** M74: timestamp the reaper first observed a previously-occupied
+   *  room now empty; null while occupied or never observed empty. */
+  roomEmptyAt: number | null;
+  /** M111: container is `docker stop`ped (RAM freed) but kept, with its
+   *  network, for a fast `docker start` resume. A stopped entry holds no
+   *  `sandboxGate` slot and does not count against `maxSandboxes`. */
+  stopped: boolean;
+  stoppedAt: number | null;
+}
 
 /**
  * Per-owner live-sandbox count, separate from the global `maxSandboxes`
@@ -97,26 +123,7 @@ export function initCgroupRoot(_cgroupRoot: string): void {
 
 export class SandboxManager {
   private static instance: SandboxManager;
-  private projectContainers = new Map<
-    string,
-    {
-      containerId: string;
-      ports: Record<number, number>;
-      lastUsed: number;
-      /** Owner charged against `sandboxGate` for this live container.
-       *  Undefined only for entries adopted by `reconcile()` when the
-       *  owning project's row could not be resolved. */
-      ownerId: number | undefined;
-      /** M74: true once the idle reaper has observed this project's
-       *  collaboration room with >=1 live client. Gates the room-empty
-       *  grace path so a never-occupied container (terminal-only, no
-       *  provider) keeps pure `idleTimeoutMs` semantics. */
-      roomEverOccupied: boolean;
-      /** M74: timestamp the reaper first observed a previously-occupied
-       *  room now empty; null while occupied or never observed empty. */
-      roomEmptyAt: number | null;
-    }
-  >();
+  private projectContainers = new Map<string, ProjectContainerInfo>();
   /** In-flight creation sequences keyed by projectId, so concurrent callers share one `docker run`. */
   private creating = new Map<string, Promise<string>>();
   private provisionedNetworks = new Set<string>();
@@ -173,6 +180,10 @@ export class SandboxManager {
   private roomOccupancyProvider:
     ((projectId: string) => { liveClients: number; distinctUsers: number }) | null = null;
   private auditDb: Db | null = null;
+  /** M111: host free-memory source; injectable so admission is testable. */
+  private freeMemProvider: () => number = () => freemem();
+  /** M111: one in-flight batched `docker stats` sweep at a time. */
+  private batchStatsInFlight: Promise<Map<string, ContainerStats>> | null = null;
 
   static getInstance(): SandboxManager {
     if (!this.instance) this.instance = new SandboxManager();
@@ -208,9 +219,46 @@ export class SandboxManager {
     );
   }
 
-  /** Observability-only gauge: current number of tracked live containers. */
+  /** M111 test seam: override the host free-memory reading (null restores). */
+  setFreeMemProvider(provider: (() => number) | null): void {
+    this.freeMemProvider = provider ?? (() => freemem());
+  }
+
+  private runningCount(): number {
+    let n = 0;
+    for (const info of this.projectContainers.values()) if (!info.stopped) n++;
+    return n;
+  }
+
+  /** Observability-only gauge: current number of running tracked containers. */
   getActiveSandboxCount(): number {
-    return this.projectContainers.size;
+    return this.runningCount();
+  }
+
+  /** M111: host-profile gauges for /metrics. */
+  getHostMetrics(profileName: string): {
+    freeMemoryBytes: number;
+    sandboxesRunning: number;
+    sandboxesStopped: number;
+    gates: Record<string, number>;
+    profile: string;
+  } {
+    return {
+      freeMemoryBytes: this.freeMemProvider(),
+      sandboxesRunning: this.runningCount(),
+      sandboxesStopped: this.getStoppedSandboxCount(),
+      gates: {
+        run: runGate.totalActive(),
+        global_run: globalRunGate.totalActive(),
+        sandbox: sandboxGate.totalActive(),
+      },
+      profile: profileName,
+    };
+  }
+
+  /** M111 gauge: containers kept in the stopped (RAM-free) tier. */
+  getStoppedSandboxCount(): number {
+    return this.projectContainers.size - this.runningCount();
   }
 
   /**
@@ -254,10 +302,11 @@ export class SandboxManager {
     };
   }
 
-  /** Live containers plus in-flight reservations: the true current load
-   *  against `maxSandboxes`, unlike `projectContainers.size` alone. */
+  /** Running containers plus in-flight reservations: the true current load
+   *  against `maxSandboxes`, unlike `projectContainers.size` alone. Stopped
+   *  containers hold no RAM and are not counted (M111). */
   private currentGlobalLoad(): number {
-    return this.projectContainers.size + this.reservedProjectIds.size;
+    return this.runningCount() + this.reservedProjectIds.size;
   }
 
   /** Runs `fn` exclusively for `projectId`: queued behind any other
@@ -303,7 +352,18 @@ export class SandboxManager {
     workspaceDir: string,
     userId: number,
   ): Promise<string> {
-    const existing = this.projectContainers.get(projectId);
+    let existing = this.projectContainers.get(projectId);
+    if (existing?.stopped) {
+      // M111: fast path — `docker start` the kept container. Any failure falls
+      // back to a clean recreate (the stale container is removed by the
+      // name-conflict path in provisionContainer).
+      if (await this.resumeStoppedSandbox(projectId, existing, config, userId)) {
+        return existing.containerId;
+      }
+      this.projectContainers.delete(projectId);
+      this.statsCache.delete(projectId);
+      existing = undefined;
+    }
     if (existing) {
       const now = Date.now();
       if (now - existing.lastUsed < 2000) {
@@ -373,17 +433,24 @@ export class SandboxManager {
     // already counted — not a new admission request — so it never
     // reserves again, exactly matching the original `!hasStaleEntry` gate.
     const needsGlobalSlot = !hasStaleEntry;
+    // M111: host RAM admission before taking any slot (may stop an LRU idle
+    // sandbox; throws 503 server_busy when nothing can be freed).
+    await this.ensureMemoryHeadroom(config, projectId);
     if (needsGlobalSlot) {
       if (this.currentGlobalLoad() >= config.maxSandboxes) {
         await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs, config.sandboxRoomEmptyGraceMs);
+      }
+      if (this.currentGlobalLoad() >= config.maxSandboxes) {
+        await this.evictLruIdle(projectId, 1);
       }
       // Atomic check-and-reserve: reading currentGlobalLoad() and adding to
       // reservedProjectIds happen with no `await` between them (see the
       // field's doc comment for why that's what makes this safe against a
       // concurrent creation for a DIFFERENT project).
       if (this.currentGlobalLoad() >= config.maxSandboxes) {
-        throw new Error(`sandbox limit reached (max ${config.maxSandboxes})`);
+        throw serverBusy(`sandbox limit reached (max ${config.maxSandboxes})`);
       }
+      this.assertMemoryReservable(config);
       this.reservedProjectIds.add(projectId);
     }
 
@@ -415,6 +482,8 @@ export class SandboxManager {
         ownerId: userId,
         roomEverOccupied: false,
         roomEmptyAt: null,
+        stopped: false,
+        stoppedAt: null,
       });
       if (this.auditDb) {
         try {
@@ -429,6 +498,176 @@ export class SandboxManager {
       return containerId;
     } finally {
       if (needsGlobalSlot) this.reservedProjectIds.delete(projectId);
+    }
+  }
+
+  /**
+   * M111: `docker start` a soft-stopped sandbox. Returns false (caller then
+   * recreates) when the start fails. Throws server_busy when the host has no
+   * headroom. Runs under the project lifecycle lock (called from
+   * doEnsureProjectSandbox).
+   */
+  private async resumeStoppedSandbox(
+    projectId: string,
+    info: ProjectContainerInfo,
+    config: AppConfig,
+    userId: number,
+  ): Promise<boolean> {
+    await this.ensureMemoryHeadroom(config, projectId);
+    if (this.currentGlobalLoad() >= config.maxSandboxes) {
+      await this.reapIdleSandboxes(config.sandboxIdleTimeoutMs, config.sandboxRoomEmptyGraceMs);
+    }
+    if (this.currentGlobalLoad() >= config.maxSandboxes) {
+      await this.evictLruIdle(projectId, 1);
+    }
+    // Atomic check-and-reserve (no await between), same as createProjectSandbox.
+    if (this.currentGlobalLoad() >= config.maxSandboxes) {
+      throw serverBusy(`sandbox limit reached (max ${config.maxSandboxes})`);
+    }
+    this.assertMemoryReservable(config);
+    this.reservedProjectIds.add(projectId);
+    try {
+      const chargeTo = info.ownerId ?? userId;
+      if (!sandboxGate.acquire(chargeTo, config.maxSandboxesPerUser)) {
+        throw new Error(`per-user sandbox limit reached (max ${config.maxSandboxesPerUser})`);
+      }
+      try {
+        await execFileAsync("docker", ["start", info.containerId]);
+      } catch (err) {
+        sandboxGate.release(chargeTo);
+        log.warn(
+          { projectId, err: errorInfo(err).message },
+          "docker start failed; recreating sandbox",
+        );
+        return false;
+      }
+      info.ownerId = chargeTo;
+      info.stopped = false;
+      info.stoppedAt = null;
+      info.ports = {};
+      info.lastUsed = Date.now();
+      info.roomEmptyAt = null;
+      if (this.auditDb) {
+        try {
+          recordAuditLog(this.auditDb, {
+            userId,
+            projectId,
+            eventType: "SANDBOX_CREATED",
+            details: { containerId: info.containerId, resumed: true },
+          });
+        } catch {}
+      }
+      return true;
+    } finally {
+      this.reservedProjectIds.delete(projectId);
+    }
+  }
+
+  /**
+   * M111: tier-1 idle stop. `docker stop -t 2` frees the container's RAM while
+   * keeping the container and its network for a fast `docker start`. Resolves
+   * true when the sandbox ends up stopped. Skips (false) when the project has a
+   * lifecycle op in flight, activity inside `minIdleMs`, or live clients. The
+   * lock is requested synchronously after the in-flight check so it is
+   * uncontended (no cross-project lock-order deadlock; see reapIdleSandboxes).
+   */
+  /** Count of in-flight sandboxRun calls per project (lastUsed is frozen during a run). */
+  private activeExecs = new Map<string, number>();
+  beginExec(projectId: string): void {
+    this.activeExecs.set(projectId, (this.activeExecs.get(projectId) ?? 0) + 1);
+  }
+  endExec(projectId: string): void {
+    const n = (this.activeExecs.get(projectId) ?? 0) - 1;
+    if (n > 0) this.activeExecs.set(projectId, n);
+    else this.activeExecs.delete(projectId);
+    const info = this.projectContainers.get(projectId);
+    if (info) info.lastUsed = Date.now();
+  }
+
+  private softStopIfIdle(projectId: string, minIdleMs: number, now = Date.now()): Promise<boolean> {
+    if (this.lifecycleTail.has(projectId)) return Promise.resolve(false);
+    return this.withProjectLock(projectId, async () => {
+      const info = this.projectContainers.get(projectId);
+      if (!info || info.stopped) return false;
+      if ((this.activeExecs.get(projectId) ?? 0) > 0) return false;
+      if (now - info.lastUsed < minIdleMs) return false;
+      if (this.getRoomOccupancy(projectId).liveClients > 0) return false;
+      if (terminalSessions.hasProject(projectId)) return false;
+      try {
+        if (debugSessions.hasLiveForProject(projectId)) return false;
+      } catch {}
+      try {
+        languageServers.disposeProject(projectId);
+      } catch {}
+      try {
+        await execFileAsync("docker", ["stop", "-t", "2", info.containerId]);
+      } catch {
+        // Could not stop gracefully — fall back to full teardown so the slot
+        // accounting stays truthful.
+        await this.performStop(projectId);
+        return true;
+      }
+      info.stopped = true;
+      info.stoppedAt = Date.now();
+      info.ports = {};
+      this.connectedNetworks.delete(projectId);
+      this.statsCache.delete(projectId);
+      this.inFlightStats.delete(projectId);
+      if (info.ownerId !== undefined) sandboxGate.release(info.ownerId);
+      if (this.auditDb) {
+        try {
+          recordAuditLog(this.auditDb, {
+            userId: info.ownerId ?? null,
+            projectId,
+            eventType: "SANDBOX_STOPPED",
+            details: { containerId: info.containerId, tier: "soft" },
+          });
+        } catch {}
+      }
+      return true;
+    });
+  }
+
+  /** M111: soft-stop up to `count` least-recently-used idle running sandboxes
+   *  (never `exceptProjectId`). Returns how many were stopped. */
+  private async evictLruIdle(exceptProjectId: string, count: number): Promise<number> {
+    const candidates = [...this.projectContainers.entries()]
+      .filter(([id, info]) => id !== exceptProjectId && !info.stopped)
+      .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    let stopped = 0;
+    for (const [id] of candidates) {
+      if (stopped >= count) break;
+      if (await this.softStopIfIdle(id, EVICT_MIN_IDLE_MS)) stopped++;
+    }
+    return stopped;
+  }
+
+  /**
+   * M111: admission control. When host free RAM is below one sandbox plus the
+   * reserve, stop LRU idle sandboxes (re-reading free memory after each) and,
+   * if that is not enough, refuse with 503 server_busy instead of swapping.
+   */
+  /** Synchronous re-check just before reserving: free RAM minus RAM already promised to in-flight creations. */
+  private assertMemoryReservable(config: AppConfig): void {
+    if (config.hostMemReserveBytes <= 0) return;
+    const promised = this.reservedProjectIds.size * config.limits.memoryBytes;
+    if (this.freeMemProvider() - promised < config.limits.memoryBytes + config.hostMemReserveBytes) {
+      throw serverBusy("server_busy");
+    }
+  }
+
+  private async ensureMemoryHeadroom(config: AppConfig, exceptProjectId: string): Promise<void> {
+    if (config.hostMemReserveBytes <= 0) return;
+    const need = config.limits.memoryBytes + config.hostMemReserveBytes;
+    // Bound evictions by the deficit: sandboxes can free at most their own
+    // limit each, so pressure from non-sandbox usage must not flush them all.
+    const deficit = need - this.freeMemProvider();
+    if (deficit <= 0) return;
+    let budget = Math.ceil(deficit / config.limits.memoryBytes);
+    while (this.freeMemProvider() < need) {
+      if (budget-- <= 0 || (await this.evictLruIdle(exceptProjectId, 1)) === 0) {
+        throw serverBusy("server_busy");
+      }
     }
   }
 
@@ -463,11 +702,11 @@ export class SandboxManager {
     const hardeningArgs = [
       "--read-only",
       "--tmpfs",
-      "/tmp:rw,size=64m,mode=1777",
+      `/tmp:rw,size=${config.hostProfile.tmpfsTmpMb}m,mode=1777`,
       "--tmpfs",
-      "/run:rw,size=16m,mode=1777",
+      `/run:rw,size=${config.hostProfile.tmpfsRunMb}m,mode=1777`,
       "--tmpfs",
-      "/home/ide/.cache:rw,size=64m,uid=1000,gid=1000,mode=0755",
+      `/home/ide/.cache:rw,size=${config.hostProfile.tmpfsCacheMb}m,uid=1000,gid=1000,mode=0755`,
     ];
 
     const dockerArgs = [
@@ -572,7 +811,8 @@ export class SandboxManager {
     // Release exactly once: `this.projectContainers.delete` below removes the
     // entry, so a repeat stopProjectSandbox() call on the same projectId
     // finds no `info` and correctly does nothing here.
-    if (info && info.ownerId !== undefined) {
+    // A soft-stopped entry already released its slot (M111).
+    if (info && info.ownerId !== undefined && !info.stopped) {
       sandboxGate.release(info.ownerId);
     }
     const ownerId = info?.ownerId;
@@ -640,7 +880,7 @@ export class SandboxManager {
       debugSessions.disposeAll("sandbox_cleanup");
     } catch {}
     for (const info of this.projectContainers.values()) {
-      if (info.ownerId !== undefined) sandboxGate.release(info.ownerId);
+      if (info.ownerId !== undefined && !info.stopped) sandboxGate.release(info.ownerId);
     }
     this.projectContainers.clear();
     this.provisionedNetworks.clear();
@@ -656,7 +896,8 @@ export class SandboxManager {
   /** True when this project has a live sandbox container this process is
    *  tracking. Cheap, synchronous — no Docker round trip. */
   hasActiveSandbox(projectId: string): boolean {
-    return this.projectContainers.has(projectId);
+    const info = this.projectContainers.get(projectId);
+    return info !== undefined && !info.stopped;
   }
 
   private appContainerId: string | undefined;
@@ -690,7 +931,7 @@ export class SandboxManager {
     if (!(ALLOWED_PREVIEW_PORTS as readonly unknown[]).includes(internalPort)) return null;
 
     const info = this.projectContainers.get(projectId);
-    if (!info) return null;
+    if (!info || info.stopped) return null;
 
     if (containerized) {
       await this.connectAppToProjectNetwork(projectId);
@@ -706,7 +947,7 @@ export class SandboxManager {
 
   touch(projectId: string): void {
     const info = this.projectContainers.get(projectId);
-    if (info) info.lastUsed = Date.now();
+    if (info && !info.stopped) info.lastUsed = Date.now();
   }
 
   async getAllActiveSandboxes(): Promise<
@@ -724,6 +965,7 @@ export class SandboxManager {
       ports: Record<number, number>;
     }> = [];
     for (const [projectId, info] of this.projectContainers.entries()) {
+      if (info.stopped) continue; // M111: stopped sandboxes hold no resources
       list.push({
         projectId,
         containerId: info.containerId,
@@ -773,9 +1015,10 @@ export class SandboxManager {
     idleTimeoutMs: number,
     roomEmptyGraceMs = Infinity,
     now = Date.now(),
+    stopAfterMs = Infinity,
   ): Promise<string[]> {
     const reaped: string[] = [];
-    for (const [projectId, info] of [...this.projectContainers.entries()]) {
+    for (const projectId of [...this.projectContainers.keys()]) {
       // Skip a project with an in-flight lifecycle operation rather than
       // queuing behind it: this method can itself be called from inside
       // ensureProjectSandbox's own lock-held cap-pressure check (a
@@ -785,6 +1028,9 @@ export class SandboxManager {
       // mid-creation/teardown isn't meaningfully "idle" anyway — it'll be
       // picked up by the next reap pass once it settles.
       if (this.lifecycleTail.has(projectId)) continue;
+      // Re-read: the entry may have been replaced/removed since the snapshot.
+      const info = this.projectContainers.get(projectId);
+      if (!info) continue;
 
       // M74: consult collaboration-room occupancy. A throwing provider must
       // never break reaping — fall back to the base idle rule.
@@ -800,6 +1046,14 @@ export class SandboxManager {
         info.roomEmptyAt = null;
         continue; // keep warm regardless of lastUsed
       }
+      if (info.stopped) {
+        // Tier 2: a stopped sandbox is removed only after the full idle timeout.
+        if (now - info.lastUsed >= idleTimeoutMs) {
+          await this.stopProjectSandbox(projectId);
+          reaped.push(projectId);
+        }
+        continue;
+      }
       if (occ && info.roomEverOccupied && info.roomEmptyAt === null) {
         info.roomEmptyAt = now; // first observation that the room is now empty
       }
@@ -810,6 +1064,13 @@ export class SandboxManager {
         info.roomEmptyAt !== null &&
         now - info.roomEmptyAt >= roomEmptyGraceMs &&
         now - info.lastUsed >= roomEmptyGraceMs;
+
+      // Tier 1 (M111): stop (not remove) once idle past `stopAfterMs`, unless
+      // full removal is already due.
+      if (!idleEligible && !graceEligible && now - info.lastUsed >= stopAfterMs) {
+        await this.softStopIfIdle(projectId, stopAfterMs, now);
+        continue;
+      }
 
       if (idleEligible || graceEligible) {
         await this.stopProjectSandbox(projectId);
@@ -832,11 +1093,14 @@ export class SandboxManager {
   startReaper(config: AppConfig): void {
     this.stopReaper();
     this.reaperTimer = setInterval(() => {
-      this.reapIdleSandboxes(config.sandboxIdleTimeoutMs, config.sandboxRoomEmptyGraceMs).catch(
-        (err) => {
-          log.error("[sandbox] reaper error:", err);
-        },
-      );
+      this.reapIdleSandboxes(
+        config.sandboxIdleTimeoutMs,
+        config.sandboxRoomEmptyGraceMs,
+        Date.now(),
+        config.sandboxStopAfterMs,
+      ).catch((err) => {
+        log.error("[sandbox] reaper error:", err);
+      });
     }, config.sandboxReaperIntervalMs);
     this.reaperTimer.unref();
   }
@@ -849,8 +1113,9 @@ export class SandboxManager {
   }
 
   /** Live real-time resource telemetry sampled from Docker daemon */
-  async getContainerStats(projectId: string): Promise<ContainerStats> {
-    if (!this.projectContainers.has(projectId)) {
+  async getContainerStats(projectId: string, maxAgeMs = 1000): Promise<ContainerStats> {
+    const tracked = this.projectContainers.get(projectId);
+    if (!tracked || tracked.stopped) {
       return {
         running: false,
         cpuPercent: 0,
@@ -865,7 +1130,7 @@ export class SandboxManager {
 
     const cached = this.statsCache.get(projectId);
     const now = Date.now();
-    if (cached && now - cached.timestamp < 1000) {
+    if (cached && now - cached.timestamp < maxAgeMs) {
       return cached.stats;
     }
 
@@ -954,6 +1219,79 @@ export class SandboxManager {
     return fetchPromise;
   }
 
+  /**
+   * M111: one `docker stats --no-stream` call for every running sandbox
+   * (instead of one process per sandbox). Populates the per-project stats
+   * cache that getContainerStats() reads. Returns the in-flight sweep when one
+   * is already running, so a slow daemon never stacks spawns.
+   */
+  getAllContainerStats(): Promise<Map<string, ContainerStats>> {
+    if (this.batchStatsInFlight) return this.batchStatsInFlight;
+    const run = (async () => {
+      const out = new Map<string, ContainerStats>();
+      const ids = [...this.projectContainers.entries()]
+        .filter(([, info]) => !info.stopped)
+        .map(([projectId, info]) => [projectId, info.containerId] as const);
+      if (ids.length === 0) return out;
+      let stdout = "";
+      try {
+        ({ stdout } = await execFileAsync("docker", [
+          "stats",
+          "--no-stream",
+          "--format",
+          "{{json .}}",
+          ...ids.map(([, cid]) => cid),
+        ]));
+      } catch (err) {
+        // A missing/failing container makes docker exit non-zero but the other
+        // rows are still on stdout; keep them instead of dropping the tick.
+        const partial = (err as { stdout?: unknown }).stdout;
+        if (typeof partial !== "string" || !partial.trim()) return out;
+        stdout = partial;
+      }
+      const byName = new Map(ids.map(([projectId, cid]) => [cid, projectId]));
+      for (const line of stdout.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line) as Record<string, string>;
+          const projectId = byName.get(parsed.Name ?? parsed.Container ?? "");
+          if (!projectId) continue;
+          const stats = this.parseStatsRow(parsed);
+          out.set(projectId, stats);
+          this.statsCache.set(projectId, { stats, timestamp: Date.now() });
+        } catch {}
+      }
+      return out;
+    })().finally(() => {
+      this.batchStatsInFlight = null;
+    });
+    this.batchStatsInFlight = run;
+    return run;
+  }
+
+  private parseStatsRow(parsed: Record<string, string>): ContainerStats {
+    const cpu = parseFloat((parsed.CPUPerc || "0%").replace("%", "")) || 0;
+    const memPerc = parseFloat((parsed.MemPerc || "0%").replace("%", "")) || 0;
+    let memUsageBytes = 0;
+    let memLimitBytes = 536870912;
+    const memUsageStr = parsed.MemUsage || "";
+    if (memUsageStr.includes("/")) {
+      const [u, l] = memUsageStr.split("/").map((x: string) => x.trim());
+      memUsageBytes = parseByteUnits(u!);
+      memLimitBytes = parseByteUnits(l!) || 536870912;
+    }
+    return {
+      running: true,
+      cpuPercent: cpu,
+      memoryUsageBytes: memUsageBytes,
+      memoryLimitBytes: memLimitBytes,
+      memoryPercent: memPerc,
+      pids: parseInt(parsed.PIDs ?? "", 10) || 0,
+      netIO: parsed.NetIO || "0B / 0B",
+      blockIO: parsed.BlockIO || "0B / 0B",
+    };
+  }
+
   private async readPortMapping(containerId: string): Promise<Record<number, number>> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const mapping: Record<number, number> = {};
@@ -1017,7 +1355,23 @@ export class SandboxManager {
         await this.stopProjectSandbox(projectId);
         continue;
       }
-      if (state?.trim().toLowerCase() === "running") {
+      const stateNorm = state?.trim().toLowerCase();
+      if (stateNorm === "exited" && !this.projectContainers.has(projectId)) {
+        // M111: adopt a soft-stopped container so it can be resumed with
+        // `docker start`; no gate slot (stopped entries don't count).
+        this.projectContainers.set(projectId, {
+          containerId: name,
+          ports: await this.readPortMapping(name).catch(() => ({}) as any),
+          lastUsed: Date.now(),
+          ownerId: ownerOf(projectId),
+          roomEverOccupied: false,
+          roomEmptyAt: null,
+          stopped: true,
+          stoppedAt: Date.now(),
+        });
+        continue;
+      }
+      if (stateNorm === "running") {
         const ports = await this.readPortMapping(name);
         const ownerId = ownerOf(projectId);
         // Only account for a container the first time this process adopts
@@ -1038,6 +1392,8 @@ export class SandboxManager {
           ownerId,
           roomEverOccupied: false,
           roomEmptyAt: null,
+          stopped: false,
+          stoppedAt: null,
         });
       }
     }
@@ -1088,7 +1444,29 @@ export function makeStdinWriter(child: ChildProcessWithoutNullStreams): (data: s
   };
 }
 
+/**
+ * M111: host-wide concurrent-process cap. A run/build/install over the cap is
+ * refused with 503 server_busy (ApiError — REST maps it, WS sends a coded
+ * error) rather than queued, so a weak host never stacks CPU-bound work.
+ */
 export async function sandboxRun(
+  projectId: string,
+  workspaceDir: string,
+  opts: SandboxOptions,
+): Promise<SandboxResult> {
+  if (!globalRunGate.acquire(GLOBAL_RUN_KEY, opts.config.maxGlobalRuns)) {
+    throw serverBusy("server_busy");
+  }
+  sandboxManager.beginExec(projectId);
+  try {
+    return await sandboxRunInner(projectId, workspaceDir, opts);
+  } finally {
+    sandboxManager.endExec(projectId);
+    globalRunGate.release(GLOBAL_RUN_KEY);
+  }
+}
+
+async function sandboxRunInner(
   projectId: string,
   workspaceDir: string,
   opts: SandboxOptions,
@@ -1117,6 +1495,7 @@ export async function sandboxRun(
     );
     sandboxManager.touch(projectId);
   } catch (err) {
+    if (err instanceof ApiError) throw err; // M111: server_busy -> 503 / coded WS error
     return {
       stdout: "",
       stderr: `[sandbox] failed to start project container: ${errorInfo(err).message}`,

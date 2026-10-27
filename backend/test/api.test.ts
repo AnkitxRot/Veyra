@@ -322,6 +322,45 @@ describe.skipIf(!isDockerRunning())("execution via API", () => {
   });
 });
 
+async function busyRun(testCfg: ReturnType<typeof makeTestConfig>, username: string) {
+  const a = await startTestApi(testCfg);
+  try {
+    const reg = await a.request("POST", "/api/auth/register", {
+      body: { username, password: "secret123" },
+    });
+    const t = reg.data.token;
+    const proj = await a.request("POST", "/api/projects", { token: t, body: { name: "b" } });
+    const id = proj.data.project.id;
+    await a.request("POST", `/api/projects/${id}/file`, {
+      token: t,
+      body: { path: "main.py", content: "print(1)\n" },
+    });
+    return await a.request("POST", `/api/projects/${id}/run`, { token: t, body: {} });
+  } finally {
+    await a.close();
+  }
+}
+
+describe("M111 server_busy admission", () => {
+  it("returns 503 server_busy with Retry-After when the global run cap is full", async () => {
+    const r = await busyRun(makeTestConfig({ maxGlobalRuns: 0 }), "busy");
+    expect(r.status).toBe(503);
+    expect(r.data.error.code).toBe("server_busy");
+    expect(r.headers.get("retry-after")).toBe("10");
+  });
+
+  it.skipIf(!isDockerRunning())("returns 503 server_busy when injected free RAM is too low", async () => {
+    sandboxManager.setFreeMemProvider(() => 1024 * 1024);
+    try {
+      const r = await busyRun(makeTestConfig({ hostMemReserveBytes: 256 * 1024 * 1024 }), "memuser");
+      expect(r.status).toBe(503);
+      expect(r.data.error.code).toBe("server_busy");
+    } finally {
+      sandboxManager.setFreeMemProvider(null);
+    }
+  });
+});
+
 describe("dependency installation command selection", () => {
   function getCommand(text: string): string | null {
     const match = text.match(/^Running\s+(\S+)/m);

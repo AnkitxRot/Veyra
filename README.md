@@ -5,8 +5,8 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M110 (LSP rename/format/code actions, custom tasks; see STATUS.md) is
-the latest milestone. It builds on M93 audit-failure monitoring, M92 audit
+**Status:** M111 (low-resource host profile; see STATUS.md) is
+the latest milestone, following M110 (LSP rename/format/code actions, custom tasks). It builds on M93 audit-failure monitoring, M92 audit
 coverage, M91 deterministic idle-disposal, M88 terminal reload persistence,
 M87 sandboxed project Git, M86 read-your-writes, M85 workspace
 intelligence, M84 Test Explorer, M83 sandboxed debugging, M81/M82 language
@@ -407,6 +407,35 @@ npm run deploy:up
 ```
 
 Details, backup/restore, and Git operational notes: [`deploy/README.md`](deploy/README.md).
+
+### Low-end host
+
+For a weak host (2–4 GB RAM, 1–2 cores, Linux recommended; Docker Desktop on
+Windows adds ~1–2 GB of VM overhead), set `HOST_PROFILE`:
+
+| Value | Behavior |
+| --- | --- |
+| `auto` (default) | `low` if total RAM < 4 GiB or ≤ 2 CPUs, else `standard` |
+| `low` | 256 MiB / 0.5 CPU / 128 pids sandboxes, halved tmpfs; `maxSandboxes = clamp((RAM−1 GiB)/256 MiB, 1, 20)`; LSP 2 global / 1 per project (idle kill 60 s); 1 debug session; 1 run per user; telemetry every 15 s; idle sandboxes `docker stop`ped after 3 min |
+| `standard` | previous defaults (512 MiB / 1 CPU, 20 sandboxes, stop after 10 min) |
+
+Explicit env vars always win: `MAX_SANDBOXES`, `MAX_CONCURRENT_RUNS`,
+`SANDBOX_MEMORY_MB`, `SANDBOX_CPU_MILLIS`, `SANDBOX_PIDS_LIMIT`,
+`SANDBOX_STOP_AFTER_MS`, `MAX_GLOBAL_RUNS` (default = CPU count),
+`HOST_MEM_RESERVE_MB` (default 256; `0` disables RAM admission),
+`TELEMETRY_SAMPLE_INTERVAL_MS`, `NODE_OPTIONS`/`--build-arg NODE_HEAP_MB`.
+
+Idle handling is two-tier: after `SANDBOX_STOP_AFTER_MS` a sandbox is stopped
+(RAM freed, container and network kept; the next open is a `docker start`),
+and removed after `SANDBOX_IDLE_TIMEOUT_MS`. Stopped sandboxes do not count
+against the sandbox caps. Before creating or starting a sandbox the host's
+free RAM is checked; the least-recently-used idle sandbox is stopped to make
+room, and if none can be, the API answers `503 server_busy` with
+`Retry-After` (WebSocket runs get `{type:"error", code:"server_busy"}`).
+`/metrics` exposes `veyra_host_free_memory_bytes`, `veyra_sandboxes_running`,
+`veyra_sandboxes_stopped`, `veyra_gate_occupancy` and `veyra_host_profile`.
+Concurrent *active* users remain bounded by RAM (~6 on 2 GiB); idle users cost
+only disk.
 
 Health:
 

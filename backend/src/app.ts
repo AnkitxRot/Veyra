@@ -97,6 +97,7 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
             getActiveSandboxCount: () => sandboxManager.getActiveSandboxCount(),
             getTotalCollabBroadcastSends: () => collaborationManager.getTotalBroadcastSendCount(),
             getSandboxRoomOccupancyMetrics: () => sandboxManager.getRoomOccupancyMetrics(),
+            getHostMetrics: () => sandboxManager.getHostMetrics(cfg.hostProfile.name),
           }),
         ),
       );
@@ -152,6 +153,15 @@ export function createApp(cfg: AppConfig, existingDb?: Db): express.Express {
   // build output exists, so tests and dev (Vite proxy) are unaffected.
   const indexHtml = join(cfg.frontendDist, "index.html");
   if (existsSync(indexHtml)) {
+    // Vite emits content-hashed files under /assets, so they never change.
+    app.use(
+      "/assets",
+      express.static(join(cfg.frontendDist, "assets"), {
+        immutable: true,
+        maxAge: "1y",
+        index: false,
+      }),
+    );
     app.use(express.static(cfg.frontendDist, { index: "index.html" }));
     // SPA fallback for client-side routes. Never intercept /api or /ws.
     app.get("{*splat}", (req, res, next) => {

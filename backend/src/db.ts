@@ -189,6 +189,10 @@ export function openDb(dbPath: string): Db {
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
     PRAGMA busy_timeout = 5000;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA cache_size = -2000;
+    PRAGMA temp_store = MEMORY;
+    PRAGMA mmap_size = 0;
 
     CREATE TABLE IF NOT EXISTS users (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,

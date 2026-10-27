@@ -66,7 +66,11 @@ RUN groupadd -g "${DOCKER_GID}" docker \
  && usermod -aG docker ide
 
 WORKDIR /app
-ENV NODE_ENV=production \
+# M111: cap the V8 heap so the app stays small on low-RAM hosts. Override at
+# build time (--build-arg NODE_HEAP_MB=512) or at run time via NODE_OPTIONS.
+ARG NODE_HEAP_MB=256
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB} \
+    NODE_ENV=production \
     PORT=3000 \
     DATA_DIR=/var/lib/cloud-ide \
     APP_CONTAINERIZED=1

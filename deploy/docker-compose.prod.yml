@@ -25,9 +25,15 @@ services:
     image: cloudeeeide-app:latest
     container_name: cloudeeeide-app
     restart: unless-stopped
+    # M111: hard RAM ceiling for the app process itself (sandboxes have their own).
+    mem_limit: "${APP_MEM_LIMIT:-512m}"
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # M111: auto | low | standard. `auto` picks low under 4 GiB RAM or <=2 cores.
+      # Example for a 2 GiB / 2-core host: HOST_PROFILE=low (256 MiB sandboxes,
+      # idle sandboxes stopped after 3 min). Explicit vars below still win.
+      HOST_PROFILE: "${HOST_PROFILE:-auto}"
       DATA_DIR: /var/lib/cloud-ide
       APP_CONTAINERIZED: "1"
       TRUST_PROXY: "1"

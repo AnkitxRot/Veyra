@@ -14,7 +14,7 @@ import { parseWorkflowRequest } from "../workflow/resolve.js";
 import { runWorkflowTask } from "../workflow/run.js";
 import type { TestCaseResult } from "../workflow/parse.js";
 import { log } from "../logger.js";
-import { errorInfo } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 
 // --- M54: collaborative run awareness — safe metadata derivation ------------
 //
@@ -351,6 +351,9 @@ export async function handleExecutionConnection(
               JSON.stringify({
                 type: "error",
                 data: err instanceof Error ? err.message : String(err),
+                ...(err instanceof ApiError && err.code === "server_busy"
+                  ? { code: "server_busy", retryAfterSeconds: err.retryAfterSeconds }
+                  : {}),
               }),
             );
           }

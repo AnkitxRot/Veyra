@@ -393,6 +393,14 @@ export class TerminalSessionRegistry {
     }
   }
 
+  /** True while any terminal (attached or detached) is open for the project. */
+  hasProject(projectId: string): boolean {
+    for (const entry of this.sessions.values()) {
+      if (entry.projectId === projectId) return true;
+    }
+    return false;
+  }
+
   reapProject(projectId: string): void {
     for (const entry of [...this.sessions.values()]) {
       if (entry.projectId === projectId) {

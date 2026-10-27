@@ -122,6 +122,11 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
   const limiters = new Map<string, RateLimiter>();
   function rateLimit(userId: number, projectId: string): void {
     const key = `${userId}:${projectId}`;
+    // M111: limiters were never removed; sweep aged-out ones once the map grows.
+    if (limiters.size >= 256) {
+      const t = Date.now();
+      for (const [k, v] of limiters) if (k !== key && v.isIdle(t)) limiters.delete(k);
+    }
     let rl = limiters.get(key);
     if (!rl) {
       rl = new RateLimiter(cfg.commentWriteWindowMs, cfg.commentWriteMax);

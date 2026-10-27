@@ -318,20 +318,26 @@ export async function runSandboxGit(
   capturedArgv.push([...argv]);
 
   const started = Date.now();
-  const child = spawn("docker", argv, {
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
-    env: lspHostDockerEnv(),
-  });
-  child.stdin!.on("error", () => {});
-
-  const result = await collect(child, {
-    timeoutMs,
-    maxOut,
-    input: opts.input,
-    stdinFrom: opts.stdinFrom,
-    stdoutTo: opts.stdoutTo,
-  });
+  // M111: keep the sandbox from being soft-stopped under this exec.
+  sandboxManager.beginExec(projectId);
+  let result: Awaited<ReturnType<typeof collect>>;
+  try {
+    const child = spawn("docker", argv, {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: lspHostDockerEnv(),
+    });
+    child.stdin!.on("error", () => {});
+    result = await collect(child, {
+      timeoutMs,
+      maxOut,
+      input: opts.input,
+      stdinFrom: opts.stdinFrom,
+      stdoutTo: opts.stdoutTo,
+    });
+  } finally {
+    sandboxManager.endExec(projectId);
+  }
   sandboxManager.touch(projectId);
 
   if (result.spawnError) {

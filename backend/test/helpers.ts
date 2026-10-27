@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveConfig, IS_WINDOWS, type AppConfig, type ConfigOverrides } from "../src/config";
 import type { Db } from "../src/db";
+import { resolveHostProfile } from "../src/resourceProfile";
 import { isDockerRunning, isRunnerImageAvailable } from "../src/tools";
 
 export function makeTestConfig(overrides: ConfigOverrides = {}): AppConfig {
@@ -12,8 +13,12 @@ export function makeTestConfig(overrides: ConfigOverrides = {}): AppConfig {
     chmodSync(dataDir, 0o755);
   }
   return resolveConfig({
+    // M111: pin the historical defaults regardless of the CI host's RAM/CPU.
+    hostProfile: resolveHostProfile("standard", { totalMemBytes: 16 * 1024 ** 3, cpuCount: 8 }),
     dataDir,
     dbPath: ":memory:",
+    // Admission by host RAM is opt-in per test (never depend on CI free memory).
+    hostMemReserveBytes: 0,
     cgroupRoot: "/sys/fs/cgroup/cloudide-test",
     ...overrides,
   });

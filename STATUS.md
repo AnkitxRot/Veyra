@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-27. Latest milestone: **M110**.
+Last updated: 2026-10-27. Latest milestone: **M111**.
 
 This file is the short milestone ledger. The complete historical record
 (~10k lines, M1–M86 write-ups, verification logs, architecture decisions
@@ -43,6 +43,7 @@ the commit messages and reports, not re-run for this summary.
 | M108 | Per-project runtime | branch `overhaul/m100` | `.veyra/runtime.json` `{"image"}` picks a sandbox image from operator `RUNNER_IMAGES` (default always allowed; invalid/unlisted/missing/VOLUME-declaring images fall back with a warning). Applies when the sandbox is recreated. Container args hardened: `--pull never`, `--entrypoint sleep`, `rm -fv`. Image must contain an `ide` user. Oracle-reviewed. |
 | M109 | Debugger depth | branch `overhaul/m100` | Conditional / hit-count / logpoint breakpoints (wire `lines` entries may be `{line,condition,hitCondition,logMessage}`), mediated `evaluate` (watch/repl/hover; only while paused on a frame, 1 KB cap), watch expressions, breakpoint editor and debug console in the Debug panel. Reverses the earlier "no evaluate" policy (tests updated). Specs/watches are per-project localStorage. |
 | M110 | LSP depth + tasks | branch `overhaul/m100` | LSP rename / code actions (incl. organize imports) / document + range formatting (edits sanitised to plain text edits; unopened files are reported, not changed; `executeCommand` stays blocked). Incremental `didChange` browser→backend with `resync` fallback. clangd for C/C++ (apt in runner image; unverified in a container here). `.veyra/tasks.json` custom tasks (allowlisted executables, no shell). **Deferred:** jdtls (needs a pinned, checksummed download that could not be verified here). |
+| M111 | Low-resource host profile | branch `overhaul/m100` | `HOST_PROFILE=auto|low|standard` (`resourceProfile.ts`): low = 256 MiB / 0.5 CPU sandboxes, fewer LSP/debug/run slots, 15 s telemetry. Two-tier idle (`docker stop` then `rm`), stopped sandboxes uncounted against caps and resumed via `docker start`. Free-RAM admission with LRU idle eviction, else `503 server_busy` + `Retry-After`; global run cap. Batched `docker stats`; SQLite/Node heap trims; immutable `/assets`; swept limiter/probe maps; new host gauges. Report: `docs/reports/M111.md`. |
 
 ### Security review (M97)
 

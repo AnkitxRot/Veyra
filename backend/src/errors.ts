@@ -10,18 +10,28 @@ export class ApiError extends Error {
    * Never contains file contents or secrets.
    */
   details?: Record<string, unknown>;
+  /** Emitted as a `Retry-After` header (seconds) by errorMiddleware. */
+  retryAfterSeconds?: number;
 
   constructor(
     status: number,
     message: string,
     code = "request_error",
     details?: Record<string, unknown>,
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.status = status;
     this.code = code;
     this.details = details;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/** M111: host is out of sandbox/RAM/run capacity; the client should retry. */
+export const SERVER_BUSY_RETRY_AFTER_SECONDS = 10;
+export function serverBusy(message = "server_busy"): ApiError {
+  return new ApiError(503, message, "server_busy", undefined, SERVER_BUSY_RETRY_AFTER_SECONDS);
 }
 
 export function errorMiddleware(
@@ -31,6 +41,7 @@ export function errorMiddleware(
   _next: NextFunction,
 ): void {
   if (err instanceof ApiError) {
+    if (err.retryAfterSeconds !== undefined) res.setHeader("Retry-After", String(err.retryAfterSeconds));
     res
       .status(err.status)
       .json({ error: { code: err.code, message: err.message }, ...(err.details ?? {}) });
