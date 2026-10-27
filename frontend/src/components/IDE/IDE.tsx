@@ -40,6 +40,7 @@ import Toolbar from "../Toolbar/Toolbar";
 // Lazy: pulls in monaco-editor (~4.5MB raw); a static import here put that
 // weight in the entry bundle, downloading before even the login screen showed.
 const EditorGroupsView = React.lazy(() => import("./EditorGroupsView"));
+import { loadLocalLayout, moveTab, saveLocalLayout, tabOrderCss } from "../../layoutPrefs";
 import ThemePicker from "../Settings/ThemePicker";
 import { useColorTheme } from "../../hooks/useColorTheme";
 import LayeredSettingsPanel from "../Settings/LayeredSettingsPanel";
@@ -422,6 +423,20 @@ export default function IDE({
   const colorTheme = useColorTheme(appearanceTheme);
   const resolvedTheme = colorTheme.resolved;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
+  // M107: zen mode (session-only) + client-side panel position / tab order.
+  const [zenMode, setZenMode] = useState(false);
+  const [localLayout, setLocalLayout] = useState(loadLocalLayout);
+  useEffect(() => saveLocalLayout(localLayout), [localLayout]);
+  useEffect(() => {
+    document.documentElement.dataset.zen = zenMode ? "true" : "false";
+    document.documentElement.dataset.panelPos = localLayout.panelPosition;
+    if (!zenMode) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setZenMode(false);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [zenMode, localLayout.panelPosition]);
 
   // M70: the resolved keybinding map (defaults + the user's typed overrides).
   // One source of truth — fed to `useKeyboardShortcuts`, the Editor's Monaco
@@ -3071,6 +3086,41 @@ export default function IDE({
         handler: () => setThemePickerOpen(true),
       },
       {
+        id: "view.toggleZenMode",
+        title: "Toggle Zen Mode",
+        description: "Hide the chrome and focus on the editor (Esc exits)",
+        category: "Navigation",
+        handler: () => setZenMode((v) => !v),
+      },
+      {
+        id: "view.movePanelRight",
+        title: "Move Panel to Right",
+        description: "Dock the output/terminal panel on the right",
+        category: "Navigation",
+        handler: () => setLocalLayout((l) => ({ ...l, panelPosition: "right" })),
+      },
+      {
+        id: "view.movePanelBottom",
+        title: "Move Panel to Bottom",
+        description: "Dock the output/terminal panel at the bottom",
+        category: "Navigation",
+        handler: () => setLocalLayout((l) => ({ ...l, panelPosition: "bottom" })),
+      },
+      {
+        id: "view.movePanelTabLeft",
+        title: "Move Panel Tab Left",
+        description: "Reorder the active panel tab",
+        category: "Navigation",
+        handler: () => setLocalLayout((l) => ({ ...l, tabOrder: moveTab(l.tabOrder, bottomTab, -1) })),
+      },
+      {
+        id: "view.movePanelTabRight",
+        title: "Move Panel Tab Right",
+        description: "Reorder the active panel tab",
+        category: "Navigation",
+        handler: () => setLocalLayout((l) => ({ ...l, tabOrder: moveTab(l.tabOrder, bottomTab, 1) })),
+      },
+      {
         id: "view.toggleOutline",
         title: "Toggle Outline",
         description: "Show the symbol outline of the active file",
@@ -3958,9 +4008,11 @@ export default function IDE({
             }}
           >
             {/* Panel Tabs Header */}
+            <style>{tabOrderCss(localLayout.tabOrder)}</style>
             <div className="panel-tabs-header">
               <div className="panel-tabs" role="tablist">
                 <button
+                  data-tab="output"
                   className={`panel-tab ${bottomTab === "output" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("output");
@@ -3973,6 +4025,7 @@ export default function IDE({
                 </button>
 
                 <button
+                  data-tab="problems"
                   className={`panel-tab ${bottomTab === "problems" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("problems");
@@ -4006,6 +4059,7 @@ export default function IDE({
                 </button>
 
                 <button
+                  data-tab="resources"
                   className={`panel-tab ${bottomTab === "resources" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("resources");
@@ -4018,6 +4072,7 @@ export default function IDE({
                 </button>
 
                 <button
+                  data-tab="terminal"
                   className={`panel-tab ${bottomTab === "terminal" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("terminal");
@@ -4030,6 +4085,7 @@ export default function IDE({
                 </button>
 
                 <button
+                  data-tab="preview"
                   className={`panel-tab ${bottomTab === "preview" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("preview");
@@ -4042,6 +4098,7 @@ export default function IDE({
                 </button>
 
                 <button
+                  data-tab="git"
                   className={`panel-tab ${bottomTab === "git" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("git");
@@ -4066,6 +4123,7 @@ export default function IDE({
                 </button>
 
                 <button
+                  data-tab="debug"
                   className={`panel-tab ${bottomTab === "debug" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("debug");
@@ -4079,6 +4137,7 @@ export default function IDE({
                 </button>
 
                 <button
+                  data-tab="tests"
                   className={`panel-tab ${bottomTab === "tests" && !isBottomCollapsed ? "active" : ""}`}
                   onClick={() => {
                     setBottomTab("tests");

@@ -126,3 +126,29 @@
 .ide-statusbar-item:hover {
   color: var(--fg-primary);
 }
+
+/* M107: zen mode hides all chrome except the editor. */
+:root[data-zen="true"] .sidebar,
+:root[data-zen="true"] .resizer-h,
+:root[data-zen="true"] .resizer-v,
+:root[data-zen="true"] .toolbar,
+:root[data-zen="true"] .ide-bottom-panel,
+:root[data-zen="true"] .ide-statusbar {
+  display: none !important;
+}
+
+/* M107: dock the bottom panel on the right. */
+:root[data-panel-pos="right"] .ide-workspace {
+  flex-direction: row !important;
+}
+:root[data-panel-pos="right"] .ide-bottom-panel {
+  height: auto !important;
+  min-height: 0 !important;
+  width: 420px;
+  min-width: 240px;
+  border-top: 0;
+  border-left: 1px solid var(--glass-border);
+}
+:root[data-panel-pos="right"] .resizer-v {
+  display: none;
+}
