@@ -40,6 +40,8 @@ import Toolbar from "../Toolbar/Toolbar";
 // Lazy: pulls in monaco-editor (~4.5MB raw); a static import here put that
 // weight in the entry bundle, downloading before even the login screen showed.
 const EditorGroupsView = React.lazy(() => import("./EditorGroupsView"));
+import LayeredSettingsPanel from "../Settings/LayeredSettingsPanel";
+import { useLayeredSettings } from "../../hooks/useLayeredSettings";
 import OutlinePanel from "./OutlinePanel";
 import { useOutline } from "../../hooks/useOutline";
 import { useSnippets } from "../../hooks/useSnippets";
@@ -314,7 +316,6 @@ export default function IDE({
 
   // M66: "format on save" is a normal typed user preference now — no longer a
   // separate browser-only localStorage flag.
-  const formatOnSave = preferences.formatOnSave;
 
   const handleUpdatePreferences = useCallback(
     async (updated: Partial<UserPreferences>) => {
@@ -331,6 +332,11 @@ export default function IDE({
     },
     [],
   );
+
+  // M105: defaults < user < project (.veyra/settings.json).
+  const layered = useLayeredSettings(project?.id, tree, preferences, handleUpdatePreferences);
+  const formatOnSave = layered.effective.formatOnSave;
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
 
   useEffect(() => {
     api<{ preferences: UserPreferences }>("/api/auth/preferences")
@@ -3045,6 +3051,13 @@ export default function IDE({
     const commands: Command[] = [
       // Navigation
       {
+        id: "preferences.openLayeredSettings",
+        title: "Open Settings (User / Project)",
+        description: "Search and edit layered settings; project values live in .veyra/settings.json",
+        category: "Navigation",
+        handler: () => setSettingsPanelOpen(true),
+      },
+      {
         id: "view.toggleOutline",
         title: "Toggle Outline",
         description: "Show the symbol outline of the active file",
@@ -3855,7 +3868,7 @@ export default function IDE({
                   isReadOnly={projectRole === "viewer"}
                   liveApiRef={liveApiRef}
                   editorViewApiRef={editorViewApiRef}
-                  preferences={preferences}
+                  preferences={layered.effective}
                   commentThreads={commentThreadsByFile}
                   projectId={project?.id}
                   commentCountsByFile={commentCountsByFile}
@@ -3876,6 +3889,16 @@ export default function IDE({
                 path={viewer.path}
                 kind={viewer.kind}
                 onClose={() => setViewer(null)}
+              />
+            )}
+            {settingsPanelOpen && (
+              <LayeredSettingsPanel
+                userLayer={layered.userLayer}
+                projectLayer={layered.projectLayer}
+                canEditProject={!!project && projectRole !== "viewer"}
+                onSetUser={(k, v) => void layered.setUser(k, v)}
+                onSetProject={(k, v) => void layered.setProject(k, v).then(() => loadTree())}
+                onClose={() => setSettingsPanelOpen(false)}
               />
             )}
             {outlineOpen && (

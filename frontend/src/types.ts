@@ -29,6 +29,13 @@ export interface UserPreferences {
    *  ONLY the commands the user has remapped (`{}` = all defaults). The
    *  command set + chord grammar live in `src/keymap/`. */
   keymap: Record<string, string>;
+  /** M105: client-side layered settings (see settingsSchema.ts). */
+  fontFamily?: string;
+  lineHeight?: number;
+  insertSpaces?: boolean;
+  bracketPairColorization?: boolean;
+  smoothScrolling?: boolean;
+  stickyScroll?: boolean;
   updatedAt?: string;
 }
 

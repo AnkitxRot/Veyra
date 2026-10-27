@@ -13,7 +13,7 @@ const ide = readFileSync(join(here, "../src/components/IDE/IDE.tsx"), "utf-8");
  */
 describe("M66 — formatOnSave preference wiring", () => {
   it("derives formatOnSave from the loaded preferences, not a useState flag", () => {
-    expect(ide).toContain("const formatOnSave = preferences.formatOnSave;");
+    expect(ide).toContain("const formatOnSave = layered.effective.formatOnSave;");
     // no local setter — it is a derived value, not component state
     expect(ide).not.toContain("setFormatOnSave");
     expect(ide).not.toMatch(/useState[^\n]*cloudeee_format_on_save/);

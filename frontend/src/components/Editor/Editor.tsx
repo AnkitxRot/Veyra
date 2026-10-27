@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback } from "react";
+import { editorExtraOptions } from "../../settingsSchema";
 import { monaco } from "../../monacoSetup";
 import { chordToMonacoKeybinding } from "../../keymap/keymap";
 import { getLanguageInfo } from "../../utils/language";
@@ -376,6 +377,7 @@ export default function Editor({
       lineNumbers: preferences.lineNumbers,
       cursorBlinking: preferences.cursorBlinking,
       renderWhitespace: preferences.renderWhitespace,
+      ...editorExtraOptions(preferences as unknown as Record<string, unknown>),
     });
   }, [preferences]);
 
@@ -401,6 +403,7 @@ export default function Editor({
         padding: { top: 12, bottom: 12 },
         bracketPairColorization: { enabled: true },
         readOnly: isReadOnlyRef.current,
+        ...editorExtraOptions(preferences as unknown as Record<string, unknown> | undefined),
       });
       setCommentEditor(monacoRef.current);
 
