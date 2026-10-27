@@ -201,7 +201,7 @@ Environment variables:
 
 ## Current milestone & planning
 
-Latest shipped milestone: **M94**. `STATUS.md` is the short milestone ledger (full history: `docs/archive/STATUS-history.md`)
+Latest shipped milestone: **M98**. `STATUS.md` is the short milestone ledger (full history: `docs/archive/STATUS-history.md`)
 (M87–M94 summarized at the end); `docs/ROADMAP.md` is the forward plan;
 per-milestone engineering reports live in `docs/reports/`. Update
 `STATUS.md` and the README status line with every milestone.

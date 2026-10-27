@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-26. Latest milestone: **M94**.
+Last updated: 2026-10-27. Latest milestone: **M98**.
 
 This file is the short milestone ledger. The complete historical record
 (~10k lines, M1–M86 write-ups, verification logs, architecture decisions
@@ -30,6 +30,7 @@ the commit messages and reports, not re-run for this summary.
 
 | M95 | Repo hygiene | — | STATUS history and load-test results archived under `docs/archive/`; STATUS.md is now a short ledger. |
 | M97 | Audit + security pass | branch `docs/m94-status-roadmap` | `COLLABORATOR_*` audit events; ratchet test for unaudited mutating routes; prod `npm audit` 6→0; AI subsystem fixes (ReDoS that blocked the event loop, `/ai/verify` field bounds, viewers no longer see run output in the AI journal); CI permissions/concurrency/audit gate. |
+| M98 | Toolchain and architecture overhaul | branch `overhaul/m95` | Node 24, TS 6, Express 5, React 19, Vite 8, Vitest 5; zod validation, pino logger, async zlib, routes split, typed ide-* events. Report: `docs/reports/m98-overhaul-report.md`. |
 
 ### Security review (M97)
 

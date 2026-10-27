@@ -5,7 +5,7 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M94 (audit trail coverage for LSP and debugger sessions) is
+**Status:** M98 (toolchain and architecture overhaul; see STATUS.md) is
 the latest milestone. It builds on M93 audit-failure monitoring, M92 audit
 coverage, M91 deterministic idle-disposal, M88 terminal reload persistence,
 M87 sandboxed project Git, M86 read-your-writes, M85 workspace
