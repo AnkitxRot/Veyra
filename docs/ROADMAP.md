@@ -1,4 +1,8 @@
-# Roadmap (from M94)
+# Roadmap (from M111)
+
+M95–M110 shipped; see `docs/reports/m99-m110-overhaul-report.md`. Next: jdtls (pinned download), phase-end browser verification, `deploy:smoke`, `CSP: sandbox` previews, server-side settings/themes, oracle pass on LSP/debug surfaces, runner image size measurement.
+
+## Historical plan (from M94)
 
 Updated 2026-10-26. Ordering rule: stabilize and de-risk first, then
 user-visible features, then scale/product. Each milestone follows the
