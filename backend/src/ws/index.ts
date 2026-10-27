@@ -324,7 +324,7 @@ export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): We
           pathname: pathname ?? undefined,
           userId: String(row.id),
         });
-        registerConnection(row.id, ws);
+        registerConnection(row.id, ws, projectId);
         void room.addClient(ws, {
           userId: row.id,
           username: row.username,
@@ -361,7 +361,7 @@ export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): We
           pathname: pathname ?? undefined,
           userId: String(row.id),
         });
-        registerConnection(row.id, ws);
+        registerConnection(row.id, ws, projectId);
         ws.on("close", () => unregisterConnection(row.id, ws));
         // ws (the library) throws and crashes the process on an 'error'
         // event with no listeners — a single client sending a malformed
@@ -394,7 +394,7 @@ export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): We
           pathname: pathname ?? undefined,
           userId: String(row.id),
         });
-        registerConnection(row.id, ws);
+        registerConnection(row.id, ws, projectId);
         ws.on("close", () => unregisterConnection(row.id, ws));
         ws.on("error", (err) => {
           log.error("[ws] execution socket error:", err);
@@ -411,7 +411,7 @@ export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): We
           pathname: pathname ?? undefined,
           userId: String(row.id),
         });
-        registerConnection(row.id, ws);
+        registerConnection(row.id, ws, projectId);
         ws.on("close", () => unregisterConnection(row.id, ws));
         ws.on("error", (err) => {
           log.error("[ws] debug socket error:", err);
@@ -428,7 +428,7 @@ export function setupWebSocketServer(server: Server, db: Db, cfg: AppConfig): We
           pathname: pathname ?? undefined,
           userId: String(row.id),
         });
-        registerConnection(row.id, ws);
+        registerConnection(row.id, ws, projectId);
         ws.on("close", () => unregisterConnection(row.id, ws));
         ws.on("error", (err) => {
           log.error("[ws] lsp socket error:", err);

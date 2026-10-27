@@ -21,6 +21,25 @@ export interface ProxyEntry {
 // pair instead means each restart just replaces the one existing entry.
 const proxyCache = new Map<string, ProxyEntry>();
 
+// Preview content is user code served from the IDE's own origin. The preview
+// iframe already omits `allow-same-origin`, but opening the proxy URL directly
+// in a tab would otherwise run it same-origin with the session cookie. Enforce
+// the sandbox in the response itself, whichever way it is loaded.
+export const PREVIEW_CSP_SANDBOX = "sandbox allow-scripts allow-forms allow-popups allow-modals";
+
+type HeaderBag = Record<string, string | string[] | undefined>;
+
+export function applyPreviewIsolation(headers: HeaderBag): void {
+  const existing = headers["content-security-policy"];
+  const upstream = Array.isArray(existing) ? existing.join(", ") : existing;
+  headers["content-security-policy"] = upstream
+    ? `${upstream}, ${PREVIEW_CSP_SANDBOX}`
+    : PREVIEW_CSP_SANDBOX;
+  // Upstream cookies would land on the IDE origin (same host) and could plant
+  // or shadow `session_token`.
+  delete headers["set-cookie"];
+}
+
 export async function resolveProxyEntry(
   db: Db,
   userId: number,
@@ -58,6 +77,11 @@ export async function resolveProxyEntry(
         // authorization, so that call must remain the only path that ever
         // handles these upgrades.
         ws: false,
+        on: {
+          // Mutate proxyRes.headers: http-proxy copies them onto the client
+          // response after this event, so res.setHeader here would be overwritten.
+          proxyRes: (proxyRes) => applyPreviewIsolation(proxyRes.headers),
+        },
       }),
     };
     proxyCache.set(cacheKey, entry);

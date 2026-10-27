@@ -1,6 +1,52 @@
-# Roadmap (from M111)
+# Roadmap (from M112)
 
-M95–M110 shipped; see `docs/reports/m99-m110-overhaul-report.md`. Next: jdtls (pinned download), phase-end browser verification, `deploy:smoke`, `CSP: sandbox` previews, server-side settings/themes, oracle pass on LSP/debug surfaces, runner image size measurement.
+M95–M111 shipped; see `docs/reports/m99-m110-overhaul-report.md`. The plan below (M112–M150) supersedes the historical M94 plan further down, whose Phase 3/4 items (git depth, SSH/OAuth, multi-node, hosted basics, AI) did not ship under those numbers and are renumbered here. Each milestone still starts with the discovery gate: confirm it isn't already built.
+
+## M112–M150
+
+| Phase | #    | Milestone                                                                                                          |
+| ----- | ---- | ------------------------------------------------------------------------------------------------------------------ |
+| A     | M112 | Preview isolation: `sandbox` CSP + upstream `Set-Cookie` strip on the proxy (done); document symlink-race residual | **(done)** |
+| A     | M113 | Audit ratchet covers `ws/*`; `ws/execution.ts` audited; fix unused `auditHandler` (`terminalSessions.ts:151`)      | **(done)** |
+| A     | M114 | Burn down `KNOWN_UNAUDITED` I: project create/import/fork/upload/move/delete/snapshots                             | **(done)** |
+| A     | M115 | Burn down `KNOWN_UNAUDITED` II: admin backups, run/install, search/replace/format, ai, comments                    | **(done)** |
+| A     | M116 | Oracle pass on LSP/debug/WS surfaces + fixes                                                                       | **(done)** |
+| B     | M117 | `deploy:smoke` script + CI job                                                                                     |
+| B     | M118 | Phase-end browser verification (Playwright) of M101–M111 UI                                                        |
+| B     | M119 | CI stability: evidence-based flake fixes, split Docker/E2E jobs                                                    |
+| B     | M120 | Runner image size measurement and slimming                                                                         |
+| B     | M121 | Server-side settings/themes sync (user-level)                                                                      |
+| B     | M122 | Admin UI for `audit-integrity` + audit log export                                                                  |
+| C     | M123 | jdtls via pinned download                                                                                          |
+| C     | M124 | Git diff viewer                                                                                                    |
+| C     | M125 | Git stash                                                                                                          |
+| C     | M126 | Merge-conflict UI                                                                                                  |
+| C     | M127 | Non-FF pull options (still no force-push by default)                                                               |
+| C     | M128 | Test explorer (run/discover tests per language)                                                                    |
+| C     | M129 | Launch/task config UI over `.veyra/` files                                                                         |
+| C     | M130 | Global replace preview + search UX                                                                                 |
+| C     | M131 | Debug adapters: Java and C/C++ under existing caps                                                                 |
+| C     | M132 | Command palette + keybinding customization                                                                         |
+| D     | M133 | SSH remotes (reuse M80 host-pin + secret store rules)                                                              |
+| D     | M134 | GitHub OAuth                                                                                                       |
+| D     | M135 | Read-only PR/issue integration                                                                                     |
+| D     | M136 | Collaborative debugging view (control stays per user)                                                              |
+| D     | M137 | Presence and follow mode                                                                                           |
+| D     | M138 | Review comments v2                                                                                                 |
+| E     | M139 | Multi-node: measure first, then decide                                                                             |
+| E     | M140 | Externalize sessions/collab rooms only if M139 justifies it                                                        |
+| E     | M141 | Per-user quotas                                                                                                    |
+| E     | M142 | Org/team model                                                                                                     |
+| E     | M143 | Onboarding                                                                                                         |
+| E     | M144 | Billing hooks                                                                                                      |
+| E     | M145 | Observability: traces, SLOs, alerts                                                                                |
+| E     | M146 | Backup/restore disaster-recovery drill                                                                             |
+| F     | M147 | AI assistant design gate (needs M113–M115 and M141)                                                                |
+| F     | M148 | AI assistant v1, sandboxed and quota'd                                                                             |
+| F     | M149 | Accessibility audit and fixes                                                                                      |
+| F     | M150 | Release hardening and v1 report                                                                                    |
+
+Phases A and B come first because the rest add surface area on top of unreviewed code. Phase E items marked "measure first" may be rejected with evidence rather than built.
 
 ## Historical plan (from M94)
 

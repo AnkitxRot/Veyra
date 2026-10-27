@@ -42,6 +42,13 @@ export async function handleLspConnection(
 
   if (ws.readyState !== WS_OPEN) return;
 
+  let closedEarly = false;
+  const markClosed = () => {
+    closedEarly = true;
+  };
+  ws.on("close", markClosed);
+  ws.on("error", markClosed);
+
   const session = await languageServers.attach({
     projectId,
     language: spec.id,
@@ -58,6 +65,13 @@ export async function handleLspConnection(
     ws.on("message", () => {});
     ws.on("error", () => {});
     ws.on("close", () => {});
+    return;
+  }
+
+  ws.off("close", markClosed);
+  ws.off("error", markClosed);
+  if (closedEarly || ws.readyState !== WS_OPEN) {
+    session.removeClient(ws);
     return;
   }
 

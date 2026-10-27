@@ -100,6 +100,9 @@ export interface LspSessionHooks {
  * One language-server process for one (project, language). Multiple browser
  * sockets share it. The backend owns initialize/shutdown and URI rewriting.
  */
+/** Max distinct documents one socket may hold open. */
+export const LSP_MAX_OPEN_DOCS_PER_CLIENT = 200;
+
 export class LspSession {
   readonly projectId: string;
   readonly userId: number;
@@ -114,6 +117,11 @@ export class LspSession {
   private readonly clients = new Map<LspClientSocket, TrackedClient>();
   private readonly pending = new Map<number, PendingClient>();
   private readonly docs = new Map<string, OpenDoc>();
+
+  /** Distinct documents currently open in the language server (tests/metrics). */
+  openDocumentCount(): number {
+    return this.docs.size;
+  }
   private nextServerId = 1;
   private state: LspSessionState = "starting";
   private statusMessage: string | undefined;
@@ -365,6 +373,9 @@ export class LspSession {
       if (!rel || text === null) return;
       if (text.length > this.limits.messageMaxBytes) return;
       const alreadyTracked = tracked.openDocs.has(rel);
+      // M116: bound per-socket document state; each open keeps up to
+      // messageMaxBytes of text in the mirror plus the shared docs map.
+      if (!alreadyTracked && tracked.openDocs.size >= LSP_MAX_OPEN_DOCS_PER_CLIENT) return;
       tracked.openDocs.add(rel);
       tracked.mirror.set(rel, text);
       const languageId = this.language.documentLanguageId(rel);
@@ -428,7 +439,15 @@ export class LspSession {
       return;
     }
     if (msg.method === "$/cancelRequest") {
-      this.sendServer(msg);
+      // Client ids are per-socket; the server id space is shared by every user
+      // of the project. Only translate ids this socket actually has pending.
+      const clientId = (msg.params as { id?: unknown } | undefined)?.id;
+      for (const [serverId, p] of this.pending) {
+        if (p.client === tracked.socket && p.clientId === clientId) {
+          this.sendServer({ jsonrpc: "2.0", method: "$/cancelRequest", params: { id: serverId } });
+          break;
+        }
+      }
     }
   }
 

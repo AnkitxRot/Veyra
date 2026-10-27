@@ -309,6 +309,15 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       });
       if (mentions.length > 0) store.replaceMentions(db, commentId, mentions);
 
+      try {
+        recordAuditLog(db, {
+          userId: actor.id,
+          projectId: projectId,
+          eventType: "COMMENT_REPLIED",
+          details: { threadId: thread.id, commentId },
+          ipAddress: req.ip,
+        });
+      } catch {}
       emit(projectId, thread.id, thread.file_path, "replied");
       deliverMentions(
         projectId,
@@ -363,6 +372,15 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       const thread = db
         .prepare("SELECT file_path FROM comment_threads WHERE id = ?")
         .get(row.thread_id) as { file_path: string };
+      try {
+        recordAuditLog(db, {
+          userId: actor.id,
+          projectId: projectId,
+          eventType: "COMMENT_EDITED",
+          details: { commentId: req.params.commentId },
+          ipAddress: req.ip,
+        });
+      } catch {}
       emit(projectId, row.thread_id, thread.file_path, "edited");
       res.json({ thread: threadResponse(projectId, row.thread_id) });
     } catch (err) {
@@ -395,6 +413,15 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       const thread = db
         .prepare("SELECT file_path FROM comment_threads WHERE id = ?")
         .get(row.thread_id) as { file_path: string };
+      try {
+        recordAuditLog(db, {
+          userId: actor.id,
+          projectId: projectId,
+          eventType: "COMMENT_DELETED",
+          details: { commentId: req.params.commentId },
+          ipAddress: req.ip,
+        });
+      } catch {}
       emit(projectId, row.thread_id, thread.file_path, "deleted");
       res.json({ thread: threadResponse(projectId, row.thread_id) });
     } catch (err) {
@@ -431,6 +458,15 @@ export function commentRoutes(cfg: AppConfig, db: Db): Router {
       const projectId = req.params.id;
       const thread = findThread(projectId, req.params.threadId);
       store.reopenThread(db, { threadId: thread.id });
+      try {
+        recordAuditLog(db, {
+          userId: userOf(req).id,
+          projectId: projectId,
+          eventType: "COMMENT_REOPENED",
+          details: { threadId: thread.id },
+          ipAddress: req.ip,
+        });
+      } catch {}
       emit(projectId, thread.id, thread.file_path, "reopened");
       res.json({ thread: threadResponse(projectId, thread.id) });
     } catch (err) {

@@ -9,6 +9,7 @@ import { searchGate } from "../execution/runGate.js";
 import { createSnapshot } from "./snapshots.js";
 import { searchProjectContent, replaceProjectContent } from "./search.js";
 import { collaborationManager } from "../collab/manager.js";
+import { recordAuditLog } from "../audit.js";
 
 /**
  * Abort an in-flight search worker when the client disconnects. `res.close`
@@ -331,6 +332,18 @@ export function registerSearchRoutes(router: Router, cfg: AppConfig, db: Db): vo
 
         if (filesChanged > 0) {
           touchProject(db, project.id);
+          if (db) {
+            try {
+              recordAuditLog(db, {
+                userId,
+                projectId: project.id,
+                eventType: "SEARCH_REPLACE_APPLIED",
+                // Counts only: the query/replacement text may contain secrets.
+                details: { filesChanged, matchesReplaced, snapshotId: safetySnapshotId },
+                ipAddress: req.ip,
+              });
+            } catch {}
+          }
         }
 
         // M56: one aggregated external-mutation notice per affected

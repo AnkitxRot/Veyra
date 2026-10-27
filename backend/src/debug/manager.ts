@@ -93,7 +93,26 @@ export class DebugSessionManager {
       existing.setSocket(opts.socket);
       return existing;
     }
+    // Parallel attaches for the same (project, user) must share one session;
+    // otherwise each creates its own and all but the last are orphaned.
+    const pending = this.inflight.get(key);
+    if (pending) {
+      const shared = await pending;
+      shared?.setSocket(opts.socket);
+      return shared;
+    }
+    const created = this.createSession(opts, key);
+    this.inflight.set(key, created);
+    try {
+      return await created;
+    } finally {
+      this.inflight.delete(key);
+    }
+  }
 
+  private readonly inflight = new Map<string, Promise<DebugSession | null>>();
+
+  private async createSession(opts: AttachDebugOpts, key: string): Promise<DebugSession | null> {
     const containerId =
       opts.containerId ??
       this.containerOverride?.(opts.projectId) ??
@@ -129,6 +148,11 @@ export class DebugSessionManager {
     for (const session of [...this.sessions.values()]) {
       if (session.projectId === projectId) session.dispose("project_deleted");
     }
+  }
+
+  disposeUserProject(userId: number, projectId: string, reason = "access_revoked"): void {
+    const session = this.sessions.get(keyOf(projectId, userId));
+    if (session) session.dispose(reason);
   }
 
   disposeUser(userId: number): void {

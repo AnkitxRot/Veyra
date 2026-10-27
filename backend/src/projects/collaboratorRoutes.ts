@@ -12,6 +12,8 @@ import {
   removeProjectCollaborator,
 } from "./service.js";
 import { terminalSessions } from "../execution/terminalSessions.js";
+import { debugSessions } from "../debug/manager.js";
+import { closeProjectConnectionsForUser } from "../ws/connectionRegistry.js";
 import { recordAuditLog } from "../audit.js";
 import { collaborationManager } from "../collab/manager.js";
 
@@ -86,6 +88,8 @@ export function registerCollaboratorRoutes(router: Router, cfg: AppConfig, db: D
       // M79: a removed collaborator loses terminal access immediately — kill
       // any attached or detached PTY they hold in this project.
       terminalSessions.reapUserProject(targetUserId, req.params.id);
+      // M116: also cut their open debug/LSP/execute sockets for this project.
+      closeProjectConnectionsForUser(targetUserId, req.params.id);
       recordAuditLog(db, {
         userId: userOf(req).id,
         projectId: req.params.id,
@@ -122,6 +126,8 @@ export function registerCollaboratorRoutes(router: Router, cfg: AppConfig, db: D
       // revokes terminal access, so reap any PTY they hold here.
       if (role === "viewer") {
         terminalSessions.reapUserProject(targetUserId, req.params.id);
+        // M116: debugging runs code in the sandbox, so it needs editor too.
+        debugSessions.disposeUserProject(targetUserId, req.params.id, "access_revoked");
       }
       recordAuditLog(db, {
         userId: userOf(req).id,

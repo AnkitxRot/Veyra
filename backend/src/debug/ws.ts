@@ -76,6 +76,15 @@ export async function handleDebugConnection(
     dispatch(data);
   });
 
+  // Registered before the attach await: a socket that closes while the
+  // sandbox is starting must not leave a launched adapter behind.
+  let closedEarly = false;
+  const markClosed = () => {
+    closedEarly = true;
+  };
+  ws.on("close", markClosed);
+  ws.on("error", markClosed);
+
   const session = await debugSessions.attach({
     projectId,
     userId,
@@ -94,6 +103,14 @@ export async function handleDebugConnection(
     );
     ws.on("error", () => {});
     ws.on("close", () => {});
+    return;
+  }
+
+  ws.off("close", markClosed);
+  ws.off("error", markClosed);
+  if (closedEarly || ws.readyState !== WS_OPEN) {
+    queued.length = 0;
+    session.clearSocket(ws);
     return;
   }
 

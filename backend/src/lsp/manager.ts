@@ -84,25 +84,53 @@ export class LanguageServerManager {
     return n;
   }
 
+  /** In-flight session creations, so parallel attaches share one session and count toward caps. */
+  private readonly inflight = new Map<string, Promise<LspSession | null>>();
+
   async attach(opts: AttachLspOpts): Promise<LspSession | null> {
     const spec = getLspLanguage(opts.language);
     if (!spec) return null;
 
-    const existing = this.sessions.get(keyOf(opts.projectId, spec.id));
+    const key = keyOf(opts.projectId, spec.id);
+    const existing = this.sessions.get(key);
     if (existing) {
       existing.addClient(opts.socket);
       return existing;
     }
+    const pending = this.inflight.get(key);
+    if (pending) {
+      const shared = await pending;
+      if (shared) shared.addClient(opts.socket);
+      return shared;
+    }
+    const created = this.createSession(opts, spec);
+    this.inflight.set(key, created);
+    try {
+      return await created;
+    } finally {
+      this.inflight.delete(key);
+    }
+  }
 
-    if (this.sessions.size >= opts.cfg.maxLspServers) {
+  private async createSession(
+    opts: AttachLspOpts,
+    spec: NonNullable<ReturnType<typeof getLspLanguage>>,
+  ): Promise<LspSession | null> {
+    // This runs synchronously up to the first await, before the caller records
+    // this creation in `inflight`, so `inflight.size` counts only the others.
+    const inflightTotal = this.inflight.size;
+    if (this.sessions.size + inflightTotal >= opts.cfg.maxLspServers) {
       const victim = this.pickIdleVictim();
       if (victim) victim.dispose("evicted");
     }
-    if (this.sessions.size >= opts.cfg.maxLspServers) {
+    if (this.sessions.size + inflightTotal >= opts.cfg.maxLspServers) {
       return null;
     }
 
-    const perProject = this.sessionsForProject(opts.projectId).length;
+    const inflightForProject = [...this.inflight.keys()].filter((k) =>
+      k.startsWith(`${opts.projectId}:`),
+    ).length;
+    const perProject = this.sessionsForProject(opts.projectId).length + inflightForProject;
     if (perProject >= opts.cfg.maxLspServersPerProject) {
       return null;
     }
@@ -150,20 +178,22 @@ export class LanguageServerManager {
    * tsserver and vscode-js-debug deadlock on TypeScript source maps when
    * they run at the same time (browser path + live LSP).
    */
-  suspendForDebug(projectId: string, containerId?: string): void {
+  async suspendForDebug(projectId: string, containerId?: string): Promise<void> {
     const ids = new Set<string>();
     if (containerId) ids.add(containerId);
     for (const session of this.sessionsForProject(projectId)) {
       ids.add(session.containerId);
       session.dispose("debug_started");
     }
-    for (const id of ids) {
-      try {
-        killTypeScriptLanguageServersInContainer(id);
-      } catch {
-        /* invalid id or docker unavailable */
-      }
-    }
+    await Promise.all(
+      [...ids].map(async (id) => {
+        try {
+          await killTypeScriptLanguageServersInContainer(id);
+        } catch {
+          /* invalid id or docker unavailable */
+        }
+      }),
+    );
   }
 
   disposeAll(reason = "server_shutdown"): void {

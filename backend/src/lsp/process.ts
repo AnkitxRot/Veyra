@@ -1,4 +1,9 @@
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  execFile,
+  execFileSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import type { LspLanguageSpec } from "./languages.js";
 
 export interface LspSpawnRequest {
@@ -101,20 +106,20 @@ const TSSERVER_REAPER = [
  * wrapper is killed. js-debug cannot bind TypeScript source maps while
  * those workers still hold the workspace.
  */
-export function killTypeScriptLanguageServersInContainer(containerId: string): void {
+export function killTypeScriptLanguageServersInContainer(containerId: string): Promise<void> {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(containerId)) {
     throw new Error("invalid_container_id");
   }
-  try {
-    execFileSync("docker", ["exec", "-u", "ide", containerId, "node", "-e", TSSERVER_REAPER], {
-      timeout: 4_000,
-      stdio: "ignore",
-      windowsHide: true,
-      env: lspHostDockerEnv(),
-    });
-  } catch {
-    /* container gone or no leftover servers */
-  }
+  // Async: the sync variant blocked the whole event loop for up to 4 s on
+  // every debug launch, for every tenant.
+  return new Promise((resolve) => {
+    execFile(
+      "docker",
+      ["exec", "-u", "ide", containerId, "node", "-e", TSSERVER_REAPER],
+      { timeout: 4_000, windowsHide: true, env: lspHostDockerEnv() },
+      () => resolve(), // container gone or no leftover servers
+    );
+  });
 }
 
 /**

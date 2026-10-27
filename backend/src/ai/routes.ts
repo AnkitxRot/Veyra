@@ -5,6 +5,7 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { ApiError, errorInfo } from "../errors.js";
 import { z } from "zod";
+import { recordAuditLog } from "../audit.js";
 import { checkedString, parseInput } from "../validate.js";
 import { requireProjectAccess, workspacePath } from "../projects/service.js";
 import { writeProjectFile, readProjectFile } from "../files/service.js";
@@ -77,6 +78,20 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
       });
 
       const provider = aiProviderRegistry.getProvider(providerId);
+      // Project code is sent to the provider; record that it happened (never the code).
+      try {
+        recordAuditLog(db, {
+          userId: userOf(req).id,
+          projectId: req.params.id,
+          eventType: "AI_ACTION_REQUESTED",
+          details: {
+            action,
+            activeFilePath,
+            providerId: typeof providerId === "string" ? providerId.slice(0, 64) : null,
+          },
+          ipAddress: req.ip,
+        });
+      } catch {}
       const response = await provider.executeAction(action as AIAction, context);
 
       const baseRevision = response.patch ? computeRevision(context.fileContent) : undefined;
@@ -185,6 +200,15 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
         );
       }
 
+      try {
+        recordAuditLog(db, {
+          userId: userOf(req).id,
+          projectId: req.params.id,
+          eventType: "AI_PATCH_APPLIED",
+          details: { filePath, snapshotId: snapshotId ?? null },
+          ipAddress: req.ip,
+        });
+      } catch {}
       res.json({ ok: true, snapshotId });
     } catch (err) {
       next(err);

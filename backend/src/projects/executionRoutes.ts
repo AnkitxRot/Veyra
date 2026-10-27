@@ -14,6 +14,7 @@ import { runGate } from "../execution/runGate.js";
 import { resolveSecretsForInjection, toGenericSecretError } from "../projectsecrets/store.js";
 import { formatProjectFile } from "./format.js";
 import { requireLiveEditsPersisted } from "../collab/manager.js";
+import { recordAuditLog } from "../audit.js";
 
 export function registerExecutionRoutes(router: Router, cfg: AppConfig, db: Db): void {
   const userOf = (req: Request) => req.user!;
@@ -131,6 +132,17 @@ export function registerExecutionRoutes(router: Router, cfg: AppConfig, db: Db):
           onStderr: (data) => res.write(data),
         });
 
+        if (db) {
+          try {
+            recordAuditLog(db, {
+              userId,
+              projectId: project.id,
+              eventType: "DEPENDENCIES_INSTALLED",
+              details: { command: installResult.cmd, exitCode: result.exitCode },
+              ipAddress: req.ip,
+            });
+          } catch {}
+        }
         res.write(`\nProcess exited with code ${result.exitCode}\n`);
         res.end();
       } finally {

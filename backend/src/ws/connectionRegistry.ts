@@ -17,7 +17,11 @@ import { debugSessions } from "../debug/manager.js";
 const connectionsByUser = new Map<number, Set<WebSocket>>();
 const proxySocketsByUser = new Map<number, Set<Socket>>();
 
-export function registerConnection(userId: number, ws: WebSocket): void {
+/** Project a connection is scoped to, when it has one (terminal/execute/debug/lsp/collab). */
+const projectOfConnection = new WeakMap<WebSocket, string>();
+
+export function registerConnection(userId: number, ws: WebSocket, projectId?: string): void {
+  if (projectId) projectOfConnection.set(ws, projectId);
   let set = connectionsByUser.get(userId);
   if (!set) {
     set = new Set();
@@ -54,6 +58,38 @@ export function unregisterProxySocket(userId: number, socket: Socket): void {
 }
 
 const FORCE_TERMINATE_AFTER_MS = 1000;
+
+/**
+ * M116: close one user's project-scoped sockets (terminal, execute, debug,
+ * lsp, collab) when they are removed from that project. WS access is checked
+ * at upgrade, so without this a removed collaborator keeps their open sockets.
+ */
+export function closeProjectConnectionsForUser(
+  userId: number,
+  projectId: string,
+  code = 4403,
+  reason = "Access revoked",
+): void {
+  try {
+    debugSessions.disposeUserProject(userId, projectId, "access_revoked");
+  } catch {
+    // Debug manager may not be in use in unit tests.
+  }
+  const set = connectionsByUser.get(userId);
+  if (!set) return;
+  for (const ws of Array.from(set)) {
+    if (projectOfConnection.get(ws) !== projectId) continue;
+    try {
+      ws.close(code, reason);
+    } catch {}
+    const timer = setTimeout(() => {
+      try {
+        ws.terminate();
+      } catch {}
+    }, FORCE_TERMINATE_AFTER_MS);
+    timer.unref?.();
+  }
+}
 
 /**
  * Forcibly closes every live WebSocket connection for a user. Call this

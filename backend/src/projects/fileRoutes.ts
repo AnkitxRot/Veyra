@@ -258,6 +258,17 @@ export function registerFileRoutes(router: Router, cfg: AppConfig, db: Db): void
           await collaborationManager.notifyExternalFileMutation(project.id, newPath, content);
         } catch {}
       }
+      if (db) {
+        try {
+          recordAuditLog(db, {
+            userId: userOf(req).id,
+            projectId: project.id,
+            eventType: "FILE_MOVED",
+            details: { from, to },
+            ipAddress: req.ip,
+          });
+        } catch {}
+      }
       res.json(result);
     } catch (err) {
       next(err);
@@ -287,6 +298,17 @@ export function registerFileRoutes(router: Router, cfg: AppConfig, db: Db): void
       await deleteProjectPath(cwd, path);
       for (const f of affected) {
         await collaborationManager.notifyExternalFileMutation(project.id, f, "");
+      }
+      if (db) {
+        try {
+          recordAuditLog(db, {
+            userId: userOf(req).id,
+            projectId: project.id,
+            eventType: "FILE_DELETED",
+            details: { path, fileCount: affected.length },
+            ipAddress: req.ip,
+          });
+        } catch {}
       }
       touchProject(db, project.id);
       res.json({ ok: true });

@@ -5,8 +5,8 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M111 (low-resource host profile; see STATUS.md) is
-the latest milestone, following M110 (LSP rename/format/code actions, custom tasks). It builds on M93 audit-failure monitoring, M92 audit
+**Status:** M116 (security closeout: preview sandbox, audit ratchet, access revocation; see STATUS.md) is
+the latest milestone, following M111 (low-resource host profile) and M110 (LSP rename/format/code actions, custom tasks). It builds on M93 audit-failure monitoring, M92 audit
 coverage, M91 deterministic idle-disposal, M88 terminal reload persistence,
 M87 sandboxed project Git, M86 read-your-writes, M85 workspace
 intelligence, M84 Test Explorer, M83 sandboxed debugging, M81/M82 language

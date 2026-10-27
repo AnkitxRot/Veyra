@@ -148,13 +148,6 @@ export class TerminalSessionRegistry {
   private static readonly TOMBSTONE_CAP = 64;
 
   readonly auditDb?: Db;
-  private auditHandler?: (event: {
-    eventType: "TERMINAL_SESSION_CLOSED";
-    userId: number;
-    projectId: string;
-    terminalId: string;
-    reason: TerminalEndedReason;
-  }) => void;
 
   private tombstone(key: string, reason: TerminalEndedReason): void {
     this.tombstones.delete(key);

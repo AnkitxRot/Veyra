@@ -7,6 +7,7 @@ import { assertInsideWorkspace, safeResolve } from "../files/service.js";
 import {
   clipArray,
   clipString,
+  DEBUG_MAX_BREAKPOINT_FILES,
   DEBUG_MAX_OUTPUT_CHARS,
   DEBUG_MAX_PENDING,
   DEBUG_MAX_SCOPES,
@@ -310,7 +311,24 @@ export class DebugSession {
     this.hooks.onDead(this);
   }
 
+  private launching = false;
+
   private async onLaunch(raw: Record<string, unknown>): Promise<void> {
+    // Launch awaits several times before the state leaves "idle"; without
+    // this, concurrent launch messages could all pass the check below.
+    if (this.launching) {
+      this.sendError("debug session already active");
+      return;
+    }
+    this.launching = true;
+    try {
+      await this.doLaunch(raw);
+    } finally {
+      this.launching = false;
+    }
+  }
+
+  private async doLaunch(raw: Record<string, unknown>): Promise<void> {
     if (this.state === "starting" || this.state === "running" || this.state === "paused") {
       this.sendError("debug session already active");
       return;
@@ -557,7 +575,7 @@ export class DebugSession {
   private async suspendLanguageServers(): Promise<void> {
     try {
       const { languageServers } = await import("../lsp/manager.js");
-      languageServers.suspendForDebug(this.projectId, this.containerId);
+      await languageServers.suspendForDebug(this.projectId, this.containerId);
     } catch {
       /* LSP manager unavailable in some unit tests */
     }
@@ -573,6 +591,15 @@ export class DebugSession {
     const parsed = parseSetBreakpoints(raw);
     if (!parsed.ok) {
       this.sendError(parsed.error);
+      return;
+    }
+    // M116: the launch-time file cap alone let repeated setBreakpoints grow
+    // this map (and its condition/log text) without bound.
+    if (
+      !this.breakpoints.has(parsed.value.path) &&
+      this.breakpoints.size >= DEBUG_MAX_BREAKPOINT_FILES
+    ) {
+      this.sendError("too many files with breakpoints");
       return;
     }
     this.breakpoints.set(parsed.value.path, parsed.value.lines);
