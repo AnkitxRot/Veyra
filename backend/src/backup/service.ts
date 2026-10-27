@@ -2,7 +2,7 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { recordAuditLog } from "../audit.js";
 import {
   BACKUP_FILENAME_RE,
@@ -39,7 +39,7 @@ export interface BackupMetadata {
 async function withBackupLock<T>(cfg: AppConfig, fn: () => T): Promise<T> {
   try {
     return await withBackupLockAsync(cfg.backupDir, { staleMs: cfg.backupLockStaleMs }, fn);
-  } catch (err: any) {
+  } catch (err) {
     if (err instanceof BackupLockTimeoutError) {
       throw new ApiError(503, err.message, "backup_lock_timeout");
     }
@@ -127,11 +127,11 @@ export async function createDatabaseBackup(
     try {
       const escapedPath = backupPath.replace(/'/g, "''");
       db.exec(`VACUUM INTO '${escapedPath}'`);
-    } catch (err: any) {
+    } catch (err) {
       try {
         rmSync(backupPath, { force: true });
       } catch {}
-      throw new ApiError(500, `Database backup failed: ${err.message}`, "backup_failed");
+      throw new ApiError(500, `Database backup failed: ${errorInfo(err).message}`, "backup_failed");
     }
 
     secureBackupFilePermissions(backupPath);
@@ -200,8 +200,12 @@ export async function deleteDatabaseBackup(
 
     try {
       rmSync(filePath, { force: true });
-    } catch (err: any) {
-      throw new ApiError(500, `Failed to delete backup: ${err.message}`, "delete_failed");
+    } catch (err) {
+      throw new ApiError(
+        500,
+        `Failed to delete backup: ${errorInfo(err).message}`,
+        "delete_failed",
+      );
     }
 
     recordAuditLog(db, {

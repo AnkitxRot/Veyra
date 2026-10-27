@@ -353,7 +353,7 @@ async function withRemote<T>(
           extraEnv: s.extraEnv,
           timeoutMs: GIT_REMOTE_TIMEOUT_MS,
         });
-      } catch (err: any) {
+      } catch (err) {
         if (err instanceof ApiError && err.message) {
           err.message = redactGitOutput(err.message, s.secrets);
         }

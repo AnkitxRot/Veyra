@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { commandExists } from "../tools.js";
 
 export interface FormatResult {
@@ -79,12 +79,12 @@ export async function formatProjectFile(
           changed: formatted !== content,
           formatter: "json-builtin",
         };
-      } catch (err: any) {
+      } catch (err) {
         return {
           formatted: content,
           changed: false,
           formatter: "json-builtin",
-          warning: `JSON parse error during format: ${err.message}`,
+          warning: `JSON parse error during format: ${errorInfo(err).message}`,
         };
       }
     }
@@ -169,13 +169,13 @@ export async function formatProjectFile(
       changed: formatted !== content,
       formatter: "generic-normalizer",
     };
-  } catch (err: any) {
+  } catch (err) {
     // Non-destructive: preserve original content on error
     return {
       formatted: content,
       changed: false,
       formatter: "fallback",
-      warning: `Formatting skipped: ${err.message}`,
+      warning: `Formatting skipped: ${errorInfo(err).message}`,
     };
   }
 }

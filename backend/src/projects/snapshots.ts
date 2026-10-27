@@ -8,7 +8,7 @@ const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { requireOwnedProject, workspacePath } from "./service.js";
 import {
   listFiles,
@@ -173,10 +173,10 @@ export async function createSnapshot(
 
     try {
       await fs.writeFile(archivePath, compressed);
-    } catch (err: any) {
+    } catch (err) {
       throw new ApiError(
         500,
-        `Failed to write snapshot archive: ${err.message}`,
+        `Failed to write snapshot archive: ${errorInfo(err).message}`,
         "snapshot_write_failed",
       );
     }
@@ -191,7 +191,7 @@ export async function createSnapshot(
         `INSERT INTO snapshots (id, project_id, user_id, name, size_bytes)
          VALUES (?, ?, ?, ?, ?)`,
       ).run(snapshotId, project.id, userId, snapshotName, newSizeBytes);
-    } catch (err: any) {
+    } catch (err) {
       // Rollback archive on disk if DB insertion fails
       try {
         await fs.rm(archivePath, { force: true });

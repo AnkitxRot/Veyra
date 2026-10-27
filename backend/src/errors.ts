@@ -43,3 +43,22 @@ export function errorMiddleware(
   log.error("[error]", err);
   res.status(500).json({ error: { code: "internal_error", message: "internal server error" } });
 }
+
+export interface ErrorInfo {
+  message?: string;
+  code?: string;
+  status?: number;
+  stderr?: string;
+}
+
+/** Narrows an `unknown` caught value to the optional fields call sites read off errors. */
+export function errorInfo(err: unknown): ErrorInfo {
+  if (typeof err !== "object" || err === null) return {};
+  const e = err as Record<string, unknown>;
+  return {
+    message: typeof e.message === "string" ? e.message : undefined,
+    code: typeof e.code === "string" ? e.code : undefined,
+    status: typeof e.status === "number" ? e.status : undefined,
+    stderr: typeof e.stderr === "string" ? e.stderr : undefined,
+  };
+}

@@ -14,6 +14,7 @@ import { parseWorkflowRequest } from "../workflow/resolve.js";
 import { runWorkflowTask } from "../workflow/run.js";
 import type { TestCaseResult } from "../workflow/parse.js";
 import { log } from "../logger.js";
+import { errorInfo } from "../errors.js";
 
 // --- M54: collaborative run awareness — safe metadata derivation ------------
 //
@@ -67,12 +68,12 @@ export async function handleExecutionConnection(
   let cwd: string;
   try {
     cwd = await workspacePath(cfg, projectId);
-  } catch (err: any) {
+  } catch (err) {
     if (ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
           type: "error",
-          data: `Workspace not found: ${err.message}`,
+          data: `Workspace not found: ${errorInfo(err).message}`,
         }),
       );
       ws.close();

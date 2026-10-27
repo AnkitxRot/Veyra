@@ -1,6 +1,6 @@
 import { promises as fs, constants } from "node:fs";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { readConfinedFile, writeConfinedFile } from "./confined.js";
 
 const MAX_FILE_SIZE = 1024 * 1024;
@@ -337,12 +337,12 @@ export async function readProjectFile(
   // file, so a symlink swapped in after the check cannot redirect it.
   try {
     return await readConfinedFile(root, abs, { maxBytes: MAX_FILE_SIZE });
-  } catch (err: any) {
+  } catch (err) {
     if (err instanceof ApiError) throw err;
-    if (err?.code === "ENOENT" || err?.code === "ENOTDIR") {
+    if (errorInfo(err).code === "ENOENT" || errorInfo(err).code === "ENOTDIR") {
       throw new ApiError(404, "file not found", "not_found");
     }
-    if (err?.code === "EISDIR") {
+    if (errorInfo(err).code === "EISDIR") {
       throw new ApiError(400, "not a file", "not_a_file");
     }
     throw err;
@@ -387,8 +387,8 @@ export async function moveProjectPath(
   try {
     await fs.access(dstAbs, constants.F_OK);
     throw new ApiError(409, "destination already exists", "already_exists");
-  } catch (err: any) {
-    if (err.status === 409) throw err;
+  } catch (err) {
+    if (errorInfo(err).status === 409) throw err;
   }
   await fs.mkdir(dirname(dstAbs), { recursive: true });
   await fs.rename(srcAbs, dstAbs);

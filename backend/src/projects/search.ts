@@ -1,5 +1,5 @@
 import { Worker } from "node:worker_threads";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 
 export interface SearchOptions {
   query: string;
@@ -392,8 +392,8 @@ async function runContentWorker<
     }
     void new RegExp(pattern, patternFlags);
     patternSource = pattern;
-  } catch (err: any) {
-    throw new ApiError(400, `Invalid search pattern: ${err.message}`, "invalid_regex");
+  } catch (err) {
+    throw new ApiError(400, `Invalid search pattern: ${errorInfo(err).message}`, "invalid_regex");
   }
 
   return new Promise<T>((resolve, reject) => {

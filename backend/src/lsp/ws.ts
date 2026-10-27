@@ -4,6 +4,7 @@ import { workspacePath } from "../projects/service.js";
 import { getLspLanguage } from "./languages.js";
 import { languageServers } from "./manager.js";
 import { log } from "../logger.js";
+import { errorInfo } from "../errors.js";
 
 const WS_OPEN = 1;
 
@@ -33,8 +34,8 @@ export async function handleLspConnection(
   let workspaceDir: string;
   try {
     workspaceDir = await workspacePath(cfg, projectId);
-  } catch (err: any) {
-    sendStatus(ws, "unavailable", spec.id, err?.message ?? "workspace not found");
+  } catch (err) {
+    sendStatus(ws, "unavailable", spec.id, errorInfo(err).message ?? "workspace not found");
     ws.close();
     return;
   }

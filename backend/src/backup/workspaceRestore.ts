@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { recordAuditLog } from "../audit.js";
 import { getProject, projectDir, touchProject } from "../projects/service.js";
 import { listFiles, invalidateTreeCache } from "../files/service.js";
@@ -202,10 +202,10 @@ async function prepareRestoreStaging(
     try {
       const raw = await fs.readFile(join(stagingDir, "manifest.json"), "utf8");
       manifest = JSON.parse(raw);
-    } catch (err: any) {
+    } catch (err) {
       throw new ApiError(
         400,
-        `Invalid or missing manifest in backup archive: ${err.message}`,
+        `Invalid or missing manifest in backup archive: ${errorInfo(err).message}`,
         "invalid_manifest",
       );
     }
@@ -515,7 +515,7 @@ export async function restoreWorkspaceBackup(
           },
           durationMs: Date.now() - startTime,
         };
-      } catch (err: any) {
+      } catch (err) {
         // ROLLBACK
         await fs.mkdir(quarantineDir, { recursive: true }).catch(() => {});
         try {
@@ -578,7 +578,7 @@ export async function restoreWorkspaceBackup(
           details: {
             filename,
             failed: true,
-            reason: err?.message || String(err),
+            reason: errorInfo(err).message || String(err),
             quarantinePath: quarantineDir,
           },
           ipAddress: options?.ipAddress,
@@ -586,7 +586,11 @@ export async function restoreWorkspaceBackup(
 
         throw err instanceof ApiError
           ? err
-          : new ApiError(500, `Workspace restore failed: ${err?.message}`, "restore_failed");
+          : new ApiError(
+              500,
+              `Workspace restore failed: ${errorInfo(err).message}`,
+              "restore_failed",
+            );
       }
     });
   } finally {

@@ -2,7 +2,7 @@ import { deflateRaw, deflateRawSync, inflateRaw } from "node:zlib";
 import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import type { AppConfig } from "../config.js";
 
 // Standard CRC-32 table initialization
@@ -403,8 +403,8 @@ export async function extractZipArchive(
         uncompressedData = await inflateRawAsync(compressedSlice, {
           maxOutputLength: Math.max(1, entry.uncompressedSize),
         });
-      } catch (err: any) {
-        if (err?.code === "ERR_BUFFER_TOO_LARGE") {
+      } catch (err) {
+        if (errorInfo(err).code === "ERR_BUFFER_TOO_LARGE") {
           throw new ApiError(
             400,
             `Entry ${entry.relPath} decompresses beyond its declared size`,
@@ -413,7 +413,7 @@ export async function extractZipArchive(
         }
         throw new ApiError(
           400,
-          `Corrupted ZIP data for ${entry.relPath}: ${err.message}`,
+          `Corrupted ZIP data for ${entry.relPath}: ${errorInfo(err).message}`,
           "invalid_archive",
         );
       }

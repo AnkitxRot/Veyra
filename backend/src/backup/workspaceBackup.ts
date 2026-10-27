@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { recordAuditLog } from "../audit.js";
 import { getProject, workspacePath } from "../projects/service.js";
 import { listFiles } from "../files/service.js";
@@ -394,13 +394,13 @@ export async function createWorkspaceBackup(
     try {
       await fs.writeFile(tempPath, zipBuffer);
       await fs.rename(tempPath, finalPath);
-    } catch (err: any) {
+    } catch (err) {
       try {
         await fs.rm(tempPath, { force: true });
       } catch {}
       throw new ApiError(
         500,
-        `Failed to write workspace backup: ${err.message}`,
+        `Failed to write workspace backup: ${errorInfo(err).message}`,
         "workspace_backup_write_failed",
       );
     }
@@ -465,8 +465,12 @@ export async function deleteWorkspaceBackup(
 
     try {
       await fs.rm(filePath, { force: true });
-    } catch (err: any) {
-      throw new ApiError(500, `Failed to delete workspace backup: ${err.message}`, "delete_failed");
+    } catch (err) {
+      throw new ApiError(
+        500,
+        `Failed to delete workspace backup: ${errorInfo(err).message}`,
+        "delete_failed",
+      );
     }
 
     // audit_logs.project_id is a foreign key with ON DELETE CASCADE — a

@@ -20,6 +20,7 @@ import {
 import { fromWorkspaceUri, rewriteUris, toWorkspaceUri, WORKSPACE_ROOT_URI } from "./uri.js";
 import type { LspSpawnFn } from "./process.js";
 import { recordAuditLog, type AuditEventType } from "../audit.js";
+import { errorInfo } from "../errors.js";
 
 export type LspSessionState =
   "starting" | "ready" | "restarting" | "failed" | "unavailable" | "busy" | "stopped";
@@ -177,8 +178,8 @@ export class LspSession {
         spec: this.language,
         containerId: this.containerId,
       });
-    } catch (err: any) {
-      this.fail("unavailable", err?.message ?? "failed to spawn language server");
+    } catch (err) {
+      this.fail("unavailable", errorInfo(err).message ?? "failed to spawn language server");
       return;
     }
     this._startCount++;
@@ -197,8 +198,8 @@ export class LspSession {
       try {
         const messages = this.parser.push(chunk);
         for (const msg of messages) this.onServerMessage(msg);
-      } catch (err: any) {
-        this.fail("failed", err?.message ?? "language server protocol error");
+      } catch (err) {
+        this.fail("failed", errorInfo(err).message ?? "language server protocol error");
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {

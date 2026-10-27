@@ -4,6 +4,7 @@ import { workspacePath } from "../projects/service.js";
 import { debugSessions } from "./manager.js";
 import type { DebugSession } from "./session.js";
 import { log } from "../logger.js";
+import { errorInfo } from "../errors.js";
 
 const WS_OPEN = 1;
 const MAX_QUEUED_FRAMES = 32;
@@ -30,8 +31,8 @@ export async function handleDebugConnection(
   let workspaceDir: string;
   try {
     workspaceDir = await workspacePath(cfg, projectId);
-  } catch (err: any) {
-    sendStatus(ws, "unavailable", err?.message ?? "workspace not found");
+  } catch (err) {
+    sendStatus(ws, "unavailable", errorInfo(err).message ?? "workspace not found");
     ws.close();
     return;
   }

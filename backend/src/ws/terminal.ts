@@ -14,6 +14,7 @@ import {
   renderSecretsEnvFile,
   type ContainerSecretsFile,
 } from "../projectsecrets/inject.js";
+import { errorInfo } from "../errors.js";
 
 /**
  * Per-user concurrent terminal PTY count. Separate resource class from
@@ -192,13 +193,13 @@ export async function handleTerminalConnection(
   let cwd: string;
   try {
     cwd = await workspacePath(cfg, projectId);
-  } catch (err: any) {
+  } catch (err) {
     releasePermit();
     if (ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
           type: "data",
-          data: `[terminal] failed to resolve workspace: ${err?.message ?? "error"}\r\n`,
+          data: `[terminal] failed to resolve workspace: ${errorInfo(err).message ?? "error"}\r\n`,
         }),
       );
       ws.close();
@@ -209,13 +210,13 @@ export async function handleTerminalConnection(
   let containerId: string;
   try {
     containerId = await sandboxManager.ensureProjectSandbox(projectId, cfg, cwd, userId);
-  } catch (err: any) {
+  } catch (err) {
     releasePermit();
     if (ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
           type: "data",
-          data: `[terminal] failed to start sandbox: ${err.message}\r\n`,
+          data: `[terminal] failed to start sandbox: ${errorInfo(err).message}\r\n`,
         }),
       );
       ws.close();
@@ -236,14 +237,14 @@ export async function handleTerminalConnection(
     if (content.length > 0) {
       secretsFile = await writeContainerSecretsFile(containerId, content);
     }
-  } catch (err: any) {
+  } catch (err) {
     releasePermit();
     if (ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
           type: "data",
           data: `[terminal] project secrets are unavailable: ${
-            err?.code === "secrets_key_unavailable"
+            errorInfo(err).code === "secrets_key_unavailable"
               ? "encryption is not configured on this server"
               : "could not prepare secrets"
           }\r\n`,
@@ -281,14 +282,14 @@ export async function handleTerminalConnection(
         rows: 30,
       },
     );
-  } catch (err: any) {
+  } catch (err) {
     releasePermit();
     if (secretsFile) void secretsFile.cleanup();
     if (ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
           type: "data",
-          data: `[terminal] failed to start shell: ${err?.message ?? "spawn error"}\r\n`,
+          data: `[terminal] failed to start shell: ${errorInfo(err).message ?? "spawn error"}\r\n`,
         }),
       );
       ws.close();
@@ -334,7 +335,7 @@ export async function handleTerminalConnection(
         });
       } catch {}
     }
-  } catch (err: any) {
+  } catch (err) {
     // e.g. a concurrent connection for the same terminalId won the create
     // race. No registry entry exists for this call, so nothing will fire
     // `onEnd`/cleanup — release the slot, drop the secrets, kill this PTY.
@@ -349,7 +350,7 @@ export async function handleTerminalConnection(
       ws.send(
         JSON.stringify({
           type: "data",
-          data: `[terminal] failed to start shell: ${err?.message ?? "session error"}\r\n`,
+          data: `[terminal] failed to start shell: ${errorInfo(err).message ?? "session error"}\r\n`,
         }),
       );
       ws.close();

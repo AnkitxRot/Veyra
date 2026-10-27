@@ -17,6 +17,7 @@ import {
   type ContainerSecretsFile,
 } from "../projectsecrets/inject.js";
 import { log } from "../logger.js";
+import { errorInfo } from "../errors.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -500,8 +501,8 @@ export class SandboxManager {
 
     try {
       await execFileAsync("docker", dockerArgs);
-    } catch (err: any) {
-      const msg = String(err?.message || err?.stderr || "");
+    } catch (err) {
+      const msg = String(errorInfo(err).message || errorInfo(err).stderr || "");
       if (msg.includes("Conflict") || msg.includes("already in use")) {
         try {
           await execFileAsync("docker", ["rm", "-f", containerId]);
@@ -1105,10 +1106,10 @@ export async function sandboxRun(
       opts.userId,
     );
     sandboxManager.touch(projectId);
-  } catch (err: any) {
+  } catch (err) {
     return {
       stdout: "",
-      stderr: `[sandbox] failed to start project container: ${err.message}`,
+      stderr: `[sandbox] failed to start project container: ${errorInfo(err).message}`,
       exitCode: null,
       signal: null,
       timedOut: false,
@@ -1151,10 +1152,10 @@ export async function sandboxRun(
     if (content.length > 0) {
       try {
         secretsFile = await writeContainerSecretsFile(containerId, content);
-      } catch (err: any) {
+      } catch (err) {
         return {
           stdout: "",
-          stderr: `[sandbox] failed to prepare project secrets: ${err?.message ?? err}`,
+          stderr: `[sandbox] failed to prepare project secrets: ${errorInfo(err).message ?? err}`,
           exitCode: null,
           signal: null,
           timedOut: false,

@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { createHash } from "node:crypto";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { z } from "zod";
 import { checkedString, parseInput } from "../validate.js";
 import { requireProjectAccess, workspacePath } from "../projects/service.js";
@@ -153,11 +153,11 @@ export function aiRoutes(cfg: AppConfig, db: Db): Router {
             `Pre-AI Patch: ${explanation || filePath}`,
           );
           snapshotId = snap.id;
-        } catch (err: any) {
+        } catch (err) {
           log.error("[AI] Failed to create safety snapshot:", err);
           throw new ApiError(
             500,
-            `Could not create the requested safety snapshot before applying this patch: ${err.message || "unknown error"}`,
+            `Could not create the requested safety snapshot before applying this patch: ${errorInfo(err).message || "unknown error"}`,
             "snapshot_failed",
           );
         }

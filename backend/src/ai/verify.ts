@@ -4,6 +4,7 @@ import type { AppConfig } from "../config.js";
 import { runProject, type RunResult } from "../execution/pipeline.js";
 import { runGate } from "../execution/runGate.js";
 import { workspacePath } from "../projects/service.js";
+import { errorInfo } from "../errors.js";
 
 export type AIVerificationStatus = "VERIFIED" | "FAILED" | "UNVERIFIED";
 
@@ -122,9 +123,9 @@ export async function runAIVerification(
       } else {
         status = "UNVERIFIED";
       }
-    } catch (err: any) {
+    } catch (err) {
       status = "FAILED";
-      skipReason = err.message || "Execution error";
+      skipReason = errorInfo(err).message || "Execution error";
     } finally {
       // Always hand the slot back, whether the run succeeded, returned a
       // non-success outcome, or threw.

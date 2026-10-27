@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { errorInfo } from "./errors.js";
 
 export type Db = DatabaseSyncType;
 
@@ -453,8 +454,8 @@ const MIGRATIONS: Migration[] = [
     up: (db: Db) => {
       try {
         db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
-      } catch (err: any) {
-        if (!err.message?.includes("duplicate column name")) {
+      } catch (err) {
+        if (!errorInfo(err).message?.includes("duplicate column name")) {
           throw err;
         }
       }

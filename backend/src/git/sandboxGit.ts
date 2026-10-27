@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import type { AppConfig } from "../config.js";
 import { workspacePath } from "../projects/service.js";
 import { isDockerRunningAsync, isRunnerImageAvailableAsync } from "../tools.js";
@@ -166,8 +166,8 @@ export async function gitSandboxContainer(cfg: AppConfig, projectId: string): Pr
   let containerId: string;
   try {
     containerId = await sandboxManager.ensureProjectSandbox(projectId, cfg, workspaceDir, ownerId);
-  } catch (err: any) {
-    throw sandboxUnavailable(String(err?.message ?? "start failed").slice(0, 200));
+  } catch (err) {
+    throw sandboxUnavailable(String(errorInfo(err).message ?? "start failed").slice(0, 200));
   }
   if (containerId !== `ide-sandbox-${projectId}`) {
     throw sandboxUnavailable("unexpected container");

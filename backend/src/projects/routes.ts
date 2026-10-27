@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import type { Db } from "../db.js";
 import { type AppConfig } from "../config.js";
-import { ApiError } from "../errors.js";
+import { ApiError, errorInfo } from "../errors.js";
 import { z } from "zod";
 import { checkedString, parseInput } from "../validate.js";
 import {
@@ -1235,12 +1235,12 @@ export function projectRoutes(cfg: AppConfig, db: Db): Router {
               status: "replaced",
               matchCount: group.matches.length,
             });
-          } catch (err: any) {
+          } catch (err) {
             results.push({
               filePath: group.filePath,
               status: "error",
               matchCount: group.matches.length,
-              reason: err?.message || "write failed",
+              reason: errorInfo(err).message || "write failed",
             });
           }
         }

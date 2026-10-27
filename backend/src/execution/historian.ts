@@ -3,6 +3,7 @@ import { DEFAULT_LIMITS, type AppConfig } from "../config.js";
 import { type ContainerStats, SandboxManager } from "./sandbox.js";
 import { randomUUID } from "node:crypto";
 import { log } from "../logger.js";
+import { errorInfo } from "../errors.js";
 
 export interface TelemetryRecord {
   id?: number;
@@ -268,11 +269,11 @@ export class TelemetryHistorian {
         );
       }
       this.db.exec("COMMIT;");
-    } catch (err: any) {
+    } catch (err) {
       try {
         this.db.exec("ROLLBACK;");
       } catch {}
-      log.error("[TelemetryHistorian] Error flushing batched telemetry:", err.message);
+      log.error("[TelemetryHistorian] Error flushing batched telemetry:", errorInfo(err).message);
     }
   }
 
@@ -778,8 +779,8 @@ export class TelemetryHistorian {
           `DELETE FROM resource_anomalies WHERE created_at < datetime('now', '-24 hours') AND status = 'resolved'`,
         )
         .run();
-    } catch (err: any) {
-      log.warn("[TelemetryHistorian] Cleanup warning:", err.message);
+    } catch (err) {
+      log.warn("[TelemetryHistorian] Cleanup warning:", errorInfo(err).message);
     }
   }
 

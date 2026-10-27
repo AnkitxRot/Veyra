@@ -28,6 +28,7 @@ import {
 import type { DebugSpawnFn } from "./process.js";
 import { recordAuditLog, type AuditEventType } from "../audit.js";
 import type { Db } from "../db.js";
+import { errorInfo } from "../errors.js";
 
 export type DebugSessionState =
   "idle" | "starting" | "running" | "paused" | "stopping" | "terminated" | "failed" | "unavailable";
@@ -366,8 +367,8 @@ export class DebugSession {
         spec: cfg.language,
         containerId: this.containerId,
       });
-    } catch (err: any) {
-      this.fail("unavailable", err?.message ?? "failed to spawn debug adapter");
+    } catch (err) {
+      this.fail("unavailable", errorInfo(err).message ?? "failed to spawn debug adapter");
       return;
     }
     const child = this.child;
@@ -380,8 +381,8 @@ export class DebugSession {
       try {
         const messages = this.parser.push(chunk);
         for (const msg of messages) this.onAdapterMessage(msg);
-      } catch (err: any) {
-        this.fail("failed", err?.message ?? "debug adapter protocol error");
+      } catch (err) {
+        this.fail("failed", errorInfo(err).message ?? "debug adapter protocol error");
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
@@ -411,11 +412,11 @@ export class DebugSession {
 
     try {
       await this.handshake(cfg);
-    } catch (err: any) {
+    } catch (err) {
       if (!this.disposed) {
         this.fail(
           this.state === "unavailable" ? "unavailable" : "failed",
-          err?.message ?? "debugger launch failed",
+          errorInfo(err).message ?? "debugger launch failed",
         );
       }
       return;
@@ -633,9 +634,9 @@ export class DebugSession {
       if (command === "continue" && this.state === "paused") {
         this.setState("running");
       }
-    } catch (err: any) {
+    } catch (err) {
       if (command === "continue") this.continueExpected = false;
-      this.sendError(err?.message ?? `${command} failed`);
+      this.sendError(errorInfo(err).message ?? `${command} failed`);
     }
   }
 
