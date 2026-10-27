@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { parseAllowedOrigins } from "./ws/origin.js";
 import { validateEnv } from "./envSchema.js";
+import { parseRunnerImages } from "./execution/runtime.js";
 
 export const IS_WINDOWS = process.platform === "win32";
 
@@ -155,6 +156,8 @@ export interface AppConfig {
   /** M100: bearer token for /metrics; when unset, metricsAllowedIps gates it. */
   metricsToken?: string;
   metricsAllowedIps: string[];
+  /** M108: operator allowlist of sandbox images a project may select via .veyra/runtime.json. */
+  runnerImages: string[];
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -573,5 +576,6 @@ export function resolveConfig(overrides: ConfigOverrides = {}): AppConfig {
       overrides.metricsAllowedIps ??
       (process.env.METRICS_ALLOWED_IPS ?? "127.0.0.1,::1").split(",").map((x) => x.trim()).filter(Boolean),
     allowedOrigins: overrides.allowedOrigins ?? parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
+    runnerImages: overrides.runnerImages ?? parseRunnerImages(process.env.RUNNER_IMAGES),
   };
 }

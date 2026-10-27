@@ -17,6 +17,7 @@ import {
   type ContainerSecretsFile,
 } from "../projectsecrets/inject.js";
 import { log } from "../logger.js";
+import { resolveRuntimeImage } from "./runtime.js";
 import { errorInfo } from "../errors.js";
 
 const execFileAsync = promisify(execFile);
@@ -448,6 +449,10 @@ export class SandboxManager {
 
     const containerId = `ide-sandbox-${projectId}`;
 
+    // M108: per-project image from .veyra/runtime.json, restricted to RUNNER_IMAGES.
+    const runtime = await resolveRuntimeImage(workspaceDir, config.runnerImages);
+    if (runtime.fallbackReason) log.warn({ projectId, reason: runtime.fallbackReason }, "runtime.json ignored; using default runner image");
+
     const limits = config.limits;
     const previewPorts = [3000, 4173, 5173, 8000, 8080];
     const portArgs = config.containerized
@@ -474,6 +479,8 @@ export class SandboxManager {
       "cloudeeeide.managed=true",
       "--label",
       `cloudeeeide.project=${projectId}`,
+      "--label",
+      `cloudeeeide.image=${runtime.image}`,
       "--network",
       `ide-net-${projectId}`,
       "--security-opt",
@@ -494,8 +501,11 @@ export class SandboxManager {
       "/workspace",
       "--user",
       "ide",
-      "cloudeeeide-runner:latest",
+      "--pull",
+      "never",
+      "--entrypoint",
       "sleep",
+      runtime.image,
       "infinity",
     ];
 
@@ -505,7 +515,7 @@ export class SandboxManager {
       const msg = String(errorInfo(err).message || errorInfo(err).stderr || "");
       if (msg.includes("Conflict") || msg.includes("already in use")) {
         try {
-          await execFileAsync("docker", ["rm", "-f", containerId]);
+          await execFileAsync("docker", ["rm", "-fv", containerId]);
         } catch {}
         await execFileAsync("docker", dockerArgs);
       } else {
@@ -554,7 +564,7 @@ export class SandboxManager {
     const info = this.projectContainers.get(projectId);
     const cid = info ? info.containerId : `ide-sandbox-${projectId}`;
     try {
-      await execFileAsync("docker", ["rm", "-f", cid]);
+      await execFileAsync("docker", ["rm", "-fv", cid]);
     } catch {}
     try {
       await execFileAsync("docker", ["network", "rm", `ide-net-${projectId}`]);
@@ -598,7 +608,7 @@ export class SandboxManager {
         .filter(Boolean);
       for (const id of ids) {
         try {
-          await execFileAsync("docker", ["rm", "-f", id]);
+          await execFileAsync("docker", ["rm", "-fv", id]);
         } catch {}
       }
 
