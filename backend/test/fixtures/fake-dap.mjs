@@ -16,6 +16,7 @@ let paused = false;
 let line = 3;
 let terminated = false;
 const breakpoints = new Map();
+const lastBreakpointArgs = new Map();
 
 function send(obj) {
   const body = Buffer.from(JSON.stringify(obj), "utf8");
@@ -77,6 +78,7 @@ function handle(req) {
     const src = args.source?.path ?? "/workspace/main.py";
     const lines = (args.breakpoints ?? []).map((b) => b.line).filter(Boolean);
     breakpoints.set(src, lines);
+    lastBreakpointArgs.set(src, args.breakpoints ?? []);
     respond(req, {
       breakpoints: lines.map((line) => ({
         verified: line >= 1 && line <= 20,
@@ -212,7 +214,10 @@ function handle(req) {
   }
 
   if (cmd === "evaluate") {
-    respond(req, { result: "should-never-run", variablesReference: 0 }, false, "blocked");
+    const expr = String(req.arguments?.expression ?? "");
+    if (expr === "__bps") respond(req, { result: JSON.stringify([...lastBreakpointArgs]), variablesReference: 0 });
+    else if (expr === "boom") respond(req, {}, false, "NameError: boom");
+    else respond(req, { result: `eval:${expr}`, type: "str", variablesReference: 0 });
     return;
   }
 

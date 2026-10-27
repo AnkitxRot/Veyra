@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-27. Latest milestone: **M108**.
+Last updated: 2026-10-27. Latest milestone: **M109**.
 
 This file is the short milestone ledger. The complete historical record
 (~10k lines, M1–M86 write-ups, verification logs, architecture decisions
@@ -39,8 +39,9 @@ the commit messages and reports, not re-run for this summary.
 | M104 | Navigation + snippets | branch `overhaul/m100` | Outline panel + status-bar symbol breadcrumb (LSP documentSymbol), explorer drag-and-drop move, user (localStorage) + project (`.veyra/snippets/*.json`) snippets as Monaco completions. Snippet files reload on file-set change, not on content edit. |
 | M105 | Layered settings | branch `overhaul/m100` | defaults < user < project `.veyra/settings.json` (schema-validated, `settingsSchema.ts`); schema-driven search + User/Project settings panel; 6 new client-side editor settings (font family, line height, insert spaces, bracket colors, smooth/sticky scroll). User extras are localStorage, not server-persisted (no DB migration). |
 | M106 | Theme engine | branch `overhaul/m100` | One palette JSON drives CSS vars, Monaco and xterm (`colorThemes.ts`); 9 built-ins (Catppuccin Frappe/Macchiato/Latte, One Dark, Solarized x2, GitHub x2, High Contrast); validated import/export of custom themes; file-icon theme option. Selection is localStorage (client-side). |
-| M108 | Per-project runtime | branch `overhaul/m100` | `.veyra/runtime.json` `{"image"}` picks a sandbox image from operator `RUNNER_IMAGES` (default always allowed; invalid/unlisted/missing/VOLUME-declaring images fall back with a warning). Applies when the sandbox is recreated. Container args hardened: `--pull never`, `--entrypoint sleep`, `rm -fv`. Image must contain an `ide` user. Oracle-reviewed. |
 | M107 | Layout | branch `overhaul/m100` | Zen mode (Esc exits), panel docking bottom/right, reorderable panel tabs (`layoutPrefs.ts`, localStorage). There is no activity bar in the product, so reordering applies to panel tabs. |
+| M108 | Per-project runtime | branch `overhaul/m100` | `.veyra/runtime.json` `{"image"}` picks a sandbox image from operator `RUNNER_IMAGES` (default always allowed; invalid/unlisted/missing/VOLUME-declaring images fall back with a warning). Applies when the sandbox is recreated. Container args hardened: `--pull never`, `--entrypoint sleep`, `rm -fv`. Image must contain an `ide` user. Oracle-reviewed. |
+| M109 | Debugger depth | branch `overhaul/m100` | Conditional / hit-count / logpoint breakpoints (wire `lines` entries may be `{line,condition,hitCondition,logMessage}`), mediated `evaluate` (watch/repl/hover; only while paused on a frame, 1 KB cap), watch expressions, breakpoint editor and debug console in the Debug panel. Reverses the earlier "no evaluate" policy (tests updated). Specs/watches are per-project localStorage. |
 
 ### Security review (M97)
 

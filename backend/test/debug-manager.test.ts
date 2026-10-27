@@ -295,6 +295,30 @@ describe("debug session lifecycle (fake adapter)", () => {
     expect(sock.lastStatus()?.state).toBe("paused");
   });
 
+  it("forwards conditions/hit counts/logpoints and evaluates while paused (M109)", async () => {
+    const { sock, session } = await boot();
+    session.handleClientMessage(sock, {
+      type: "launch",
+      language: "python",
+      entryFile: "main.py",
+      breakpoints: {
+        "main.py": [{ line: 3, condition: "x > 0", hitCondition: ">= 2", logMessage: "z={z}" }],
+      },
+    });
+    await waitPaused(sock, 4000);
+    session.handleClientMessage(sock, { type: "evaluate", expression: "__bps", frameId: 0, id: 1 });
+    await waitFor(() => sock.ofType("evaluate").length > 0, 3000, "evaluate reply");
+    const sent = JSON.parse(sock.ofType("evaluate")[0].result) as [string, any[]][];
+    const bp = sent.flatMap(([, v]) => v).find((b) => b.line === 3);
+    expect(bp).toMatchObject({ condition: "x > 0", hitCondition: ">= 2", logMessage: "z={z}" });
+    session.handleClientMessage(sock, { type: "evaluate", expression: "1+1", frameId: 0, context: "repl", id: 2 });
+    session.handleClientMessage(sock, { type: "evaluate", expression: "boom", frameId: 0, id: 3 });
+    await waitFor(() => sock.ofType("evaluate").length >= 3, 3000, "evaluate replies");
+    const byId = (id: number) => sock.ofType("evaluate").find((m) => m.id === id);
+    expect(byId(2).result).toBe("eval:1+1");
+    expect(byId(3).error).toMatch(/NameError/);
+  });
+
   it("reports adapter crash as failed", async () => {
     debugSessions.setSpawnForTests(spawnFake({ FAKE_DAP_CRASH: "1" }));
     const { sock, session } = await boot();

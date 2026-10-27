@@ -8,6 +8,8 @@ export const DEBUG_MAX_BREAKPOINT_FILES = 32;
 export const DEBUG_MAX_PROGRAM_ARGS = 32;
 export const DEBUG_MAX_ARG_CHARS = 256;
 export const DEBUG_MAX_PENDING = 16;
+export const DEBUG_MAX_EXPR_CHARS = 1024;
+export const DEBUG_MAX_BP_FIELD_CHARS = 512;
 
 export function clipString(value: unknown, max = DEBUG_MAX_VARIABLE_CHARS): string {
   if (typeof value !== "string") {

@@ -18,11 +18,13 @@ import { fromWorkspaceLocation, toWorkspaceFsPath } from "./paths.js";
 import {
   ADAPTER_REQUESTS,
   CLIENT_COMMANDS,
+  parseEvaluate,
   parseFrameId,
   parseLaunch,
   parseSetBreakpoints,
   parseVariablesReference,
   REJECTED_ADAPTER_REQUESTS,
+  type BreakpointSpec,
   type LaunchConfig,
 } from "./protocol.js";
 import type { DebugSpawnFn } from "./process.js";
@@ -134,6 +136,8 @@ export class DebugSession {
   private entryFile: string | null = null;
   private threadId = 1;
   private breakpoints = new Map<string, number[]>();
+  /** M109: conditions / hit counts / logpoints, keyed like `breakpoints`. */
+  private bpSpecs = new Map<string, BreakpointSpec[]>();
   private verified = new Map<string, { line: number; verified: boolean }[]>();
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -272,6 +276,9 @@ export class DebugSession {
       case "variables":
         void this.sendVariables(parseVariablesReference(o.variablesReference));
         return;
+      case "evaluate":
+        void this.onEvaluate(o);
+        return;
       default:
         return;
     }
@@ -347,6 +354,7 @@ export class DebugSession {
     this.language = cfg.language;
     this.entryFile = cfg.entryFile;
     this.breakpoints = cfg.breakpoints;
+    this.bpSpecs = cfg.breakpointSpecs;
     this.verified.clear();
     this.initializedEvent = false;
     this.outputChars = 0;
@@ -568,6 +576,8 @@ export class DebugSession {
       return;
     }
     this.breakpoints.set(parsed.value.path, parsed.value.lines);
+    if (parsed.value.specs.length) this.bpSpecs.set(parsed.value.path, parsed.value.specs);
+    else this.bpSpecs.delete(parsed.value.path);
     if (this.state === "starting" || this.state === "running" || this.state === "paused") {
       await this.pushBreakpointsFor(parsed.value.path, parsed.value.lines);
     } else {
@@ -594,7 +604,15 @@ export class DebugSession {
     try {
       const result = (await this.dapRequest("setBreakpoints", {
         source: { path: fsPath, name: rel.split("/").pop() },
-        breakpoints: lines.map((line) => ({ line })),
+        breakpoints: lines.map((line) => {
+          const s = this.bpSpecs.get(rel)?.find((x) => x.line === line);
+          return {
+            line,
+            ...(s?.condition ? { condition: s.condition } : {}),
+            ...(s?.hitCondition ? { hitCondition: s.hitCondition } : {}),
+            ...(s?.logMessage ? { logMessage: s.logMessage } : {}),
+          };
+        }),
         lines,
         sourceModified: false,
       })) as { breakpoints?: { line?: number; verified?: boolean }[] };
@@ -673,6 +691,40 @@ export class DebugSession {
     }
     const scopes = await this.fetchScopes(frameId);
     this.sendToSocket({ type: "scopes", frameId, scopes });
+  }
+
+  /** M109: watch / REPL / hover evaluation; only while paused, always on a frame. */
+  private async onEvaluate(raw: Record<string, unknown>): Promise<void> {
+    const req = parseEvaluate(raw);
+    if (this.state !== "paused" || !req) {
+      this.sendError(this.state !== "paused" ? "evaluate requires a paused program" : "invalid evaluate request");
+      return;
+    }
+    try {
+      const r = (await this.dapRequest("evaluate", {
+        expression: req.expression,
+        frameId: req.frameId,
+        context: req.context,
+      })) as { result?: unknown; type?: unknown; variablesReference?: unknown };
+      this.sendToSocket({
+        type: "evaluate",
+        id: req.id,
+        expression: req.expression,
+        result: clipString(typeof r?.result === "string" ? r.result : ""),
+        valueType: typeof r?.type === "string" ? clipString(r.type, 128) : undefined,
+        variablesReference:
+          typeof r?.variablesReference === "number" && r.variablesReference > 0
+            ? r.variablesReference
+            : 0,
+      });
+    } catch (err) {
+      this.sendToSocket({
+        type: "evaluate",
+        id: req.id,
+        expression: req.expression,
+        error: clipString(errorInfo(err).message || "evaluation failed"),
+      });
+    }
   }
 
   private async sendVariables(ref: number | null): Promise<void> {

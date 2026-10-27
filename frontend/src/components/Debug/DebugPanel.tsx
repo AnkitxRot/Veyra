@@ -23,6 +23,79 @@ function stateLabel(state: string): string {
   }
 }
 
+function AddRow({
+  placeholder,
+  testId,
+  onSubmit,
+}: {
+  placeholder: string;
+  testId: string;
+  onSubmit: (v: string) => void;
+}) {
+  const [v, setV] = React.useState("");
+  return (
+    <form
+      className="debug-add"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!v.trim()) return;
+        onSubmit(v);
+        setV("");
+      }}
+    >
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        data-testid={testId}
+        maxLength={1024}
+        spellCheck={false}
+      />
+    </form>
+  );
+}
+
+function BreakpointRow({
+  path,
+  line,
+  spec,
+  onChange,
+  onRemove,
+}: {
+  path: string;
+  line: number;
+  spec: { condition?: string; hitCondition?: string; logMessage?: string };
+  onChange: (patch: { condition?: string; hitCondition?: string; logMessage?: string }) => void;
+  onRemove: () => void;
+}) {
+  const field = (key: "condition" | "hitCondition" | "logMessage", label: string) => (
+    <input
+      defaultValue={spec[key] ?? ""}
+      placeholder={label}
+      aria-label={`${label} for ${path}:${line}`}
+      maxLength={512}
+      spellCheck={false}
+      onBlur={(e) => {
+        if (e.target.value !== (spec[key] ?? "")) onChange({ [key]: e.target.value });
+      }}
+    />
+  );
+  return (
+    <li className="debug-bp" data-testid="debug-bp-row">
+      <span className="debug-bp-loc">
+        {path}:{line}
+      </span>
+      {field("condition", "Condition")}
+      {field("hitCondition", "Hit count")}
+      {field("logMessage", "Log message")}
+      <button type="button" className="glass-btn" onClick={onRemove} title="Remove breakpoint">
+        ×
+      </button>
+    </li>
+  );
+}
+
 export default function DebugPanel() {
   const dbg = useOptionalDebugSession();
   if (!dbg) {
@@ -177,6 +250,71 @@ export default function DebugPanel() {
           ))}
         </section>
       </div>
+      <div className="debug-columns">
+        <section className="debug-watch" aria-label="Watch" data-testid="debug-watch">
+          <h3>Watch</h3>
+          <ul>
+            {dbg.watches.map((w) => {
+              const r = dbg.watchResults[w];
+              return (
+                <li key={w} className="debug-watch-row">
+                  <span className="debug-var-name">{w}</span>
+                  <span className={r?.error ? "debug-var-value debug-err" : "debug-var-value"}>
+                    {paused ? (r ? (r.error ?? r.result) : "…") : "—"}
+                  </span>
+                  <button
+                    type="button"
+                    className="glass-btn"
+                    onClick={() => dbg.removeWatchExpr(w)}
+                    title="Remove watch"
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <AddRow placeholder="Add watch expression" testId="debug-watch-add" onSubmit={dbg.addWatchExpr} />
+        </section>
+        <section className="debug-bps" aria-label="Breakpoints" data-testid="debug-breakpoints">
+          <h3>Breakpoints</h3>
+          {Object.keys(dbg.breakpoints).length === 0 && (
+            <p className="debug-muted">Click the editor gutter to add a breakpoint.</p>
+          )}
+          <ul>
+            {Object.entries(dbg.breakpoints).flatMap(([path, lines]) =>
+              lines.map((line) => (
+                <BreakpointRow
+                  key={`${path}:${line}:${JSON.stringify(dbg.specs[path]?.[String(line)] ?? {})}`}
+                  path={path}
+                  line={line}
+                  spec={dbg.specs[path]?.[String(line)] ?? {}}
+                  onChange={(patch) => dbg.setBreakpointSpec(path, line, patch)}
+                  onRemove={() => dbg.toggleBreakpoint(path, line)}
+                />
+              )),
+            )}
+          </ul>
+        </section>
+      </div>
+      <section className="debug-console" aria-label="Debug console" data-testid="debug-console">
+        <h3>Debug console</h3>
+        <ul>
+          {dbg.consoleLog.map((c, i) => (
+            <li key={i}>
+              <span className="debug-var-name">&gt; {c.expression}</span>
+              <span className={c.error ? "debug-var-value debug-err" : "debug-var-value"}>
+                {c.error ?? c.result}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <AddRow
+          placeholder={paused ? "Evaluate expression" : "Pause to evaluate"}
+          testId="debug-console-input"
+          onSubmit={dbg.evaluateInConsole}
+        />
+      </section>
       {dbg.output.length > 0 && (
         <pre className="debug-output" data-testid="debug-output">
           {dbg.output.map((l) => l.text).join("")}

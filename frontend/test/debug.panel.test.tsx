@@ -29,4 +29,36 @@ describe("DebugPanel", () => {
     fireEvent.click(getByTestId("debug-continue"));
     expect((getByTestId("debug-continue") as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("manages watches and persists them per project (M109)", () => {
+    localStorage.clear();
+    const { getByTestId, getByText, unmount } = render(
+      <DebugSessionProvider projectId="pw" dirtyPaths={[]}>
+        <DebugPanel />
+      </DebugSessionProvider>,
+    );
+    const input = getByTestId("debug-watch-add") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "x + 1" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(getByText("x + 1")).toBeTruthy();
+    unmount();
+    const again = render(
+      <DebugSessionProvider projectId="pw" dirtyPaths={[]}>
+        <DebugPanel />
+      </DebugSessionProvider>,
+    );
+    expect(again.getByText("x + 1")).toBeTruthy();
+  });
+
+  it("console tells the user to pause before evaluating (M109)", () => {
+    const { getByTestId, getByText } = render(
+      <DebugSessionProvider projectId="pc" dirtyPaths={[]}>
+        <DebugPanel />
+      </DebugSessionProvider>,
+    );
+    const input = getByTestId("debug-console-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1+1" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(getByText("Pause the program to evaluate.")).toBeTruthy();
+  });
 });

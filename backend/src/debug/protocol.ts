@@ -3,11 +3,15 @@
  *
  * The browser names a language + workspace-relative entry file. The backend
  * constructs the DAP launch, picks the adapter, and mediates every request.
- * `evaluate`, adapter executables, container IDs, and host paths are rejected.
+ * Adapter executables, container IDs, and host paths are rejected. M109 adds
+ * `evaluate` (watch/REPL/hover), allowed only while paused on a frame, and
+ * breakpoint conditions / hit counts / logpoints.
  */
 
 import {
   DEBUG_MAX_ARG_CHARS,
+  DEBUG_MAX_BP_FIELD_CHARS,
+  DEBUG_MAX_EXPR_CHARS,
   DEBUG_MAX_BREAKPOINT_FILES,
   DEBUG_MAX_BREAKPOINTS_PER_FILE,
   DEBUG_MAX_PROGRAM_ARGS,
@@ -26,6 +30,7 @@ export type DebugClientCommand =
   | "stackTrace"
   | "scopes"
   | "variables"
+  | "evaluate"
   | "terminate";
 
 export const CLIENT_COMMANDS = new Set<string>([
@@ -39,6 +44,7 @@ export const CLIENT_COMMANDS = new Set<string>([
   "stackTrace",
   "scopes",
   "variables",
+  "evaluate",
   "terminate",
 ]);
 
@@ -64,6 +70,7 @@ export const ADAPTER_REQUESTS = new Set<string>([
   "stackTrace",
   "scopes",
   "variables",
+  "evaluate",
   "terminate",
   "disconnect",
 ]);
@@ -73,11 +80,28 @@ export interface LaunchConfig {
   entryFile: string;
   args: string[];
   breakpoints: Map<string, number[]>;
+  /** M109: per-line condition / hitCondition / logMessage (only lines that have one). */
+  breakpointSpecs: Map<string, BreakpointSpec[]>;
+}
+
+export interface BreakpointSpec {
+  line: number;
+  condition?: string;
+  hitCondition?: string;
+  logMessage?: string;
 }
 
 export interface SetBreakpointsConfig {
   path: string;
   lines: number[];
+  specs: BreakpointSpec[];
+}
+
+export interface EvaluateRequest {
+  expression: string;
+  frameId: number;
+  context: "watch" | "repl" | "hover";
+  id: number | null;
 }
 
 export function parseLaunch(
@@ -99,11 +123,20 @@ export function parseLaunch(
   }
   const args = parseArgs(o.args);
   if (args === null) return { ok: false, error: "invalid program arguments" };
-  const breakpoints = parseBreakpointMap(o.breakpoints);
-  if (breakpoints === null) {
+  const parsedBps = parseBreakpointMap(o.breakpoints);
+  if (parsedBps === null) {
     return { ok: false, error: "invalid breakpoints" };
   }
-  return { ok: true, value: { language: spec, entryFile, args, breakpoints } };
+  return {
+    ok: true,
+    value: {
+      language: spec,
+      entryFile,
+      args,
+      breakpoints: parsedBps.lines,
+      breakpointSpecs: parsedBps.specs,
+    },
+  };
 }
 
 export function parseSetBreakpoints(
@@ -117,9 +150,9 @@ export function parseSetBreakpoints(
   if (!path || isForbiddenRelPath(path)) {
     return { ok: false, error: "invalid source path" };
   }
-  const lines = parseLines(o.lines);
-  if (lines === null) return { ok: false, error: "invalid breakpoint lines" };
-  return { ok: true, value: { path, lines } };
+  const bp = parseBreakpointList(o.lines);
+  if (bp === null) return { ok: false, error: "invalid breakpoint lines" };
+  return { ok: true, value: { path, lines: bp.lines, specs: bp.specs } };
 }
 
 export function parseArgs(raw: unknown): string[] | null {
@@ -144,6 +177,57 @@ function hasC0Control(s: string): boolean {
   return false;
 }
 
+function parseSpecText(v: unknown): string | undefined | null {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string" || v.length > DEBUG_MAX_BP_FIELD_CHARS || v.includes("\0")) return null;
+  return v;
+}
+
+/**
+ * M109: a breakpoint list whose entries are a line number or
+ * `{line, condition?, hitCondition?, logMessage?}`. Plain numbers keep the
+ * pre-M109 wire format valid.
+ */
+export function parseBreakpointList(
+  raw: unknown,
+): { lines: number[]; specs: BreakpointSpec[] } | null {
+  if (!Array.isArray(raw)) return null;
+  if (raw.length > DEBUG_MAX_BREAKPOINTS_PER_FILE) return null;
+  const lines: number[] = [];
+  const specs: BreakpointSpec[] = [];
+  const seen = new Set<number>();
+  for (const e of raw) {
+    const obj = e !== null && typeof e === "object" ? (e as Record<string, unknown>) : null;
+    const n = obj ? obj.line : e;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 1_000_000) return null;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    lines.push(n);
+    if (!obj) continue;
+    const condition = parseSpecText(obj.condition);
+    const hitCondition = parseSpecText(obj.hitCondition);
+    const logMessage = parseSpecText(obj.logMessage);
+    if (condition === null || hitCondition === null || logMessage === null) return null;
+    if (condition || hitCondition || logMessage) {
+      specs.push({ line: n, condition, hitCondition, logMessage });
+    }
+  }
+  return { lines, specs };
+}
+
+export function parseEvaluate(raw: unknown): EvaluateRequest | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const expression = o.expression;
+  if (typeof expression !== "string" || !expression.trim()) return null;
+  if (expression.length > DEBUG_MAX_EXPR_CHARS || expression.includes("\0")) return null;
+  const frameId = parseFrameId(o.frameId);
+  if (frameId === null) return null;
+  const context = o.context === "repl" || o.context === "hover" ? o.context : "watch";
+  const id = typeof o.id === "number" && Number.isInteger(o.id) ? o.id : null;
+  return { expression, frameId, context, id };
+}
+
 export function parseLines(raw: unknown): number[] | null {
   if (!Array.isArray(raw)) return null;
   if (raw.length > DEBUG_MAX_BREAKPOINTS_PER_FILE) return null;
@@ -160,20 +244,24 @@ export function parseLines(raw: unknown): number[] | null {
   return out;
 }
 
-export function parseBreakpointMap(raw: unknown): Map<string, number[]> | null {
+export function parseBreakpointMap(
+  raw: unknown,
+): { lines: Map<string, number[]>; specs: Map<string, BreakpointSpec[]> } | null {
   const map = new Map<string, number[]>();
-  if (raw === undefined || raw === null) return map;
+  const specMap = new Map<string, BreakpointSpec[]>();
+  if (raw === undefined || raw === null) return { lines: map, specs: specMap };
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const entries = Object.entries(raw as Record<string, unknown>);
   if (entries.length > DEBUG_MAX_BREAKPOINT_FILES) return null;
   for (const [pathRaw, linesRaw] of entries) {
     const path = normalizeRelPath(pathRaw);
     if (!path || isForbiddenRelPath(path)) return null;
-    const lines = parseLines(linesRaw);
-    if (lines === null) return null;
-    map.set(path, lines);
+    const bp = parseBreakpointList(linesRaw);
+    if (bp === null) return null;
+    map.set(path, bp.lines);
+    if (bp.specs.length) specMap.set(path, bp.specs);
   }
-  return map;
+  return { lines: map, specs: specMap };
 }
 
 export function parseFrameId(raw: unknown): number | null {

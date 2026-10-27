@@ -160,3 +160,11 @@
 .monaco-editor .debug-current-line-glyph {
   border-left: 2px solid #f9e2af;
 }
+
+/* M109: debugger watch / breakpoints / console */
+.debug-add input,.debug-bp input{width:100%;background:var(--surface0,#313244);color:var(--text,#cdd6f4);border:1px solid var(--surface1,#45475a);border-radius:4px;padding:3px 6px;font:inherit;font-size:12px}
+.debug-bp{display:grid;grid-template-columns:minmax(80px,1fr) 1fr 0.6fr 1fr auto;gap:4px;align-items:center;margin:2px 0}
+.debug-bp-loc{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.debug-watch-row,.debug-console li{display:flex;gap:8px;align-items:baseline;font-size:12px}
+.debug-err{color:var(--red,#f38ba8)}
+.debug-console ul{max-height:120px;overflow:auto;margin:0;padding:0;list-style:none}

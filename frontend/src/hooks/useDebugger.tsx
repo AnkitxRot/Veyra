@@ -14,6 +14,19 @@ import {
   toggleLine,
   type BreakpointMap,
 } from "../debug/breakpoints";
+import {
+  addWatch,
+  loadSpecs,
+  loadWatches,
+  pruneSpecs,
+  saveSpecs,
+  saveWatches,
+  setSpec,
+  toWireLines,
+  toWireMap,
+  type BreakpointSpec,
+  type SpecMap,
+} from "../debug/breakpointSpecs";
 import { debugLanguageForPath } from "../debug/languages";
 import { shouldApplyContinued, shouldApplyStatus } from "../debug/state";
 import {
@@ -29,6 +42,15 @@ import {
   type DebugVariable,
 } from "../debug/types";
 
+export interface EvalResult {
+  result?: string;
+  error?: string;
+  variablesReference?: number;
+}
+export interface ConsoleEntry extends EvalResult {
+  expression: string;
+}
+
 export interface DebugSessionValue {
   state: DebugSessionState;
   message?: string;
@@ -38,6 +60,10 @@ export interface DebugSessionValue {
   variables: Record<number, DebugVariable[]>;
   output: { category: string; text: string }[];
   breakpoints: BreakpointMap;
+  specs: SpecMap;
+  watches: string[];
+  watchResults: Record<string, EvalResult>;
+  consoleLog: ConsoleEntry[];
   verified: Record<string, { line: number; verified: boolean }[]>;
   pausedPath: string | null;
   pausedLine: number | null;
@@ -50,6 +76,10 @@ export interface DebugSessionValue {
   stepOut: () => void;
   stop: () => void;
   toggleBreakpoint: (path: string, line: number) => void;
+  setBreakpointSpec: (path: string, line: number, patch: BreakpointSpec) => void;
+  addWatchExpr: (expr: string) => void;
+  removeWatchExpr: (expr: string) => void;
+  evaluateInConsole: (expr: string) => void;
   expandVariables: (ref: number) => void;
   selectFrame: (frame: DebugFrame) => void;
 }
@@ -107,6 +137,15 @@ export function DebugSessionProvider({
   );
   const [pausedPath, setPausedPath] = useState<string | null>(null);
   const [pausedLine, setPausedLine] = useState<number | null>(null);
+  const [specs, setSpecs] = useState<SpecMap>({});
+  const [watches, setWatches] = useState<string[]>([]);
+  const [watchResults, setWatchResults] = useState<Record<string, EvalResult>>({});
+  const [consoleLog, setConsoleLog] = useState<ConsoleEntry[]>([]);
+  const [activeFrameId, setActiveFrameId] = useState<number | null>(null);
+  const specsRef = useRef(specs);
+  specsRef.current = specs;
+  const evalSeqRef = useRef(1);
+  const pendingEvalRef = useRef(new Map<number, { kind: "watch" | "repl"; expr: string }>());
 
   const wsRef = useRef<WebSocket | null>(null);
   const projectRef = useRef(projectId);
@@ -121,6 +160,11 @@ export function DebugSessionProvider({
   useEffect(() => {
     const map = projectId ? loadBreakpoints(projectId) : {};
     setBreakpoints(map);
+    setSpecs(projectId ? loadSpecs(projectId) : {});
+    setWatches(projectId ? loadWatches(projectId) : []);
+    setWatchResults({});
+    setConsoleLog([]);
+    pendingEvalRef.current.clear();
     setVerified({});
     setState("idle");
     setMessage(undefined);
@@ -148,6 +192,16 @@ export function DebugSessionProvider({
   useEffect(() => {
     if (projectId) saveBreakpoints(projectId, breakpoints);
   }, [projectId, breakpoints]);
+
+  useEffect(() => {
+    if (projectId) saveSpecs(projectId, specs);
+  }, [projectId, specs]);
+  useEffect(() => {
+    if (projectId) saveWatches(projectId, watches);
+  }, [projectId, watches]);
+  useEffect(() => {
+    setActiveFrameId(frames[0]?.id ?? null);
+  }, [frames]);
 
   const sourceMismatch = useMemo(() => {
     if (!LIVE.has(state) || !pausedPath) return false;
@@ -244,6 +298,22 @@ export function DebugSessionProvider({
       }));
       return;
     }
+    if (msg.type === "evaluate") {
+      const pend = typeof msg.id === "number" ? pendingEvalRef.current.get(msg.id) : undefined;
+      if (typeof msg.id === "number") pendingEvalRef.current.delete(msg.id);
+      if (!pend) return;
+      const res: EvalResult =
+        typeof msg.error === "string"
+          ? { error: msg.error }
+          : {
+              result: String(msg.result ?? ""),
+              variablesReference:
+                typeof msg.variablesReference === "number" ? msg.variablesReference : 0,
+            };
+      if (pend.kind === "watch") setWatchResults((prev) => ({ ...prev, [pend.expr]: res }));
+      else setConsoleLog((prev) => [...prev, { expression: pend.expr, ...res }].slice(-100));
+      return;
+    }
     if (msg.type === "breakpoints" && typeof msg.path === "string") {
       setVerified((prev) => ({ ...prev, [msg.path]: msg.breakpoints ?? [] }));
       emitBreakpoints(msg.path, [], msg.breakpoints);
@@ -334,7 +404,7 @@ export function DebugSessionProvider({
               type: "launch",
               language: lang,
               entryFile,
-              breakpoints: bpRef.current,
+              breakpoints: toWireMap(bpRef.current, specsRef.current),
             }),
           );
         })
@@ -376,13 +446,78 @@ export function DebugSessionProvider({
       bpRef.current = next;
       const lines = next[path] ?? [];
       emitBreakpoints(path, lines, undefined);
+      const pruned = pruneSpecs(specsRef.current, next);
+      specsRef.current = pruned;
+      setSpecs(pruned);
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN && LIVE.has(stateRef.current)) {
-        ws.send(JSON.stringify({ type: "setBreakpoints", path, lines }));
+        ws.send(
+          JSON.stringify({ type: "setBreakpoints", path, lines: toWireLines(lines, pruned[path]) }),
+        );
       }
       return next;
     });
   }, []);
+
+  const setBreakpointSpec = useCallback((path: string, line: number, patch: BreakpointSpec) => {
+    const next = setSpec(specsRef.current, path, line, patch);
+    specsRef.current = next;
+    setSpecs(next);
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN && LIVE.has(stateRef.current)) {
+      ws.send(
+        JSON.stringify({
+          type: "setBreakpoints",
+          path,
+          lines: toWireLines(bpRef.current[path] ?? [], next[path]),
+        }),
+      );
+    }
+  }, []);
+
+  const requestEval = useCallback(
+    (kind: "watch" | "repl", expr: string, frameId: number) => {
+      const id = evalSeqRef.current++;
+      pendingEvalRef.current.set(id, { kind, expr });
+      send({
+        type: "evaluate",
+        id,
+        expression: expr,
+        frameId,
+        context: kind === "watch" ? "watch" : "repl",
+      });
+    },
+    [send],
+  );
+
+  const addWatchExpr = useCallback((expr: string) => setWatches((w) => addWatch(w, expr)), []);
+  const removeWatchExpr = useCallback((expr: string) => {
+    setWatches((w) => w.filter((x) => x !== expr));
+    setWatchResults((r) => {
+      const { [expr]: _gone, ...rest } = r;
+      return rest;
+    });
+  }, []);
+  const evaluateInConsole = useCallback(
+    (expr: string) => {
+      const e = expr.trim();
+      if (!e) return;
+      if (stateRef.current !== "paused" || activeFrameId === null) {
+        setConsoleLog((prev) =>
+          [...prev, { expression: e, error: "Pause the program to evaluate." }].slice(-100),
+        );
+        return;
+      }
+      requestEval("repl", e, activeFrameId);
+    },
+    [activeFrameId, requestEval],
+  );
+
+  // Re-evaluate watches whenever the program stops, the frame changes, or a watch is added.
+  useEffect(() => {
+    if (state !== "paused" || activeFrameId === null) return;
+    for (const w of watches) requestEval("watch", w, activeFrameId);
+  }, [state, activeFrameId, watches, requestEval]);
 
   useEffect(() => {
     const onToggle = (e: Event) => {
@@ -405,6 +540,7 @@ export function DebugSessionProvider({
     (frame: DebugFrame) => {
       setPausedPath(frame.path);
       setPausedLine(frame.line);
+      setActiveFrameId(frame.id);
       send({ type: "scopes", frameId: frame.id });
       document.dispatchEvent(
         new CustomEvent(DEBUG_EXECUTION_EVENT, {
@@ -445,6 +581,10 @@ export function DebugSessionProvider({
     variables,
     output,
     breakpoints,
+    specs,
+    watches,
+    watchResults,
+    consoleLog,
     verified,
     pausedPath,
     pausedLine,
@@ -457,6 +597,10 @@ export function DebugSessionProvider({
     stepOut,
     stop,
     toggleBreakpoint,
+    setBreakpointSpec,
+    addWatchExpr,
+    removeWatchExpr,
+    evaluateInConsole,
     expandVariables,
     selectFrame,
   };

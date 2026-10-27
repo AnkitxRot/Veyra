@@ -64,7 +64,7 @@ describe("debug security envelope", () => {
     ).toBe(true);
   });
 
-  it("drops evaluate / watch-style client commands", async () => {
+  it("rejects evaluate unless the program is paused on a frame (M109)", async () => {
     const cfg = makeTestConfig();
     const ws = makeWorkspace(cfg);
     writeFileSync(join(ws, "main.py"), "x = 1\n");
@@ -85,7 +85,8 @@ describe("debug security envelope", () => {
       method: "evaluate",
       expression: "1+1",
     });
-    expect(sock.messages.some((m) => m.type === "variables" && m.result)).toBe(false);
+    expect(sock.messages.some((m) => m.type === "evaluate")).toBe(false);
+    expect(sock.messages.some((m) => m.type === "error")).toBe(true);
     expect(
       sock.messages.some((m) => typeof m.result === "string" && m.result.includes("passwd")),
     ).toBe(false);
