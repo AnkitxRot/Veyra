@@ -18,3 +18,5 @@ Behavior-preserving; no framework swap.
 
 ## Verification
 Backend: 3 failed | 1391 passed | 214 skipped (the 3 known m86 git failures, identical on baseline). Frontend: 1067 passed. Docker/E2E skipped on this host.
+
+Re-run 2026-10-27 with Docker running: backend 1570 passed | 38 skipped | 0 failed (141 files passed, 6 skipped); the 3 m86 git failures pass with Docker. Playwright E2E not re-run.
