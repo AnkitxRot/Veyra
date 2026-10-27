@@ -40,6 +40,9 @@ import Toolbar from "../Toolbar/Toolbar";
 // Lazy: pulls in monaco-editor (~4.5MB raw); a static import here put that
 // weight in the entry bundle, downloading before even the login screen showed.
 const EditorGroupsView = React.lazy(() => import("./EditorGroupsView"));
+import OutlinePanel from "./OutlinePanel";
+import { useOutline } from "../../hooks/useOutline";
+import { useSnippets } from "../../hooks/useSnippets";
 import { FileViewer, MarkdownPreview, viewerKindFor, type ViewerKind } from "./FileViewer";
 // Type-only import: erased at compile time, so the lazy chunk boundary for
 // Monaco is preserved while IDE stays typed against the live-content API.
@@ -265,6 +268,9 @@ export default function IDE({
   // M103: non-text files (image/PDF/binary) open in a viewer, never in Monaco.
   const [viewer, setViewer] = useState<{ projectId: string; path: string; kind: ViewerKind } | null>(null);
   const [mdPreview, setMdPreview] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const { symbols: outlineSymbols, crumbs: symbolCrumbs } = useOutline(activeFile);
+  useSnippets(project?.id, tree);
   // M103: real encoding/EOL per open file (reported by the server on read).
   const [fileMeta, setFileMeta] = useState<Record<string, { encoding: string; eol: string }>>({});
   const fileMetaRef = useRef(fileMeta);
@@ -3039,6 +3045,13 @@ export default function IDE({
     const commands: Command[] = [
       // Navigation
       {
+        id: "view.toggleOutline",
+        title: "Toggle Outline",
+        description: "Show the symbol outline of the active file",
+        category: "Navigation",
+        handler: () => setOutlineOpen((v) => !v),
+      },
+      {
         id: "markdown.togglePreview",
         title: "Toggle Markdown Preview",
         description: "Show a side-by-side preview of the active Markdown file",
@@ -3865,6 +3878,13 @@ export default function IDE({
                 onClose={() => setViewer(null)}
               />
             )}
+            {outlineOpen && (
+              <OutlinePanel
+                filePath={activeFile}
+                symbols={outlineSymbols}
+                onClose={() => setOutlineOpen(false)}
+              />
+            )}
             {mdPreview && activeFile && /\.(md|markdown)$/i.test(activeFile) && (
               <MarkdownPreview
                 content={openFiles.find((f) => f.path === activeFile)?.content ?? ""}
@@ -4254,6 +4274,11 @@ export default function IDE({
             >
               {formatOnSave ? "Format: On" : "Format: Off"}
             </span>
+            {symbolCrumbs.length > 0 && (
+              <span className="ide-statusbar-item" title="Current symbol">
+                {symbolCrumbs.join(" › ")}
+              </span>
+            )}
             <select
               className="ide-statusbar-item"
               aria-label="File encoding"

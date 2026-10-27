@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { DRAG_PATH_MIME, dropDestination } from "../../utils/dragMove";
 import { type User, type Project, type TreeNode, type RunStatusEntry } from "../../types";
 import { api } from "../../api";
 import {
@@ -403,6 +404,23 @@ function Sidebar({
     }
   };
 
+  // M104: drag a node onto a folder (or beside a file) to move it.
+  const moveByDrop = async (from: string, target: TreeNode | null) => {
+    if (!project) return;
+    const to = dropDestination(from, target);
+    if (!to) return;
+    try {
+      await api(`/api/projects/${project.id}/move`, {
+        method: "POST",
+        body: JSON.stringify({ from, to }),
+      });
+      refreshTree();
+      if (activeFile === from) onOpenFile(to);
+    } catch (err: any) {
+      emitErrorNotice(err.message || "Move failed");
+    }
+  };
+
   const handleFileActionConfirm = async (val?: string) => {
     if (!project) return;
     const { type, node } = modalState;
@@ -743,6 +761,7 @@ function Sidebar({
 
             <div className="file-tree-container">
               <FileTree
+                onMove={moveByDrop}
                 nodes={tree}
                 status={treeStatus}
                 onRetry={onRetryTree}
@@ -877,6 +896,7 @@ function Sidebar({
 export default React.memo(Sidebar);
 
 function FileTree({
+  onMove,
   nodes,
   status = "ready",
   onRetry,
@@ -951,7 +971,20 @@ function FileTree({
   const bare = nodes.length === 0;
 
   return (
-    <div onContextMenu={handleContextBg} style={{ minHeight: "100%", paddingBottom: "20px" }}>
+    <div
+      onContextMenu={handleContextBg}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(DRAG_PATH_MIME)) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const from = e.dataTransfer.getData(DRAG_PATH_MIME);
+        if (from) {
+          e.preventDefault();
+          void onMove(from, null);
+        }
+      }}
+      style={{ minHeight: "100%", paddingBottom: "20px" }}
+    >
       {bare && status === "loading" ? (
         <div
           data-testid="file-tree-loading"
@@ -1015,6 +1048,7 @@ function FileTree({
         </div>
       ) : (
         <FileTreeNodes
+          onMove={onMove}
           nodes={filtered}
           onSelect={onSelect}
           selected={selected}
@@ -1106,6 +1140,7 @@ function FileTree({
 }
 
 function FileTreeNodes({
+  onMove,
   nodes,
   onSelect,
   selected,
@@ -1158,6 +1193,21 @@ function FileTreeNodes({
                 else onSelect(n.path);
               }}
               onContextMenu={(e) => onContextNode(e, n)}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(DRAG_PATH_MIME, n.path);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes(DRAG_PATH_MIME)) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                const from = e.dataTransfer.getData(DRAG_PATH_MIME);
+                if (!from) return;
+                e.preventDefault();
+                e.stopPropagation();
+                void onMove(from, n);
+              }}
               tabIndex={0}
               role="treeitem"
               aria-selected={selected === n.path}
@@ -1234,6 +1284,7 @@ function FileTreeNodes({
             {isDir && n.children && !isCollapsed && (
               <div className="tree-children" role="group">
                 <FileTreeNodes
+                  onMove={onMove}
                   nodes={n.children}
                   onSelect={onSelect}
                   selected={selected}

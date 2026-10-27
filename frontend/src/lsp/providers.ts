@@ -1,4 +1,5 @@
 import { monaco } from "../monacoSetup";
+import type { OutlineSymbol } from "../outline";
 import type { LspBridge } from "./bridge";
 import { LSP_OPEN_REVEAL_EVENT } from "./types";
 import { fromWorkspaceUri, toWorkspaceUri } from "./uri";
@@ -346,6 +347,28 @@ function mapLocations(result: unknown, revealFirst = false): monaco.languages.Lo
     });
   }
   return out;
+}
+
+/** M104: document symbols for the outline view / breadcrumbs (null = LSP not ready). */
+export async function fetchOutlineSymbols(model: monaco.editor.ITextModel): Promise<OutlineSymbol[] | null> {
+  const bridge = bridgeForModel(model);
+  const rel = modelPath(model);
+  const uri = rel ? toWorkspaceUri(rel) : null;
+  if (!bridge || !uri) return null;
+  const result = (await bridge.request("textDocument/documentSymbol", {
+    textDocument: { uri },
+  })) as DocumentSymbolLike[] | null;
+  if (!Array.isArray(result)) return [];
+  const conv = (d: monaco.languages.DocumentSymbol): OutlineSymbol => ({
+    name: d.name,
+    kind: d.kind,
+    range: { startLine: d.range.startLineNumber, endLine: d.range.endLineNumber },
+    children: (d.children ?? []).map(conv),
+  });
+  return result
+    .map((x) => mapDocumentSymbol(x))
+    .filter((x): x is monaco.languages.DocumentSymbol => !!x)
+    .map(conv);
 }
 
 interface DocumentSymbolLike {

@@ -5,7 +5,7 @@ HTTPS Git remotes — one Node process, SQLite, Docker sandboxes.
 
 [![CI](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkitxRot/Veyra/actions/workflows/ci.yml)
 
-**Status:** M103 (viewers + encoding; see STATUS.md) is
+**Status:** M104 (navigation + snippets; see STATUS.md) is
 the latest milestone. It builds on M93 audit-failure monitoring, M92 audit
 coverage, M91 deterministic idle-disposal, M88 terminal reload persistence,
 M87 sandboxed project Git, M86 read-your-writes, M85 workspace

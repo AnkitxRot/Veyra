@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-27. Latest milestone: **M103**.
+Last updated: 2026-10-27. Latest milestone: **M104**.
 
 This file is the short milestone ledger. The complete historical record
 (~10k lines, M1–M86 write-ups, verification logs, architecture decisions
@@ -36,6 +36,7 @@ the commit messages and reports, not re-run for this summary.
 | M101 | Split editor | branch `overhaul/m100` | Pure `editorGroups` reducer + `EditorGroupsView`; split right/down (max 3 groups), drag tabs between groups; secondary groups share Monaco models and own no collab. |
 | M102 | Terminal tabs | branch `overhaul/m100` | Up to 5 terminals per project (`terminalTabs.ts`, `TerminalTabs.tsx`) with split view; per-slot resume keys; fixes M88 resume (userId was not passed). |
 | M103 | Viewers + encoding | branch `overhaul/m100` | Binary guard, image/SVG/PDF viewer via sandboxed `GET /:id/raw`, escape-first markdown preview, real encoding/EOL detection (utf-8/-bom/utf-16/latin1) with encoding-aware save. |
+| M104 | Navigation + snippets | branch `overhaul/m100` | Outline panel + status-bar symbol breadcrumb (LSP documentSymbol), explorer drag-and-drop move, user (localStorage) + project (`.veyra/snippets/*.json`) snippets as Monaco completions. Snippet files reload on file-set change, not on content edit. |
 
 ### Security review (M97)
 
